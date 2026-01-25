@@ -5,7 +5,9 @@
       "Bash(cargo --version:*)",
       "Bash(rustc:*)",
       "Bash(cargo build:*)",
-      "Bash(cargo run:*)"
+      "Bash(cargo run:*)",
+      "Bash(cargo test:*)",
+      "Bash(jj status:*)"
     ]
   }
 }
