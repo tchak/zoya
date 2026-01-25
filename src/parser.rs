@@ -1,6 +1,6 @@
 use chumsky::prelude::*;
 
-use crate::ast::{BinOp, Expr};
+use crate::ast::{BinOp, Expr, UnaryOp};
 use crate::lexer::Token;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -30,14 +30,21 @@ fn parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, Token>
         let atom = int.or(expr
             .delimited_by(just(Token::LParen), just(Token::RParen)));
 
+        let unary = just(Token::Minus)
+            .repeated()
+            .foldr(atom, |_, e| Expr::UnaryOp {
+                op: UnaryOp::Neg,
+                expr: Box::new(e),
+            });
+
         let op = |t: Token, op: BinOp| just(t).to(op);
 
-        let product = atom.clone().foldl(
+        let product = unary.clone().foldl(
             choice((
                 op(Token::Star, BinOp::Mul),
                 op(Token::Slash, BinOp::Div),
             ))
-            .then(atom)
+            .then(unary)
             .repeated(),
             |left, (op, right)| Expr::BinOp {
                 op,
@@ -181,6 +188,65 @@ mod tests {
                         left: Box::new(Expr::Int(4)),
                         right: Box::new(Expr::Int(1)),
                     }),
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_unary_minus() {
+        let expr = parse_str("-42").unwrap();
+        assert_eq!(
+            expr,
+            Expr::UnaryOp {
+                op: UnaryOp::Neg,
+                expr: Box::new(Expr::Int(42)),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_double_negation() {
+        let expr = parse_str("--42").unwrap();
+        assert_eq!(
+            expr,
+            Expr::UnaryOp {
+                op: UnaryOp::Neg,
+                expr: Box::new(Expr::UnaryOp {
+                    op: UnaryOp::Neg,
+                    expr: Box::new(Expr::Int(42)),
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_subtract_negative() {
+        let expr = parse_str("5 - -3").unwrap();
+        assert_eq!(
+            expr,
+            Expr::BinOp {
+                op: BinOp::Sub,
+                left: Box::new(Expr::Int(5)),
+                right: Box::new(Expr::UnaryOp {
+                    op: UnaryOp::Neg,
+                    expr: Box::new(Expr::Int(3)),
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_negate_parentheses() {
+        let expr = parse_str("-(2 + 3)").unwrap();
+        assert_eq!(
+            expr,
+            Expr::UnaryOp {
+                op: UnaryOp::Neg,
+                expr: Box::new(Expr::BinOp {
+                    op: BinOp::Add,
+                    left: Box::new(Expr::Int(2)),
+                    right: Box::new(Expr::Int(3)),
                 }),
             }
         );

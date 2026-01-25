@@ -1,4 +1,4 @@
-use crate::ast::{BinOp, Expr};
+use crate::ast::{BinOp, Expr, UnaryOp};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EvalError {
@@ -16,6 +16,12 @@ impl std::fmt::Display for EvalError {
 pub fn eval(expr: &Expr) -> Result<i64, EvalError> {
     match expr {
         Expr::Int(n) => Ok(*n),
+        Expr::UnaryOp { op, expr } => {
+            let val = eval(expr)?;
+            match op {
+                UnaryOp::Neg => Ok(-val),
+            }
+        }
         Expr::BinOp { op, left, right } => {
             let l = eval(left)?;
             let r = eval(right)?;
@@ -137,5 +143,40 @@ mod tests {
             right: Box::new(Expr::Int(10)),
         };
         assert_eq!(eval(&expr), Ok(-7));
+    }
+
+    #[test]
+    fn test_eval_unary_negation() {
+        let expr = Expr::UnaryOp {
+            op: UnaryOp::Neg,
+            expr: Box::new(Expr::Int(42)),
+        };
+        assert_eq!(eval(&expr), Ok(-42));
+    }
+
+    #[test]
+    fn test_eval_double_negation() {
+        let expr = Expr::UnaryOp {
+            op: UnaryOp::Neg,
+            expr: Box::new(Expr::UnaryOp {
+                op: UnaryOp::Neg,
+                expr: Box::new(Expr::Int(42)),
+            }),
+        };
+        assert_eq!(eval(&expr), Ok(42));
+    }
+
+    #[test]
+    fn test_eval_negate_expression() {
+        // -(2 + 3) = -5
+        let expr = Expr::UnaryOp {
+            op: UnaryOp::Neg,
+            expr: Box::new(Expr::BinOp {
+                op: BinOp::Add,
+                left: Box::new(Expr::Int(2)),
+                right: Box::new(Expr::Int(3)),
+            }),
+        };
+        assert_eq!(eval(&expr), Ok(-5));
     }
 }

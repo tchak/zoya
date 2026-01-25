@@ -3,7 +3,7 @@ use logos::Logos;
 #[derive(Logos, Debug, Clone, PartialEq)]
 #[logos(skip r"[ \t\n\r]+")]
 pub enum Token {
-    #[regex(r"[0-9]+", |lex| lex.slice().parse::<i64>().ok())]
+    #[regex(r"[0-9][0-9_]*", |lex| lex.slice().replace('_', "").parse::<i64>().ok())]
     Int(i64),
 
     #[token("+")]
@@ -119,5 +119,23 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("@"));
+    }
+
+    #[test]
+    fn test_integer_with_underscores() {
+        let tokens = lex("1_000_000").unwrap();
+        assert_eq!(tokens, vec![Token::Int(1_000_000)]);
+    }
+
+    #[test]
+    fn test_integer_with_single_underscore() {
+        let tokens = lex("1_0").unwrap();
+        assert_eq!(tokens, vec![Token::Int(10)]);
+    }
+
+    #[test]
+    fn test_integer_with_trailing_underscore() {
+        let tokens = lex("100_").unwrap();
+        assert_eq!(tokens, vec![Token::Int(100)]);
     }
 }
