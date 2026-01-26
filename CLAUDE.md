@@ -1,3 +1,56 @@
+# Zoya Language
+
+A strongly-typed functional programming language that compiles to JavaScript.
+
+## Project Overview
+
+**Goal:** Build a Hindley-Milner type-inferred language inspired by Rust's syntax but with a more functional approach.
+
+### Compilation Pipeline
+
+```
+Source → Lexer → Parser → Type Checker → Typed IR → Codegen → JavaScript → rquickjs
+```
+
+### Module Structure
+
+```
+src/
+├── main.rs      # CLI and REPL
+├── lexer.rs     # Tokenizer (logos)
+├── parser.rs    # Parser (chumsky)
+├── ast.rs       # Untyped AST
+├── check.rs     # Type checker (returns TypedExpr)
+├── ir.rs        # Typed IR (TypedExpr)
+├── types.rs     # Type definitions
+├── codegen.rs   # JavaScript code generation
+└── eval.rs      # JS execution via rquickjs
+```
+
+### Current Features
+
+- **Types:** `Int`, `Float`
+- **Literals:** integers (`42`, `1_000`), floats (`3.14`, `.5`, `1.`)
+- **Operators:** `+`, `-`, `*`, `/` (binary), `-` (unary negation)
+- **Type checking:** operands must match types (no implicit coercion)
+
+### Running
+
+```bash
+cargo run -- run    # Start REPL
+cargo test          # Run tests
+cargo clippy        # Lint
+```
+
+### Key Dependencies
+
+- `logos` - Lexer generator
+- `chumsky` - Parser combinators
+- `rquickjs` - QuickJS JavaScript engine bindings
+- `clap` - CLI argument parsing
+
+---
+
 ## Version Control
 
 This project uses **jj (Jujutsu)** for version control, not git directly.
