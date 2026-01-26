@@ -1021,40 +1021,68 @@ pub enum CheckedStatement {
     Let(TypedLetBinding),
 }
 
-/// Check REPL statements, updating env for items, returning checked results
+/// Check REPL statements with multi-pass type checking for forward references.
+///
+/// This uses a multi-pass algorithm similar to `check_file`:
+/// 1. Partition statements into functions and non-functions
+/// 2. Register all function signatures first (enables forward references)
+/// 3. Type-check all function bodies (all signatures now available)
+/// 4. Type-check non-function statements in order
+/// 5. Sort results by original index to preserve input order
 pub fn check_repl(
     statements: &[Statement],
     env: &mut TypeEnv,
 ) -> Result<Vec<CheckedStatement>, TypeError> {
     let mut ctx = UnifyCtx::new();
-    let mut results = Vec::new();
 
-    for statement in statements {
+    // Phase 1: Partition statements into functions and non-functions
+    let mut function_items: Vec<(usize, &FunctionDef)> = Vec::new();
+    let mut other_items: Vec<(usize, &Statement)> = Vec::new();
+
+    for (idx, statement) in statements.iter().enumerate() {
         match statement {
             Statement::Item(Item::Function(func)) => {
-                // Add function type to environment first
-                let func_type = function_type_from_def(func, &mut ctx)?;
-                env.functions.insert(func.name.clone(), func_type);
-
-                // Type-check the function
-                let typed_func = check_function(func, env, &mut ctx)?;
-                results.push(CheckedStatement::Function(typed_func));
+                function_items.push((idx, func));
             }
-            Statement::Expr(expr) => {
-                let typed_expr = check_with_env(expr, env, &mut ctx)?;
-                results.push(CheckedStatement::Expr(typed_expr));
-            }
-            Statement::Let(binding) => {
-                let typed_binding = check_let_binding(binding, env, &mut ctx)?;
-                // Add to environment for future statements
-                env.locals
-                    .insert(binding.name.clone(), typed_binding.ty.clone());
-                results.push(CheckedStatement::Let(typed_binding));
+            other => {
+                other_items.push((idx, other));
             }
         }
     }
 
-    Ok(results)
+    // Phase 2: Register all function signatures first
+    for (_, func) in &function_items {
+        let func_type = function_type_from_def(func, &mut ctx)?;
+        env.functions.insert(func.name.clone(), func_type);
+    }
+
+    // Phase 3: Type-check all function bodies (all signatures now available)
+    let mut results: Vec<(usize, CheckedStatement)> = Vec::new();
+    for (idx, func) in &function_items {
+        let typed_func = check_function(func, env, &mut ctx)?;
+        results.push((*idx, CheckedStatement::Function(typed_func)));
+    }
+
+    // Phase 4: Type-check non-function statements in order
+    for (idx, statement) in other_items {
+        match statement {
+            Statement::Expr(expr) => {
+                let typed_expr = check_with_env(expr, env, &mut ctx)?;
+                results.push((idx, CheckedStatement::Expr(typed_expr)));
+            }
+            Statement::Let(binding) => {
+                let typed_binding = check_let_binding(binding, env, &mut ctx)?;
+                env.locals
+                    .insert(binding.name.clone(), typed_binding.ty.clone());
+                results.push((idx, CheckedStatement::Let(typed_binding)));
+            }
+            Statement::Item(_) => unreachable!("Functions already handled"),
+        }
+    }
+
+    // Phase 5: Sort by original index to preserve input order
+    results.sort_by_key(|(idx, _)| *idx);
+    Ok(results.into_iter().map(|(_, stmt)| stmt).collect())
 }
 
 #[cfg(test)]
@@ -1996,5 +2024,230 @@ mod tests {
         };
         let result = check(&expr).unwrap();
         assert_eq!(result.ty(), Type::Int32);
+    }
+
+    // Tests for multi-pass type checking in REPL mode
+
+    #[test]
+    fn test_check_repl_forward_reference() {
+        // fn caller() -> Int32 callee()
+        // fn callee() -> Int32 42
+        // Should succeed - caller can reference callee defined later
+        let mut env = TypeEnv::default();
+        let stmts = vec![
+            Statement::Item(Item::Function(FunctionDef {
+                name: "caller".to_string(),
+                type_params: vec![],
+                params: vec![],
+                return_type: Some(TypeAnnotation::Named("Int32".to_string())),
+                body: Expr::Call {
+                    func: "callee".to_string(),
+                    args: vec![],
+                },
+            })),
+            Statement::Item(Item::Function(FunctionDef {
+                name: "callee".to_string(),
+                type_params: vec![],
+                params: vec![],
+                return_type: Some(TypeAnnotation::Named("Int32".to_string())),
+                body: Expr::Int(42),
+            })),
+        ];
+        let result = check_repl(&stmts, &mut env);
+        assert!(result.is_ok(), "Forward reference should succeed: {:?}", result.err());
+        let checked = result.unwrap();
+        assert_eq!(checked.len(), 2);
+        // Results should be in original order
+        assert!(matches!(checked[0], CheckedStatement::Function(_)));
+        assert!(matches!(checked[1], CheckedStatement::Function(_)));
+    }
+
+    #[test]
+    fn test_check_repl_mutual_recursion() {
+        // fn is_even(n) -> Bool { match n { 0 => true, _ => is_odd(n-1) } }
+        // fn is_odd(n) -> Bool { match n { 0 => false, _ => is_even(n-1) } }
+        // Should succeed - both see each other
+        let mut env = TypeEnv::default();
+        let stmts = vec![
+            Statement::Item(Item::Function(FunctionDef {
+                name: "is_even".to_string(),
+                type_params: vec![],
+                params: vec![Param {
+                    name: "n".to_string(),
+                    typ: TypeAnnotation::Named("Int32".to_string()),
+                }],
+                return_type: Some(TypeAnnotation::Named("Bool".to_string())),
+                body: Expr::Match {
+                    scrutinee: Box::new(Expr::Var("n".to_string())),
+                    arms: vec![
+                        MatchArm {
+                            pattern: Pattern::Literal(Box::new(Expr::Int(0))),
+                            result: Expr::Bool(true),
+                        },
+                        MatchArm {
+                            pattern: Pattern::Wildcard,
+                            result: Expr::Call {
+                                func: "is_odd".to_string(),
+                                args: vec![Expr::BinOp {
+                                    op: BinOp::Sub,
+                                    left: Box::new(Expr::Var("n".to_string())),
+                                    right: Box::new(Expr::Int(1)),
+                                }],
+                            },
+                        },
+                    ],
+                },
+            })),
+            Statement::Item(Item::Function(FunctionDef {
+                name: "is_odd".to_string(),
+                type_params: vec![],
+                params: vec![Param {
+                    name: "n".to_string(),
+                    typ: TypeAnnotation::Named("Int32".to_string()),
+                }],
+                return_type: Some(TypeAnnotation::Named("Bool".to_string())),
+                body: Expr::Match {
+                    scrutinee: Box::new(Expr::Var("n".to_string())),
+                    arms: vec![
+                        MatchArm {
+                            pattern: Pattern::Literal(Box::new(Expr::Int(0))),
+                            result: Expr::Bool(false),
+                        },
+                        MatchArm {
+                            pattern: Pattern::Wildcard,
+                            result: Expr::Call {
+                                func: "is_even".to_string(),
+                                args: vec![Expr::BinOp {
+                                    op: BinOp::Sub,
+                                    left: Box::new(Expr::Var("n".to_string())),
+                                    right: Box::new(Expr::Int(1)),
+                                }],
+                            },
+                        },
+                    ],
+                },
+            })),
+        ];
+        let result = check_repl(&stmts, &mut env);
+        assert!(result.is_ok(), "Mutual recursion should succeed: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_check_repl_mixed_preserves_order() {
+        // let x = 1
+        // fn f2() -> Int32 f1()  (forward ref)
+        // x + 1
+        // fn f1() -> Int32 42
+        // Results should be in original order: [Let, Function, Expr, Function]
+        let mut env = TypeEnv::default();
+        let stmts = vec![
+            Statement::Let(LetBinding {
+                name: "x".to_string(),
+                type_annotation: None,
+                value: Box::new(Expr::Int(1)),
+            }),
+            Statement::Item(Item::Function(FunctionDef {
+                name: "f2".to_string(),
+                type_params: vec![],
+                params: vec![],
+                return_type: Some(TypeAnnotation::Named("Int32".to_string())),
+                body: Expr::Call {
+                    func: "f1".to_string(),
+                    args: vec![],
+                },
+            })),
+            Statement::Expr(Expr::BinOp {
+                op: BinOp::Add,
+                left: Box::new(Expr::Var("x".to_string())),
+                right: Box::new(Expr::Int(1)),
+            }),
+            Statement::Item(Item::Function(FunctionDef {
+                name: "f1".to_string(),
+                type_params: vec![],
+                params: vec![],
+                return_type: Some(TypeAnnotation::Named("Int32".to_string())),
+                body: Expr::Int(42),
+            })),
+        ];
+        let result = check_repl(&stmts, &mut env);
+        assert!(result.is_ok(), "Mixed statements should succeed: {:?}", result.err());
+        let checked = result.unwrap();
+        assert_eq!(checked.len(), 4);
+        // Verify order is preserved
+        assert!(matches!(checked[0], CheckedStatement::Let(_)), "First should be Let");
+        assert!(matches!(checked[1], CheckedStatement::Function(_)), "Second should be Function f2");
+        assert!(matches!(checked[2], CheckedStatement::Expr(_)), "Third should be Expr");
+        assert!(matches!(checked[3], CheckedStatement::Function(_)), "Fourth should be Function f1");
+    }
+
+    #[test]
+    fn test_check_repl_let_not_visible_in_function() {
+        // let x = 42
+        // fn bad() -> Int32 x
+        // Should fail: "undefined variable 'x'"
+        let mut env = TypeEnv::default();
+        let stmts = vec![
+            Statement::Let(LetBinding {
+                name: "x".to_string(),
+                type_annotation: None,
+                value: Box::new(Expr::Int(42)),
+            }),
+            Statement::Item(Item::Function(FunctionDef {
+                name: "bad".to_string(),
+                type_params: vec![],
+                params: vec![],
+                return_type: Some(TypeAnnotation::Named("Int32".to_string())),
+                body: Expr::Var("x".to_string()),
+            })),
+        ];
+        let result = check_repl(&stmts, &mut env);
+        assert!(result.is_err(), "Let should not be visible in function, but got: {:?}", result);
+        let err_msg = result.unwrap_err().message;
+        assert!(
+            err_msg.contains("unknown variable"),
+            "Expected 'unknown variable' but got: {}", err_msg
+        );
+    }
+
+    #[test]
+    fn test_check_repl_self_recursion() {
+        // fn factorial(n) -> Int32 { match n { 0 => 1, _ => n * factorial(n-1) } }
+        // Should succeed
+        let mut env = TypeEnv::default();
+        let stmts = vec![Statement::Item(Item::Function(FunctionDef {
+            name: "factorial".to_string(),
+            type_params: vec![],
+            params: vec![Param {
+                name: "n".to_string(),
+                typ: TypeAnnotation::Named("Int32".to_string()),
+            }],
+            return_type: Some(TypeAnnotation::Named("Int32".to_string())),
+            body: Expr::Match {
+                scrutinee: Box::new(Expr::Var("n".to_string())),
+                arms: vec![
+                    MatchArm {
+                        pattern: Pattern::Literal(Box::new(Expr::Int(0))),
+                        result: Expr::Int(1),
+                    },
+                    MatchArm {
+                        pattern: Pattern::Wildcard,
+                        result: Expr::BinOp {
+                            op: BinOp::Mul,
+                            left: Box::new(Expr::Var("n".to_string())),
+                            right: Box::new(Expr::Call {
+                                func: "factorial".to_string(),
+                                args: vec![Expr::BinOp {
+                                    op: BinOp::Sub,
+                                    left: Box::new(Expr::Var("n".to_string())),
+                                    right: Box::new(Expr::Int(1)),
+                                }],
+                            }),
+                        },
+                    },
+                ],
+            },
+        }))];
+        let result = check_repl(&stmts, &mut env);
+        assert!(result.is_ok(), "Self-recursion should succeed: {:?}", result.err());
     }
 }

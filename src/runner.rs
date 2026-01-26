@@ -1012,4 +1012,60 @@ mod tests {
         let result = run_source(source).unwrap();
         assert_eq!(result, Value::Int32(19)); // (3 + 4) + (3 * 4) = 7 + 12
     }
+
+    // Forward reference and mutual recursion tests
+    #[test]
+    fn test_run_forward_reference() {
+        // caller is defined before callee but calls it
+        let source = r#"
+            fn caller() -> Int32 { callee() }
+            fn callee() -> Int32 { 42 }
+            fn main() -> Int32 { caller() }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(42));
+    }
+
+    #[test]
+    fn test_run_mutual_recursion() {
+        // is_even and is_odd call each other
+        let source = r#"
+            fn is_even(n: Int32) -> Bool {
+                match n {
+                    0 => true,
+                    _ => is_odd(n - 1),
+                }
+            }
+            fn is_odd(n: Int32) -> Bool {
+                match n {
+                    0 => false,
+                    _ => is_even(n - 1),
+                }
+            }
+            fn main() -> Bool { is_even(4) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_mutual_recursion_odd() {
+        let source = r#"
+            fn is_even(n: Int32) -> Bool {
+                match n {
+                    0 => true,
+                    _ => is_odd(n - 1),
+                }
+            }
+            fn is_odd(n: Int32) -> Bool {
+                match n {
+                    0 => false,
+                    _ => is_even(n - 1),
+                }
+            }
+            fn main() -> Bool { is_odd(3) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
 }
