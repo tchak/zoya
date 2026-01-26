@@ -121,6 +121,29 @@ mod tests {
     }
 
     #[test]
+    fn test_run_function_no_braces() {
+        // Functions with simple expression bodies can omit braces
+        let source = r#"
+            fn square(x: Int32) -> Int32 x * x
+            fn main() -> Int32 { square(5) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(25));
+    }
+
+    #[test]
+    fn test_run_function_no_braces_multiple() {
+        // Multiple functions without braces
+        let source = r#"
+            fn add(x: Int32, y: Int32) -> Int32 x + y
+            fn double(x: Int32) -> Int32 x * 2
+            fn main() -> Int32 add(double(3), 4)
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(10)); // double(3) = 6, add(6, 4) = 10
+    }
+
+    #[test]
     fn test_run_division_by_zero() {
         let source = "fn main() -> Int32 { 1 / 0 }";
         let result = run_source(source);

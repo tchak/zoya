@@ -143,26 +143,31 @@ fn item_parser<'a>() -> impl Parser<'a, &'a [Token], Item, extra::Err<Rich<'a, T
     // Return type: -> Int
     let return_type = just(Token::Arrow).ignore_then(type_annotation()).or_not();
 
-    // Body: { [let x = e;]* expr }
-    let body = just(Token::LBrace)
-        .ignore_then(
-            let_binding_parser()
-                .then_ignore(just(Token::Semicolon))
-                .repeated()
-                .collect::<Vec<_>>(),
-        )
-        .then(expr_parser())
-        .then_ignore(just(Token::RBrace))
-        .map(|(bindings, result)| {
-            if bindings.is_empty() {
-                result
-            } else {
-                Expr::Block {
-                    bindings,
-                    result: Box::new(result),
+    // Body: { [let x = e;]* expr } OR expr
+    let body = choice((
+        // Braced body (block or simple expression)
+        just(Token::LBrace)
+            .ignore_then(
+                let_binding_parser()
+                    .then_ignore(just(Token::Semicolon))
+                    .repeated()
+                    .collect::<Vec<_>>(),
+            )
+            .then(expr_parser())
+            .then_ignore(just(Token::RBrace))
+            .map(|(bindings, result)| {
+                if bindings.is_empty() {
+                    result
+                } else {
+                    Expr::Block {
+                        bindings,
+                        result: Box::new(result),
+                    }
                 }
-            }
-        });
+            }),
+        // Non-braced expression (simple body)
+        expr_parser(),
+    ));
 
     // fn name<T>(params) -> ReturnType { body }
     just(Token::Fn)
@@ -1311,6 +1316,59 @@ mod tests {
         // Semicolons are required after let bindings in function bodies
         let result = parse_item_str("fn foo() { let x = 1 let y = 2 x + y }");
         assert!(result.is_err(), "should fail without semicolons");
+    }
+
+    #[test]
+    fn test_parse_function_simple_body_no_braces() {
+        // Simple expression body without braces
+        let item = parse_item_str("fn foo() -> Int32 42").unwrap();
+        assert_eq!(
+            item,
+            Item::Function(FunctionDef {
+                name: "foo".to_string(),
+                type_params: vec![],
+                params: vec![],
+                return_type: Some(TypeAnnotation::Named("Int32".to_string())),
+                body: Expr::Int(42),
+            })
+        );
+    }
+
+    #[test]
+    fn test_parse_function_expression_body_no_braces() {
+        // Expression body without braces
+        let item = parse_item_str("fn add(x: Int32, y: Int32) -> Int32 x + y").unwrap();
+        assert_eq!(
+            item,
+            Item::Function(FunctionDef {
+                name: "add".to_string(),
+                type_params: vec![],
+                params: vec![
+                    Param {
+                        name: "x".to_string(),
+                        typ: TypeAnnotation::Named("Int32".to_string()),
+                    },
+                    Param {
+                        name: "y".to_string(),
+                        typ: TypeAnnotation::Named("Int32".to_string()),
+                    },
+                ],
+                return_type: Some(TypeAnnotation::Named("Int32".to_string())),
+                body: Expr::BinOp {
+                    op: BinOp::Add,
+                    left: Box::new(Expr::Var("x".to_string())),
+                    right: Box::new(Expr::Var("y".to_string())),
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn test_parse_function_no_braces_with_method_call() {
+        // Method call expression body without braces
+        let item = parse_item_str("fn double(x: Int32) -> Int32 x * 2").unwrap();
+        let Item::Function(FunctionDef { body, .. }) = item;
+        assert!(matches!(body, Expr::BinOp { op: BinOp::Mul, .. }));
     }
 
     use crate::ast::{MatchArm, Pattern};
