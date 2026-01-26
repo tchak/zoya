@@ -7,6 +7,10 @@ fn parse_float(lex: &logos::Lexer<Token>) -> Option<f64> {
 #[derive(Logos, Debug, Clone, PartialEq)]
 #[logos(skip r"[ \t\n\r]+")]
 pub enum Token {
+    // Keywords (must come before Ident)
+    #[token("fn")]
+    Fn,
+
     // Float must come before Int for proper matching of `.5`
     #[regex(r"[0-9][0-9_]*\.[0-9_]*|[0-9_]*\.[0-9][0-9_]*", parse_float)]
     Float(f64),
@@ -14,6 +18,11 @@ pub enum Token {
     #[regex(r"[0-9][0-9_]*", |lex| lex.slice().replace('_', "").parse::<i64>().ok())]
     Int(i64),
 
+    // Identifiers (after keywords)
+    #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_string())]
+    Ident(String),
+
+    // Operators
     #[token("+")]
     Plus,
 
@@ -26,11 +35,33 @@ pub enum Token {
     #[token("/")]
     Slash,
 
+    #[token("->")]
+    Arrow,
+
+    // Delimiters
     #[token("(")]
     LParen,
 
     #[token(")")]
     RParen,
+
+    #[token("{")]
+    LBrace,
+
+    #[token("}")]
+    RBrace,
+
+    #[token("<")]
+    Lt,
+
+    #[token(">")]
+    Gt,
+
+    #[token(":")]
+    Colon,
+
+    #[token(",")]
+    Comma,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -177,6 +208,123 @@ mod tests {
         assert_eq!(
             tokens,
             vec![Token::Float(1.5), Token::Plus, Token::Float(0.5)]
+        );
+    }
+
+    #[test]
+    fn test_fn_keyword() {
+        let tokens = lex("fn").unwrap();
+        assert_eq!(tokens, vec![Token::Fn]);
+    }
+
+    #[test]
+    fn test_identifier() {
+        let tokens = lex("foo").unwrap();
+        assert_eq!(tokens, vec![Token::Ident("foo".to_string())]);
+    }
+
+    #[test]
+    fn test_identifier_with_underscore() {
+        let tokens = lex("foo_bar").unwrap();
+        assert_eq!(tokens, vec![Token::Ident("foo_bar".to_string())]);
+    }
+
+    #[test]
+    fn test_identifier_starting_with_underscore() {
+        let tokens = lex("_foo").unwrap();
+        assert_eq!(tokens, vec![Token::Ident("_foo".to_string())]);
+    }
+
+    #[test]
+    fn test_identifier_with_numbers() {
+        let tokens = lex("foo123").unwrap();
+        assert_eq!(tokens, vec![Token::Ident("foo123".to_string())]);
+    }
+
+    #[test]
+    fn test_fn_not_identifier() {
+        // fn should be keyword, not identifier
+        let tokens = lex("fn foo").unwrap();
+        assert_eq!(
+            tokens,
+            vec![Token::Fn, Token::Ident("foo".to_string())]
+        );
+    }
+
+    #[test]
+    fn test_arrow() {
+        let tokens = lex("->").unwrap();
+        assert_eq!(tokens, vec![Token::Arrow]);
+    }
+
+    #[test]
+    fn test_braces() {
+        let tokens = lex("{}").unwrap();
+        assert_eq!(tokens, vec![Token::LBrace, Token::RBrace]);
+    }
+
+    #[test]
+    fn test_angle_brackets() {
+        let tokens = lex("<>").unwrap();
+        assert_eq!(tokens, vec![Token::Lt, Token::Gt]);
+    }
+
+    #[test]
+    fn test_colon_and_comma() {
+        let tokens = lex(":,").unwrap();
+        assert_eq!(tokens, vec![Token::Colon, Token::Comma]);
+    }
+
+    #[test]
+    fn test_function_signature() {
+        let tokens = lex("fn add(x: Int, y: Int) -> Int { x + y }").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Fn,
+                Token::Ident("add".to_string()),
+                Token::LParen,
+                Token::Ident("x".to_string()),
+                Token::Colon,
+                Token::Ident("Int".to_string()),
+                Token::Comma,
+                Token::Ident("y".to_string()),
+                Token::Colon,
+                Token::Ident("Int".to_string()),
+                Token::RParen,
+                Token::Arrow,
+                Token::Ident("Int".to_string()),
+                Token::LBrace,
+                Token::Ident("x".to_string()),
+                Token::Plus,
+                Token::Ident("y".to_string()),
+                Token::RBrace,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_generic_function_signature() {
+        let tokens = lex("fn identity<T>(x: T) -> T { x }").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Fn,
+                Token::Ident("identity".to_string()),
+                Token::Lt,
+                Token::Ident("T".to_string()),
+                Token::Gt,
+                Token::LParen,
+                Token::Ident("x".to_string()),
+                Token::Colon,
+                Token::Ident("T".to_string()),
+                Token::RParen,
+                Token::Arrow,
+                Token::Ident("T".to_string()),
+                Token::LBrace,
+                Token::Ident("x".to_string()),
+                Token::RBrace,
+            ]
         );
     }
 }

@@ -56,6 +56,10 @@ pub fn eval(expr: &TypedExpr) -> Result<Value, EvalError> {
         match result_type {
             Type::Int => Ok(Value::Int(result as i64)),
             Type::Float => Ok(Value::Float(result)),
+            Type::Var(name) => Err(EvalError::RuntimeError(format!(
+                "unresolved type variable: {}",
+                name
+            ))),
         }
     })
 }

@@ -1,9 +1,11 @@
+use std::collections::HashMap;
 use std::fmt;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     Int,
     Float,
+    Var(String), // Type variable for generics (e.g., T, U)
 }
 
 impl fmt::Display for Type {
@@ -11,7 +13,39 @@ impl fmt::Display for Type {
         match self {
             Type::Int => write!(f, "Int"),
             Type::Float => write!(f, "Float"),
+            Type::Var(name) => write!(f, "{}", name),
         }
+    }
+}
+
+/// Function type signature
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionType {
+    pub type_params: Vec<String>,
+    pub params: Vec<Type>,
+    pub return_type: Type,
+}
+
+impl FunctionType {
+    /// Instantiate a generic function with concrete types
+    pub fn instantiate(&self, substitutions: &HashMap<String, Type>) -> FunctionType {
+        FunctionType {
+            type_params: vec![], // Instantiated function has no type params
+            params: self
+                .params
+                .iter()
+                .map(|t| substitute(t, substitutions))
+                .collect(),
+            return_type: substitute(&self.return_type, substitutions),
+        }
+    }
+}
+
+/// Apply substitutions to a type
+fn substitute(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
+    match ty {
+        Type::Var(name) => substitutions.get(name).cloned().unwrap_or_else(|| ty.clone()),
+        _ => ty.clone(),
     }
 }
 

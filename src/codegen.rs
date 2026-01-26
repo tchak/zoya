@@ -1,10 +1,17 @@
 use crate::ast::{BinOp, UnaryOp};
 use crate::ir::TypedExpr;
 
+use crate::ir::TypedFunction;
+
 pub fn codegen(expr: &TypedExpr) -> String {
     match expr {
         TypedExpr::Int(n) => n.to_string(),
         TypedExpr::Float(n) => format_float(*n),
+        TypedExpr::Var { name, .. } => name.clone(),
+        TypedExpr::Call { func, args, .. } => {
+            let args_str: Vec<String> = args.iter().map(codegen).collect();
+            format!("{}({})", func, args_str.join(", "))
+        }
         TypedExpr::UnaryOp { op, expr, .. } => {
             let inner = codegen(expr);
             match op {
@@ -23,6 +30,18 @@ pub fn codegen(expr: &TypedExpr) -> String {
             format!("(({}) {} ({}))", l, op_str, r)
         }
     }
+}
+
+/// Generate JS code for a function definition
+pub fn codegen_function(func: &TypedFunction) -> String {
+    let params: Vec<&str> = func.params.iter().map(|(name, _)| name.as_str()).collect();
+    let body = codegen(&func.body);
+    format!(
+        "function {}({}) {{ return {}; }}",
+        func.name,
+        params.join(", "),
+        body
+    )
 }
 
 fn format_float(n: f64) -> String {
@@ -144,5 +163,144 @@ mod tests {
             ty: Type::Float,
         };
         assert_eq!(codegen(&expr), "((1.5) + (2.5))");
+    }
+
+    #[test]
+    fn test_codegen_var() {
+        let expr = TypedExpr::Var {
+            name: "x".to_string(),
+            ty: Type::Int,
+        };
+        assert_eq!(codegen(&expr), "x");
+    }
+
+    #[test]
+    fn test_codegen_call_no_args() {
+        let expr = TypedExpr::Call {
+            func: "foo".to_string(),
+            args: vec![],
+            ty: Type::Int,
+        };
+        assert_eq!(codegen(&expr), "foo()");
+    }
+
+    #[test]
+    fn test_codegen_call_one_arg() {
+        let expr = TypedExpr::Call {
+            func: "square".to_string(),
+            args: vec![TypedExpr::Int(5)],
+            ty: Type::Int,
+        };
+        assert_eq!(codegen(&expr), "square(5)");
+    }
+
+    #[test]
+    fn test_codegen_call_multiple_args() {
+        let expr = TypedExpr::Call {
+            func: "add".to_string(),
+            args: vec![TypedExpr::Int(1), TypedExpr::Int(2)],
+            ty: Type::Int,
+        };
+        assert_eq!(codegen(&expr), "add(1, 2)");
+    }
+
+    #[test]
+    fn test_codegen_call_with_vars() {
+        let expr = TypedExpr::Call {
+            func: "add".to_string(),
+            args: vec![
+                TypedExpr::Var {
+                    name: "x".to_string(),
+                    ty: Type::Int,
+                },
+                TypedExpr::Var {
+                    name: "y".to_string(),
+                    ty: Type::Int,
+                },
+            ],
+            ty: Type::Int,
+        };
+        assert_eq!(codegen(&expr), "add(x, y)");
+    }
+
+    #[test]
+    fn test_codegen_var_in_expression() {
+        let expr = TypedExpr::BinOp {
+            op: BinOp::Add,
+            left: Box::new(TypedExpr::Var {
+                name: "x".to_string(),
+                ty: Type::Int,
+            }),
+            right: Box::new(TypedExpr::Int(1)),
+            ty: Type::Int,
+        };
+        assert_eq!(codegen(&expr), "((x) + (1))");
+    }
+
+    #[test]
+    fn test_codegen_function() {
+        let func = TypedFunction {
+            name: "square".to_string(),
+            params: vec![("x".to_string(), Type::Int)],
+            body: TypedExpr::BinOp {
+                op: BinOp::Mul,
+                left: Box::new(TypedExpr::Var {
+                    name: "x".to_string(),
+                    ty: Type::Int,
+                }),
+                right: Box::new(TypedExpr::Var {
+                    name: "x".to_string(),
+                    ty: Type::Int,
+                }),
+                ty: Type::Int,
+            },
+            return_type: Type::Int,
+        };
+        assert_eq!(
+            codegen_function(&func),
+            "function square(x) { return ((x) * (x)); }"
+        );
+    }
+
+    #[test]
+    fn test_codegen_function_multiple_params() {
+        let func = TypedFunction {
+            name: "add".to_string(),
+            params: vec![
+                ("x".to_string(), Type::Int),
+                ("y".to_string(), Type::Int),
+            ],
+            body: TypedExpr::BinOp {
+                op: BinOp::Add,
+                left: Box::new(TypedExpr::Var {
+                    name: "x".to_string(),
+                    ty: Type::Int,
+                }),
+                right: Box::new(TypedExpr::Var {
+                    name: "y".to_string(),
+                    ty: Type::Int,
+                }),
+                ty: Type::Int,
+            },
+            return_type: Type::Int,
+        };
+        assert_eq!(
+            codegen_function(&func),
+            "function add(x, y) { return ((x) + (y)); }"
+        );
+    }
+
+    #[test]
+    fn test_codegen_function_no_params() {
+        let func = TypedFunction {
+            name: "answer".to_string(),
+            params: vec![],
+            body: TypedExpr::Int(42),
+            return_type: Type::Int,
+        };
+        assert_eq!(
+            codegen_function(&func),
+            "function answer() { return 42; }"
+        );
     }
 }
