@@ -891,7 +891,7 @@ mod tests {
             fn main() -> Int32 {
                 match 5 {
                     n => {
-                        let doubled = n * 2
+                        let doubled = n * 2;
                         doubled + 1
                     }
                 }
@@ -907,9 +907,9 @@ mod tests {
             fn main() -> Int32 {
                 match 3 {
                     n => {
-                        let a = n * 2
-                        let b = a + 1
-                        let c = b * 2
+                        let a = n * 2;
+                        let b = a + 1;
+                        let c = b * 2;
                         c
                     }
                 }
@@ -925,7 +925,7 @@ mod tests {
             fn main() -> Int32 {
                 match 10 {
                     x => {
-                        let y = x + 5
+                        let y = x + 5;
                         x + y
                     }
                 }
@@ -941,9 +941,9 @@ mod tests {
             fn main() -> Int32 {
                 match 2 {
                     0 => 100,
-                    1 => { let x = 1 x * 10 },
+                    1 => { let x = 1; x * 10 },
                     n => {
-                        let base = n * 10
+                        let base = n * 10;
                         base + n
                     }
                 }
@@ -959,7 +959,7 @@ mod tests {
             fn sum_first_two(xs: List<Int32>) -> Int32 {
                 match xs {
                     [a, b, ..] => {
-                        let sum = a + b
+                        let sum = a + b;
                         sum
                     },
                     [a] => a,
@@ -978,8 +978,8 @@ mod tests {
             fn process(t: (Int32, Int32)) -> Int32 {
                 match t {
                     (a, b) => {
-                        let sum = a + b
-                        let product = a * b
+                        let sum = a + b;
+                        let product = a * b;
                         sum + product
                     }
                 }

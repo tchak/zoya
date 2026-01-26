@@ -143,11 +143,11 @@ fn item_parser<'a>() -> impl Parser<'a, &'a [Token], Item, extra::Err<Rich<'a, T
     // Return type: -> Int
     let return_type = just(Token::Arrow).ignore_then(type_annotation()).or_not();
 
-    // Body: { [let x = e [;]]* expr }
+    // Body: { [let x = e;]* expr }
     let body = just(Token::LBrace)
         .ignore_then(
             let_binding_parser()
-                .then_ignore(just(Token::Semicolon).or_not())
+                .then_ignore(just(Token::Semicolon))
                 .repeated()
                 .collect::<Vec<_>>(),
         )
@@ -391,13 +391,13 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                 value: Box::new(value),
             });
 
-        // Arm body: { [let x = e [;]]* expr } OR expr
+        // Arm body: { [let x = e;]* expr } OR expr
         let arm_body = choice((
             // Braced body (block or simple expression)
             just(Token::LBrace)
                 .ignore_then(
                     let_in_arm
-                        .then_ignore(just(Token::Semicolon).or_not())
+                        .then_ignore(just(Token::Semicolon))
                         .repeated()
                         .collect::<Vec<_>>(),
                 )
@@ -1307,21 +1307,10 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_function_with_lets_no_semicolons() {
-        // Semicolons are optional after let bindings
-        let item = parse_item_str("fn foo() { let x = 1 let y = 2 x + y }").unwrap();
-        if let Item::Function(FunctionDef {
-            body: Expr::Block { bindings, result },
-            ..
-        }) = item
-        {
-            assert_eq!(bindings.len(), 2);
-            assert_eq!(bindings[0].name, "x");
-            assert_eq!(bindings[1].name, "y");
-            assert!(matches!(*result, Expr::BinOp { .. }));
-        } else {
-            panic!("expected function with block body");
-        }
+    fn test_parse_function_requires_semicolons_after_let() {
+        // Semicolons are required after let bindings in function bodies
+        let result = parse_item_str("fn foo() { let x = 1 let y = 2 x + y }");
+        assert!(result.is_err(), "should fail without semicolons");
     }
 
     use crate::ast::{MatchArm, Pattern};
@@ -1810,7 +1799,7 @@ mod tests {
 
     #[test]
     fn test_parse_match_braced_block() {
-        let expr = parse_str("match x { 0 => { let y = 1 y + 1 }, _ => 0 }").unwrap();
+        let expr = parse_str("match x { 0 => { let y = 1; y + 1 }, _ => 0 }").unwrap();
         if let Expr::Match { arms, .. } = expr {
             assert_eq!(arms.len(), 2);
             if let Expr::Block { bindings, result } = &arms[0].result {
@@ -1829,7 +1818,7 @@ mod tests {
     #[test]
     fn test_parse_match_mixed() {
         // Mix of braced and non-braced arms with commas
-        let expr = parse_str("match x { 0 => 1, 1 => { 2 }, _ => { let z = 3 z } }").unwrap();
+        let expr = parse_str("match x { 0 => 1, 1 => { 2 }, _ => { let z = 3; z } }").unwrap();
         if let Expr::Match { arms, .. } = expr {
             assert_eq!(arms.len(), 3);
             assert!(matches!(&arms[0].result, Expr::Int(1)));
@@ -1859,7 +1848,7 @@ mod tests {
     #[test]
     fn test_parse_match_braced_with_pattern_binding() {
         // Pattern binding should be usable in the block
-        let expr = parse_str("match x { n => { let doubled = n * 2 doubled + 1 } }").unwrap();
+        let expr = parse_str("match x { n => { let doubled = n * 2; doubled + 1 } }").unwrap();
         if let Expr::Match { arms, .. } = expr {
             if let Expr::Block { bindings, result } = &arms[0].result {
                 assert_eq!(bindings.len(), 1);
