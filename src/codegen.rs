@@ -1,7 +1,5 @@
 use crate::ast::{BinOp, UnaryOp};
-use crate::ir::TypedExpr;
-
-use crate::ir::TypedFunction;
+use crate::ir::{TypedExpr, TypedFunction, TypedLetBinding};
 
 use crate::types::Type;
 
@@ -62,6 +60,22 @@ pub fn codegen(expr: &TypedExpr) -> String {
                 result
             }
         }
+        TypedExpr::Block { bindings, result } => {
+            // Generate IIFE for proper scoping
+            let mut parts = Vec::new();
+            parts.push("(function() {".to_string());
+
+            for binding in bindings {
+                let value_code = codegen(&binding.value);
+                parts.push(format!("const {} = {};", binding.name, value_code));
+            }
+
+            let result_code = codegen(result);
+            parts.push(format!("return {};", result_code));
+            parts.push("})()".to_string());
+
+            parts.join(" ")
+        }
     }
 }
 
@@ -85,6 +99,13 @@ pub fn codegen_function(func: &TypedFunction) -> String {
         params.join(", "),
         body
     )
+}
+
+/// Generate JS code for a REPL let binding
+pub fn codegen_let(binding: &TypedLetBinding) -> String {
+    let value_code = codegen(&binding.value);
+    // Use var for REPL to allow redefinition and global scope
+    format!("var {} = {};", binding.name, value_code)
 }
 
 fn format_float(n: f64) -> String {

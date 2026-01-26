@@ -1,6 +1,8 @@
 use chumsky::prelude::*;
 
-use crate::ast::{BinOp, Expr, FunctionDef, Item, Param, Statement, TypeAnnotation, UnaryOp};
+use crate::ast::{
+    BinOp, Expr, FunctionDef, Item, LetBinding, Param, Statement, TypeAnnotation, UnaryOp,
+};
 use crate::lexer::Token;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -49,6 +51,20 @@ fn type_annotation<'a>() -> impl Parser<'a, &'a [Token], TypeAnnotation, extra::
     ident().map(TypeAnnotation::Named)
 }
 
+fn let_binding_parser<'a>(
+) -> impl Parser<'a, &'a [Token], LetBinding, extra::Err<Rich<'a, Token>>> {
+    just(Token::Let)
+        .ignore_then(ident())
+        .then(just(Token::Colon).ignore_then(type_annotation()).or_not())
+        .then_ignore(just(Token::Eq))
+        .then(expr_parser())
+        .map(|((name, type_annotation), value)| LetBinding {
+            name,
+            type_annotation,
+            value: Box::new(value),
+        })
+}
+
 fn item_parser<'a>() -> impl Parser<'a, &'a [Token], Item, extra::Err<Rich<'a, Token>>> {
     // Type parameters: <T, U>
     let type_params = ident()
@@ -74,8 +90,26 @@ fn item_parser<'a>() -> impl Parser<'a, &'a [Token], Item, extra::Err<Rich<'a, T
     // Return type: -> Int
     let return_type = just(Token::Arrow).ignore_then(type_annotation()).or_not();
 
-    // Body: { expr }
-    let body = expr_parser().delimited_by(just(Token::LBrace), just(Token::RBrace));
+    // Body: { [let x = e;]* expr }
+    let body = just(Token::LBrace)
+        .ignore_then(
+            let_binding_parser()
+                .then_ignore(just(Token::Semicolon))
+                .repeated()
+                .collect::<Vec<_>>(),
+        )
+        .then(expr_parser())
+        .then_ignore(just(Token::RBrace))
+        .map(|(bindings, result)| {
+            if bindings.is_empty() {
+                result
+            } else {
+                Expr::Block {
+                    bindings,
+                    result: Box::new(result),
+                }
+            }
+        });
 
     // fn name<T>(params) -> ReturnType { body }
     just(Token::Fn)
@@ -177,9 +211,10 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
 }
 
 fn statement_parser<'a>() -> impl Parser<'a, &'a [Token], Statement, extra::Err<Rich<'a, Token>>> {
-    // Try to parse as an item (starts with fn), otherwise as an expression
+    // Try to parse as an item (starts with fn), let binding, or expression
     choice((
         item_parser().map(Statement::Item),
+        let_binding_parser().map(Statement::Let),
         expr_parser().map(Statement::Expr),
     ))
 }
@@ -819,5 +854,79 @@ mod tests {
         assert!(matches!(stmts[0], Statement::Expr(Expr::Int(1))));
         assert!(matches!(stmts[1], Statement::Expr(Expr::Int(2))));
         assert!(matches!(stmts[2], Statement::Expr(Expr::Int(3))));
+    }
+
+    use crate::ast::LetBinding;
+
+    #[test]
+    fn test_parse_let_simple() {
+        let stmts = parse_repl_str("let x = 42").unwrap();
+        assert_eq!(stmts.len(), 1);
+        assert!(matches!(
+            &stmts[0],
+            Statement::Let(LetBinding {
+                name,
+                type_annotation: None,
+                value,
+            }) if name == "x" && **value == Expr::Int(42)
+        ));
+    }
+
+    #[test]
+    fn test_parse_let_with_type() {
+        let stmts = parse_repl_str("let x: Int32 = 42").unwrap();
+        assert_eq!(stmts.len(), 1);
+        assert!(matches!(
+            &stmts[0],
+            Statement::Let(LetBinding {
+                name,
+                type_annotation: Some(TypeAnnotation::Named(ty)),
+                value,
+            }) if name == "x" && ty == "Int32" && **value == Expr::Int(42)
+        ));
+    }
+
+    #[test]
+    fn test_parse_let_with_expression() {
+        let stmts = parse_repl_str("let x = 1 + 2").unwrap();
+        assert_eq!(stmts.len(), 1);
+        assert!(matches!(&stmts[0], Statement::Let(_)));
+    }
+
+    #[test]
+    fn test_parse_function_with_let() {
+        let item = parse_item_str("fn foo() { let x = 1; x + 1 }").unwrap();
+        assert!(matches!(
+            item,
+            Item::Function(FunctionDef {
+                body: Expr::Block { .. },
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn test_parse_function_with_multiple_lets() {
+        let item = parse_item_str("fn foo() { let x = 1; let y = 2; x + y }").unwrap();
+        if let Item::Function(FunctionDef {
+            body: Expr::Block { bindings, result },
+            ..
+        }) = item
+        {
+            assert_eq!(bindings.len(), 2);
+            assert_eq!(bindings[0].name, "x");
+            assert_eq!(bindings[1].name, "y");
+            assert!(matches!(*result, Expr::BinOp { .. }));
+        } else {
+            panic!("expected function with block body");
+        }
+    }
+
+    #[test]
+    fn test_parse_function_without_let_no_block() {
+        // Without let statements, body should be a plain expression, not a block
+        let item = parse_item_str("fn foo() { 42 }").unwrap();
+        let Item::Function(FunctionDef { body, .. }) = item;
+        assert!(matches!(body, Expr::Int(42)));
     }
 }

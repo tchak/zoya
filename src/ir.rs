@@ -10,6 +10,14 @@ pub struct TypedFunction {
     pub return_type: Type,
 }
 
+/// Typed let binding
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypedLetBinding {
+    pub name: String,
+    pub value: TypedExpr,
+    pub ty: Type,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedExpr {
     Int32(i32),
@@ -37,6 +45,10 @@ pub enum TypedExpr {
         right: Box<TypedExpr>,
         ty: Type,
     },
+    Block {
+        bindings: Vec<TypedLetBinding>,
+        result: Box<TypedExpr>,
+    },
 }
 
 impl TypedExpr {
@@ -50,6 +62,7 @@ impl TypedExpr {
             TypedExpr::Call { ty, .. } => ty.clone(),
             TypedExpr::UnaryOp { ty, .. } => ty.clone(),
             TypedExpr::BinOp { ty, .. } => ty.clone(),
+            TypedExpr::Block { result, .. } => result.ty(),
         }
     }
 }

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use crate::ast::{BinOp, Expr, FunctionDef, Item, Statement, TypeAnnotation, UnaryOp};
-use crate::ir::{TypedExpr, TypedFunction};
+use crate::ast::{BinOp, Expr, FunctionDef, Item, LetBinding, Statement, TypeAnnotation, UnaryOp};
+use crate::ir::{TypedExpr, TypedFunction, TypedLetBinding};
 use crate::types::{FunctionType, Type, TypeError};
 
 /// Type environment for checking expressions
@@ -297,7 +297,58 @@ fn check_with_env(expr: &Expr, env: &TypeEnv) -> Result<TypedExpr, TypeError> {
                 ty: result_ty,
             })
         }
+
+        Expr::Block { bindings, result } => {
+            // Create new environment for block scope
+            let mut block_env = env.clone();
+            let mut typed_bindings = Vec::new();
+
+            for binding in bindings {
+                let typed_binding = check_let_binding(binding, &block_env)?;
+                // Add binding to environment for subsequent bindings
+                block_env
+                    .locals
+                    .insert(binding.name.clone(), typed_binding.ty.clone());
+                typed_bindings.push(typed_binding);
+            }
+
+            // Type-check the result expression with all bindings in scope
+            let typed_result = check_with_env(result, &block_env)?;
+
+            Ok(TypedExpr::Block {
+                bindings: typed_bindings,
+                result: Box::new(typed_result),
+            })
+        }
     }
+}
+
+/// Check a let binding and return a typed let binding
+fn check_let_binding(binding: &LetBinding, env: &TypeEnv) -> Result<TypedLetBinding, TypeError> {
+    let typed_value = check_with_env(&binding.value, env)?;
+    let inferred_type = typed_value.ty();
+
+    // If type annotation exists, verify it matches
+    let binding_type = if let Some(ref annotation) = binding.type_annotation {
+        let declared_type = resolve_type_annotation(annotation, &[])?;
+        if !types_compatible(&inferred_type, &declared_type) {
+            return Err(TypeError {
+                message: format!(
+                    "let binding '{}' declares type {} but value has type {}",
+                    binding.name, declared_type, inferred_type
+                ),
+            });
+        }
+        declared_type
+    } else {
+        inferred_type
+    };
+
+    Ok(TypedLetBinding {
+        name: binding.name.clone(),
+        value: typed_value,
+        ty: binding_type,
+    })
 }
 
 /// Check a file's items (functions), returning typed functions
@@ -326,6 +377,7 @@ pub fn check_file(items: &[Item]) -> Result<Vec<TypedFunction>, TypeError> {
 pub enum CheckedStatement {
     Function(TypedFunction),
     Expr(TypedExpr),
+    Let(TypedLetBinding),
 }
 
 /// Check REPL statements, updating env for items, returning checked results
@@ -349,6 +401,13 @@ pub fn check_repl(
             Statement::Expr(expr) => {
                 let typed_expr = check_with_env(expr, env)?;
                 results.push(CheckedStatement::Expr(typed_expr));
+            }
+            Statement::Let(binding) => {
+                let typed_binding = check_let_binding(binding, env)?;
+                // Add to environment for future statements
+                env.locals
+                    .insert(binding.name.clone(), typed_binding.ty.clone());
+                results.push(CheckedStatement::Let(typed_binding));
             }
         }
     }
@@ -934,5 +993,114 @@ mod tests {
         assert_eq!(result.len(), 2);
         assert!(matches!(result[0], CheckedStatement::Function(_)));
         assert!(matches!(result[1], CheckedStatement::Expr(_)));
+    }
+
+    #[test]
+    fn test_check_repl_let_binding() {
+        let mut env = TypeEnv::default();
+        let stmts = vec![Statement::Let(LetBinding {
+            name: "x".to_string(),
+            type_annotation: None,
+            value: Box::new(Expr::Int(42)),
+        })];
+        let result = check_repl(&stmts, &mut env).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(matches!(result[0], CheckedStatement::Let(_)));
+        // Variable should be added to env
+        assert_eq!(env.locals.get("x"), Some(&Type::Int32));
+    }
+
+    #[test]
+    fn test_check_repl_let_then_use() {
+        let mut env = TypeEnv::default();
+        let stmts = vec![
+            Statement::Let(LetBinding {
+                name: "x".to_string(),
+                type_annotation: None,
+                value: Box::new(Expr::Int(42)),
+            }),
+            Statement::Expr(Expr::BinOp {
+                op: BinOp::Add,
+                left: Box::new(Expr::Var("x".to_string())),
+                right: Box::new(Expr::Int(1)),
+            }),
+        ];
+        let result = check_repl(&stmts, &mut env).unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(matches!(result[0], CheckedStatement::Let(_)));
+        assert!(matches!(result[1], CheckedStatement::Expr(_)));
+    }
+
+    #[test]
+    fn test_check_let_with_type_annotation() {
+        let mut env = TypeEnv::default();
+        let stmts = vec![Statement::Let(LetBinding {
+            name: "x".to_string(),
+            type_annotation: Some(TypeAnnotation::Named("Int32".to_string())),
+            value: Box::new(Expr::Int(42)),
+        })];
+        let result = check_repl(&stmts, &mut env).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(env.locals.get("x"), Some(&Type::Int32));
+    }
+
+    #[test]
+    fn test_check_let_type_mismatch() {
+        let mut env = TypeEnv::default();
+        let stmts = vec![Statement::Let(LetBinding {
+            name: "x".to_string(),
+            type_annotation: Some(TypeAnnotation::Named("Float".to_string())),
+            value: Box::new(Expr::Int(42)),
+        })];
+        let result = check_repl(&stmts, &mut env);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("declares type"));
+    }
+
+    #[test]
+    fn test_check_block_expression() {
+        let expr = Expr::Block {
+            bindings: vec![LetBinding {
+                name: "x".to_string(),
+                type_annotation: None,
+                value: Box::new(Expr::Int(1)),
+            }],
+            result: Box::new(Expr::BinOp {
+                op: BinOp::Add,
+                left: Box::new(Expr::Var("x".to_string())),
+                right: Box::new(Expr::Int(2)),
+            }),
+        };
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Int32);
+    }
+
+    #[test]
+    fn test_check_block_multiple_bindings() {
+        let expr = Expr::Block {
+            bindings: vec![
+                LetBinding {
+                    name: "x".to_string(),
+                    type_annotation: None,
+                    value: Box::new(Expr::Int(1)),
+                },
+                LetBinding {
+                    name: "y".to_string(),
+                    type_annotation: None,
+                    value: Box::new(Expr::BinOp {
+                        op: BinOp::Add,
+                        left: Box::new(Expr::Var("x".to_string())),
+                        right: Box::new(Expr::Int(1)),
+                    }),
+                },
+            ],
+            result: Box::new(Expr::BinOp {
+                op: BinOp::Add,
+                left: Box::new(Expr::Var("x".to_string())),
+                right: Box::new(Expr::Var("y".to_string())),
+            }),
+        };
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Int32);
     }
 }

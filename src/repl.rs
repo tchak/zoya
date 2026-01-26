@@ -3,7 +3,7 @@ use std::io::{self, BufRead, Write};
 
 use crate::ast::FunctionDef;
 use crate::check::{check_repl, CheckedStatement, TypeEnv};
-use crate::codegen::{codegen, codegen_function};
+use crate::codegen::{codegen, codegen_function, codegen_let};
 use crate::eval::{self, Context};
 use crate::lexer;
 use crate::parser;
@@ -62,11 +62,11 @@ impl State {
                     // Store AST for potential re-checking later
                     // (extract from original statements)
                     for stmt in &statements {
-                        if let crate::ast::Statement::Item(crate::ast::Item::Function(func)) = stmt {
-                            if func.name == name {
-                                self.functions.insert(name.clone(), func.clone());
-                                break;
-                            }
+                        if let crate::ast::Statement::Item(crate::ast::Item::Function(func)) = stmt
+                            && func.name == name
+                        {
+                            self.functions.insert(name.clone(), func.clone());
+                            break;
                         }
                     }
 
@@ -82,6 +82,19 @@ impl State {
                     })?;
 
                     println!("{}", result);
+                }
+                CheckedStatement::Let(typed_binding) => {
+                    let name = typed_binding.name.clone();
+                    let ty = typed_binding.ty.clone();
+                    let js_code = codegen_let(&typed_binding);
+
+                    // Define variable in QuickJS context
+                    self.context.with(|ctx| {
+                        ctx.eval::<(), _>(js_code)
+                            .map_err(|e| format!("JS error: {}", e))
+                    })?;
+
+                    println!("let {}: {}", name, ty);
                 }
             }
         }

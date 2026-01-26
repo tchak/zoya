@@ -17,6 +17,9 @@ pub enum Token {
     #[token("false")]
     False,
 
+    #[token("let")]
+    Let,
+
     // Float must come before Int for proper matching of `.5`
     #[regex(r"[0-9][0-9_]*\.[0-9_]*|[0-9_]*\.[0-9][0-9_]*", parse_float)]
     Float(f64),
@@ -55,6 +58,12 @@ pub enum Token {
 
     #[token(">=")]
     Ge,
+
+    #[token("=")]
+    Eq,
+
+    #[token(";")]
+    Semicolon,
 
     // Delimiters
     #[token("(")]

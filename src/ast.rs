@@ -27,6 +27,14 @@ pub enum TypeAnnotation {
     Named(String), // Int, Float, T, etc.
 }
 
+/// Let binding: `let x = expr` or `let x: Type = expr`
+#[derive(Debug, Clone, PartialEq)]
+pub struct LetBinding {
+    pub name: String,
+    pub type_annotation: Option<TypeAnnotation>,
+    pub value: Box<Expr>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Int(i64),
@@ -45,6 +53,10 @@ pub enum Expr {
         op: BinOp,
         left: Box<Expr>,
         right: Box<Expr>,
+    },
+    Block {
+        bindings: Vec<LetBinding>,
+        result: Box<Expr>,
     },
 }
 
@@ -68,9 +80,10 @@ pub enum BinOp {
     Ge,
 }
 
-/// A statement in REPL input (item or expression, later also let)
+/// A statement in REPL input (item, expression, or let binding)
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     Item(Item),
     Expr(Expr),
+    Let(LetBinding),
 }
