@@ -292,4 +292,104 @@ mod tests {
         let result = run_source(source).unwrap();
         assert_eq!(result, Value::Int32(5));
     }
+
+    // Int32 method tests
+    #[test]
+    fn test_run_int32_abs() {
+        let source = "fn main() -> Int32 { (-5).abs() }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(5));
+    }
+
+    #[test]
+    fn test_run_int32_to_string() {
+        let source = "fn main() -> String { 42.to_string() }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::String("42".to_string()));
+    }
+
+    #[test]
+    fn test_run_int32_to_float() {
+        let source = "fn main() -> Float { 42.to_float() }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Float(42.0));
+    }
+
+    #[test]
+    fn test_run_int32_min() {
+        let source = "fn main() -> Int32 { 3.min(5) }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(3));
+    }
+
+    #[test]
+    fn test_run_int32_max() {
+        let source = "fn main() -> Int32 { 3.max(5) }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(5));
+    }
+
+    // Float method tests
+    #[test]
+    fn test_run_float_abs() {
+        let source = "fn main() -> Float { (-3.14).abs() }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Float(3.14));
+    }
+
+    #[test]
+    fn test_run_float_to_string() {
+        let source = "fn main() -> String { 3.14.to_string() }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::String("3.14".to_string()));
+    }
+
+    #[test]
+    fn test_run_float_to_int() {
+        let source = "fn main() -> Int32 { 3.7.to_int() }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(3));
+    }
+
+    #[test]
+    fn test_run_float_floor() {
+        let source = "fn main() -> Float { 3.7.floor() }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Float(3.0));
+    }
+
+    #[test]
+    fn test_run_float_ceil() {
+        let source = "fn main() -> Float { 3.2.ceil() }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Float(4.0));
+    }
+
+    #[test]
+    fn test_run_float_round() {
+        let source = "fn main() -> Float { 3.5.round() }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Float(4.0));
+    }
+
+    #[test]
+    fn test_run_float_sqrt() {
+        let source = "fn main() -> Float { 9.0.sqrt() }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Float(3.0));
+    }
+
+    #[test]
+    fn test_run_float_min() {
+        let source = "fn main() -> Float { 3.5.min(2.5) }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Float(2.5));
+    }
+
+    #[test]
+    fn test_run_float_max() {
+        let source = "fn main() -> Float { 3.5.max(2.5) }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Float(3.5));
+    }
 }

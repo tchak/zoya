@@ -166,6 +166,7 @@ fn is_numeric_type(ty: &Type) -> bool {
 /// Returns (parameter_types, return_type) if the method exists.
 fn builtin_method(receiver_ty: &Type, method: &str) -> Option<(Vec<Type>, Type)> {
     match (receiver_ty, method) {
+        // String methods
         (Type::String, "len") => Some((vec![], Type::Int32)),
         (Type::String, "is_empty") => Some((vec![], Type::Bool)),
         (Type::String, "contains") => Some((vec![Type::String], Type::Bool)),
@@ -174,6 +175,31 @@ fn builtin_method(receiver_ty: &Type, method: &str) -> Option<(Vec<Type>, Type)>
         (Type::String, "to_uppercase") => Some((vec![], Type::String)),
         (Type::String, "to_lowercase") => Some((vec![], Type::String)),
         (Type::String, "trim") => Some((vec![], Type::String)),
+
+        // Int32 methods
+        (Type::Int32, "abs") => Some((vec![], Type::Int32)),
+        (Type::Int32, "to_string") => Some((vec![], Type::String)),
+        (Type::Int32, "to_float") => Some((vec![], Type::Float)),
+        (Type::Int32, "min") => Some((vec![Type::Int32], Type::Int32)),
+        (Type::Int32, "max") => Some((vec![Type::Int32], Type::Int32)),
+
+        // Int64 methods
+        (Type::Int64, "abs") => Some((vec![], Type::Int64)),
+        (Type::Int64, "to_string") => Some((vec![], Type::String)),
+        (Type::Int64, "min") => Some((vec![Type::Int64], Type::Int64)),
+        (Type::Int64, "max") => Some((vec![Type::Int64], Type::Int64)),
+
+        // Float methods
+        (Type::Float, "abs") => Some((vec![], Type::Float)),
+        (Type::Float, "to_string") => Some((vec![], Type::String)),
+        (Type::Float, "to_int") => Some((vec![], Type::Int32)),
+        (Type::Float, "floor") => Some((vec![], Type::Float)),
+        (Type::Float, "ceil") => Some((vec![], Type::Float)),
+        (Type::Float, "round") => Some((vec![], Type::Float)),
+        (Type::Float, "sqrt") => Some((vec![], Type::Float)),
+        (Type::Float, "min") => Some((vec![Type::Float], Type::Float)),
+        (Type::Float, "max") => Some((vec![Type::Float], Type::Float)),
+
         _ => None,
     }
 }

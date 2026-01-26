@@ -84,23 +84,60 @@ pub fn codegen(expr: &TypedExpr) -> String {
             receiver,
             method,
             args,
-            ..
+            ty,
         } => {
             let receiver_code = codegen(receiver);
+            let receiver_ty = receiver.ty();
             let args_code: Vec<String> = args.iter().map(codegen).collect();
 
-            match method.as_str() {
-                // String methods with special JS mappings
+            let result = match method.as_str() {
+                // String methods
                 "len" => format!("({}).length", receiver_code),
                 "is_empty" => format!("(({}).length === 0)", receiver_code),
                 "contains" => format!("({}).includes({})", receiver_code, args_code[0]),
-                // Direct JS method mappings
                 "starts_with" => format!("({}).startsWith({})", receiver_code, args_code[0]),
                 "ends_with" => format!("({}).endsWith({})", receiver_code, args_code[0]),
                 "to_uppercase" => format!("({}).toUpperCase()", receiver_code),
                 "to_lowercase" => format!("({}).toLowerCase()", receiver_code),
                 "trim" => format!("({}).trim()", receiver_code),
+
+                // Numeric methods - Int64 needs special handling (no Math functions for BigInt)
+                "abs" => match receiver_ty {
+                    Type::Int64 => format!("((x) => x < 0n ? -x : x)({})", receiver_code),
+                    _ => format!("Math.abs({})", receiver_code),
+                },
+                "min" => match receiver_ty {
+                    Type::Int64 => {
+                        format!("((a, b) => a < b ? a : b)({}, {})", receiver_code, args_code[0])
+                    }
+                    _ => format!("Math.min({}, {})", receiver_code, args_code[0]),
+                },
+                "max" => match receiver_ty {
+                    Type::Int64 => {
+                        format!("((a, b) => a > b ? a : b)({}, {})", receiver_code, args_code[0])
+                    }
+                    _ => format!("Math.max({}, {})", receiver_code, args_code[0]),
+                },
+
+                // Type conversion
+                "to_string" => format!("String({})", receiver_code),
+                "to_float" => receiver_code, // JS numbers are already floats
+                "to_int" => format!("Math.trunc({})", receiver_code),
+
+                // Float-specific math
+                "floor" => format!("Math.floor({})", receiver_code),
+                "ceil" => format!("Math.ceil({})", receiver_code),
+                "round" => format!("Math.round({})", receiver_code),
+                "sqrt" => format!("Math.sqrt({})", receiver_code),
+
                 _ => panic!("unknown method in codegen: {}", method),
+            };
+
+            // Wrap Int32 results with overflow check
+            if *ty == Type::Int32 {
+                wrap_int32_overflow(&result)
+            } else {
+                result
             }
         }
     }
