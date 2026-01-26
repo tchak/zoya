@@ -1,6 +1,6 @@
 use chumsky::prelude::*;
 
-use crate::ast::{BinOp, Expr, FunctionDef, Item, Param, TypeAnnotation, UnaryOp};
+use crate::ast::{BinOp, Expr, FunctionDef, Item, Param, Statement, TypeAnnotation, UnaryOp};
 use crate::lexer::Token;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -8,7 +8,8 @@ pub struct ParseError {
     pub message: String,
 }
 
-/// Parse an expression (for REPL and function bodies)
+/// Parse an expression (used in tests)
+#[allow(dead_code)]
 pub fn parse(tokens: Vec<Token>) -> Result<Expr, ParseError> {
     expr_parser()
         .parse(&tokens)
@@ -22,7 +23,8 @@ pub fn parse(tokens: Vec<Token>) -> Result<Expr, ParseError> {
         })
 }
 
-/// Parse a top-level item (function declaration)
+/// Parse a top-level item (used in tests)
+#[allow(dead_code)]
 pub fn parse_item(tokens: Vec<Token>) -> Result<Item, ParseError> {
     item_parser()
         .parse(&tokens)
@@ -39,6 +41,22 @@ pub fn parse_item(tokens: Vec<Token>) -> Result<Item, ParseError> {
 /// Parse multiple top-level items (for files)
 pub fn parse_items(tokens: Vec<Token>) -> Result<Vec<Item>, ParseError> {
     item_parser()
+        .repeated()
+        .collect()
+        .parse(&tokens)
+        .into_result()
+        .map_err(|errs| ParseError {
+            message: errs
+                .into_iter()
+                .map(|e| format!("{:?}", e))
+                .collect::<Vec<_>>()
+                .join(", "),
+        })
+}
+
+/// Parse REPL input: zero or more statements (items or expressions)
+pub fn parse_repl(tokens: Vec<Token>) -> Result<Vec<Statement>, ParseError> {
+    statement_parser()
         .repeated()
         .collect()
         .parse(&tokens)
@@ -196,6 +214,14 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
             },
         )
     })
+}
+
+fn statement_parser<'a>() -> impl Parser<'a, &'a [Token], Statement, extra::Err<Rich<'a, Token>>> {
+    // Try to parse as an item (starts with fn), otherwise as an expression
+    choice((
+        item_parser().map(Statement::Item),
+        expr_parser().map(Statement::Expr),
+    ))
 }
 
 #[cfg(test)]
@@ -774,5 +800,41 @@ mod tests {
                 right: Box::new(Expr::Int(3)),
             }
         );
+    }
+
+    fn parse_repl_str(input: &str) -> Result<Vec<Statement>, ParseError> {
+        let tokens = lex(input).expect("lexing failed");
+        parse_repl(tokens)
+    }
+
+    #[test]
+    fn test_parse_repl_single_expr() {
+        let stmts = parse_repl_str("1 + 2").unwrap();
+        assert_eq!(stmts.len(), 1);
+        assert!(matches!(stmts[0], Statement::Expr(_)));
+    }
+
+    #[test]
+    fn test_parse_repl_single_function() {
+        let stmts = parse_repl_str("fn foo() -> Int32 { 42 }").unwrap();
+        assert_eq!(stmts.len(), 1);
+        assert!(matches!(stmts[0], Statement::Item(_)));
+    }
+
+    #[test]
+    fn test_parse_repl_function_then_expr() {
+        let stmts = parse_repl_str("fn foo() -> Int32 { 42 } foo()").unwrap();
+        assert_eq!(stmts.len(), 2);
+        assert!(matches!(stmts[0], Statement::Item(_)));
+        assert!(matches!(stmts[1], Statement::Expr(_)));
+    }
+
+    #[test]
+    fn test_parse_repl_multiple_exprs() {
+        let stmts = parse_repl_str("1 2 3").unwrap();
+        assert_eq!(stmts.len(), 3);
+        assert!(matches!(stmts[0], Statement::Expr(Expr::Int(1))));
+        assert!(matches!(stmts[1], Statement::Expr(Expr::Int(2))));
+        assert!(matches!(stmts[2], Statement::Expr(Expr::Int(3))));
     }
 }

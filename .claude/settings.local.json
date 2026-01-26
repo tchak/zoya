@@ -11,7 +11,8 @@
       "Bash(cargo clippy:*)",
       "Bash(cargo check:*)",
       "Bash(RUSTFLAGS=\"-D warnings\" cargo check:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(jj diff:*)"
     ]
   }
 }

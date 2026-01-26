@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::ast::{BinOp, Expr, FunctionDef, TypeAnnotation, UnaryOp};
+use crate::ast::{BinOp, Expr, FunctionDef, Item, Statement, TypeAnnotation, UnaryOp};
 use crate::ir::{TypedExpr, TypedFunction};
 use crate::types::{FunctionType, Type, TypeError};
 
@@ -314,6 +314,41 @@ pub fn check_with_env(expr: &Expr, env: &TypeEnv) -> Result<TypedExpr, TypeError
             })
         }
     }
+}
+
+/// Type-checked statement result for REPL
+#[derive(Debug, Clone, PartialEq)]
+pub enum CheckedStatement {
+    Function(TypedFunction),
+    Expr(TypedExpr),
+}
+
+/// Check REPL statements, updating env for items, returning checked results
+pub fn check_repl(
+    statements: &[Statement],
+    env: &mut TypeEnv,
+) -> Result<Vec<CheckedStatement>, TypeError> {
+    let mut results = Vec::new();
+
+    for statement in statements {
+        match statement {
+            Statement::Item(Item::Function(func)) => {
+                // Add function type to environment first
+                let func_type = function_type_from_def(func)?;
+                env.functions.insert(func.name.clone(), func_type);
+
+                // Type-check the function
+                let typed_func = check_function(func, env)?;
+                results.push(CheckedStatement::Function(typed_func));
+            }
+            Statement::Expr(expr) => {
+                let typed_expr = check_with_env(expr, env)?;
+                results.push(CheckedStatement::Expr(typed_expr));
+            }
+        }
+    }
+
+    Ok(results)
 }
 
 #[cfg(test)]
@@ -828,5 +863,60 @@ mod tests {
         let result = check(&expr);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("type mismatch"));
+    }
+
+    #[test]
+    fn test_check_repl_single_expr() {
+        let mut env = TypeEnv::default();
+        let stmts = vec![Statement::Expr(Expr::Int(42))];
+        let result = check_repl(&stmts, &mut env).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(matches!(result[0], CheckedStatement::Expr(TypedExpr::Int32(42))));
+    }
+
+    #[test]
+    fn test_check_repl_function_def() {
+        let mut env = TypeEnv::default();
+        let stmts = vec![Statement::Item(Item::Function(FunctionDef {
+            name: "foo".to_string(),
+            type_params: vec![],
+            params: vec![],
+            return_type: Some(TypeAnnotation::Named("Int32".to_string())),
+            body: Expr::Int(42),
+        }))];
+        let result = check_repl(&stmts, &mut env).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(matches!(result[0], CheckedStatement::Function(_)));
+        // Function should be added to env
+        assert!(env.functions.contains_key("foo"));
+    }
+
+    #[test]
+    fn test_check_repl_function_then_call() {
+        let mut env = TypeEnv::default();
+        let stmts = vec![
+            Statement::Item(Item::Function(FunctionDef {
+                name: "double".to_string(),
+                type_params: vec![],
+                params: vec![Param {
+                    name: "x".to_string(),
+                    typ: TypeAnnotation::Named("Int32".to_string()),
+                }],
+                return_type: Some(TypeAnnotation::Named("Int32".to_string())),
+                body: Expr::BinOp {
+                    op: BinOp::Add,
+                    left: Box::new(Expr::Var("x".to_string())),
+                    right: Box::new(Expr::Var("x".to_string())),
+                },
+            })),
+            Statement::Expr(Expr::Call {
+                func: "double".to_string(),
+                args: vec![Expr::Int(5)],
+            }),
+        ];
+        let result = check_repl(&stmts, &mut env).unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(matches!(result[0], CheckedStatement::Function(_)));
+        assert!(matches!(result[1], CheckedStatement::Expr(_)));
     }
 }

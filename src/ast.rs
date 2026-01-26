@@ -67,3 +67,10 @@ pub enum BinOp {
     Le,
     Ge,
 }
+
+/// A statement in REPL input (item or expression, later also let)
+#[derive(Debug, Clone, PartialEq)]
+pub enum Statement {
+    Item(Item),
+    Expr(Expr),
+}
