@@ -1,25 +1,38 @@
 use crate::ast::{Expr, UnaryOp};
-use crate::types::{Type, TypeError};
+use crate::ir::TypedExpr;
+use crate::types::TypeError;
 
-pub fn check(expr: &Expr) -> Result<Type, TypeError> {
+pub fn check(expr: &Expr) -> Result<TypedExpr, TypeError> {
     match expr {
-        Expr::Int(_) => Ok(Type::Int),
-        Expr::Float(_) => Ok(Type::Float),
+        Expr::Int(n) => Ok(TypedExpr::Int(*n)),
+        Expr::Float(n) => Ok(TypedExpr::Float(*n)),
         Expr::UnaryOp { op, expr } => {
-            let ty = check(expr)?;
+            let typed_expr = check(expr)?;
+            let ty = typed_expr.ty();
             match op {
-                UnaryOp::Neg => Ok(ty),
+                UnaryOp::Neg => Ok(TypedExpr::UnaryOp {
+                    op: *op,
+                    expr: Box::new(typed_expr),
+                    ty,
+                }),
             }
         }
-        Expr::BinOp { op: _, left, right } => {
-            let left_ty = check(left)?;
-            let right_ty = check(right)?;
+        Expr::BinOp { op, left, right } => {
+            let typed_left = check(left)?;
+            let typed_right = check(right)?;
+            let left_ty = typed_left.ty();
+            let right_ty = typed_right.ty();
             if left_ty != right_ty {
                 return Err(TypeError {
                     message: format!("type mismatch: {} vs {}", left_ty, right_ty),
                 });
             }
-            Ok(left_ty)
+            Ok(TypedExpr::BinOp {
+                op: *op,
+                left: Box::new(typed_left),
+                right: Box::new(typed_right),
+                ty: left_ty,
+            })
         }
     }
 }
@@ -28,17 +41,22 @@ pub fn check(expr: &Expr) -> Result<Type, TypeError> {
 mod tests {
     use super::*;
     use crate::ast::BinOp;
+    use crate::types::Type;
 
     #[test]
     fn test_check_int() {
         let expr = Expr::Int(42);
-        assert_eq!(check(&expr), Ok(Type::Int));
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Int);
+        assert_eq!(result, TypedExpr::Int(42));
     }
 
     #[test]
     fn test_check_float() {
         let expr = Expr::Float(3.14);
-        assert_eq!(check(&expr), Ok(Type::Float));
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Float);
+        assert_eq!(result, TypedExpr::Float(3.14));
     }
 
     #[test]
@@ -48,7 +66,8 @@ mod tests {
             left: Box::new(Expr::Int(1)),
             right: Box::new(Expr::Int(2)),
         };
-        assert_eq!(check(&expr), Ok(Type::Int));
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Int);
     }
 
     #[test]
@@ -58,7 +77,8 @@ mod tests {
             left: Box::new(Expr::Float(1.0)),
             right: Box::new(Expr::Float(2.0)),
         };
-        assert_eq!(check(&expr), Ok(Type::Float));
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Float);
     }
 
     #[test]
@@ -80,7 +100,8 @@ mod tests {
             op: UnaryOp::Neg,
             expr: Box::new(Expr::Int(42)),
         };
-        assert_eq!(check(&expr), Ok(Type::Int));
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Int);
     }
 
     #[test]
@@ -89,7 +110,8 @@ mod tests {
             op: UnaryOp::Neg,
             expr: Box::new(Expr::Float(3.14)),
         };
-        assert_eq!(check(&expr), Ok(Type::Float));
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Float);
     }
 
     #[test]
@@ -102,7 +124,8 @@ mod tests {
                 right: Box::new(Expr::Int(2)),
             }),
         };
-        assert_eq!(check(&expr), Ok(Type::Int));
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Int);
     }
 
     #[test]
@@ -137,6 +160,7 @@ mod tests {
                 }),
             }),
         };
-        assert_eq!(check(&expr), Ok(Type::Int));
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Int);
     }
 }

@@ -4,7 +4,9 @@ use clap::{Parser, Subcommand};
 
 mod ast;
 mod check;
+mod codegen;
 mod eval;
+mod ir;
 mod lexer;
 mod parser;
 mod types;
@@ -67,6 +69,6 @@ fn run_repl() {
 fn eval_line(input: &str) -> Result<eval::Value, String> {
     let tokens = lexer::lex(input).map_err(|e| e.message)?;
     let expr = parser::parse(tokens).map_err(|e| e.message)?;
-    check::check(&expr).map_err(|e| e.to_string())?;
-    eval::eval(&expr).map_err(|e| e.to_string())
+    let typed_expr = check::check(&expr).map_err(|e| e.to_string())?;
+    eval::eval(&typed_expr).map_err(|e| e.to_string())
 }
