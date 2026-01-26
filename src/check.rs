@@ -162,6 +162,22 @@ fn is_numeric_type(ty: &Type) -> bool {
     matches!(ty, Type::Int32 | Type::Int64 | Type::Float)
 }
 
+/// Get the type signature of a built-in method on a type.
+/// Returns (parameter_types, return_type) if the method exists.
+fn builtin_method(receiver_ty: &Type, method: &str) -> Option<(Vec<Type>, Type)> {
+    match (receiver_ty, method) {
+        (Type::String, "len") => Some((vec![], Type::Int32)),
+        (Type::String, "is_empty") => Some((vec![], Type::Bool)),
+        (Type::String, "contains") => Some((vec![Type::String], Type::Bool)),
+        (Type::String, "starts_with") => Some((vec![Type::String], Type::Bool)),
+        (Type::String, "ends_with") => Some((vec![Type::String], Type::Bool)),
+        (Type::String, "to_uppercase") => Some((vec![], Type::String)),
+        (Type::String, "to_lowercase") => Some((vec![], Type::String)),
+        (Type::String, "trim") => Some((vec![], Type::String)),
+        _ => None,
+    }
+}
+
 /// Check an expression with a type environment
 fn check_with_env(
     expr: &Expr,
@@ -379,6 +395,59 @@ fn check_with_env(
                 scrutinee: Box::new(typed_scrutinee),
                 arms: typed_arms,
                 ty: ctx.resolve(&result_ty.unwrap()),
+            })
+        }
+
+        Expr::MethodCall {
+            receiver,
+            method,
+            args,
+        } => {
+            let typed_receiver = check_with_env(receiver, env, ctx)?;
+            let receiver_ty = ctx.resolve(&typed_receiver.ty());
+
+            // Look up the method signature
+            let (param_types, return_type) =
+                builtin_method(&receiver_ty, method).ok_or_else(|| TypeError {
+                    message: format!("no method '{}' on type {}", method, receiver_ty),
+                })?;
+
+            // Check argument count
+            if args.len() != param_types.len() {
+                return Err(TypeError {
+                    message: format!(
+                        "method '{}' expects {} argument(s), got {}",
+                        method,
+                        param_types.len(),
+                        args.len()
+                    ),
+                });
+            }
+
+            // Type check arguments
+            let mut typed_args = Vec::new();
+            for (arg, param_ty) in args.iter().zip(param_types.iter()) {
+                let typed_arg = check_with_env(arg, env, ctx)?;
+                let arg_ty = typed_arg.ty();
+
+                ctx.unify(&arg_ty, param_ty).map_err(|e| TypeError {
+                    message: format!(
+                        "argument type mismatch in method '{}': expected {}, got {}: {}",
+                        method,
+                        ctx.resolve(param_ty),
+                        ctx.resolve(&arg_ty),
+                        e.message
+                    ),
+                })?;
+
+                typed_args.push(typed_arg);
+            }
+
+            Ok(TypedExpr::MethodCall {
+                receiver: Box::new(typed_receiver),
+                method: method.clone(),
+                args: typed_args,
+                ty: return_type,
             })
         }
     }
@@ -1373,5 +1442,123 @@ mod tests {
         let result = check_with_env(&expr, &env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("different types"));
+    }
+
+    #[test]
+    fn test_check_method_call_len() {
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::String("hello".to_string())),
+            method: "len".to_string(),
+            args: vec![],
+        };
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Int32);
+    }
+
+    #[test]
+    fn test_check_method_call_is_empty() {
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::String("".to_string())),
+            method: "is_empty".to_string(),
+            args: vec![],
+        };
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Bool);
+    }
+
+    #[test]
+    fn test_check_method_call_contains() {
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::String("hello".to_string())),
+            method: "contains".to_string(),
+            args: vec![Expr::String("ell".to_string())],
+        };
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Bool);
+    }
+
+    #[test]
+    fn test_check_method_call_to_uppercase() {
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::String("hello".to_string())),
+            method: "to_uppercase".to_string(),
+            args: vec![],
+        };
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::String);
+    }
+
+    #[test]
+    fn test_check_method_call_trim() {
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::String("  hello  ".to_string())),
+            method: "trim".to_string(),
+            args: vec![],
+        };
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::String);
+    }
+
+    #[test]
+    fn test_check_method_call_unknown_method() {
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::String("hello".to_string())),
+            method: "foo".to_string(),
+            args: vec![],
+        };
+        let result = check(&expr);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("no method 'foo'"));
+    }
+
+    #[test]
+    fn test_check_method_call_on_int_error() {
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::Int(42)),
+            method: "len".to_string(),
+            args: vec![],
+        };
+        let result = check(&expr);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("no method 'len' on type Int32"));
+    }
+
+    #[test]
+    fn test_check_method_call_wrong_arg_count() {
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::String("hello".to_string())),
+            method: "contains".to_string(),
+            args: vec![], // contains expects 1 argument
+        };
+        let result = check(&expr);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("expects 1 argument"));
+    }
+
+    #[test]
+    fn test_check_method_call_wrong_arg_type() {
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::String("hello".to_string())),
+            method: "contains".to_string(),
+            args: vec![Expr::Int(42)], // contains expects String, not Int32
+        };
+        let result = check(&expr);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("type mismatch"));
+    }
+
+    #[test]
+    fn test_check_chained_method_calls() {
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::MethodCall {
+                receiver: Box::new(Expr::String("hello".to_string())),
+                method: "to_uppercase".to_string(),
+                args: vec![],
+            }),
+            method: "len".to_string(),
+            args: vec![],
+        };
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Int32);
     }
 }

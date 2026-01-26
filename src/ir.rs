@@ -70,6 +70,12 @@ pub enum TypedExpr {
         arms: Vec<TypedMatchArm>,
         ty: Type,
     },
+    MethodCall {
+        receiver: Box<TypedExpr>,
+        method: String,
+        args: Vec<TypedExpr>,
+        ty: Type,
+    },
 }
 
 impl TypedExpr {
@@ -86,6 +92,7 @@ impl TypedExpr {
             TypedExpr::BinOp { ty, .. } => ty.clone(),
             TypedExpr::Block { result, .. } => result.ty(),
             TypedExpr::Match { ty, .. } => ty.clone(),
+            TypedExpr::MethodCall { ty, .. } => ty.clone(),
         }
     }
 }

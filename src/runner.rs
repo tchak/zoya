@@ -205,4 +205,91 @@ mod tests {
         let result = run_source(source).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
+
+    #[test]
+    fn test_run_string_len() {
+        let source = r#"fn main() -> Int32 { "hello".len() }"#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(5));
+    }
+
+    #[test]
+    fn test_run_string_is_empty_false() {
+        let source = r#"fn main() -> Bool { "hello".is_empty() }"#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(false));
+    }
+
+    #[test]
+    fn test_run_string_is_empty_true() {
+        let source = r#"fn main() -> Bool { "".is_empty() }"#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_string_contains_true() {
+        let source = r#"fn main() -> Bool { "hello world".contains("world") }"#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_string_contains_false() {
+        let source = r#"fn main() -> Bool { "hello".contains("xyz") }"#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(false));
+    }
+
+    #[test]
+    fn test_run_string_starts_with() {
+        let source = r#"fn main() -> Bool { "hello".starts_with("he") }"#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_string_ends_with() {
+        let source = r#"fn main() -> Bool { "hello".ends_with("lo") }"#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_string_to_uppercase() {
+        let source = r#"fn main() -> String { "hello".to_uppercase() }"#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::String("HELLO".to_string()));
+    }
+
+    #[test]
+    fn test_run_string_to_lowercase() {
+        let source = r#"fn main() -> String { "HELLO".to_lowercase() }"#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::String("hello".to_string()));
+    }
+
+    #[test]
+    fn test_run_string_trim() {
+        let source = r#"fn main() -> String { "  hello  ".trim() }"#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::String("hello".to_string()));
+    }
+
+    #[test]
+    fn test_run_chained_method_calls() {
+        let source = r#"fn main() -> Int32 { "hello".to_uppercase().len() }"#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(5));
+    }
+
+    #[test]
+    fn test_run_method_call_in_function() {
+        let source = r#"
+            fn get_length(s: String) -> Int32 { s.len() }
+            fn main() -> Int32 { get_length("hello") }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(5));
+    }
 }

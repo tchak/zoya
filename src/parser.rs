@@ -195,12 +195,32 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
             literal,
             match_expr,
             ident_expr,
-            expr.delimited_by(just(Token::LParen), just(Token::RParen)),
+            expr.clone().delimited_by(just(Token::LParen), just(Token::RParen)),
         ));
+
+        // Method calls: expr.method(args) - highest precedence postfix operator
+        let method_args = expr
+            .clone()
+            .separated_by(just(Token::Comma))
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .delimited_by(just(Token::LParen), just(Token::RParen));
+
+        let postfix = atom.foldl(
+            just(Token::Dot)
+                .ignore_then(ident())
+                .then(method_args)
+                .repeated(),
+            |receiver, (method, args)| Expr::MethodCall {
+                receiver: Box::new(receiver),
+                method,
+                args,
+            },
+        );
 
         let unary = just(Token::Minus)
             .repeated()
-            .foldr(atom, |_, e| Expr::UnaryOp {
+            .foldr(postfix, |_, e| Expr::UnaryOp {
                 op: UnaryOp::Neg,
                 expr: Box::new(e),
             });
@@ -1076,5 +1096,86 @@ mod tests {
         let item = parse_item_str("fn f(x: Int32) -> Int32 { match x { 0 => 0 n => n } }").unwrap();
         let Item::Function(FunctionDef { body, .. }) = item;
         assert!(matches!(body, Expr::Match { .. }));
+    }
+
+    #[test]
+    fn test_parse_method_call_no_args() {
+        let expr = parse_str(r#""hello".len()"#).unwrap();
+        assert!(matches!(
+            expr,
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+            } if matches!(*receiver, Expr::String(ref s) if s == "hello")
+                && method == "len"
+                && args.is_empty()
+        ));
+    }
+
+    #[test]
+    fn test_parse_method_call_with_arg() {
+        let expr = parse_str(r#""hello".contains("ell")"#).unwrap();
+        assert!(matches!(
+            expr,
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+            } if matches!(*receiver, Expr::String(ref s) if s == "hello")
+                && method == "contains"
+                && args.len() == 1
+        ));
+    }
+
+    #[test]
+    fn test_parse_chained_method_calls() {
+        let expr = parse_str(r#""hello".to_uppercase().len()"#).unwrap();
+        // Should parse as ("hello".to_uppercase()).len()
+        if let Expr::MethodCall {
+            receiver,
+            method,
+            args,
+        } = expr
+        {
+            assert_eq!(method, "len");
+            assert!(args.is_empty());
+            assert!(matches!(
+                *receiver,
+                Expr::MethodCall {
+                    method: ref m,
+                    ..
+                } if m == "to_uppercase"
+            ));
+        } else {
+            panic!("expected method call");
+        }
+    }
+
+    #[test]
+    fn test_parse_method_call_on_variable() {
+        let expr = parse_str("s.trim()").unwrap();
+        assert!(matches!(
+            expr,
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+            } if matches!(*receiver, Expr::Var(ref name) if name == "s")
+                && method == "trim"
+                && args.is_empty()
+        ));
+    }
+
+    #[test]
+    fn test_parse_method_call_in_expression() {
+        let expr = parse_str(r#""hello".len() + 1"#).unwrap();
+        assert!(matches!(
+            expr,
+            Expr::BinOp {
+                op: BinOp::Add,
+                ..
+            }
+        ));
     }
 }

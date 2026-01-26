@@ -127,6 +127,9 @@ pub enum Token {
 
     #[token(",")]
     Comma,
+
+    #[token(".")]
+    Dot,
 }
 
 #[derive(Debug, Clone, PartialEq)]

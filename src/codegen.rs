@@ -80,6 +80,29 @@ pub fn codegen(expr: &TypedExpr) -> String {
         TypedExpr::Match { scrutinee, arms, .. } => {
             codegen_match(scrutinee, arms)
         }
+        TypedExpr::MethodCall {
+            receiver,
+            method,
+            args,
+            ..
+        } => {
+            let receiver_code = codegen(receiver);
+            let args_code: Vec<String> = args.iter().map(codegen).collect();
+
+            match method.as_str() {
+                // String methods with special JS mappings
+                "len" => format!("({}).length", receiver_code),
+                "is_empty" => format!("(({}).length === 0)", receiver_code),
+                "contains" => format!("({}).includes({})", receiver_code, args_code[0]),
+                // Direct JS method mappings
+                "starts_with" => format!("({}).startsWith({})", receiver_code, args_code[0]),
+                "ends_with" => format!("({}).endsWith({})", receiver_code, args_code[0]),
+                "to_uppercase" => format!("({}).toUpperCase()", receiver_code),
+                "to_lowercase" => format!("({}).toLowerCase()", receiver_code),
+                "trim" => format!("({}).trim()", receiver_code),
+                _ => panic!("unknown method in codegen: {}", method),
+            }
+        }
     }
 }
 

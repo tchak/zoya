@@ -78,6 +78,11 @@ pub enum Expr {
         scrutinee: Box<Expr>,
         arms: Vec<MatchArm>,
     },
+    MethodCall {
+        receiver: Box<Expr>,
+        method: String,
+        args: Vec<Expr>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
