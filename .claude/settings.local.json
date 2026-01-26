@@ -12,7 +12,8 @@
       "Bash(cargo check:*)",
       "Bash(RUSTFLAGS=\"-D warnings\" cargo check:*)",
       "Bash(echo:*)",
-      "Bash(jj diff:*)"
+      "Bash(jj diff:*)",
+      "Bash(printf:*)"
     ]
   }
 }

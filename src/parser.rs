@@ -136,6 +136,7 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
             Token::Float(n) => Expr::Float(n),
             Token::True => Expr::Bool(true),
             Token::False => Expr::Bool(false),
+            Token::String(s) => Expr::String(s),
         };
 
         // Arguments: (expr, expr, ...)
@@ -704,6 +705,25 @@ mod tests {
     fn test_parse_bool_false() {
         let expr = parse_str("false").unwrap();
         assert_eq!(expr, Expr::Bool(false));
+    }
+
+    #[test]
+    fn test_parse_string() {
+        let expr = parse_str(r#""hello""#).unwrap();
+        assert_eq!(expr, Expr::String("hello".to_string()));
+    }
+
+    #[test]
+    fn test_parse_string_equality() {
+        let expr = parse_str(r#""hello" == "world""#).unwrap();
+        assert_eq!(
+            expr,
+            Expr::BinOp {
+                op: BinOp::Eq,
+                left: Box::new(Expr::String("hello".to_string())),
+                right: Box::new(Expr::String("world".to_string())),
+            }
+        );
     }
 
     #[test]

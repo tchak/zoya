@@ -4,6 +4,34 @@ fn parse_float(lex: &logos::Lexer<Token>) -> Option<f64> {
     lex.slice().replace('_', "").parse::<f64>().ok()
 }
 
+fn parse_string(lex: &logos::Lexer<Token>) -> Option<String> {
+    let s = lex.slice();
+    // Strip surrounding quotes
+    let inner = &s[1..s.len() - 1];
+    // Handle escape sequences
+    let mut result = String::new();
+    let mut chars = inner.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('n') => result.push('\n'),
+                Some('t') => result.push('\t'),
+                Some('r') => result.push('\r'),
+                Some('\\') => result.push('\\'),
+                Some('"') => result.push('"'),
+                Some(other) => {
+                    result.push('\\');
+                    result.push(other);
+                }
+                None => result.push('\\'),
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    Some(result)
+}
+
 #[derive(Logos, Debug, Clone, PartialEq)]
 #[logos(skip r"[ \t\n\r]+")]
 pub enum Token {
@@ -19,6 +47,10 @@ pub enum Token {
 
     #[token("let")]
     Let,
+
+    // String literals with escape sequences
+    #[regex(r#""([^"\\]|\\.)*""#, parse_string)]
+    String(String),
 
     // Float must come before Int for proper matching of `.5`
     #[regex(r"[0-9][0-9_]*\.[0-9_]*|[0-9_]*\.[0-9][0-9_]*", parse_float)]
@@ -359,6 +391,24 @@ mod tests {
     fn test_bool_literals() {
         let tokens = lex("true false").unwrap();
         assert_eq!(tokens, vec![Token::True, Token::False]);
+    }
+
+    #[test]
+    fn test_string_literal() {
+        let tokens = lex(r#""hello""#).unwrap();
+        assert_eq!(tokens, vec![Token::String("hello".to_string())]);
+    }
+
+    #[test]
+    fn test_string_with_escapes() {
+        let tokens = lex(r#""hello\nworld""#).unwrap();
+        assert_eq!(tokens, vec![Token::String("hello\nworld".to_string())]);
+    }
+
+    #[test]
+    fn test_string_with_escaped_quote() {
+        let tokens = lex(r#""say \"hi\"""#).unwrap();
+        assert_eq!(tokens, vec![Token::String("say \"hi\"".to_string())]);
     }
 
     #[test]

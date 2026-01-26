@@ -7,6 +7,7 @@ pub enum Type {
     Int64,
     Float,
     Bool,
+    String,
     Var(String), // Type variable for generics (e.g., T, U)
 }
 
@@ -17,6 +18,7 @@ impl fmt::Display for Type {
             Type::Int64 => write!(f, "Int64"),
             Type::Float => write!(f, "Float"),
             Type::Bool => write!(f, "Bool"),
+            Type::String => write!(f, "String"),
             Type::Var(name) => write!(f, "{}", name),
         }
     }

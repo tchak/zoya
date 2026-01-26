@@ -40,6 +40,7 @@ pub enum Expr {
     Int(i64),
     Float(f64),
     Bool(bool),
+    String(String),
     Var(String),
     Call {
         func: String,

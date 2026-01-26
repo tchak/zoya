@@ -9,6 +9,7 @@ pub fn codegen(expr: &TypedExpr) -> String {
         TypedExpr::Int64(n) => format!("{}n", n), // BigInt literal
         TypedExpr::Float(n) => format_float(*n),
         TypedExpr::Bool(b) => b.to_string(),
+        TypedExpr::String(s) => escape_js_string(s),
         TypedExpr::Var { name, .. } => name.clone(),
         TypedExpr::Call { func, args, ty } => {
             let args_str: Vec<String> = args.iter().map(codegen).collect();
@@ -116,6 +117,23 @@ fn format_float(n: f64) -> String {
     } else {
         format!("{}.0", s)
     }
+}
+
+fn escape_js_string(s: &str) -> String {
+    let mut result = String::with_capacity(s.len() + 2);
+    result.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => result.push_str("\\\""),
+            '\\' => result.push_str("\\\\"),
+            '\n' => result.push_str("\\n"),
+            '\r' => result.push_str("\\r"),
+            '\t' => result.push_str("\\t"),
+            _ => result.push(c),
+        }
+    }
+    result.push('"');
+    result
 }
 
 #[cfg(test)]

@@ -37,6 +37,8 @@ fn resolve_type_annotation(
                 Ok(Type::Float)
             } else if name == "Bool" {
                 Ok(Type::Bool)
+            } else if name == "String" {
+                Ok(Type::String)
             } else if type_params.contains(name) {
                 Ok(Type::Var(name.clone()))
             } else {
@@ -128,6 +130,7 @@ fn types_compatible(actual: &Type, expected: &Type) -> bool {
         (Type::Int64, Type::Int64) => true,
         (Type::Float, Type::Float) => true,
         (Type::Bool, Type::Bool) => true,
+        (Type::String, Type::String) => true,
         (Type::Var(a), Type::Var(b)) => a == b,
         // Type variables can match any concrete type during instantiation
         (_, Type::Var(_)) => true,
@@ -160,6 +163,7 @@ fn check_with_env(expr: &Expr, env: &TypeEnv) -> Result<TypedExpr, TypeError> {
         }
         Expr::Float(n) => Ok(TypedExpr::Float(*n)),
         Expr::Bool(b) => Ok(TypedExpr::Bool(*b)),
+        Expr::String(s) => Ok(TypedExpr::String(s.clone())),
 
         Expr::Var(name) => {
             if let Some(ty) = env.locals.get(name) {

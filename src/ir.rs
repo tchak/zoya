@@ -25,6 +25,7 @@ pub enum TypedExpr {
     Int64(i64),
     Float(f64),
     Bool(bool),
+    String(String),
     Var {
         name: String,
         ty: Type,
@@ -58,6 +59,7 @@ impl TypedExpr {
             TypedExpr::Int64(_) => Type::Int64,
             TypedExpr::Float(_) => Type::Float,
             TypedExpr::Bool(_) => Type::Bool,
+            TypedExpr::String(_) => Type::String,
             TypedExpr::Var { ty, .. } => ty.clone(),
             TypedExpr::Call { ty, .. } => ty.clone(),
             TypedExpr::UnaryOp { ty, .. } => ty.clone(),
