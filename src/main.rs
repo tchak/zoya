@@ -34,6 +34,14 @@ enum Command {
         /// File to type-check
         file: PathBuf,
     },
+    /// Compile a file to JavaScript
+    Build {
+        /// File to compile
+        file: PathBuf,
+        /// Output file (stdout if not specified)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
 }
 
 fn main() {
@@ -49,6 +57,12 @@ fn main() {
         Some(Command::Run { file: None }) => repl::run(),
         Some(Command::Check { file }) => {
             if let Err(e) = runner::check_file_command(&file) {
+                eprintln!("{}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Command::Build { file, output }) => {
+            if let Err(e) = runner::build_file_command(&file, output.as_deref()) {
                 eprintln!("{}", e);
                 std::process::exit(1);
             }

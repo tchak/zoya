@@ -78,6 +78,44 @@ pub fn check_file_command(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Compile a file to JavaScript without executing
+pub fn build_file_command(path: &Path, output: Option<&Path>) -> Result<(), String> {
+    // Read file
+    let source = std::fs::read_to_string(path)
+        .map_err(|e| format!("error: failed to read file '{}': {}", path.display(), e))?;
+
+    // Lex
+    let tokens = lexer::lex(&source).map_err(|e| format!("error: {}", e.message))?;
+
+    // Parse
+    let items = parser::parse_file(tokens).map_err(|e| format!("error: {}", e.message))?;
+
+    // Type check
+    let typed_functions = check_file(&items).map_err(|e| format!("error: {}", e))?;
+
+    // Generate JS code
+    let mut js_code = String::new();
+    js_code.push_str(deep_eq_prelude());
+    js_code.push('\n');
+    for typed_func in &typed_functions {
+        js_code.push_str(&codegen_function(typed_func));
+        js_code.push('\n');
+    }
+
+    // Write output
+    match output {
+        Some(out_path) => {
+            std::fs::write(out_path, &js_code)
+                .map_err(|e| format!("error: failed to write file '{}': {}", out_path.display(), e))?;
+        }
+        None => {
+            print!("{}", js_code);
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1112,6 +1150,47 @@ mod tests {
     #[test]
     fn test_check_file_command_file_not_found() {
         let result = check_file_command(Path::new("nonexistent.zoya"));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("failed to read file"));
+    }
+
+    #[test]
+    fn test_build_file_command_to_stdout() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.zoya");
+        std::fs::write(&file, "fn main() -> Int32 { 42 }").unwrap();
+
+        let result = build_file_command(&file, None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_build_file_command_to_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("test.zoya");
+        let output = dir.path().join("test.js");
+        std::fs::write(&input, "fn main() -> Int32 { 42 }").unwrap();
+
+        let result = build_file_command(&input, Some(&output));
+        assert!(result.is_ok());
+        assert!(output.exists());
+        let js = std::fs::read_to_string(&output).unwrap();
+        assert!(js.contains("function main()"));
+    }
+
+    #[test]
+    fn test_build_file_command_type_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.zoya");
+        std::fs::write(&file, "fn main() -> Int32 { true }").unwrap();
+
+        let result = build_file_command(&file, None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_build_file_command_file_not_found() {
+        let result = build_file_command(Path::new("nonexistent.zoya"), None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("failed to read file"));
     }
