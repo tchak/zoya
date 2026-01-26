@@ -424,13 +424,13 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
             .map(|(pattern, result)| MatchArm { pattern, result });
 
         // Match expression: match scrutinee { arms }
-        // Commas between arms are optional, trailing comma allowed
+        // Commas required between arms, trailing comma allowed
         let match_expr = just(Token::Match)
             .ignore_then(expr.clone())
             .then(
                 match_arm
-                    .then_ignore(just(Token::Comma).or_not())
-                    .repeated()
+                    .separated_by(just(Token::Comma))
+                    .allow_trailing()
                     .at_least(1)
                     .collect::<Vec<_>>()
                     .delimited_by(just(Token::LBrace), just(Token::RBrace)),
@@ -1328,7 +1328,7 @@ mod tests {
 
     #[test]
     fn test_parse_match_with_literals() {
-        let expr = parse_str("match x { 0 => 1 1 => 2 }").unwrap();
+        let expr = parse_str("match x { 0 => 1, 1 => 2 }").unwrap();
         if let Expr::Match { scrutinee, arms } = expr {
             assert!(matches!(*scrutinee, Expr::Var(ref s) if s == "x"));
             assert_eq!(arms.len(), 2);
@@ -1353,7 +1353,7 @@ mod tests {
 
     #[test]
     fn test_parse_match_with_wildcard() {
-        let expr = parse_str("match x { 0 => 1 _ => 2 }").unwrap();
+        let expr = parse_str("match x { 0 => 1, _ => 2 }").unwrap();
         if let Expr::Match { arms, .. } = expr {
             assert_eq!(arms.len(), 2);
             assert!(matches!(arms[1].pattern, Pattern::Wildcard));
@@ -1376,7 +1376,7 @@ mod tests {
 
     #[test]
     fn test_parse_match_with_strings() {
-        let expr = parse_str(r#"match s { "a" => 1 "b" => 2 }"#).unwrap();
+        let expr = parse_str(r#"match s { "a" => 1, "b" => 2 }"#).unwrap();
         if let Expr::Match { arms, .. } = expr {
             assert_eq!(arms.len(), 2);
             assert!(matches!(
@@ -1390,7 +1390,7 @@ mod tests {
 
     #[test]
     fn test_parse_match_in_function() {
-        let item = parse_item_str("fn f(x: Int32) -> Int32 { match x { 0 => 0 n => n } }").unwrap();
+        let item = parse_item_str("fn f(x: Int32) -> Int32 { match x { 0 => 0, n => n } }").unwrap();
         let Item::Function(FunctionDef { body, .. }) = item;
         assert!(matches!(body, Expr::Match { .. }));
     }
@@ -1797,7 +1797,7 @@ mod tests {
 
     #[test]
     fn test_parse_match_braced_simple() {
-        let expr = parse_str("match x { 0 => { 1 } _ => { 2 } }").unwrap();
+        let expr = parse_str("match x { 0 => { 1 }, _ => { 2 } }").unwrap();
         if let Expr::Match { arms, .. } = expr {
             assert_eq!(arms.len(), 2);
             // Braced simple expressions should unwrap to just the expression
@@ -1810,7 +1810,7 @@ mod tests {
 
     #[test]
     fn test_parse_match_braced_block() {
-        let expr = parse_str("match x { 0 => { let y = 1 y + 1 } _ => 0 }").unwrap();
+        let expr = parse_str("match x { 0 => { let y = 1 y + 1 }, _ => 0 }").unwrap();
         if let Expr::Match { arms, .. } = expr {
             assert_eq!(arms.len(), 2);
             if let Expr::Block { bindings, result } = &arms[0].result {

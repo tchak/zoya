@@ -456,8 +456,8 @@ mod tests {
         let source = r#"
             fn is_empty<T>(xs: List<T>) -> Bool {
                 match xs {
-                    [] => true
-                    [_, ..] => false
+                    [] => true,
+                    [_, ..] => false,
                 }
             }
             fn main() -> Bool { is_empty([]) }
@@ -471,8 +471,8 @@ mod tests {
         let source = r#"
             fn is_empty<T>(xs: List<T>) -> Bool {
                 match xs {
-                    [] => true
-                    [_, ..] => false
+                    [] => true,
+                    [_, ..] => false,
                 }
             }
             fn main() -> Bool { is_empty([1, 2, 3]) }
@@ -486,8 +486,8 @@ mod tests {
         let source = r#"
             fn head_or_zero(xs: List<Int32>) -> Int32 {
                 match xs {
-                    [] => 0
-                    [x, ..] => x
+                    [] => 0,
+                    [x, ..] => x,
                 }
             }
             fn main() -> Int32 { head_or_zero([42, 1, 2]) }
@@ -501,8 +501,8 @@ mod tests {
         let source = r#"
             fn head_or_zero(xs: List<Int32>) -> Int32 {
                 match xs {
-                    [] => 0
-                    [x, ..] => x
+                    [] => 0,
+                    [x, ..] => x,
                 }
             }
             fn main() -> Int32 { head_or_zero([]) }
@@ -516,8 +516,8 @@ mod tests {
         let source = r#"
             fn sum_pair(xs: List<Int32>) -> Int32 {
                 match xs {
-                    [a, b] => a + b
-                    _ => 0
+                    [a, b] => a + b,
+                    _ => 0,
                 }
             }
             fn main() -> Int32 { sum_pair([10, 20]) }
@@ -531,8 +531,8 @@ mod tests {
         let source = r#"
             fn sum_pair(xs: List<Int32>) -> Int32 {
                 match xs {
-                    [a, b] => a + b
-                    _ => 0
+                    [a, b] => a + b,
+                    _ => 0,
                 }
             }
             fn main() -> Int32 { sum_pair([1, 2, 3]) }
@@ -546,9 +546,9 @@ mod tests {
         let source = r#"
             fn starts_with_one(xs: List<Int32>) -> Bool {
                 match xs {
-                    [1, ..] => true
-                    [_, ..] => false
-                    [] => false
+                    [1, ..] => true,
+                    [_, ..] => false,
+                    [] => false,
                 }
             }
             fn main() -> Bool { starts_with_one([1, 2, 3]) }
@@ -562,9 +562,9 @@ mod tests {
         let source = r#"
             fn starts_with_one(xs: List<Int32>) -> Bool {
                 match xs {
-                    [1, ..] => true
-                    [_, ..] => false
-                    [] => false
+                    [1, ..] => true,
+                    [_, ..] => false,
+                    [] => false,
                 }
             }
             fn main() -> Bool { starts_with_one([2, 3, 4]) }
@@ -579,7 +579,7 @@ mod tests {
         let source = r#"
             fn bad(xs: List<Int32>) -> Int32 {
                 match xs {
-                    [x, ..] => x
+                    [x, ..] => x,
                 }
             }
             fn main() -> Int32 { bad([1]) }
@@ -609,10 +609,10 @@ mod tests {
         let source = r#"
             fn len_check(xs: List<Int32>) -> Bool {
                 match xs {
-                    [] => true
-                    [_] => true
-                    [_, _] => true
-                    _ => false
+                    [] => true,
+                    [_] => true,
+                    [_, _] => true,
+                    _ => false,
                 }
             }
             fn main() -> Bool { len_check([1, 2]) }
@@ -627,8 +627,8 @@ mod tests {
         let source = r#"
             fn last_elem(xs: List<Int32>) -> Int32 {
                 match xs {
-                    [.., x] => x
-                    [] => 0
+                    [.., x] => x,
+                    [] => 0,
                 }
             }
             fn main() -> Int32 { last_elem([1, 2, 3]) }
@@ -642,8 +642,8 @@ mod tests {
         let source = r#"
             fn last_elem(xs: List<Int32>) -> Int32 {
                 match xs {
-                    [.., x] => x
-                    [] => 0
+                    [.., x] => x,
+                    [] => 0,
                 }
             }
             fn main() -> Int32 { last_elem([42]) }
@@ -657,9 +657,9 @@ mod tests {
         let source = r#"
             fn last_two(xs: List<Int32>) -> Int32 {
                 match xs {
-                    [.., a, b] => a + b
-                    [x] => x
-                    [] => 0
+                    [.., a, b] => a + b,
+                    [x] => x,
+                    [] => 0,
                 }
             }
             fn main() -> Int32 { last_two([1, 2, 3, 4]) }
@@ -673,9 +673,9 @@ mod tests {
         let source = r#"
             fn ends_with_zero(xs: List<Int32>) -> Bool {
                 match xs {
-                    [.., 0] => true
-                    [_, ..] => false
-                    [] => false
+                    [.., 0] => true,
+                    [_, ..] => false,
+                    [] => false,
                 }
             }
             fn main() -> Bool { ends_with_zero([1, 2, 0]) }
@@ -690,9 +690,9 @@ mod tests {
         let source = r#"
             fn first_and_last(xs: List<Int32>) -> Int32 {
                 match xs {
-                    [a, .., b] => a + b
-                    [a] => a
-                    [] => 0
+                    [a, .., b] => a + b,
+                    [a] => a,
+                    [] => 0,
                 }
             }
             fn main() -> Int32 { first_and_last([1, 2, 3, 4]) }
@@ -707,9 +707,9 @@ mod tests {
         let source = r#"
             fn first_and_last(xs: List<Int32>) -> Int32 {
                 match xs {
-                    [a, .., b] => a + b
-                    [a] => a
-                    [] => 0
+                    [a, .., b] => a + b,
+                    [a] => a,
+                    [] => 0,
                 }
             }
             fn main() -> Int32 { first_and_last([10, 20]) }
@@ -723,9 +723,9 @@ mod tests {
         let source = r#"
             fn bookended_by_ones(xs: List<Int32>) -> Bool {
                 match xs {
-                    [1, .., 1] => true
-                    [_, ..] => false
-                    [] => false
+                    [1, .., 1] => true,
+                    [_, ..] => false,
+                    [] => false,
                 }
             }
             fn main() -> Bool { bookended_by_ones([1, 2, 3, 1]) }
@@ -739,11 +739,11 @@ mod tests {
         let source = r#"
             fn middle_free(xs: List<Int32>) -> Int32 {
                 match xs {
-                    [a, b, .., y, z] => a + b + y + z
-                    [a, b, c] => a + b + c
-                    [a, b] => a + b
-                    [a] => a
-                    [] => 0
+                    [a, b, .., y, z] => a + b + y + z,
+                    [a, b, c] => a + b + c,
+                    [a, b] => a + b,
+                    [a] => a,
+                    [] => 0,
                 }
             }
             fn main() -> Int32 { middle_free([1, 2, 3, 4, 5, 6]) }
@@ -782,7 +782,7 @@ mod tests {
         let source = r#"
             fn first(t: (Int32, String)) -> Int32 {
                 match t {
-                    (x, _) => x
+                    (x, _) => x,
                 }
             }
             fn main() -> Int32 { first((10, "hello")) }
@@ -796,7 +796,7 @@ mod tests {
         let source = r#"
             fn get_first(t: (Int32, Int32, Int32)) -> Int32 {
                 match t {
-                    (x, ..) => x
+                    (x, ..) => x,
                 }
             }
             fn main() -> Int32 { get_first((1, 2, 3)) }
@@ -810,7 +810,7 @@ mod tests {
         let source = r#"
             fn get_last(t: (Int32, Int32, Int32)) -> Int32 {
                 match t {
-                    (.., z) => z
+                    (.., z) => z,
                 }
             }
             fn main() -> Int32 { get_last((1, 2, 3)) }
@@ -824,7 +824,7 @@ mod tests {
         let source = r#"
             fn first_and_last(t: (Int32, Int32, Int32)) -> Int32 {
                 match t {
-                    (a, .., c) => a + c
+                    (a, .., c) => a + c,
                 }
             }
             fn main() -> Int32 { first_and_last((1, 2, 3)) }
@@ -838,7 +838,7 @@ mod tests {
         let source = r#"
             fn get_int(t: (Int32, String, Bool)) -> Int32 {
                 match t {
-                    (x, _, _) => x
+                    (x, _, _) => x,
                 }
             }
             fn main() -> Int32 { get_int((42, "hello", true)) }
