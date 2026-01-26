@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::ast::{
     BinOp, Expr, FunctionDef, Item, LetBinding, ListPattern, MatchArm, Pattern, Statement,
     TuplePattern, TypeAnnotation, UnaryOp,
 };
 use crate::ir::{TypedExpr, TypedFunction, TypedLetBinding, TypedMatchArm, TypedPattern};
-use crate::types::{FunctionType, Type, TypeError, TypeVarId};
+use crate::types::{FunctionType, Type, TypeError, TypeScheme, TypeVarId};
 use crate::unify::UnifyCtx;
 
 /// Type environment for checking expressions
@@ -13,8 +13,10 @@ use crate::unify::UnifyCtx;
 pub struct TypeEnv {
     /// Function signatures
     pub functions: HashMap<String, FunctionType>,
-    /// Local variable types (parameters in function bodies)
+    /// Local variable types (parameters in function bodies) - monomorphic
     pub locals: HashMap<String, Type>,
+    /// Polymorphic let-bound variables (type schemes for let polymorphism)
+    pub poly_locals: HashMap<String, TypeScheme>,
 }
 
 impl TypeEnv {
@@ -22,7 +24,23 @@ impl TypeEnv {
         TypeEnv {
             functions: self.functions.clone(),
             locals,
+            poly_locals: self.poly_locals.clone(),
         }
+    }
+
+    /// Collect all free type variables in the environment
+    pub fn free_vars(&self, ctx: &UnifyCtx) -> HashSet<TypeVarId> {
+        let mut set = HashSet::new();
+        for ty in self.locals.values() {
+            set.extend(ctx.free_vars(ty));
+        }
+        for scheme in self.poly_locals.values() {
+            // Free vars in scheme = free vars in type - quantified vars
+            let ty_vars = ctx.free_vars(&scheme.ty);
+            let quantified: HashSet<_> = scheme.quantified.iter().cloned().collect();
+            set.extend(ty_vars.difference(&quantified).cloned());
+        }
+        set
     }
 }
 
@@ -73,6 +91,17 @@ fn resolve_type_annotation(
                 types.push(resolve_type_annotation(param, type_param_map)?);
             }
             Ok(Type::Tuple(types))
+        }
+        TypeAnnotation::Function(params, ret) => {
+            let mut param_types = Vec::new();
+            for param in params {
+                param_types.push(resolve_type_annotation(param, type_param_map)?);
+            }
+            let ret_type = resolve_type_annotation(ret, type_param_map)?;
+            Ok(Type::Function {
+                params: param_types,
+                ret: Box::new(ret_type),
+            })
         }
     }
 }
@@ -252,7 +281,16 @@ fn check_with_env(
         Expr::String(s) => Ok(TypedExpr::String(s.clone())),
 
         Expr::Var(name) => {
-            if let Some(ty) = env.locals.get(name) {
+            // First check polymorphic locals (let-bound values with type schemes)
+            if let Some(scheme) = env.poly_locals.get(name) {
+                let ty = ctx.instantiate(scheme);
+                Ok(TypedExpr::Var {
+                    name: name.clone(),
+                    ty: ctx.resolve(&ty),
+                })
+            }
+            // Then check monomorphic locals (function parameters)
+            else if let Some(ty) = env.locals.get(name) {
                 Ok(TypedExpr::Var {
                     name: name.clone(),
                     ty: ctx.resolve(ty),
@@ -265,67 +303,118 @@ fn check_with_env(
         }
 
         Expr::Call { func, args } => {
-            // Look up function
-            let func_type = env.functions.get(func).ok_or_else(|| TypeError {
-                message: format!("unknown function: {}", func),
-            })?;
+            // First, try to look up as a named function
+            if let Some(func_type) = env.functions.get(func) {
+                // Check argument count
+                if args.len() != func_type.params.len() {
+                    return Err(TypeError {
+                        message: format!(
+                            "function '{}' expects {} arguments, got {}",
+                            func,
+                            func_type.params.len(),
+                            args.len()
+                        ),
+                    });
+                }
 
-            // Check argument count
-            if args.len() != func_type.params.len() {
-                return Err(TypeError {
-                    message: format!(
-                        "function '{}' expects {} arguments, got {}",
-                        func,
-                        func_type.params.len(),
-                        args.len()
-                    ),
-                });
+                // Create fresh type variables for this call's type parameters
+                let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
+                for &old_id in &func_type.type_var_ids {
+                    let new_var = ctx.fresh_var();
+                    instantiation.insert(old_id, new_var);
+                }
+
+                // Instantiate parameter types with fresh variables
+                let instantiated_params: Vec<Type> = func_type
+                    .params
+                    .iter()
+                    .map(|t| substitute_type_vars(t, &instantiation))
+                    .collect();
+                let instantiated_return =
+                    substitute_type_vars(&func_type.return_type, &instantiation);
+
+                // Type check arguments and unify with parameter types
+                let mut typed_args = Vec::new();
+                for (arg, param_type) in args.iter().zip(instantiated_params.iter()) {
+                    let typed_arg = check_with_env(arg, env, ctx)?;
+                    let arg_type = typed_arg.ty();
+
+                    // Unify argument type with parameter type
+                    ctx.unify(&arg_type, param_type).map_err(|e| TypeError {
+                        message: format!(
+                            "argument type mismatch in call to '{}': expected {}, got {}: {}",
+                            func,
+                            ctx.resolve(param_type),
+                            ctx.resolve(&arg_type),
+                            e.message
+                        ),
+                    })?;
+
+                    typed_args.push(typed_arg);
+                }
+
+                // Resolve the return type after unification
+                let return_type = ctx.resolve(&instantiated_return);
+
+                Ok(TypedExpr::Call {
+                    func: func.clone(),
+                    args: typed_args,
+                    ty: return_type,
+                })
             }
+            // Try to look up as a lambda-bound variable
+            else if let Some(func_ty) = get_callable_type(func, env, ctx) {
+                // Must be a function type
+                let resolved = ctx.resolve(&func_ty);
+                if let Type::Function { params, ret } = resolved {
+                    // Check argument count
+                    if args.len() != params.len() {
+                        return Err(TypeError {
+                            message: format!(
+                                "'{}' expects {} arguments, got {}",
+                                func,
+                                params.len(),
+                                args.len()
+                            ),
+                        });
+                    }
 
-            // Create fresh type variables for this call's type parameters
-            let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
-            for &old_id in &func_type.type_var_ids {
-                let new_var = ctx.fresh_var();
-                instantiation.insert(old_id, new_var);
+                    // Type check arguments and unify with parameter types
+                    let mut typed_args = Vec::new();
+                    for (arg, param_type) in args.iter().zip(params.iter()) {
+                        let typed_arg = check_with_env(arg, env, ctx)?;
+                        let arg_type = typed_arg.ty();
+
+                        ctx.unify(&arg_type, param_type).map_err(|e| TypeError {
+                            message: format!(
+                                "argument type mismatch in call to '{}': expected {}, got {}: {}",
+                                func,
+                                ctx.resolve(param_type),
+                                ctx.resolve(&arg_type),
+                                e.message
+                            ),
+                        })?;
+
+                        typed_args.push(typed_arg);
+                    }
+
+                    let return_type = ctx.resolve(&ret);
+
+                    Ok(TypedExpr::Call {
+                        func: func.clone(),
+                        args: typed_args,
+                        ty: return_type,
+                    })
+                } else {
+                    Err(TypeError {
+                        message: format!("'{}' is not a function, has type {}", func, resolved),
+                    })
+                }
+            } else {
+                Err(TypeError {
+                    message: format!("unknown function: {}", func),
+                })
             }
-
-            // Instantiate parameter types with fresh variables
-            let instantiated_params: Vec<Type> = func_type
-                .params
-                .iter()
-                .map(|t| substitute_type_vars(t, &instantiation))
-                .collect();
-            let instantiated_return =
-                substitute_type_vars(&func_type.return_type, &instantiation);
-
-            // Type check arguments and unify with parameter types
-            let mut typed_args = Vec::new();
-            for (arg, param_type) in args.iter().zip(instantiated_params.iter()) {
-                let typed_arg = check_with_env(arg, env, ctx)?;
-                let arg_type = typed_arg.ty();
-
-                // Unify argument type with parameter type
-                ctx.unify(&arg_type, param_type).map_err(|e| TypeError {
-                    message: format!(
-                        "argument type mismatch in call to '{}': expected {}, got {}: {}",
-                        func,
-                        ctx.resolve(param_type),
-                        ctx.resolve(&arg_type),
-                        e.message
-                    ),
-                })?;
-
-                typed_args.push(typed_arg);
-            }
-
-            // Resolve the return type after unification
-            let return_type = ctx.resolve(&instantiated_return);
-
-            Ok(TypedExpr::Call {
-                func: func.clone(),
-                args: typed_args,
-                ty: return_type,
-            })
         }
 
         Expr::UnaryOp { op, expr } => {
@@ -400,10 +489,21 @@ fn check_with_env(
 
             for binding in bindings {
                 let typed_binding = check_let_binding(binding, &block_env, ctx)?;
-                // Add binding to environment for subsequent bindings
-                block_env
-                    .locals
-                    .insert(binding.name.clone(), typed_binding.ty.clone());
+
+                // Check if we should generalize (let polymorphism)
+                // Only generalize syntactic values (lambdas, literals, variables)
+                if is_syntactic_value(&binding.value) {
+                    // Collect fixed vars from the environment
+                    let fixed_vars = block_env.free_vars(ctx);
+                    let scheme = ctx.generalize(&typed_binding.ty, &fixed_vars);
+                    block_env.poly_locals.insert(binding.name.clone(), scheme);
+                } else {
+                    // Monomorphic binding
+                    block_env
+                        .locals
+                        .insert(binding.name.clone(), typed_binding.ty.clone());
+                }
+
                 typed_bindings.push(typed_binding);
             }
 
@@ -562,6 +662,61 @@ fn check_with_env(
                 ty: Type::Tuple(element_types),
             })
         }
+
+        Expr::Lambda {
+            params,
+            return_type,
+            body,
+        } => {
+            // Create fresh type variables for unannotated parameters
+            let mut param_types = Vec::new();
+            let mut lambda_env = env.clone();
+
+            for param in params {
+                let param_ty = match &param.typ {
+                    Some(annotation) => resolve_type_annotation(annotation, &HashMap::new())?,
+                    None => ctx.fresh_var(),
+                };
+                lambda_env.locals.insert(param.name.clone(), param_ty.clone());
+                param_types.push(param_ty);
+            }
+
+            // Check the body in the extended environment
+            let typed_body = check_with_env(body, &lambda_env, ctx)?;
+            let body_ty = typed_body.ty();
+
+            // If return type is annotated, unify with body type
+            let resolved_return = if let Some(annotation) = return_type {
+                let declared_return = resolve_type_annotation(annotation, &HashMap::new())?;
+                ctx.unify(&body_ty, &declared_return).map_err(|e| TypeError {
+                    message: format!(
+                        "lambda body type {} doesn't match declared return type {}: {}",
+                        ctx.resolve(&body_ty),
+                        ctx.resolve(&declared_return),
+                        e.message
+                    ),
+                })?;
+                ctx.resolve(&declared_return)
+            } else {
+                ctx.resolve(&body_ty)
+            };
+
+            // Construct the function type
+            let lambda_type = Type::Function {
+                params: param_types.iter().map(|t| ctx.resolve(t)).collect(),
+                ret: Box::new(resolved_return.clone()),
+            };
+
+            Ok(TypedExpr::Lambda {
+                params: params
+                    .iter()
+                    .zip(param_types.iter())
+                    .map(|(p, ty)| (p.name.clone(), ctx.resolve(ty)))
+                    .collect(),
+                body: Box::new(typed_body),
+                ty: lambda_type,
+            })
+        }
     }
 }
 
@@ -570,6 +725,31 @@ fn substitute_type_vars(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
     match ty {
         Type::Var(id) => mapping.get(id).cloned().unwrap_or_else(|| ty.clone()),
         _ => ty.clone(),
+    }
+}
+
+/// Get the type of a callable (lambda-bound variable), instantiating if polymorphic
+fn get_callable_type(name: &str, env: &TypeEnv, ctx: &mut UnifyCtx) -> Option<Type> {
+    // Check polymorphic locals first
+    if let Some(scheme) = env.poly_locals.get(name) {
+        return Some(ctx.instantiate(scheme));
+    }
+    // Then check monomorphic locals
+    if let Some(ty) = env.locals.get(name) {
+        return Some(ty.clone());
+    }
+    None
+}
+
+/// Check if an expression is a syntactic value (safe to generalize under value restriction)
+fn is_syntactic_value(expr: &Expr) -> bool {
+    match expr {
+        Expr::Lambda { .. } => true,
+        Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) | Expr::String(_) => true,
+        Expr::List(elems) => elems.iter().all(is_syntactic_value),
+        Expr::Tuple(elems) => elems.iter().all(is_syntactic_value),
+        Expr::Var(_) => true,
+        _ => false,
     }
 }
 
@@ -1084,8 +1264,17 @@ pub fn check_repl(
             }
             Statement::Let(binding) => {
                 let typed_binding = check_let_binding(binding, env, &mut ctx)?;
-                env.locals
-                    .insert(binding.name.clone(), typed_binding.ty.clone());
+
+                // Apply let polymorphism (value restriction)
+                if is_syntactic_value(&binding.value) {
+                    let fixed_vars = env.free_vars(&ctx);
+                    let scheme = ctx.generalize(&typed_binding.ty, &fixed_vars);
+                    env.poly_locals.insert(binding.name.clone(), scheme);
+                } else {
+                    env.locals
+                        .insert(binding.name.clone(), typed_binding.ty.clone());
+                }
+
                 results.push((idx, CheckedStatement::Let(typed_binding)));
             }
             Statement::Item(_) => unreachable!("Functions already handled"),
@@ -1733,8 +1922,9 @@ mod tests {
         let result = check_repl(&stmts, &mut env).unwrap();
         assert_eq!(result.len(), 1);
         assert!(matches!(result[0], CheckedStatement::Let(_)));
-        // Variable should be added to env
-        assert_eq!(env.locals.get("x"), Some(&Type::Int32));
+        // Variable should be added to env (in poly_locals since it's a syntactic value)
+        let scheme = env.poly_locals.get("x").expect("x should be in poly_locals");
+        assert_eq!(scheme.ty, Type::Int32);
     }
 
     #[test]
@@ -1768,7 +1958,9 @@ mod tests {
         })];
         let result = check_repl(&stmts, &mut env).unwrap();
         assert_eq!(result.len(), 1);
-        assert_eq!(env.locals.get("x"), Some(&Type::Int32));
+        // Variable should be in poly_locals since it's a syntactic value
+        let scheme = env.poly_locals.get("x").expect("x should be in poly_locals");
+        assert_eq!(scheme.ty, Type::Int32);
     }
 
     #[test]

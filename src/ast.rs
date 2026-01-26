@@ -24,9 +24,10 @@ pub struct Param {
 /// Type annotation in source code
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeAnnotation {
-    Named(String),                              // Int32, Float, T, etc.
-    Parameterized(String, Vec<TypeAnnotation>), // List<Int32>, Map<K, V>, etc.
-    Tuple(Vec<TypeAnnotation>),                 // (Int32, String, Bool)
+    Named(String),                                      // Int32, Float, T, etc.
+    Parameterized(String, Vec<TypeAnnotation>),         // List<Int32>, Map<K, V>, etc.
+    Tuple(Vec<TypeAnnotation>),                         // (Int32, String, Bool)
+    Function(Vec<TypeAnnotation>, Box<TypeAnnotation>), // (Int32, String) -> Bool
 }
 
 /// Let binding: `let x = expr` or `let x: Type = expr`
@@ -35,6 +36,13 @@ pub struct LetBinding {
     pub name: String,
     pub type_annotation: Option<TypeAnnotation>,
     pub value: Box<Expr>,
+}
+
+/// Lambda parameter: `x` or `x: Type`
+#[derive(Debug, Clone, PartialEq)]
+pub struct LambdaParam {
+    pub name: String,
+    pub typ: Option<TypeAnnotation>,
 }
 
 /// Pattern in a match arm
@@ -108,6 +116,11 @@ pub enum Expr {
         receiver: Box<Expr>,
         method: String,
         args: Vec<Expr>,
+    },
+    Lambda {
+        params: Vec<LambdaParam>,
+        return_type: Option<TypeAnnotation>,
+        body: Box<Expr>,
     },
 }
 

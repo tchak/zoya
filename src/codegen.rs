@@ -173,6 +173,16 @@ pub fn codegen(expr: &TypedExpr) -> String {
                 result
             }
         }
+
+        TypedExpr::Lambda { params, body, .. } => {
+            let param_names: Vec<&str> = params.iter().map(|(name, _)| name.as_str()).collect();
+            let body_code = codegen(body);
+            if params.is_empty() {
+                format!("(() => {})", body_code)
+            } else {
+                format!("(({}) => {})", param_names.join(", "), body_code)
+            }
+        }
     }
 }
 

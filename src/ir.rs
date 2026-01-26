@@ -102,6 +102,11 @@ pub enum TypedExpr {
         args: Vec<TypedExpr>,
         ty: Type,
     },
+    Lambda {
+        params: Vec<(String, Type)>,
+        body: Box<TypedExpr>,
+        ty: Type,
+    },
 }
 
 impl TypedExpr {
@@ -121,6 +126,7 @@ impl TypedExpr {
             TypedExpr::Block { result, .. } => result.ty(),
             TypedExpr::Match { ty, .. } => ty.clone(),
             TypedExpr::MethodCall { ty, .. } => ty.clone(),
+            TypedExpr::Lambda { ty, .. } => ty.clone(),
         }
     }
 }

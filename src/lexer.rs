@@ -139,6 +139,9 @@ pub enum Token {
 
     #[token(".")]
     Dot,
+
+    #[token("|")]
+    Pipe,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -492,6 +495,46 @@ mod tests {
                 Token::Comma,
                 Token::DotDot,
                 Token::RBracket,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_pipe() {
+        let tokens = lex("|").unwrap();
+        assert_eq!(tokens, vec![Token::Pipe]);
+    }
+
+    #[test]
+    fn test_lambda_tokens() {
+        let tokens = lex("|x| x + 1").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Pipe,
+                Token::Ident("x".to_string()),
+                Token::Pipe,
+                Token::Ident("x".to_string()),
+                Token::Plus,
+                Token::Int(1),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lambda_with_type_annotation() {
+        let tokens = lex("|x: Int32| -> Int32 x").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Pipe,
+                Token::Ident("x".to_string()),
+                Token::Colon,
+                Token::Ident("Int32".to_string()),
+                Token::Pipe,
+                Token::Arrow,
+                Token::Ident("Int32".to_string()),
+                Token::Ident("x".to_string()),
             ]
         );
     }

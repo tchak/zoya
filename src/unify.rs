@@ -1,8 +1,8 @@
 //! Type unification for Hindley-Milner style type inference.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use crate::types::{Type, TypeError, TypeVarId};
+use crate::types::{Type, TypeError, TypeScheme, TypeVarId};
 
 /// Unification context that tracks type variable bindings.
 #[derive(Debug, Clone, Default)]
@@ -42,6 +42,10 @@ impl UnifyCtx {
             Type::Tuple(elems) => {
                 Type::Tuple(elems.iter().map(|e| self.resolve(e)).collect())
             }
+            Type::Function { params, ret } => Type::Function {
+                params: params.iter().map(|p| self.resolve(p)).collect(),
+                ret: Box::new(self.resolve(ret)),
+            },
             _ => ty.clone(),
         }
     }
@@ -54,6 +58,9 @@ impl UnifyCtx {
             Type::Var(id) => id == var_id,
             Type::List(elem) => self.occurs(var_id, &elem),
             Type::Tuple(elems) => elems.iter().any(|e| self.occurs(var_id, e)),
+            Type::Function { params, ret } => {
+                params.iter().any(|p| self.occurs(var_id, p)) || self.occurs(var_id, &ret)
+            }
             _ => false,
         }
     }
@@ -117,6 +124,32 @@ impl UnifyCtx {
                 Ok(())
             }
 
+            // Function types - unify parameter types and return types
+            (
+                Type::Function {
+                    params: params1,
+                    ret: ret1,
+                },
+                Type::Function {
+                    params: params2,
+                    ret: ret2,
+                },
+            ) => {
+                if params1.len() != params2.len() {
+                    return Err(TypeError {
+                        message: format!(
+                            "function arity mismatch: {} parameters vs {}",
+                            params1.len(),
+                            params2.len()
+                        ),
+                    });
+                }
+                for (p1, p2) in params1.iter().zip(params2.iter()) {
+                    self.unify(p1, p2)?;
+                }
+                self.unify(ret1, ret2)
+            }
+
             // Different concrete types - cannot unify
             _ => Err(TypeError {
                 message: format!("type mismatch: {} vs {}", t1, t2),
@@ -132,7 +165,71 @@ impl UnifyCtx {
             Type::Var(_) => false,
             Type::List(elem) => self.is_concrete(&elem),
             Type::Tuple(elems) => elems.iter().all(|e| self.is_concrete(e)),
+            Type::Function { params, ret } => {
+                params.iter().all(|p| self.is_concrete(p)) && self.is_concrete(&ret)
+            }
             _ => true,
+        }
+    }
+
+    /// Collect all free (unbound) type variables in a type.
+    pub fn free_vars(&self, ty: &Type) -> HashSet<TypeVarId> {
+        let ty = self.resolve(ty);
+        match ty {
+            Type::Var(id) => {
+                let mut set = HashSet::new();
+                set.insert(id);
+                set
+            }
+            Type::List(elem) => self.free_vars(&elem),
+            Type::Tuple(elems) => elems.iter().flat_map(|e| self.free_vars(e)).collect(),
+            Type::Function { params, ret } => {
+                let mut set: HashSet<TypeVarId> =
+                    params.iter().flat_map(|p| self.free_vars(p)).collect();
+                set.extend(self.free_vars(&ret));
+                set
+            }
+            _ => HashSet::new(),
+        }
+    }
+
+    /// Generalize a type to a type scheme by quantifying over type variables
+    /// that are free in the type but not in the given set of "fixed" variables.
+    /// The fixed variables typically come from the outer environment.
+    pub fn generalize(&self, ty: &Type, fixed_vars: &HashSet<TypeVarId>) -> TypeScheme {
+        let ty = self.resolve(ty);
+        let ty_vars = self.free_vars(&ty);
+        let quantified: Vec<TypeVarId> = ty_vars.difference(fixed_vars).cloned().collect();
+        TypeScheme { quantified, ty }
+    }
+
+    /// Instantiate a type scheme by replacing quantified variables with fresh ones.
+    pub fn instantiate(&mut self, scheme: &TypeScheme) -> Type {
+        if scheme.quantified.is_empty() {
+            return scheme.ty.clone();
+        }
+
+        let mut mapping = HashMap::new();
+        for &var_id in &scheme.quantified {
+            mapping.insert(var_id, self.fresh_var());
+        }
+
+        self.substitute_in_type(&scheme.ty, &mapping)
+    }
+
+    /// Substitute type variables in a type using a mapping.
+    fn substitute_in_type(&self, ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
+        match ty {
+            Type::Var(id) => mapping.get(id).cloned().unwrap_or_else(|| ty.clone()),
+            Type::List(elem) => Type::List(Box::new(self.substitute_in_type(elem, mapping))),
+            Type::Tuple(elems) => {
+                Type::Tuple(elems.iter().map(|e| self.substitute_in_type(e, mapping)).collect())
+            }
+            Type::Function { params, ret } => Type::Function {
+                params: params.iter().map(|p| self.substitute_in_type(p, mapping)).collect(),
+                ret: Box::new(self.substitute_in_type(ret, mapping)),
+            },
+            _ => ty.clone(),
         }
     }
 }
@@ -322,4 +419,184 @@ mod tests {
         ctx.unify(&var, &Type::String).unwrap();
         assert!(ctx.is_concrete(&list_var));
     }
+
+    #[test]
+    fn test_unify_function_same() {
+        let mut ctx = UnifyCtx::new();
+        let f1 = Type::Function {
+            params: vec![Type::Int32],
+            ret: Box::new(Type::Bool),
+        };
+        let f2 = Type::Function {
+            params: vec![Type::Int32],
+            ret: Box::new(Type::Bool),
+        };
+        assert!(ctx.unify(&f1, &f2).is_ok());
+    }
+
+    #[test]
+    fn test_unify_function_different_return() {
+        let mut ctx = UnifyCtx::new();
+        let f1 = Type::Function {
+            params: vec![Type::Int32],
+            ret: Box::new(Type::Bool),
+        };
+        let f2 = Type::Function {
+            params: vec![Type::Int32],
+            ret: Box::new(Type::String),
+        };
+        assert!(ctx.unify(&f1, &f2).is_err());
+    }
+
+    #[test]
+    fn test_unify_function_different_arity() {
+        let mut ctx = UnifyCtx::new();
+        let f1 = Type::Function {
+            params: vec![Type::Int32],
+            ret: Box::new(Type::Bool),
+        };
+        let f2 = Type::Function {
+            params: vec![Type::Int32, Type::String],
+            ret: Box::new(Type::Bool),
+        };
+        let result = ctx.unify(&f1, &f2);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("arity"));
+    }
+
+    #[test]
+    fn test_unify_function_with_var() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+        let f = Type::Function {
+            params: vec![var.clone()],
+            ret: Box::new(Type::Bool),
+        };
+        let expected = Type::Function {
+            params: vec![Type::Int32],
+            ret: Box::new(Type::Bool),
+        };
+        assert!(ctx.unify(&f, &expected).is_ok());
+        assert_eq!(ctx.resolve(&var), Type::Int32);
+    }
+
+    #[test]
+    fn test_free_vars_concrete() {
+        let ctx = UnifyCtx::new();
+        assert!(ctx.free_vars(&Type::Int32).is_empty());
+        assert!(ctx.free_vars(&Type::String).is_empty());
+    }
+
+    #[test]
+    fn test_free_vars_var() {
+        let mut ctx = UnifyCtx::new();
+        let v = ctx.fresh_var();
+        let fv = ctx.free_vars(&v);
+        assert_eq!(fv.len(), 1);
+        if let Type::Var(id) = v {
+            assert!(fv.contains(&id));
+        }
+    }
+
+    #[test]
+    fn test_free_vars_function() {
+        let mut ctx = UnifyCtx::new();
+        let v1 = ctx.fresh_var();
+        let v2 = ctx.fresh_var();
+        let f = Type::Function {
+            params: vec![v1.clone()],
+            ret: Box::new(v2.clone()),
+        };
+        let fv = ctx.free_vars(&f);
+        assert_eq!(fv.len(), 2);
+    }
+
+    #[test]
+    fn test_generalize_no_free_vars() {
+        let ctx = UnifyCtx::new();
+        let ty = Type::Function {
+            params: vec![Type::Int32],
+            ret: Box::new(Type::Bool),
+        };
+        let scheme = ctx.generalize(&ty, &HashSet::new());
+        assert!(scheme.quantified.is_empty());
+    }
+
+    #[test]
+    fn test_generalize_with_free_vars() {
+        let mut ctx = UnifyCtx::new();
+        let v = ctx.fresh_var();
+        let ty = Type::Function {
+            params: vec![v.clone()],
+            ret: Box::new(v.clone()),
+        };
+        let scheme = ctx.generalize(&ty, &HashSet::new());
+        assert_eq!(scheme.quantified.len(), 1);
+    }
+
+    #[test]
+    fn test_generalize_with_fixed_vars() {
+        let mut ctx = UnifyCtx::new();
+        let v = ctx.fresh_var();
+        let ty = Type::Function {
+            params: vec![v.clone()],
+            ret: Box::new(v.clone()),
+        };
+        // If v is in fixed_vars, it shouldn't be quantified
+        let mut fixed = HashSet::new();
+        if let Type::Var(id) = v {
+            fixed.insert(id);
+        }
+        let scheme = ctx.generalize(&ty, &fixed);
+        assert!(scheme.quantified.is_empty());
+    }
+
+    #[test]
+    fn test_instantiate_mono() {
+        let mut ctx = UnifyCtx::new();
+        let ty = Type::Function {
+            params: vec![Type::Int32],
+            ret: Box::new(Type::Bool),
+        };
+        let scheme = TypeScheme {
+            quantified: vec![],
+            ty: ty.clone(),
+        };
+        let instantiated = ctx.instantiate(&scheme);
+        assert_eq!(instantiated, ty);
+    }
+
+    #[test]
+    fn test_instantiate_poly() {
+        let mut ctx = UnifyCtx::new();
+        let v = ctx.fresh_var();
+        let id = if let Type::Var(id) = v { id } else { panic!() };
+
+        let ty = Type::Function {
+            params: vec![Type::Var(id)],
+            ret: Box::new(Type::Var(id)),
+        };
+        let scheme = TypeScheme {
+            quantified: vec![id],
+            ty,
+        };
+
+        let inst1 = ctx.instantiate(&scheme);
+        let inst2 = ctx.instantiate(&scheme);
+
+        // Both should be function types
+        assert!(matches!(inst1, Type::Function { .. }));
+        assert!(matches!(inst2, Type::Function { .. }));
+
+        // The fresh vars should be different in each instantiation
+        if let (
+            Type::Function { params: p1, .. },
+            Type::Function { params: p2, .. },
+        ) = (&inst1, &inst2)
+        {
+            assert_ne!(p1[0], p2[0]);
+        }
+    }
+
+    use std::collections::HashSet;
 }

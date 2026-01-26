@@ -1194,4 +1194,205 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("failed to read file"));
     }
+
+    // Lambda tests
+    #[test]
+    fn test_run_simple_lambda() {
+        let source = r#"
+            fn main() -> Int32 {
+                let f = |x| x + 1;
+                f(41)
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(42));
+    }
+
+    #[test]
+    fn test_run_lambda_multi_param() {
+        let source = r#"
+            fn main() -> Int32 {
+                let add = |x, y| x + y;
+                add(10, 32)
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(42));
+    }
+
+    #[test]
+    fn test_run_lambda_with_type_annotation() {
+        let source = r#"
+            fn main() -> Int32 {
+                let f = |x: Int32| -> Int32 x * 2;
+                f(21)
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(42));
+    }
+
+    #[test]
+    fn test_run_lambda_block_body() {
+        let source = r#"
+            fn main() -> Int32 {
+                let f = |x| {
+                    let y = x * 2;
+                    y + 1
+                };
+                f(20)
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(41));
+    }
+
+    #[test]
+    fn test_run_lambda_nested() {
+        let source = r#"
+            fn main() -> Int32 {
+                let add = |x| |y| x + y;
+                let add10 = add(10);
+                add10(32)
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(42));
+    }
+
+    #[test]
+    fn test_run_lambda_polymorphic_identity() {
+        // Test let polymorphism: id can be used at different types
+        let source = r#"
+            fn main() -> Int32 {
+                let id = |x| x;
+                let a = id(42);
+                let b = id(true);
+                a
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(42));
+    }
+
+    #[test]
+    fn test_run_lambda_polymorphic_const() {
+        // Test polymorphic const function
+        let source = r#"
+            fn main() -> Int32 {
+                let const_ = |x| |y| x;
+                let always42 = const_(42);
+                always42(true)
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(42));
+    }
+
+    #[test]
+    fn test_run_lambda_no_params() {
+        let source = r#"
+            fn main() -> Int32 {
+                let f = || 42;
+                f()
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(42));
+    }
+
+    #[test]
+    fn test_run_lambda_captures_outer_var() {
+        // Lambda captures variable from outer scope
+        let source = r#"
+            fn main() -> Int32 {
+                let x = 10;
+                let f = |y| x + y;
+                f(32)
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(42));
+    }
+
+    #[test]
+    fn test_run_lambda_with_function_type_annotation() {
+        let source = r#"
+            fn main() -> Int32 {
+                let f: Int32 -> Int32 = |x| x * 2;
+                f(21)
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(42));
+    }
+
+    #[test]
+    fn test_run_lambda_multi_param_function_type() {
+        let source = r#"
+            fn main() -> Int32 {
+                let add: (Int32, Int32) -> Int32 = |x, y| x + y;
+                add(10, 32)
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(42));
+    }
+
+    #[test]
+    fn test_run_lambda_no_param_function_type() {
+        let source = r#"
+            fn main() -> Int32 {
+                let f: () -> Int32 = || 42;
+                f()
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(42));
+    }
+
+    #[test]
+    fn test_run_lambda_passed_to_function() {
+        let source = r#"
+            fn apply(f: Int32 -> Int32, x: Int32) -> Int32 f(x)
+
+            fn main() -> Int32 {
+                apply(|x| x * 2, 21)
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(42));
+    }
+
+    #[test]
+    fn test_run_higher_order_function_returns_lambda() {
+        let source = r#"
+            fn make_adder(n: Int32) -> Int32 -> Int32 |x| x + n
+
+            fn main() -> Int32 {
+                let add5 = make_adder(5);
+                add5(37)
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(42));
+    }
+
+    #[test]
+    fn test_run_function_type_mismatch_error() {
+        let source = r#"
+            fn main() -> Int32 {
+                let f: Int32 -> Int32 = |x| true;
+                0
+            }
+        "#;
+        let result = run_source(source);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("type mismatch") || err.contains("Bool") || err.contains("Int32"),
+            "error should mention type mismatch: {}",
+            err
+        );
+    }
 }

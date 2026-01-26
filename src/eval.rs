@@ -163,6 +163,9 @@ pub fn eval_js_in_context(
             "unresolved type variable: {}",
             name
         ))),
+        Type::Function { .. } => Err(EvalError::RuntimeError(
+            "cannot return function as top-level value".to_string(),
+        )),
     }
 }
 
@@ -233,6 +236,9 @@ fn js_array_elem_to_value(
             "unresolved type variable in list element: {}",
             name
         ))),
+        Type::Function { .. } => Err(EvalError::RuntimeError(
+            "cannot have function as list/tuple element value".to_string(),
+        )),
     }
 }
 

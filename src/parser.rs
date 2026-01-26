@@ -1,8 +1,8 @@
 use chumsky::prelude::*;
 
 use crate::ast::{
-    BinOp, Expr, FunctionDef, Item, LetBinding, ListPattern, MatchArm, Param, Pattern, Statement,
-    TuplePattern, TypeAnnotation, UnaryOp,
+    BinOp, Expr, FunctionDef, Item, LambdaParam, LetBinding, ListPattern, MatchArm, Param, Pattern,
+    Statement, TuplePattern, TypeAnnotation, UnaryOp,
 };
 use crate::lexer::Token;
 
@@ -70,13 +70,14 @@ fn type_annotation<'a>() -> impl Parser<'a, &'a [Token], TypeAnnotation, extra::
             .ignore_then(just(Token::RParen))
             .to(TypeAnnotation::Tuple(vec![]));
 
-        // Tuple type: (T1, T2) or (T1,) - requires at least one comma
-        let tuple_type = just(Token::LParen)
+        // Parenthesized type: (T) for grouping, (T,) for single-element tuple, (T, U) for multi-element tuple
+        let paren_type = just(Token::LParen)
             .ignore_then(type_ann.clone())
             .then(
                 just(Token::Comma)
                     .ignore_then(
                         type_ann
+                            .clone()
                             .separated_by(just(Token::Comma))
                             .allow_trailing()
                             .collect::<Vec<_>>(),
@@ -84,23 +85,40 @@ fn type_annotation<'a>() -> impl Parser<'a, &'a [Token], TypeAnnotation, extra::
                     .or_not(),
             )
             .then_ignore(just(Token::RParen))
-            .try_map(|(first, rest), span| match rest {
+            .map(|(first, rest)| match rest {
                 None => {
-                    // (T) - not a valid type annotation (use T directly)
-                    Err(Rich::custom(
-                        span,
-                        "single type in parentheses is not valid; use the type directly or add a trailing comma for a single-element tuple",
-                    ))
+                    // (T) - parenthesized type for grouping (useful in function types)
+                    first
                 }
                 Some(mut more) => {
                     // (T,) or (T1, T2, ...) - tuple type
                     let mut elements = vec![first];
                     elements.append(&mut more);
-                    Ok(TypeAnnotation::Tuple(elements))
+                    TypeAnnotation::Tuple(elements)
                 }
             });
 
-        choice((empty_tuple_type, tuple_type, named_type))
+        // Base type (before considering function arrow)
+        let base_type = choice((empty_tuple_type, paren_type, named_type));
+
+        // Function type: T -> U or (T, U) -> V
+        // The arrow is right-associative: A -> B -> C = A -> (B -> C)
+        // This is achieved by recursing into type_ann on the right side
+        base_type.clone().then(
+            just(Token::Arrow).ignore_then(type_ann).or_not()
+        ).map(|(lhs, rhs)| {
+            match rhs {
+                None => lhs,
+                Some(ret) => {
+                    // Convert LHS to parameter list
+                    let params = match lhs {
+                        TypeAnnotation::Tuple(elements) => elements,
+                        other => vec![other],
+                    };
+                    TypeAnnotation::Function(params, Box::new(ret))
+                }
+            }
+        })
     })
 }
 
@@ -491,7 +509,72 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                 }
             });
 
+        // Lambda parameter: name or name: Type
+        let lambda_param = ident()
+            .then(just(Token::Colon).ignore_then(type_annotation()).or_not())
+            .map(|(name, typ)| LambdaParam { name, typ });
+
+        // Lambda parameters: |x| or |x, y| or |x: Int32|
+        let lambda_params = lambda_param
+            .separated_by(just(Token::Comma))
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .delimited_by(just(Token::Pipe), just(Token::Pipe));
+
+        // Lambda return type: -> Type (optional)
+        let lambda_return_type = just(Token::Arrow).ignore_then(type_annotation()).or_not();
+
+        // Lambda body: { [let x = e;]* expr } OR expr
+        // Note: we need to define let_in_lambda fresh here because let_in_arm
+        // was already moved when defining arm_body
+        let let_in_lambda = just(Token::Let)
+            .ignore_then(ident())
+            .then(just(Token::Colon).ignore_then(type_annotation()).or_not())
+            .then_ignore(just(Token::Eq))
+            .then(expr.clone())
+            .map(|((name, type_annotation), value)| LetBinding {
+                name,
+                type_annotation,
+                value: Box::new(value),
+            });
+
+        let lambda_body = choice((
+            // Braced body (block or simple expression)
+            just(Token::LBrace)
+                .ignore_then(
+                    let_in_lambda
+                        .then_ignore(just(Token::Semicolon))
+                        .repeated()
+                        .collect::<Vec<_>>(),
+                )
+                .then(expr.clone())
+                .then_ignore(just(Token::RBrace))
+                .map(|(bindings, result)| {
+                    if bindings.is_empty() {
+                        result
+                    } else {
+                        Expr::Block {
+                            bindings,
+                            result: Box::new(result),
+                        }
+                    }
+                }),
+            // Non-braced expression (simple body)
+            expr.clone(),
+        ));
+
+        // Lambda expression: |params| [-> Type] body
+        let lambda = lambda_params
+            .then(lambda_return_type)
+            .then(lambda_body)
+            .map(|((params, return_type), body)| Expr::Lambda {
+                params,
+                return_type,
+                body: Box::new(body),
+            });
+
         let atom = choice((
+            lambda,
             literal,
             list_literal,
             match_expr,
@@ -1925,5 +2008,227 @@ mod tests {
         } else {
             panic!("expected match expression");
         }
+    }
+
+    // Lambda tests
+    #[test]
+    fn test_parse_simple_lambda() {
+        let expr = parse_str("|x| x + 1").unwrap();
+        if let Expr::Lambda {
+            params,
+            return_type,
+            body,
+        } = expr
+        {
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0].name, "x");
+            assert!(params[0].typ.is_none());
+            assert!(return_type.is_none());
+            assert!(matches!(*body, Expr::BinOp { op: BinOp::Add, .. }));
+        } else {
+            panic!("expected lambda");
+        }
+    }
+
+    #[test]
+    fn test_parse_lambda_multi_param() {
+        let expr = parse_str("|x, y| x + y").unwrap();
+        if let Expr::Lambda { params, .. } = expr {
+            assert_eq!(params.len(), 2);
+            assert_eq!(params[0].name, "x");
+            assert_eq!(params[1].name, "y");
+        } else {
+            panic!("expected lambda");
+        }
+    }
+
+    #[test]
+    fn test_parse_lambda_with_type_annotation() {
+        let expr = parse_str("|x: Int32| x * 2").unwrap();
+        if let Expr::Lambda { params, .. } = expr {
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0].name, "x");
+            assert!(matches!(
+                &params[0].typ,
+                Some(TypeAnnotation::Named(s)) if s == "Int32"
+            ));
+        } else {
+            panic!("expected lambda");
+        }
+    }
+
+    #[test]
+    fn test_parse_lambda_with_return_type() {
+        let expr = parse_str("|x| -> Int32 x + 1").unwrap();
+        if let Expr::Lambda {
+            params, return_type, ..
+        } = expr
+        {
+            assert_eq!(params.len(), 1);
+            assert!(matches!(
+                return_type,
+                Some(TypeAnnotation::Named(s)) if s == "Int32"
+            ));
+        } else {
+            panic!("expected lambda");
+        }
+    }
+
+    #[test]
+    fn test_parse_lambda_fully_annotated() {
+        let expr = parse_str("|x: Int32| -> Int32 x * 2").unwrap();
+        if let Expr::Lambda {
+            params,
+            return_type,
+            ..
+        } = expr
+        {
+            assert_eq!(params.len(), 1);
+            assert!(matches!(
+                &params[0].typ,
+                Some(TypeAnnotation::Named(s)) if s == "Int32"
+            ));
+            assert!(matches!(
+                return_type,
+                Some(TypeAnnotation::Named(s)) if s == "Int32"
+            ));
+        } else {
+            panic!("expected lambda");
+        }
+    }
+
+    #[test]
+    fn test_parse_lambda_block_body() {
+        let expr = parse_str("|x| { let y = x * 2; y + 1 }").unwrap();
+        if let Expr::Lambda { body, .. } = expr {
+            assert!(matches!(*body, Expr::Block { .. }));
+        } else {
+            panic!("expected lambda");
+        }
+    }
+
+    #[test]
+    fn test_parse_lambda_no_params() {
+        let expr = parse_str("|| 42").unwrap();
+        if let Expr::Lambda { params, body, .. } = expr {
+            assert!(params.is_empty());
+            assert!(matches!(*body, Expr::Int(42)));
+        } else {
+            panic!("expected lambda");
+        }
+    }
+
+    #[test]
+    fn test_parse_lambda_in_expression() {
+        // Lambda as function argument (conceptually - requires let binding to use)
+        let stmts = parse_repl_str("let f = |x| x + 1").unwrap();
+        if let Statement::Let(binding) = &stmts[0] {
+            assert_eq!(binding.name, "f");
+            assert!(matches!(*binding.value, Expr::Lambda { .. }));
+        } else {
+            panic!("expected let statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_lambda_nested() {
+        let expr = parse_str("|x| |y| x + y").unwrap();
+        if let Expr::Lambda { body, .. } = expr {
+            assert!(matches!(*body, Expr::Lambda { .. }));
+        } else {
+            panic!("expected lambda");
+        }
+    }
+
+    #[test]
+    fn test_parse_function_type_simple() {
+        // let f: Int32 -> Int32 = ...
+        let stmts = parse_repl_str("let f: Int32 -> Int32 = |x| x + 1").unwrap();
+        if let Statement::Let(binding) = &stmts[0] {
+            assert!(matches!(
+                &binding.type_annotation,
+                Some(TypeAnnotation::Function(params, ret))
+                if params.len() == 1
+                    && matches!(&params[0], TypeAnnotation::Named(n) if n == "Int32")
+                    && matches!(ret.as_ref(), TypeAnnotation::Named(n) if n == "Int32")
+            ));
+        } else {
+            panic!("expected let statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_function_type_multi_param() {
+        // let f: (Int32, String) -> Bool = ...
+        let stmts = parse_repl_str("let f: (Int32, String) -> Bool = |x, y| true").unwrap();
+        if let Statement::Let(binding) = &stmts[0] {
+            if let Some(TypeAnnotation::Function(params, ret)) = &binding.type_annotation {
+                assert_eq!(params.len(), 2);
+                assert!(matches!(&params[0], TypeAnnotation::Named(n) if n == "Int32"));
+                assert!(matches!(&params[1], TypeAnnotation::Named(n) if n == "String"));
+                assert!(matches!(ret.as_ref(), TypeAnnotation::Named(n) if n == "Bool"));
+            } else {
+                panic!("expected function type annotation");
+            }
+        } else {
+            panic!("expected let statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_function_type_no_params() {
+        // let f: () -> Int32 = ...
+        let stmts = parse_repl_str("let f: () -> Int32 = || 42").unwrap();
+        if let Statement::Let(binding) = &stmts[0] {
+            if let Some(TypeAnnotation::Function(params, ret)) = &binding.type_annotation {
+                assert!(params.is_empty());
+                assert!(matches!(ret.as_ref(), TypeAnnotation::Named(n) if n == "Int32"));
+            } else {
+                panic!("expected function type annotation");
+            }
+        } else {
+            panic!("expected let statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_function_type_nested() {
+        // let f: Int32 -> Int32 -> Int32 = |x| |y| x + y
+        // Should be: Int32 -> (Int32 -> Int32) (right associative)
+        let stmts = parse_repl_str("let f: Int32 -> Int32 -> Int32 = |x| |y| x + y").unwrap();
+        if let Statement::Let(binding) = &stmts[0] {
+            if let Some(TypeAnnotation::Function(params, ret)) = &binding.type_annotation {
+                assert_eq!(params.len(), 1);
+                assert!(matches!(&params[0], TypeAnnotation::Named(n) if n == "Int32"));
+                // ret should be Int32 -> Int32
+                if let TypeAnnotation::Function(inner_params, inner_ret) = ret.as_ref() {
+                    assert_eq!(inner_params.len(), 1);
+                    assert!(matches!(&inner_params[0], TypeAnnotation::Named(n) if n == "Int32"));
+                    assert!(matches!(inner_ret.as_ref(), TypeAnnotation::Named(n) if n == "Int32"));
+                } else {
+                    panic!("expected nested function type");
+                }
+            } else {
+                panic!("expected function type annotation");
+            }
+        } else {
+            panic!("expected let statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_function_param_with_function_type() {
+        // fn apply(f: Int32 -> Int32, x: Int32) -> Int32 f(x)
+        let item = parse_item_str("fn apply(f: Int32 -> Int32, x: Int32) -> Int32 f(x)").unwrap();
+        let Item::Function(func) = &item;
+        assert_eq!(func.name, "apply");
+        assert_eq!(func.params.len(), 2);
+        assert!(matches!(
+            &func.params[0].typ,
+            TypeAnnotation::Function(params, ret)
+            if params.len() == 1
+                && matches!(&params[0], TypeAnnotation::Named(n) if n == "Int32")
+                && matches!(ret.as_ref(), TypeAnnotation::Named(n) if n == "Int32")
+        ));
     }
 }
