@@ -8,38 +8,8 @@ pub struct ParseError {
     pub message: String,
 }
 
-/// Parse an expression (used in tests)
-#[allow(dead_code)]
-pub fn parse(tokens: Vec<Token>) -> Result<Expr, ParseError> {
-    expr_parser()
-        .parse(&tokens)
-        .into_result()
-        .map_err(|errs| ParseError {
-            message: errs
-                .into_iter()
-                .map(|e| format!("{:?}", e))
-                .collect::<Vec<_>>()
-                .join(", "),
-        })
-}
-
-/// Parse a top-level item (used in tests)
-#[allow(dead_code)]
-pub fn parse_item(tokens: Vec<Token>) -> Result<Item, ParseError> {
-    item_parser()
-        .parse(&tokens)
-        .into_result()
-        .map_err(|errs| ParseError {
-            message: errs
-                .into_iter()
-                .map(|e| format!("{:?}", e))
-                .collect::<Vec<_>>()
-                .join(", "),
-        })
-}
-
 /// Parse multiple top-level items (for files)
-pub fn parse_items(tokens: Vec<Token>) -> Result<Vec<Item>, ParseError> {
+pub fn parse_file(tokens: Vec<Token>) -> Result<Vec<Item>, ParseError> {
     item_parser()
         .repeated()
         .collect()
@@ -102,9 +72,7 @@ fn item_parser<'a>() -> impl Parser<'a, &'a [Token], Item, extra::Err<Rich<'a, T
         .delimited_by(just(Token::LParen), just(Token::RParen));
 
     // Return type: -> Int
-    let return_type = just(Token::Arrow)
-        .ignore_then(type_annotation())
-        .or_not();
+    let return_type = just(Token::Arrow).ignore_then(type_annotation()).or_not();
 
     // Body: { expr }
     let body = expr_parser().delimited_by(just(Token::LBrace), just(Token::RBrace));
@@ -145,11 +113,9 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
             .delimited_by(just(Token::LParen), just(Token::RParen));
 
         // Identifier: variable or function call
-        let ident_expr = ident().then(args.or_not()).map(|(name, args)| {
-            match args {
-                Some(args) => Expr::Call { func: name, args },
-                None => Expr::Var(name),
-            }
+        let ident_expr = ident().then(args.or_not()).map(|(name, args)| match args {
+            Some(args) => Expr::Call { func: name, args },
+            None => Expr::Var(name),
         });
 
         let atom = choice((
@@ -168,12 +134,9 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
         let op = |t: Token, op: BinOp| just(t).to(op);
 
         let product = unary.clone().foldl(
-            choice((
-                op(Token::Star, BinOp::Mul),
-                op(Token::Slash, BinOp::Div),
-            ))
-            .then(unary)
-            .repeated(),
+            choice((op(Token::Star, BinOp::Mul), op(Token::Slash, BinOp::Div)))
+                .then(unary)
+                .repeated(),
             |left, (op, right)| Expr::BinOp {
                 op,
                 left: Box::new(left),
@@ -182,12 +145,9 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
         );
 
         let sum = product.clone().foldl(
-            choice((
-                op(Token::Plus, BinOp::Add),
-                op(Token::Minus, BinOp::Sub),
-            ))
-            .then(product)
-            .repeated(),
+            choice((op(Token::Plus, BinOp::Add), op(Token::Minus, BinOp::Sub)))
+                .then(product)
+                .repeated(),
             |left, (op, right)| Expr::BinOp {
                 op,
                 left: Box::new(left),
@@ -228,6 +188,32 @@ fn statement_parser<'a>() -> impl Parser<'a, &'a [Token], Statement, extra::Err<
 mod tests {
     use super::*;
     use crate::lexer::lex;
+
+    fn parse(tokens: Vec<Token>) -> Result<Expr, ParseError> {
+        expr_parser()
+            .parse(&tokens)
+            .into_result()
+            .map_err(|errs| ParseError {
+                message: errs
+                    .into_iter()
+                    .map(|e| format!("{:?}", e))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            })
+    }
+
+    fn parse_item(tokens: Vec<Token>) -> Result<Item, ParseError> {
+        item_parser()
+            .parse(&tokens)
+            .into_result()
+            .map_err(|errs| ParseError {
+                message: errs
+                    .into_iter()
+                    .map(|e| format!("{:?}", e))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            })
+    }
 
     fn parse_str(input: &str) -> Result<Expr, ParseError> {
         let tokens = lex(input).expect("lexing failed");
@@ -667,10 +653,7 @@ mod tests {
                 return_type: Some(TypeAnnotation::Named("Int".to_string())),
                 body: Expr::Call {
                     func: "add".to_string(),
-                    args: vec![
-                        Expr::Var("x".to_string()),
-                        Expr::Var("x".to_string()),
-                    ],
+                    args: vec![Expr::Var("x".to_string()), Expr::Var("x".to_string()),],
                 },
             })
         );

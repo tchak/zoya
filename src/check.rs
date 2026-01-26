@@ -4,12 +4,6 @@ use crate::ast::{BinOp, Expr, FunctionDef, Item, Statement, TypeAnnotation, Unar
 use crate::ir::{TypedExpr, TypedFunction};
 use crate::types::{FunctionType, Type, TypeError};
 
-/// Check an expression without any environment (for simple REPL expressions)
-#[allow(dead_code)]
-pub fn check(expr: &Expr) -> Result<TypedExpr, TypeError> {
-    check_with_env(expr, &TypeEnv::default())
-}
-
 /// Type environment for checking expressions
 #[derive(Debug, Clone, Default)]
 pub struct TypeEnv {
@@ -20,21 +14,11 @@ pub struct TypeEnv {
 }
 
 impl TypeEnv {
-    #[allow(dead_code)]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn with_locals(&self, locals: HashMap<String, Type>) -> Self {
         TypeEnv {
             functions: self.functions.clone(),
             locals,
         }
-    }
-
-    #[allow(dead_code)]
-    pub fn add_function(&mut self, name: String, func_type: FunctionType) {
-        self.functions.insert(name, func_type);
     }
 }
 
@@ -65,7 +49,7 @@ fn resolve_type_annotation(
 }
 
 /// Check a function definition and return a typed function
-pub fn check_function(func: &FunctionDef, env: &TypeEnv) -> Result<TypedFunction, TypeError> {
+fn check_function(func: &FunctionDef, env: &TypeEnv) -> Result<TypedFunction, TypeError> {
     // Build local environment with parameters
     let mut locals = HashMap::new();
     let mut param_types = Vec::new();
@@ -115,7 +99,7 @@ pub fn check_function(func: &FunctionDef, env: &TypeEnv) -> Result<TypedFunction
 }
 
 /// Extract function type from a function definition (for adding to env)
-pub fn function_type_from_def(func: &FunctionDef) -> Result<FunctionType, TypeError> {
+fn function_type_from_def(func: &FunctionDef) -> Result<FunctionType, TypeError> {
     let mut param_types = Vec::new();
     for param in &func.params {
         let ty = resolve_type_annotation(&param.typ, &func.type_params)?;
@@ -158,7 +142,7 @@ fn is_numeric_type(ty: &Type) -> bool {
 }
 
 /// Check an expression with a type environment
-pub fn check_with_env(expr: &Expr, env: &TypeEnv) -> Result<TypedExpr, TypeError> {
+fn check_with_env(expr: &Expr, env: &TypeEnv) -> Result<TypedExpr, TypeError> {
     match expr {
         Expr::Int(n) => {
             // Default to Int32 if value fits, otherwise error
@@ -378,6 +362,10 @@ mod tests {
     use crate::ast::BinOp;
     use crate::types::Type;
 
+    fn check(expr: &Expr) -> Result<TypedExpr, TypeError> {
+        check_with_env(expr, &TypeEnv::default())
+    }
+
     #[test]
     fn test_check_int() {
         let expr = Expr::Int(42);
@@ -582,7 +570,12 @@ mod tests {
         };
         let result = check_with_env(&expr, &env);
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("argument type mismatch"));
+        assert!(
+            result
+                .unwrap_err()
+                .message
+                .contains("argument type mismatch")
+        );
     }
 
     #[test]
@@ -712,10 +705,7 @@ mod tests {
             return_type: Some(TypeAnnotation::Named("Int32".to_string())),
             body: Expr::Call {
                 func: "add".to_string(),
-                args: vec![
-                    Expr::Var("x".to_string()),
-                    Expr::Var("x".to_string()),
-                ],
+                args: vec![Expr::Var("x".to_string()), Expr::Var("x".to_string())],
             },
         };
 
@@ -868,10 +858,12 @@ mod tests {
         };
         let result = check(&expr);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .message
-            .contains("ordering operators only work on numeric types"));
+        assert!(
+            result
+                .unwrap_err()
+                .message
+                .contains("ordering operators only work on numeric types")
+        );
     }
 
     #[test]
@@ -892,7 +884,10 @@ mod tests {
         let stmts = vec![Statement::Expr(Expr::Int(42))];
         let result = check_repl(&stmts, &mut env).unwrap();
         assert_eq!(result.len(), 1);
-        assert!(matches!(result[0], CheckedStatement::Expr(TypedExpr::Int32(42))));
+        assert!(matches!(
+            result[0],
+            CheckedStatement::Expr(TypedExpr::Int32(42))
+        ));
     }
 
     #[test]

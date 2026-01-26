@@ -17,14 +17,13 @@ pub fn run(path: &Path) -> Result<(), EvalError> {
 }
 
 /// Run Zoya source code and return the result
-pub fn run_source(source: &str) -> Result<Value, EvalError> {
+fn run_source(source: &str) -> Result<Value, EvalError> {
     // Lex and parse all items
     let tokens = lexer::lex(source).map_err(|e| EvalError::RuntimeError(e.message))?;
-    let items = parser::parse_items(tokens).map_err(|e| EvalError::RuntimeError(e.message))?;
+    let items = parser::parse_file(tokens).map_err(|e| EvalError::RuntimeError(e.message))?;
 
     // Type-check all items
-    let typed_functions =
-        check_file(&items).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+    let typed_functions = check_file(&items).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
 
     // Find main function
     let main_func = typed_functions
