@@ -38,6 +38,9 @@ src/
   - Comparison: `==`, `!=`, `<`, `>`, `<=`, `>=`
   - Unary: `-` (negation)
 - **Functions:** definitions with `fn`, generic type parameters, type annotations, calls
+- **Let bindings:** `let x = expr` or `let x: Type = expr`
+  - In function bodies (semicolons optional): `fn foo() { let x = 1 let y = 2 x + y }`
+  - In REPL (persists across inputs)
 - **Type checking:** operands must match types (no implicit coercion)
 
 ### Running
