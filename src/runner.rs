@@ -58,6 +58,26 @@ fn run_source(source: &str) -> Result<Value, EvalError> {
     context.with(|ctx| eval::eval_js_in_context(&ctx, js_code, main_func.return_type.clone()))
 }
 
+/// Type-check a file without executing it
+pub fn check_file_command(path: &Path) -> Result<(), String> {
+    // Read file
+    let source = std::fs::read_to_string(path)
+        .map_err(|e| format!("error: failed to read file '{}': {}", path.display(), e))?;
+
+    // Lex
+    let tokens = lexer::lex(&source).map_err(|e| format!("error: {}", e.message))?;
+
+    // Parse
+    let items = parser::parse_file(tokens).map_err(|e| format!("error: {}", e.message))?;
+
+    // Type check
+    check_file(&items).map_err(|e| format!("error: {}", e))?;
+
+    // Success
+    eprintln!("✓ Type checking passed: {}", path.display());
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1067,5 +1087,32 @@ mod tests {
         "#;
         let result = run_source(source).unwrap();
         assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_check_file_command_success() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.zoya");
+        std::fs::write(&file, "fn main() -> Int32 { 42 }").unwrap();
+
+        let result = check_file_command(&file);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_file_command_type_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.zoya");
+        std::fs::write(&file, "fn main() -> Int32 { true }").unwrap();
+
+        let result = check_file_command(&file);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_check_file_command_file_not_found() {
+        let result = check_file_command(Path::new("nonexistent.zoya"));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("failed to read file"));
     }
 }

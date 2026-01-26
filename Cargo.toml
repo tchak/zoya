@@ -10,3 +10,6 @@ chumsky = "0.10"
 rquickjs = { version = "0.9", features = ["bindgen"] }
 rustyline = "14"
 dirs = "5"
+
+[dev-dependencies]
+tempfile = "3"

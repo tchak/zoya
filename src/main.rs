@@ -29,6 +29,11 @@ enum Command {
         /// Optional file to execute
         file: Option<PathBuf>,
     },
+    /// Type-check a file without executing
+    Check {
+        /// File to type-check
+        file: PathBuf,
+    },
 }
 
 fn main() {
@@ -42,6 +47,12 @@ fn main() {
             }
         }
         Some(Command::Run { file: None }) => repl::run(),
+        Some(Command::Check { file }) => {
+            if let Err(e) = runner::check_file_command(&file) {
+                eprintln!("{}", e);
+                std::process::exit(1);
+            }
+        }
         None => {
             println!("Zoya language - use --help for usage");
         }
