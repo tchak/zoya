@@ -90,11 +90,11 @@ fn item_parser<'a>() -> impl Parser<'a, &'a [Token], Item, extra::Err<Rich<'a, T
     // Return type: -> Int
     let return_type = just(Token::Arrow).ignore_then(type_annotation()).or_not();
 
-    // Body: { [let x = e;]* expr }
+    // Body: { [let x = e [;]]* expr }
     let body = just(Token::LBrace)
         .ignore_then(
             let_binding_parser()
-                .then_ignore(just(Token::Semicolon))
+                .then_ignore(just(Token::Semicolon).or_not())
                 .repeated()
                 .collect::<Vec<_>>(),
         )
@@ -928,5 +928,23 @@ mod tests {
         let item = parse_item_str("fn foo() { 42 }").unwrap();
         let Item::Function(FunctionDef { body, .. }) = item;
         assert!(matches!(body, Expr::Int(42)));
+    }
+
+    #[test]
+    fn test_parse_function_with_lets_no_semicolons() {
+        // Semicolons are optional after let bindings
+        let item = parse_item_str("fn foo() { let x = 1 let y = 2 x + y }").unwrap();
+        if let Item::Function(FunctionDef {
+            body: Expr::Block { bindings, result },
+            ..
+        }) = item
+        {
+            assert_eq!(bindings.len(), 2);
+            assert_eq!(bindings[0].name, "x");
+            assert_eq!(bindings[1].name, "y");
+            assert!(matches!(*result, Expr::BinOp { .. }));
+        } else {
+            panic!("expected function with block body");
+        }
     }
 }
