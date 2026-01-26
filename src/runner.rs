@@ -1,7 +1,6 @@
 use std::path::Path;
 
-use crate::ast::{FunctionDef, Item};
-use crate::check::{check_function, function_type_from_def, TypeEnv};
+use crate::check::check_file;
 use crate::codegen::codegen_function;
 use crate::eval::{self, EvalError, Value};
 use crate::lexer;
@@ -23,25 +22,9 @@ pub fn run_source(source: &str) -> Result<Value, EvalError> {
     let tokens = lexer::lex(source).map_err(|e| EvalError::RuntimeError(e.message))?;
     let items = parser::parse_items(tokens).map_err(|e| EvalError::RuntimeError(e.message))?;
 
-    // Build type environment with all functions
-    let mut type_env = TypeEnv::default();
-    let mut functions: Vec<&FunctionDef> = Vec::new();
-
-    for item in &items {
-        let Item::Function(func) = item;
-        let func_type =
-            function_type_from_def(func).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-        type_env.functions.insert(func.name.clone(), func_type);
-        functions.push(func);
-    }
-
-    // Type check all functions
-    let mut typed_functions = Vec::new();
-    for func in &functions {
-        let typed =
-            check_function(func, &type_env).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-        typed_functions.push(typed);
-    }
+    // Type-check all items
+    let typed_functions =
+        check_file(&items).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
 
     // Find main function
     let main_func = typed_functions

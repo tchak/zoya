@@ -316,6 +316,27 @@ pub fn check_with_env(expr: &Expr, env: &TypeEnv) -> Result<TypedExpr, TypeError
     }
 }
 
+/// Check a file's items (functions), returning typed functions
+pub fn check_file(items: &[Item]) -> Result<Vec<TypedFunction>, TypeError> {
+    // Build type environment with all function signatures first
+    let mut env = TypeEnv::default();
+    for item in items {
+        let Item::Function(func) = item;
+        let func_type = function_type_from_def(func)?;
+        env.functions.insert(func.name.clone(), func_type);
+    }
+
+    // Type-check all functions
+    let mut typed_functions = Vec::new();
+    for item in items {
+        let Item::Function(func) = item;
+        let typed = check_function(func, &env)?;
+        typed_functions.push(typed);
+    }
+
+    Ok(typed_functions)
+}
+
 /// Type-checked statement result for REPL
 #[derive(Debug, Clone, PartialEq)]
 pub enum CheckedStatement {
