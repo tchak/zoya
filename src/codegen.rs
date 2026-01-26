@@ -3,22 +3,42 @@ use crate::ir::TypedExpr;
 
 use crate::ir::TypedFunction;
 
+use crate::types::Type;
+
 pub fn codegen(expr: &TypedExpr) -> String {
     match expr {
-        TypedExpr::Int(n) => n.to_string(),
+        TypedExpr::Int32(n) => n.to_string(),
+        TypedExpr::Int64(n) => format!("{}n", n), // BigInt literal
         TypedExpr::Float(n) => format_float(*n),
         TypedExpr::Var { name, .. } => name.clone(),
-        TypedExpr::Call { func, args, .. } => {
+        TypedExpr::Call { func, args, ty } => {
             let args_str: Vec<String> = args.iter().map(codegen).collect();
-            format!("{}({})", func, args_str.join(", "))
-        }
-        TypedExpr::UnaryOp { op, expr, .. } => {
-            let inner = codegen(expr);
-            match op {
-                UnaryOp::Neg => format!("(-({}))", inner),
+            let call = format!("{}({})", func, args_str.join(", "));
+            // Wrap Int32 function calls with overflow check
+            if *ty == Type::Int32 {
+                wrap_int32_overflow(&call)
+            } else {
+                call
             }
         }
-        TypedExpr::BinOp { op, left, right, .. } => {
+        TypedExpr::UnaryOp { op, expr, ty } => {
+            let inner = codegen(expr);
+            let result = match op {
+                UnaryOp::Neg => format!("(-({}))", inner),
+            };
+            // Wrap Int32 unary ops with overflow check
+            if *ty == Type::Int32 {
+                wrap_int32_overflow(&result)
+            } else {
+                result
+            }
+        }
+        TypedExpr::BinOp {
+            op,
+            left,
+            right,
+            ty,
+        } => {
             let l = codegen(left);
             let r = codegen(right);
             let op_str = match op {
@@ -27,9 +47,25 @@ pub fn codegen(expr: &TypedExpr) -> String {
                 BinOp::Mul => "*",
                 BinOp::Div => "/",
             };
-            format!("(({}) {} ({}))", l, op_str, r)
+            let result = format!("(({}) {} ({}))", l, op_str, r);
+            // Wrap Int32 operations with overflow check
+            if *ty == Type::Int32 {
+                wrap_int32_overflow(&result)
+            } else {
+                result
+            }
         }
     }
+}
+
+/// Wrap an Int32 expression with overflow checking
+fn wrap_int32_overflow(expr: &str) -> String {
+    // Check for non-finite (Infinity/NaN from division by zero) first,
+    // then check for overflow
+    format!(
+        "(function(r){{if(!Number.isFinite(r))throw new Error(\"division by zero\");if(r>2147483647||r<-2147483648)throw new Error(\"Int32 overflow\");return r;}})({})",
+        expr
+    )
 }
 
 /// Generate JS code for a function definition
@@ -57,18 +93,36 @@ fn format_float(n: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::Type;
+
+    fn int32_wrap(expr: &str) -> String {
+        format!(
+            "(function(r){{if(!Number.isFinite(r))throw new Error(\"division by zero\");if(r>2147483647||r<-2147483648)throw new Error(\"Int32 overflow\");return r;}})({})",
+            expr
+        )
+    }
 
     #[test]
-    fn test_codegen_int() {
-        let expr = TypedExpr::Int(42);
+    fn test_codegen_int32() {
+        let expr = TypedExpr::Int32(42);
         assert_eq!(codegen(&expr), "42");
     }
 
     #[test]
-    fn test_codegen_negative_int() {
-        let expr = TypedExpr::Int(-42);
+    fn test_codegen_negative_int32() {
+        let expr = TypedExpr::Int32(-42);
         assert_eq!(codegen(&expr), "-42");
+    }
+
+    #[test]
+    fn test_codegen_int64() {
+        let expr = TypedExpr::Int64(42);
+        assert_eq!(codegen(&expr), "42n");
+    }
+
+    #[test]
+    fn test_codegen_int64_large() {
+        let expr = TypedExpr::Int64(9_000_000_000);
+        assert_eq!(codegen(&expr), "9000000000n");
     }
 
     #[test]
@@ -84,74 +138,100 @@ mod tests {
     }
 
     #[test]
-    fn test_codegen_unary_neg() {
+    fn test_codegen_unary_neg_int32() {
         let expr = TypedExpr::UnaryOp {
             op: UnaryOp::Neg,
-            expr: Box::new(TypedExpr::Int(42)),
-            ty: Type::Int,
+            expr: Box::new(TypedExpr::Int32(42)),
+            ty: Type::Int32,
         };
-        assert_eq!(codegen(&expr), "(-(42))");
+        // Int32 gets overflow wrapped
+        assert_eq!(codegen(&expr), int32_wrap("(-(42))"));
     }
 
     #[test]
-    fn test_codegen_addition() {
+    fn test_codegen_unary_neg_int64() {
+        let expr = TypedExpr::UnaryOp {
+            op: UnaryOp::Neg,
+            expr: Box::new(TypedExpr::Int64(42)),
+            ty: Type::Int64,
+        };
+        // Int64 does not get overflow wrapped
+        assert_eq!(codegen(&expr), "(-(42n))");
+    }
+
+    #[test]
+    fn test_codegen_addition_int32() {
         let expr = TypedExpr::BinOp {
             op: BinOp::Add,
-            left: Box::new(TypedExpr::Int(1)),
-            right: Box::new(TypedExpr::Int(2)),
-            ty: Type::Int,
+            left: Box::new(TypedExpr::Int32(1)),
+            right: Box::new(TypedExpr::Int32(2)),
+            ty: Type::Int32,
         };
-        assert_eq!(codegen(&expr), "((1) + (2))");
+        assert_eq!(codegen(&expr), int32_wrap("((1) + (2))"));
+    }
+
+    #[test]
+    fn test_codegen_addition_int64() {
+        let expr = TypedExpr::BinOp {
+            op: BinOp::Add,
+            left: Box::new(TypedExpr::Int64(1)),
+            right: Box::new(TypedExpr::Int64(2)),
+            ty: Type::Int64,
+        };
+        // Int64 (BigInt) does not get overflow wrapped
+        assert_eq!(codegen(&expr), "((1n) + (2n))");
     }
 
     #[test]
     fn test_codegen_subtraction() {
         let expr = TypedExpr::BinOp {
             op: BinOp::Sub,
-            left: Box::new(TypedExpr::Int(5)),
-            right: Box::new(TypedExpr::Int(3)),
-            ty: Type::Int,
+            left: Box::new(TypedExpr::Int32(5)),
+            right: Box::new(TypedExpr::Int32(3)),
+            ty: Type::Int32,
         };
-        assert_eq!(codegen(&expr), "((5) - (3))");
+        assert_eq!(codegen(&expr), int32_wrap("((5) - (3))"));
     }
 
     #[test]
     fn test_codegen_multiplication() {
         let expr = TypedExpr::BinOp {
             op: BinOp::Mul,
-            left: Box::new(TypedExpr::Int(3)),
-            right: Box::new(TypedExpr::Int(4)),
-            ty: Type::Int,
+            left: Box::new(TypedExpr::Int32(3)),
+            right: Box::new(TypedExpr::Int32(4)),
+            ty: Type::Int32,
         };
-        assert_eq!(codegen(&expr), "((3) * (4))");
+        assert_eq!(codegen(&expr), int32_wrap("((3) * (4))"));
     }
 
     #[test]
     fn test_codegen_division() {
         let expr = TypedExpr::BinOp {
             op: BinOp::Div,
-            left: Box::new(TypedExpr::Int(10)),
-            right: Box::new(TypedExpr::Int(2)),
-            ty: Type::Int,
+            left: Box::new(TypedExpr::Int32(10)),
+            right: Box::new(TypedExpr::Int32(2)),
+            ty: Type::Int32,
         };
-        assert_eq!(codegen(&expr), "((10) / (2))");
+        assert_eq!(codegen(&expr), int32_wrap("((10) / (2))"));
     }
 
     #[test]
     fn test_codegen_complex_expression() {
-        // 2 + 3 * 4
+        // 2 + 3 * 4 - nested Int32 ops each get wrapped
         let expr = TypedExpr::BinOp {
             op: BinOp::Add,
-            left: Box::new(TypedExpr::Int(2)),
+            left: Box::new(TypedExpr::Int32(2)),
             right: Box::new(TypedExpr::BinOp {
                 op: BinOp::Mul,
-                left: Box::new(TypedExpr::Int(3)),
-                right: Box::new(TypedExpr::Int(4)),
-                ty: Type::Int,
+                left: Box::new(TypedExpr::Int32(3)),
+                right: Box::new(TypedExpr::Int32(4)),
+                ty: Type::Int32,
             }),
-            ty: Type::Int,
+            ty: Type::Int32,
         };
-        assert_eq!(codegen(&expr), "((2) + (((3) * (4))))");
+        let inner = int32_wrap("((3) * (4))");
+        let expected = int32_wrap(&format!("((2) + ({}))", inner));
+        assert_eq!(codegen(&expr), expected);
     }
 
     #[test]
@@ -162,6 +242,7 @@ mod tests {
             right: Box::new(TypedExpr::Float(2.5)),
             ty: Type::Float,
         };
+        // Float does not get overflow wrapped
         assert_eq!(codegen(&expr), "((1.5) + (2.5))");
     }
 
@@ -169,7 +250,7 @@ mod tests {
     fn test_codegen_var() {
         let expr = TypedExpr::Var {
             name: "x".to_string(),
-            ty: Type::Int,
+            ty: Type::Int32,
         };
         assert_eq!(codegen(&expr), "x");
     }
@@ -179,29 +260,30 @@ mod tests {
         let expr = TypedExpr::Call {
             func: "foo".to_string(),
             args: vec![],
-            ty: Type::Int,
+            ty: Type::Int32,
         };
-        assert_eq!(codegen(&expr), "foo()");
+        // Int32 function calls get overflow wrapped
+        assert_eq!(codegen(&expr), int32_wrap("foo()"));
     }
 
     #[test]
     fn test_codegen_call_one_arg() {
         let expr = TypedExpr::Call {
             func: "square".to_string(),
-            args: vec![TypedExpr::Int(5)],
-            ty: Type::Int,
+            args: vec![TypedExpr::Int32(5)],
+            ty: Type::Int32,
         };
-        assert_eq!(codegen(&expr), "square(5)");
+        assert_eq!(codegen(&expr), int32_wrap("square(5)"));
     }
 
     #[test]
     fn test_codegen_call_multiple_args() {
         let expr = TypedExpr::Call {
             func: "add".to_string(),
-            args: vec![TypedExpr::Int(1), TypedExpr::Int(2)],
-            ty: Type::Int,
+            args: vec![TypedExpr::Int32(1), TypedExpr::Int32(2)],
+            ty: Type::Int32,
         };
-        assert_eq!(codegen(&expr), "add(1, 2)");
+        assert_eq!(codegen(&expr), int32_wrap("add(1, 2)"));
     }
 
     #[test]
@@ -211,16 +293,16 @@ mod tests {
             args: vec![
                 TypedExpr::Var {
                     name: "x".to_string(),
-                    ty: Type::Int,
+                    ty: Type::Int32,
                 },
                 TypedExpr::Var {
                     name: "y".to_string(),
-                    ty: Type::Int,
+                    ty: Type::Int32,
                 },
             ],
-            ty: Type::Int,
+            ty: Type::Int32,
         };
-        assert_eq!(codegen(&expr), "add(x, y)");
+        assert_eq!(codegen(&expr), int32_wrap("add(x, y)"));
     }
 
     #[test]
@@ -229,36 +311,37 @@ mod tests {
             op: BinOp::Add,
             left: Box::new(TypedExpr::Var {
                 name: "x".to_string(),
-                ty: Type::Int,
+                ty: Type::Int32,
             }),
-            right: Box::new(TypedExpr::Int(1)),
-            ty: Type::Int,
+            right: Box::new(TypedExpr::Int32(1)),
+            ty: Type::Int32,
         };
-        assert_eq!(codegen(&expr), "((x) + (1))");
+        assert_eq!(codegen(&expr), int32_wrap("((x) + (1))"));
     }
 
     #[test]
     fn test_codegen_function() {
         let func = TypedFunction {
             name: "square".to_string(),
-            params: vec![("x".to_string(), Type::Int)],
+            params: vec![("x".to_string(), Type::Int32)],
             body: TypedExpr::BinOp {
                 op: BinOp::Mul,
                 left: Box::new(TypedExpr::Var {
                     name: "x".to_string(),
-                    ty: Type::Int,
+                    ty: Type::Int32,
                 }),
                 right: Box::new(TypedExpr::Var {
                     name: "x".to_string(),
-                    ty: Type::Int,
+                    ty: Type::Int32,
                 }),
-                ty: Type::Int,
+                ty: Type::Int32,
             },
-            return_type: Type::Int,
+            return_type: Type::Int32,
         };
+        let body = int32_wrap("((x) * (x))");
         assert_eq!(
             codegen_function(&func),
-            "function square(x) { return ((x) * (x)); }"
+            format!("function square(x) {{ return {}; }}", body)
         );
     }
 
@@ -267,26 +350,27 @@ mod tests {
         let func = TypedFunction {
             name: "add".to_string(),
             params: vec![
-                ("x".to_string(), Type::Int),
-                ("y".to_string(), Type::Int),
+                ("x".to_string(), Type::Int32),
+                ("y".to_string(), Type::Int32),
             ],
             body: TypedExpr::BinOp {
                 op: BinOp::Add,
                 left: Box::new(TypedExpr::Var {
                     name: "x".to_string(),
-                    ty: Type::Int,
+                    ty: Type::Int32,
                 }),
                 right: Box::new(TypedExpr::Var {
                     name: "y".to_string(),
-                    ty: Type::Int,
+                    ty: Type::Int32,
                 }),
-                ty: Type::Int,
+                ty: Type::Int32,
             },
-            return_type: Type::Int,
+            return_type: Type::Int32,
         };
+        let body = int32_wrap("((x) + (y))");
         assert_eq!(
             codegen_function(&func),
-            "function add(x, y) { return ((x) + (y)); }"
+            format!("function add(x, y) {{ return {}; }}", body)
         );
     }
 
@@ -295,12 +379,35 @@ mod tests {
         let func = TypedFunction {
             name: "answer".to_string(),
             params: vec![],
-            body: TypedExpr::Int(42),
-            return_type: Type::Int,
+            body: TypedExpr::Int32(42),
+            return_type: Type::Int32,
         };
         assert_eq!(
             codegen_function(&func),
             "function answer() { return 42; }"
+        );
+    }
+
+    #[test]
+    fn test_codegen_int64_function() {
+        let func = TypedFunction {
+            name: "big".to_string(),
+            params: vec![("x".to_string(), Type::Int64)],
+            body: TypedExpr::BinOp {
+                op: BinOp::Add,
+                left: Box::new(TypedExpr::Var {
+                    name: "x".to_string(),
+                    ty: Type::Int64,
+                }),
+                right: Box::new(TypedExpr::Int64(1)),
+                ty: Type::Int64,
+            },
+            return_type: Type::Int64,
+        };
+        // Int64 does not get overflow wrapped
+        assert_eq!(
+            codegen_function(&func),
+            "function big(x) { return ((x) + (1n)); }"
         );
     }
 }

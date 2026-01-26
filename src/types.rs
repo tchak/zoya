@@ -3,7 +3,8 @@ use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
-    Int,
+    Int32,
+    Int64,
     Float,
     Var(String), // Type variable for generics (e.g., T, U)
 }
@@ -11,7 +12,8 @@ pub enum Type {
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Type::Int => write!(f, "Int"),
+            Type::Int32 => write!(f, "Int32"),
+            Type::Int64 => write!(f, "Int64"),
             Type::Float => write!(f, "Float"),
             Type::Var(name) => write!(f, "{}", name),
         }

@@ -12,7 +12,9 @@ pub struct TypedFunction {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedExpr {
-    Int(i64),
+    Int32(i32),
+    #[allow(dead_code)] // Used in tests and through function parameters
+    Int64(i64),
     Float(f64),
     Var {
         name: String,
@@ -39,7 +41,8 @@ pub enum TypedExpr {
 impl TypedExpr {
     pub fn ty(&self) -> Type {
         match self {
-            TypedExpr::Int(_) => Type::Int,
+            TypedExpr::Int32(_) => Type::Int32,
+            TypedExpr::Int64(_) => Type::Int64,
             TypedExpr::Float(_) => Type::Float,
             TypedExpr::Var { ty, .. } => ty.clone(),
             TypedExpr::Call { ty, .. } => ty.clone(),

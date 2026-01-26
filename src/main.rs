@@ -3,7 +3,7 @@ use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use rquickjs::{Context, Runtime};
+use rquickjs::{BigInt, CatchResultExt, Context, Runtime};
 
 mod ast;
 mod check;
@@ -60,6 +60,7 @@ struct ReplState {
     /// Type environment
     type_env: TypeEnv,
     /// QuickJS runtime (kept alive for context)
+    #[allow(dead_code)]
     runtime: Runtime,
     /// Persistent QuickJS context with function definitions
     context: Context,
@@ -138,21 +139,53 @@ impl ReplState {
         let js_code = codegen(&typed_expr);
         let result_type = typed_expr.ty();
 
-        self.context.with(|ctx| {
-            let result: f64 = ctx
-                .eval(js_code)
-                .map_err(|e| format!("runtime error: {}", e))?;
+        self.context.with(|ctx| match result_type {
+            Type::Int32 => {
+                let result: f64 = ctx.eval(js_code).catch(&ctx).map_err(|e| {
+                    let msg = e.to_string();
+                    if msg.contains("division by zero") {
+                        "division by zero".to_string()
+                    } else if msg.contains("Int32 overflow") {
+                        "Int32 overflow".to_string()
+                    } else {
+                        format!("runtime error: {}", msg)
+                    }
+                })?;
 
-            // Check for division by zero
-            if result.is_infinite() || result.is_nan() {
-                return Err("division by zero".to_string());
-            }
+                // Backup check for division by zero
+                if result.is_infinite() || result.is_nan() {
+                    return Err("division by zero".to_string());
+                }
 
-            match result_type {
-                Type::Int => Ok(eval::Value::Int(result as i64)),
-                Type::Float => Ok(eval::Value::Float(result)),
-                Type::Var(name) => Err(format!("unresolved type variable: {}", name)),
+                Ok(eval::Value::Int32(result as i32))
             }
+            Type::Int64 => {
+                // BigInt needs explicit type handling in rquickjs
+                let result: BigInt = ctx
+                    .eval(js_code)
+                    .catch(&ctx)
+                    .map_err(|e| format!("runtime error: {}", e))?;
+
+                let value = result
+                    .to_i64()
+                    .map_err(|_| "BigInt value too large for i64".to_string())?;
+
+                Ok(eval::Value::Int64(value))
+            }
+            Type::Float => {
+                let result: f64 = ctx
+                    .eval(js_code)
+                    .catch(&ctx)
+                    .map_err(|e| format!("runtime error: {}", e))?;
+
+                // Check for division by zero
+                if result.is_infinite() || result.is_nan() {
+                    return Err("division by zero".to_string());
+                }
+
+                Ok(eval::Value::Float(result))
+            }
+            Type::Var(name) => Err(format!("unresolved type variable: {}", name)),
         })
     }
 }
@@ -279,18 +312,52 @@ fn run_file(path: &PathBuf) -> Result<(), String> {
     let context = Context::full(&runtime).map_err(|e| e.to_string())?;
 
     context.with(|ctx| {
-        let result: f64 = ctx
-            .eval(js_code.clone())
-            .map_err(|e| format!("runtime error: {}", e))?;
-
-        // Check for division by zero
-        if result.is_infinite() || result.is_nan() {
-            return Err("division by zero".to_string());
-        }
-
         let value = match &main_func.return_type {
-            Type::Int => eval::Value::Int(result as i64),
-            Type::Float => eval::Value::Float(result),
+            Type::Int32 => {
+                let result: f64 = ctx.eval(js_code.clone()).catch(&ctx).map_err(|e| {
+                    let msg = e.to_string();
+                    if msg.contains("division by zero") {
+                        "division by zero".to_string()
+                    } else if msg.contains("Int32 overflow") {
+                        "Int32 overflow".to_string()
+                    } else {
+                        format!("runtime error: {}", msg)
+                    }
+                })?;
+
+                // Backup check for division by zero
+                if result.is_infinite() || result.is_nan() {
+                    return Err("division by zero".to_string());
+                }
+
+                eval::Value::Int32(result as i32)
+            }
+            Type::Int64 => {
+                // BigInt needs explicit type handling in rquickjs
+                let result: BigInt = ctx
+                    .eval(js_code.clone())
+                    .catch(&ctx)
+                    .map_err(|e| format!("runtime error: {}", e))?;
+
+                let value = result
+                    .to_i64()
+                    .map_err(|_| "BigInt value too large for i64".to_string())?;
+
+                eval::Value::Int64(value)
+            }
+            Type::Float => {
+                let result: f64 = ctx
+                    .eval(js_code.clone())
+                    .catch(&ctx)
+                    .map_err(|e| format!("runtime error: {}", e))?;
+
+                // Check for division by zero
+                if result.is_infinite() || result.is_nan() {
+                    return Err("division by zero".to_string());
+                }
+
+                eval::Value::Float(result)
+            }
             Type::Var(name) => return Err(format!("unresolved type variable: {}", name)),
         };
 
