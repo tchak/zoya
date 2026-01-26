@@ -32,21 +32,30 @@ src/
 
 ### Current Features
 
-- **Types:** `Int32`, `Int64`, `Float`, `Bool`, `String`, type variables (`T`, `U`)
-- **Literals:** integers (`42`, `1_000`), floats (`3.14`, `0.5`), booleans (`true`, `false`), strings (`"hello"`, `"line\nbreak"`)
+- **Types:** `Int32`, `Int64`, `Float`, `Bool`, `String`, `List<T>`, tuples `(T, U, ...)`, type variables (`T`, `U`)
+- **Literals:**
+  - Integers: `42`, `1_000`
+  - Floats: `3.14`, `0.5`
+  - Booleans: `true`, `false`
+  - Strings: `"hello"`, `"line\nbreak"`
+  - Lists: `[1, 2, 3]`, `[]`
+  - Tuples: `(1, "hello")`, `()`, `(42,)` (single-element)
 - **Operators:**
   - Arithmetic: `+`, `-`, `*`, `/`
   - Comparison: `==`, `!=`, `<`, `>`, `<=`, `>=`
   - Unary: `-` (negation)
 - **Functions:** definitions with `fn`, generic type parameters, type annotations, calls
+  - Simple bodies can omit braces: `fn square(x: Int32) -> Int32 x * x`
 - **Let bindings:** `let x = expr` or `let x: Type = expr`
-  - In function bodies (semicolons optional): `fn foo() { let x = 1 let y = 2 x + y }`
+  - In function bodies (semicolons required): `fn foo() { let x = 1; let y = 2; x + y }`
   - In REPL (persists across inputs)
 - **Pattern matching:** `match expr { pattern => result ... }`
   - Literal patterns: `0`, `"hello"`, `true`, `3.14`
   - Variable patterns: `n` (binds the matched value)
   - Wildcard pattern: `_` (matches anything, no binding)
-  - Example: `match x { 0 => "zero" 1 => "one" _ => "other" }`
+  - List patterns: `[]`, `[x, ..]`, `[.., x]`, `[a, .., b]`, `[a, b]`
+  - Tuple patterns: `(x, y)`, `(a, ..)`, `(.., z)`, `(a, .., z)`
+  - Block expressions in arms: `n => { let x = n * 2; x + 1 }`
 - **Method calls:** `expr.method(args)` on built-in types
   - String: `len()`, `is_empty()`, `contains(s)`, `starts_with(s)`, `ends_with(s)`, `to_uppercase()`, `to_lowercase()`, `trim()`
   - Int32: `abs()`, `to_string()`, `to_float()`, `min(n)`, `max(n)`
@@ -55,13 +64,16 @@ src/
 - **Type checking:** operands must match types (no implicit coercion)
 - **REPL:** line editing, history (persisted to `~/.zoya_history`)
 
-### Running
+### CLI Commands
 
 ```bash
-cargo run -- run           # Start REPL
-cargo run -- run file.zoya # Run a file
-cargo test                 # Run tests
-cargo clippy               # Lint
+cargo run -- run              # Start REPL
+cargo run -- run file.zoya    # Run a file
+cargo run -- check file.zoya  # Type-check without executing
+cargo run -- build file.zoya  # Compile to JS (stdout)
+cargo run -- build file.zoya -o out.js  # Compile to JS file
+cargo test                    # Run tests
+cargo clippy                  # Lint
 ```
 
 ### Key Dependencies
