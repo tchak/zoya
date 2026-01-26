@@ -1,7 +1,8 @@
 use chumsky::prelude::*;
 
 use crate::ast::{
-    BinOp, Expr, FunctionDef, Item, LetBinding, Param, Statement, TypeAnnotation, UnaryOp,
+    BinOp, Expr, FunctionDef, Item, LetBinding, MatchArm, Param, Pattern, Statement,
+    TypeAnnotation, UnaryOp,
 };
 use crate::lexer::Token;
 
@@ -139,6 +140,43 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
             Token::String(s) => Expr::String(s),
         };
 
+        // Pattern for match arms
+        let pattern = choice((
+            // Wildcard: _ (must check before ident)
+            select! { Token::Ident(s) if s == "_" => Pattern::Wildcard },
+            // Literals
+            select! {
+                Token::Int(n) => Pattern::Literal(Box::new(Expr::Int(n))),
+                Token::Float(n) => Pattern::Literal(Box::new(Expr::Float(n))),
+                Token::True => Pattern::Literal(Box::new(Expr::Bool(true))),
+                Token::False => Pattern::Literal(Box::new(Expr::Bool(false))),
+                Token::String(s) => Pattern::Literal(Box::new(Expr::String(s))),
+            },
+            // Variable (must be last)
+            ident().map(Pattern::Var),
+        ));
+
+        // Match arm: pattern => expr
+        let match_arm = pattern
+            .then_ignore(just(Token::FatArrow))
+            .then(expr.clone())
+            .map(|(pattern, result)| MatchArm { pattern, result });
+
+        // Match expression: match scrutinee { arms }
+        let match_expr = just(Token::Match)
+            .ignore_then(expr.clone())
+            .then(
+                match_arm
+                    .repeated()
+                    .at_least(1)
+                    .collect::<Vec<_>>()
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+            )
+            .map(|(scrutinee, arms)| Expr::Match {
+                scrutinee: Box::new(scrutinee),
+                arms,
+            });
+
         // Arguments: (expr, expr, ...)
         let args = expr
             .clone()
@@ -155,6 +193,7 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
 
         let atom = choice((
             literal,
+            match_expr,
             ident_expr,
             expr.delimited_by(just(Token::LParen), just(Token::RParen)),
         ));
@@ -966,5 +1005,76 @@ mod tests {
         } else {
             panic!("expected function with block body");
         }
+    }
+
+    use crate::ast::{MatchArm, Pattern};
+
+    #[test]
+    fn test_parse_match_with_literals() {
+        let expr = parse_str("match x { 0 => 1 1 => 2 }").unwrap();
+        if let Expr::Match { scrutinee, arms } = expr {
+            assert!(matches!(*scrutinee, Expr::Var(ref s) if s == "x"));
+            assert_eq!(arms.len(), 2);
+            assert!(matches!(
+                &arms[0],
+                MatchArm {
+                    pattern: Pattern::Literal(lit),
+                    result: Expr::Int(1),
+                } if **lit == Expr::Int(0)
+            ));
+            assert!(matches!(
+                &arms[1],
+                MatchArm {
+                    pattern: Pattern::Literal(lit),
+                    result: Expr::Int(2),
+                } if **lit == Expr::Int(1)
+            ));
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_match_with_wildcard() {
+        let expr = parse_str("match x { 0 => 1 _ => 2 }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            assert_eq!(arms.len(), 2);
+            assert!(matches!(arms[1].pattern, Pattern::Wildcard));
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_match_with_variable() {
+        let expr = parse_str("match x { n => n }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            assert_eq!(arms.len(), 1);
+            assert!(matches!(&arms[0].pattern, Pattern::Var(s) if s == "n"));
+            assert!(matches!(&arms[0].result, Expr::Var(s) if s == "n"));
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_match_with_strings() {
+        let expr = parse_str(r#"match s { "a" => 1 "b" => 2 }"#).unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            assert_eq!(arms.len(), 2);
+            assert!(matches!(
+                &arms[0].pattern,
+                Pattern::Literal(lit) if **lit == Expr::String("a".to_string())
+            ));
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_match_in_function() {
+        let item = parse_item_str("fn f(x: Int32) -> Int32 { match x { 0 => 0 n => n } }").unwrap();
+        let Item::Function(FunctionDef { body, .. }) = item;
+        assert!(matches!(body, Expr::Match { .. }));
     }
 }

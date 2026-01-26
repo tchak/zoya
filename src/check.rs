@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
-use crate::ast::{BinOp, Expr, FunctionDef, Item, LetBinding, Statement, TypeAnnotation, UnaryOp};
-use crate::ir::{TypedExpr, TypedFunction, TypedLetBinding};
+use crate::ast::{
+    BinOp, Expr, FunctionDef, Item, LetBinding, MatchArm, Pattern, Statement, TypeAnnotation,
+    UnaryOp,
+};
+use crate::ir::{TypedExpr, TypedFunction, TypedLetBinding, TypedMatchArm, TypedPattern};
 use crate::types::{FunctionType, Type, TypeError};
 
 /// Type environment for checking expressions
@@ -324,7 +327,103 @@ fn check_with_env(expr: &Expr, env: &TypeEnv) -> Result<TypedExpr, TypeError> {
                 result: Box::new(typed_result),
             })
         }
+
+        Expr::Match { scrutinee, arms } => {
+            let typed_scrutinee = check_with_env(scrutinee, env)?;
+            let scrutinee_ty = typed_scrutinee.ty();
+
+            if arms.is_empty() {
+                return Err(TypeError {
+                    message: "match expression must have at least one arm".to_string(),
+                });
+            }
+
+            let mut typed_arms = Vec::new();
+            let mut result_ty: Option<Type> = None;
+
+            for arm in arms {
+                let typed_arm = check_match_arm(arm, &scrutinee_ty, env)?;
+                let arm_ty = typed_arm.result.ty();
+
+                // Verify all arms have same result type
+                match &result_ty {
+                    None => result_ty = Some(arm_ty),
+                    Some(ty) if *ty != arm_ty => {
+                        return Err(TypeError {
+                            message: format!(
+                                "match arms have different types: {} vs {}",
+                                ty, arm_ty
+                            ),
+                        });
+                    }
+                    _ => {}
+                }
+
+                typed_arms.push(typed_arm);
+            }
+
+            Ok(TypedExpr::Match {
+                scrutinee: Box::new(typed_scrutinee),
+                arms: typed_arms,
+                ty: result_ty.unwrap(),
+            })
+        }
     }
+}
+
+/// Check a pattern and return typed pattern with any bindings it introduces
+fn check_pattern(
+    pattern: &Pattern,
+    scrutinee_ty: &Type,
+    env: &TypeEnv,
+) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
+    match pattern {
+        Pattern::Literal(expr) => {
+            let typed = check_with_env(expr, env)?;
+            let lit_ty = typed.ty();
+            if lit_ty != *scrutinee_ty {
+                return Err(TypeError {
+                    message: format!(
+                        "pattern type {} does not match scrutinee type {}",
+                        lit_ty, scrutinee_ty
+                    ),
+                });
+            }
+            Ok((TypedPattern::Literal(typed), HashMap::new()))
+        }
+        Pattern::Var(name) => {
+            let mut bindings = HashMap::new();
+            bindings.insert(name.clone(), scrutinee_ty.clone());
+            Ok((
+                TypedPattern::Var {
+                    name: name.clone(),
+                    ty: scrutinee_ty.clone(),
+                },
+                bindings,
+            ))
+        }
+        Pattern::Wildcard => Ok((TypedPattern::Wildcard, HashMap::new())),
+    }
+}
+
+/// Check a match arm
+fn check_match_arm(
+    arm: &MatchArm,
+    scrutinee_ty: &Type,
+    env: &TypeEnv,
+) -> Result<TypedMatchArm, TypeError> {
+    let (typed_pattern, bindings) = check_pattern(&arm.pattern, scrutinee_ty, env)?;
+
+    // Create arm environment with pattern bindings
+    let mut arm_env = env.clone();
+    arm_env.locals.extend(bindings);
+
+    let typed_result = check_with_env(&arm.result, &arm_env)?;
+
+    Ok(TypedMatchArm {
+        pattern: typed_pattern,
+        result: typed_result,
+    })
 }
 
 /// Check a let binding and return a typed let binding
@@ -1106,5 +1205,111 @@ mod tests {
         };
         let result = check(&expr).unwrap();
         assert_eq!(result.ty(), Type::Int32);
+    }
+
+    use crate::ast::{MatchArm, Pattern};
+
+    #[test]
+    fn test_check_match_with_literals() {
+        let mut env = TypeEnv::default();
+        env.locals.insert("x".to_string(), Type::Int32);
+
+        let expr = Expr::Match {
+            scrutinee: Box::new(Expr::Var("x".to_string())),
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Literal(Box::new(Expr::Int(0))),
+                    result: Expr::String("zero".to_string()),
+                },
+                MatchArm {
+                    pattern: Pattern::Literal(Box::new(Expr::Int(1))),
+                    result: Expr::String("one".to_string()),
+                },
+            ],
+        };
+        let result = check_with_env(&expr, &env).unwrap();
+        assert_eq!(result.ty(), Type::String);
+    }
+
+    #[test]
+    fn test_check_match_with_wildcard() {
+        let mut env = TypeEnv::default();
+        env.locals.insert("x".to_string(), Type::Int32);
+
+        let expr = Expr::Match {
+            scrutinee: Box::new(Expr::Var("x".to_string())),
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Literal(Box::new(Expr::Int(0))),
+                    result: Expr::Int(1),
+                },
+                MatchArm {
+                    pattern: Pattern::Wildcard,
+                    result: Expr::Int(2),
+                },
+            ],
+        };
+        let result = check_with_env(&expr, &env).unwrap();
+        assert_eq!(result.ty(), Type::Int32);
+    }
+
+    #[test]
+    fn test_check_match_with_variable_binding() {
+        let mut env = TypeEnv::default();
+        env.locals.insert("x".to_string(), Type::Int32);
+
+        let expr = Expr::Match {
+            scrutinee: Box::new(Expr::Var("x".to_string())),
+            arms: vec![MatchArm {
+                pattern: Pattern::Var("n".to_string()),
+                result: Expr::BinOp {
+                    op: BinOp::Add,
+                    left: Box::new(Expr::Var("n".to_string())),
+                    right: Box::new(Expr::Int(1)),
+                },
+            }],
+        };
+        let result = check_with_env(&expr, &env).unwrap();
+        assert_eq!(result.ty(), Type::Int32);
+    }
+
+    #[test]
+    fn test_check_match_pattern_type_mismatch() {
+        let mut env = TypeEnv::default();
+        env.locals.insert("x".to_string(), Type::Int32);
+
+        let expr = Expr::Match {
+            scrutinee: Box::new(Expr::Var("x".to_string())),
+            arms: vec![MatchArm {
+                pattern: Pattern::Literal(Box::new(Expr::String("hello".to_string()))),
+                result: Expr::Int(1),
+            }],
+        };
+        let result = check_with_env(&expr, &env);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("does not match scrutinee"));
+    }
+
+    #[test]
+    fn test_check_match_arm_type_mismatch() {
+        let mut env = TypeEnv::default();
+        env.locals.insert("x".to_string(), Type::Int32);
+
+        let expr = Expr::Match {
+            scrutinee: Box::new(Expr::Var("x".to_string())),
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Literal(Box::new(Expr::Int(0))),
+                    result: Expr::String("zero".to_string()),
+                },
+                MatchArm {
+                    pattern: Pattern::Literal(Box::new(Expr::Int(1))),
+                    result: Expr::Int(1), // Type mismatch: String vs Int32
+                },
+            ],
+        };
+        let result = check_with_env(&expr, &env);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("different types"));
     }
 }

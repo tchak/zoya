@@ -41,6 +41,11 @@ src/
 - **Let bindings:** `let x = expr` or `let x: Type = expr`
   - In function bodies (semicolons optional): `fn foo() { let x = 1 let y = 2 x + y }`
   - In REPL (persists across inputs)
+- **Pattern matching:** `match expr { pattern => result ... }`
+  - Literal patterns: `0`, `"hello"`, `true`, `3.14`
+  - Variable patterns: `n` (binds the matched value)
+  - Wildcard pattern: `_` (matches anything, no binding)
+  - Example: `match x { 0 => "zero" 1 => "one" _ => "other" }`
 - **Type checking:** operands must match types (no implicit coercion)
 
 ### Running

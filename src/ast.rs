@@ -35,6 +35,21 @@ pub struct LetBinding {
     pub value: Box<Expr>,
 }
 
+/// Pattern in a match arm
+#[derive(Debug, Clone, PartialEq)]
+pub enum Pattern {
+    Literal(Box<Expr>), // 0, "hello", true
+    Var(String),        // x (binds value)
+    Wildcard,           // _ (matches all)
+}
+
+/// Match arm: pattern => result
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub result: Expr,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Int(i64),
@@ -58,6 +73,10 @@ pub enum Expr {
     Block {
         bindings: Vec<LetBinding>,
         result: Box<Expr>,
+    },
+    Match {
+        scrutinee: Box<Expr>,
+        arms: Vec<MatchArm>,
     },
 }
 

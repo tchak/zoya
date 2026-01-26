@@ -48,6 +48,9 @@ pub enum Token {
     #[token("let")]
     Let,
 
+    #[token("match")]
+    Match,
+
     // String literals with escape sequences
     #[regex(r#""([^"\\]|\\.)*""#, parse_string)]
     String(String),
@@ -78,6 +81,9 @@ pub enum Token {
 
     #[token("->")]
     Arrow,
+
+    #[token("=>")]
+    FatArrow,
 
     #[token("==")]
     EqEq,

@@ -18,6 +18,21 @@ pub struct TypedLetBinding {
     pub ty: Type,
 }
 
+/// Typed pattern in a match arm
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypedPattern {
+    Literal(TypedExpr),
+    Var { name: String, ty: Type },
+    Wildcard,
+}
+
+/// Typed match arm
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypedMatchArm {
+    pub pattern: TypedPattern,
+    pub result: TypedExpr,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedExpr {
     Int32(i32),
@@ -50,6 +65,11 @@ pub enum TypedExpr {
         bindings: Vec<TypedLetBinding>,
         result: Box<TypedExpr>,
     },
+    Match {
+        scrutinee: Box<TypedExpr>,
+        arms: Vec<TypedMatchArm>,
+        ty: Type,
+    },
 }
 
 impl TypedExpr {
@@ -65,6 +85,7 @@ impl TypedExpr {
             TypedExpr::UnaryOp { ty, .. } => ty.clone(),
             TypedExpr::BinOp { ty, .. } => ty.clone(),
             TypedExpr::Block { result, .. } => result.ty(),
+            TypedExpr::Match { ty, .. } => ty.clone(),
         }
     }
 }

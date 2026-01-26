@@ -1,5 +1,5 @@
 use crate::ast::{BinOp, UnaryOp};
-use crate::ir::{TypedExpr, TypedFunction, TypedLetBinding};
+use crate::ir::{TypedExpr, TypedFunction, TypedLetBinding, TypedMatchArm, TypedPattern};
 
 use crate::types::Type;
 
@@ -77,7 +77,45 @@ pub fn codegen(expr: &TypedExpr) -> String {
 
             parts.join(" ")
         }
+        TypedExpr::Match { scrutinee, arms, .. } => {
+            codegen_match(scrutinee, arms)
+        }
     }
+}
+
+/// Generate JS code for a match expression
+fn codegen_match(scrutinee: &TypedExpr, arms: &[TypedMatchArm]) -> String {
+    let scrutinee_code = codegen(scrutinee);
+    let mut parts = Vec::new();
+
+    parts.push("(function($match) {".to_string());
+
+    for arm in arms {
+        match &arm.pattern {
+            TypedPattern::Literal(lit) => {
+                let lit_code = codegen(lit);
+                let result_code = codegen(&arm.result);
+                parts.push(format!(
+                    "if ($match === {}) {{ return {}; }}",
+                    lit_code, result_code
+                ));
+            }
+            TypedPattern::Var { name, .. } => {
+                let result_code = codegen(&arm.result);
+                parts.push(format!(
+                    "{{ const {} = $match; return {}; }}",
+                    name, result_code
+                ));
+            }
+            TypedPattern::Wildcard => {
+                let result_code = codegen(&arm.result);
+                parts.push(format!("return {};", result_code));
+            }
+        }
+    }
+
+    parts.push(format!("}})({})", scrutinee_code));
+    parts.join(" ")
 }
 
 /// Wrap an Int32 expression with overflow checking
