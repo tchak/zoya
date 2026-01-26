@@ -24,6 +24,9 @@ pub enum TypedPattern {
     Literal(TypedExpr),
     Var { name: String, ty: Type },
     Wildcard,
+    ListEmpty,
+    ListExact { patterns: Vec<TypedPattern>, len: usize },
+    ListPrefix { patterns: Vec<TypedPattern>, min_len: usize },
 }
 
 /// Typed match arm
@@ -41,6 +44,10 @@ pub enum TypedExpr {
     Float(f64),
     Bool(bool),
     String(String),
+    List {
+        elements: Vec<TypedExpr>,
+        ty: Type,
+    },
     Var {
         name: String,
         ty: Type,
@@ -86,6 +93,7 @@ impl TypedExpr {
             TypedExpr::Float(_) => Type::Float,
             TypedExpr::Bool(_) => Type::Bool,
             TypedExpr::String(_) => Type::String,
+            TypedExpr::List { ty, .. } => ty.clone(),
             TypedExpr::Var { ty, .. } => ty.clone(),
             TypedExpr::Call { ty, .. } => ty.clone(),
             TypedExpr::UnaryOp { ty, .. } => ty.clone(),

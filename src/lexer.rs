@@ -128,6 +128,15 @@ pub enum Token {
     #[token(",")]
     Comma,
 
+    #[token("[")]
+    LBracket,
+
+    #[token("]")]
+    RBracket,
+
+    #[token("..")]
+    DotDot,
+
     #[token(".")]
     Dot,
 }
@@ -433,6 +442,57 @@ mod tests {
         assert_eq!(
             tokens,
             vec![Token::Le, Token::Ge, Token::Arrow, Token::Lt, Token::Gt]
+        );
+    }
+
+    #[test]
+    fn test_brackets() {
+        let tokens = lex("[]").unwrap();
+        assert_eq!(tokens, vec![Token::LBracket, Token::RBracket]);
+    }
+
+    #[test]
+    fn test_list_literal() {
+        let tokens = lex("[1, 2, 3]").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::LBracket,
+                Token::Int(1),
+                Token::Comma,
+                Token::Int(2),
+                Token::Comma,
+                Token::Int(3),
+                Token::RBracket,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_dot_dot() {
+        let tokens = lex("..").unwrap();
+        assert_eq!(tokens, vec![Token::DotDot]);
+    }
+
+    #[test]
+    fn test_dot_vs_dot_dot() {
+        // Make sure .. is separate from .
+        let tokens = lex(". .. .").unwrap();
+        assert_eq!(tokens, vec![Token::Dot, Token::DotDot, Token::Dot]);
+    }
+
+    #[test]
+    fn test_list_pattern_tokens() {
+        let tokens = lex("[x, ..]").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::LBracket,
+                Token::Ident("x".to_string()),
+                Token::Comma,
+                Token::DotDot,
+                Token::RBracket,
+            ]
         );
     }
 }

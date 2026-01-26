@@ -17,7 +17,8 @@ pub enum Type {
     Float,
     Bool,
     String,
-    Var(TypeVarId), // Unification type variable
+    List(Box<Type>), // List with element type
+    Var(TypeVarId),  // Unification type variable
 }
 
 impl fmt::Display for Type {
@@ -28,6 +29,7 @@ impl fmt::Display for Type {
             Type::Float => write!(f, "Float"),
             Type::Bool => write!(f, "Bool"),
             Type::String => write!(f, "String"),
+            Type::List(elem) => write!(f, "List<{}>", elem),
             Type::Var(id) => write!(f, "{}", id),
         }
     }

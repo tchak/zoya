@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::check::check_file;
-use crate::codegen::codegen_function;
+use crate::codegen::{codegen_function, deep_eq_prelude};
 use crate::eval::{self, EvalError, Value};
 use crate::lexer;
 use crate::parser;
@@ -40,6 +40,11 @@ fn run_source(source: &str) -> Result<Value, EvalError> {
 
     // Generate JS code
     let mut js_code = String::new();
+
+    // Add prelude for deep equality (used by list comparison)
+    js_code.push_str(deep_eq_prelude());
+    js_code.push('\n');
+
     for typed_func in &typed_functions {
         js_code.push_str(&codegen_function(typed_func));
         js_code.push('\n');
@@ -391,5 +396,228 @@ mod tests {
         let source = "fn main() -> Float { 3.5.max(2.5) }";
         let result = run_source(source).unwrap();
         assert_eq!(result, Value::Float(3.5));
+    }
+
+    // List tests
+    #[test]
+    fn test_run_list_literal() {
+        let source = "fn main() -> List<Int32> { [1, 2, 3] }";
+        let result = run_source(source).unwrap();
+        assert_eq!(
+            result,
+            Value::List(vec![Value::Int32(1), Value::Int32(2), Value::Int32(3)])
+        );
+    }
+
+    #[test]
+    fn test_run_empty_list() {
+        let source = "fn main() -> List<Int32> { [] }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::List(vec![]));
+    }
+
+    #[test]
+    fn test_run_list_equality_true() {
+        let source = "fn main() -> Bool { [1, 2, 3] == [1, 2, 3] }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_list_equality_false_different_elements() {
+        let source = "fn main() -> Bool { [1, 2, 3] == [1, 2, 4] }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(false));
+    }
+
+    #[test]
+    fn test_run_list_equality_false_different_length() {
+        let source = "fn main() -> Bool { [1, 2] == [1, 2, 3] }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(false));
+    }
+
+    #[test]
+    fn test_run_list_inequality() {
+        let source = "fn main() -> Bool { [1, 2] != [1, 3] }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_empty_list_equality() {
+        let source = "fn main() -> Bool { [] == [] }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_list_match_empty() {
+        let source = r#"
+            fn is_empty<T>(xs: List<T>) -> Bool {
+                match xs {
+                    [] => true
+                    [_, ..] => false
+                }
+            }
+            fn main() -> Bool { is_empty([]) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_list_match_nonempty() {
+        let source = r#"
+            fn is_empty<T>(xs: List<T>) -> Bool {
+                match xs {
+                    [] => true
+                    [_, ..] => false
+                }
+            }
+            fn main() -> Bool { is_empty([1, 2, 3]) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(false));
+    }
+
+    #[test]
+    fn test_run_list_match_head() {
+        let source = r#"
+            fn head_or_zero(xs: List<Int32>) -> Int32 {
+                match xs {
+                    [] => 0
+                    [x, ..] => x
+                }
+            }
+            fn main() -> Int32 { head_or_zero([42, 1, 2]) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(42));
+    }
+
+    #[test]
+    fn test_run_list_match_head_empty() {
+        let source = r#"
+            fn head_or_zero(xs: List<Int32>) -> Int32 {
+                match xs {
+                    [] => 0
+                    [x, ..] => x
+                }
+            }
+            fn main() -> Int32 { head_or_zero([]) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(0));
+    }
+
+    #[test]
+    fn test_run_list_match_exact() {
+        let source = r#"
+            fn sum_pair(xs: List<Int32>) -> Int32 {
+                match xs {
+                    [a, b] => a + b
+                    _ => 0
+                }
+            }
+            fn main() -> Int32 { sum_pair([10, 20]) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(30));
+    }
+
+    #[test]
+    fn test_run_list_match_exact_wrong_length() {
+        let source = r#"
+            fn sum_pair(xs: List<Int32>) -> Int32 {
+                match xs {
+                    [a, b] => a + b
+                    _ => 0
+                }
+            }
+            fn main() -> Int32 { sum_pair([1, 2, 3]) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(0));
+    }
+
+    #[test]
+    fn test_run_list_match_literal_pattern() {
+        let source = r#"
+            fn starts_with_one(xs: List<Int32>) -> Bool {
+                match xs {
+                    [1, ..] => true
+                    [_, ..] => false
+                    [] => false
+                }
+            }
+            fn main() -> Bool { starts_with_one([1, 2, 3]) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_list_match_literal_pattern_not_matching() {
+        let source = r#"
+            fn starts_with_one(xs: List<Int32>) -> Bool {
+                match xs {
+                    [1, ..] => true
+                    [_, ..] => false
+                    [] => false
+                }
+            }
+            fn main() -> Bool { starts_with_one([2, 3, 4]) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(false));
+    }
+
+    #[test]
+    fn test_run_list_exhaustiveness_error() {
+        // Missing empty list pattern should cause compile error
+        let source = r#"
+            fn bad(xs: List<Int32>) -> Int32 {
+                match xs {
+                    [x, ..] => x
+                }
+            }
+            fn main() -> Int32 { bad([1]) }
+        "#;
+        let result = run_source(source);
+        assert!(matches!(
+            result,
+            Err(EvalError::RuntimeError(msg)) if msg.contains("non-exhaustive")
+        ));
+    }
+
+    #[test]
+    fn test_run_list_string() {
+        let source = r#"fn main() -> List<String> { ["hello", "world"] }"#;
+        let result = run_source(source).unwrap();
+        assert_eq!(
+            result,
+            Value::List(vec![
+                Value::String("hello".to_string()),
+                Value::String("world".to_string())
+            ])
+        );
+    }
+
+    #[test]
+    fn test_run_list_function_param() {
+        let source = r#"
+            fn len_check(xs: List<Int32>) -> Bool {
+                match xs {
+                    [] => true
+                    [_] => true
+                    [_, _] => true
+                    _ => false
+                }
+            }
+            fn main() -> Bool { len_check([1, 2]) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
     }
 }

@@ -1,7 +1,7 @@
 use chumsky::prelude::*;
 
 use crate::ast::{
-    BinOp, Expr, FunctionDef, Item, LetBinding, MatchArm, Param, Pattern, Statement,
+    BinOp, Expr, FunctionDef, Item, LetBinding, ListPattern, MatchArm, Param, Pattern, Statement,
     TypeAnnotation, UnaryOp,
 };
 use crate::lexer::Token;
@@ -48,8 +48,21 @@ fn ident<'a>() -> impl Parser<'a, &'a [Token], String, extra::Err<Rich<'a, Token
 }
 
 fn type_annotation<'a>() -> impl Parser<'a, &'a [Token], TypeAnnotation, extra::Err<Rich<'a, Token>>>
-{
-    ident().map(TypeAnnotation::Named)
+       + Clone {
+    recursive(|type_ann| {
+        // Type parameters: <T, U>
+        let type_params = type_ann
+            .separated_by(just(Token::Comma))
+            .collect::<Vec<_>>()
+            .delimited_by(just(Token::Lt), just(Token::Gt));
+
+        ident()
+            .then(type_params.or_not())
+            .map(|(name, params)| match params {
+                Some(params) => TypeAnnotation::Parameterized(name, params),
+                None => TypeAnnotation::Named(name),
+            })
+    })
 }
 
 fn let_binding_parser<'a>(
@@ -140,21 +153,100 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
             Token::String(s) => Expr::String(s),
         };
 
-        // Pattern for match arms
-        let pattern = choice((
-            // Wildcard: _ (must check before ident)
-            select! { Token::Ident(s) if s == "_" => Pattern::Wildcard },
-            // Literals
-            select! {
-                Token::Int(n) => Pattern::Literal(Box::new(Expr::Int(n))),
-                Token::Float(n) => Pattern::Literal(Box::new(Expr::Float(n))),
-                Token::True => Pattern::Literal(Box::new(Expr::Bool(true))),
-                Token::False => Pattern::Literal(Box::new(Expr::Bool(false))),
-                Token::String(s) => Pattern::Literal(Box::new(Expr::String(s))),
-            },
-            // Variable (must be last)
-            ident().map(Pattern::Var),
-        ));
+        // List literal: [expr, expr, ...]
+        let list_literal = expr
+            .clone()
+            .separated_by(just(Token::Comma))
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .delimited_by(just(Token::LBracket), just(Token::RBracket))
+            .map(Expr::List);
+
+        // Pattern for match arms (recursive for nested list patterns)
+        let pattern = recursive(|pattern| {
+            // Simple patterns (non-list)
+            let simple_pattern = choice((
+                // Wildcard: _ (must check before ident)
+                select! { Token::Ident(s) if s == "_" => Pattern::Wildcard },
+                // Literals
+                select! {
+                    Token::Int(n) => Pattern::Literal(Box::new(Expr::Int(n))),
+                    Token::Float(n) => Pattern::Literal(Box::new(Expr::Float(n))),
+                    Token::True => Pattern::Literal(Box::new(Expr::Bool(true))),
+                    Token::False => Pattern::Literal(Box::new(Expr::Bool(false))),
+                    Token::String(s) => Pattern::Literal(Box::new(Expr::String(s))),
+                },
+                // Variable (must be last among simple patterns)
+                ident().map(Pattern::Var),
+            ));
+
+            // List pattern element: pattern or .. (rest marker)
+            #[derive(Clone)]
+            enum ListPatternElement {
+                Pattern(Pattern),
+                Rest, // ..
+            }
+
+            let list_element = choice((
+                just(Token::DotDot).to(ListPatternElement::Rest),
+                pattern.clone().map(ListPatternElement::Pattern),
+            ));
+
+            // List pattern: [], [a, b], [a, ..]
+            let list_pattern = list_element
+                .separated_by(just(Token::Comma))
+                .allow_trailing()
+                .collect::<Vec<_>>()
+                .delimited_by(just(Token::LBracket), just(Token::RBracket))
+                .try_map(|elements, span| {
+                    // Check for .. and convert to appropriate ListPattern
+                    let rest_pos = elements.iter().position(|e| matches!(e, ListPatternElement::Rest));
+
+                    match rest_pos {
+                        None => {
+                            // No .., this is an exact pattern
+                            let patterns: Vec<Pattern> = elements
+                                .into_iter()
+                                .map(|e| match e {
+                                    ListPatternElement::Pattern(p) => p,
+                                    ListPatternElement::Rest => unreachable!(),
+                                })
+                                .collect();
+                            if patterns.is_empty() {
+                                Ok(Pattern::List(ListPattern::Empty))
+                            } else {
+                                Ok(Pattern::List(ListPattern::Exact(patterns)))
+                            }
+                        }
+                        Some(pos) => {
+                            // Has .., this is a prefix pattern
+                            // .. must be at the end (for now, prefix-only)
+                            if pos != elements.len() - 1 {
+                                return Err(Rich::custom(
+                                    span,
+                                    ".. must be at the end of list pattern (suffix patterns not yet supported)",
+                                ));
+                            }
+
+                            // Multiple .. not allowed
+                            if elements.iter().filter(|e| matches!(e, ListPatternElement::Rest)).count() > 1 {
+                                return Err(Rich::custom(span, "only one .. allowed in list pattern"));
+                            }
+
+                            let patterns: Vec<Pattern> = elements[..pos]
+                                .iter()
+                                .map(|e| match e {
+                                    ListPatternElement::Pattern(p) => p.clone(),
+                                    ListPatternElement::Rest => unreachable!(),
+                                })
+                                .collect();
+                            Ok(Pattern::List(ListPattern::Prefix(patterns)))
+                        }
+                    }
+                });
+
+            choice((list_pattern, simple_pattern))
+        });
 
         // Match arm: pattern => expr
         let match_arm = pattern
@@ -193,6 +285,7 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
 
         let atom = choice((
             literal,
+            list_literal,
             match_expr,
             ident_expr,
             expr.clone().delimited_by(just(Token::LParen), just(Token::RParen)),
@@ -1176,6 +1269,129 @@ mod tests {
                 op: BinOp::Add,
                 ..
             }
+        ));
+    }
+
+    // List literal tests
+    #[test]
+    fn test_parse_empty_list() {
+        let expr = parse_str("[]").unwrap();
+        assert_eq!(expr, Expr::List(vec![]));
+    }
+
+    #[test]
+    fn test_parse_list_single_element() {
+        let expr = parse_str("[1]").unwrap();
+        assert_eq!(expr, Expr::List(vec![Expr::Int(1)]));
+    }
+
+    #[test]
+    fn test_parse_list_multiple_elements() {
+        let expr = parse_str("[1, 2, 3]").unwrap();
+        assert_eq!(expr, Expr::List(vec![Expr::Int(1), Expr::Int(2), Expr::Int(3)]));
+    }
+
+    #[test]
+    fn test_parse_list_with_expressions() {
+        let expr = parse_str("[1 + 2, x]").unwrap();
+        assert!(matches!(expr, Expr::List(elems) if elems.len() == 2));
+    }
+
+    #[test]
+    fn test_parse_nested_list() {
+        let expr = parse_str("[[1, 2], [3]]").unwrap();
+        assert!(matches!(expr, Expr::List(elems) if elems.len() == 2));
+    }
+
+    #[test]
+    fn test_parse_list_trailing_comma() {
+        let expr = parse_str("[1, 2,]").unwrap();
+        assert_eq!(expr, Expr::List(vec![Expr::Int(1), Expr::Int(2)]));
+    }
+
+    // List pattern tests
+    #[test]
+    fn test_parse_match_empty_list_pattern() {
+        let expr = parse_str("match xs { [] => 0 }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            assert!(matches!(&arms[0].pattern, Pattern::List(ListPattern::Empty)));
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_match_exact_list_pattern() {
+        let expr = parse_str("match xs { [a, b] => a }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::List(ListPattern::Exact(patterns)) = &arms[0].pattern {
+                assert_eq!(patterns.len(), 2);
+                assert!(matches!(&patterns[0], Pattern::Var(s) if s == "a"));
+                assert!(matches!(&patterns[1], Pattern::Var(s) if s == "b"));
+            } else {
+                panic!("expected exact list pattern");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_match_prefix_list_pattern() {
+        let expr = parse_str("match xs { [head, ..] => head }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::List(ListPattern::Prefix(patterns)) = &arms[0].pattern {
+                assert_eq!(patterns.len(), 1);
+                assert!(matches!(&patterns[0], Pattern::Var(s) if s == "head"));
+            } else {
+                panic!("expected prefix list pattern");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_match_list_pattern_with_literals() {
+        let expr = parse_str("match xs { [1, x, ..] => x }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::List(ListPattern::Prefix(patterns)) = &arms[0].pattern {
+                assert_eq!(patterns.len(), 2);
+                assert!(matches!(&patterns[0], Pattern::Literal(lit) if **lit == Expr::Int(1)));
+                assert!(matches!(&patterns[1], Pattern::Var(s) if s == "x"));
+            } else {
+                panic!("expected prefix list pattern");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_match_list_pattern_with_wildcard() {
+        let expr = parse_str("match xs { [_, x] => x }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::List(ListPattern::Exact(patterns)) = &arms[0].pattern {
+                assert_eq!(patterns.len(), 2);
+                assert!(matches!(&patterns[0], Pattern::Wildcard));
+                assert!(matches!(&patterns[1], Pattern::Var(s) if s == "x"));
+            } else {
+                panic!("expected exact list pattern");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    // Parameterized type annotation tests
+    #[test]
+    fn test_parse_function_with_list_param() {
+        let item = parse_item_str("fn len(xs: List<Int32>) -> Int32 { 0 }").unwrap();
+        let Item::Function(FunctionDef { params, .. }) = item;
+        assert!(matches!(
+            &params[0].typ,
+            TypeAnnotation::Parameterized(name, args)
+                if name == "List" && args.len() == 1
         ));
     }
 }

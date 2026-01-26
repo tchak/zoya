@@ -3,6 +3,19 @@ use crate::ir::{TypedExpr, TypedFunction, TypedLetBinding, TypedMatchArm, TypedP
 
 use crate::types::Type;
 
+/// Deep equality function name used in generated JS
+const DEEP_EQ_FN: &str = "$eq";
+
+/// Deep equality helper function for structural comparison of lists
+pub fn deep_eq_prelude() -> &'static str {
+    "function $eq(a,b){if(Array.isArray(a)&&Array.isArray(b)){if(a.length!==b.length)return false;for(let i=0;i<a.length;i++)if(!$eq(a[i],b[i]))return false;return true}return a===b}"
+}
+
+/// Check if a type requires deep equality comparison
+fn needs_deep_equality(ty: &Type) -> bool {
+    matches!(ty, Type::List(_))
+}
+
 pub fn codegen(expr: &TypedExpr) -> String {
     match expr {
         TypedExpr::Int32(n) => n.to_string(),
@@ -10,6 +23,10 @@ pub fn codegen(expr: &TypedExpr) -> String {
         TypedExpr::Float(n) => format_float(*n),
         TypedExpr::Bool(b) => b.to_string(),
         TypedExpr::String(s) => escape_js_string(s),
+        TypedExpr::List { elements, .. } => {
+            let element_strs: Vec<String> = elements.iter().map(codegen).collect();
+            format!("[{}]", element_strs.join(", "))
+        }
         TypedExpr::Var { name, .. } => name.clone(),
         TypedExpr::Call { func, args, ty } => {
             let args_str: Vec<String> = args.iter().map(codegen).collect();
@@ -41,6 +58,17 @@ pub fn codegen(expr: &TypedExpr) -> String {
         } => {
             let l = codegen(left);
             let r = codegen(right);
+
+            // Handle equality operators with structural comparison for lists
+            if matches!(op, BinOp::Eq | BinOp::Ne) && needs_deep_equality(&left.ty()) {
+                let deep_eq = format!("{}({}, {})", DEEP_EQ_FN, l, r);
+                return if *op == BinOp::Eq {
+                    deep_eq
+                } else {
+                    format!("(!{})", deep_eq)
+                };
+            }
+
             let op_str = match op {
                 BinOp::Add => "+",
                 BinOp::Sub => "-",
@@ -171,11 +199,88 @@ fn codegen_match(scrutinee: &TypedExpr, arms: &[TypedMatchArm]) -> String {
                 let result_code = codegen(&arm.result);
                 parts.push(format!("return {};", result_code));
             }
+            TypedPattern::ListEmpty => {
+                let result_code = codegen(&arm.result);
+                parts.push(format!(
+                    "if (Array.isArray($match) && $match.length === 0) {{ return {}; }}",
+                    result_code
+                ));
+            }
+            TypedPattern::ListExact { patterns, len } => {
+                let result_code = codegen(&arm.result);
+                let (condition, bindings) = codegen_list_pattern_bindings(patterns, *len, true);
+                parts.push(format!(
+                    "if (Array.isArray($match) && $match.length === {} && {}) {{ {} return {}; }}",
+                    len, condition, bindings, result_code
+                ));
+            }
+            TypedPattern::ListPrefix { patterns, min_len } => {
+                let result_code = codegen(&arm.result);
+                let (condition, bindings) = codegen_list_pattern_bindings(patterns, *min_len, false);
+                if condition == "true" {
+                    parts.push(format!(
+                        "if (Array.isArray($match) && $match.length >= {}) {{ {} return {}; }}",
+                        min_len, bindings, result_code
+                    ));
+                } else {
+                    parts.push(format!(
+                        "if (Array.isArray($match) && $match.length >= {} && {}) {{ {} return {}; }}",
+                        min_len, condition, bindings, result_code
+                    ));
+                }
+            }
         }
     }
 
     parts.push(format!("}})({})", scrutinee_code));
     parts.join(" ")
+}
+
+/// Generate condition checks and bindings for list patterns
+/// Returns (condition_expr, bindings_code)
+fn codegen_list_pattern_bindings(
+    patterns: &[TypedPattern],
+    _len: usize,
+    _exact: bool,
+) -> (String, String) {
+    let mut conditions = Vec::new();
+    let mut bindings = Vec::new();
+
+    for (i, pat) in patterns.iter().enumerate() {
+        match pat {
+            TypedPattern::Literal(lit) => {
+                let lit_code = codegen(lit);
+                // For list literals, use deep equality
+                if needs_deep_equality(&lit.ty()) {
+                    conditions.push(format!("{}($match[{}], {})", DEEP_EQ_FN, i, lit_code));
+                } else {
+                    conditions.push(format!("$match[{}] === {}", i, lit_code));
+                }
+            }
+            TypedPattern::Var { name, .. } => {
+                bindings.push(format!("const {} = $match[{}];", name, i));
+            }
+            TypedPattern::Wildcard => {
+                // No binding or condition needed
+            }
+            TypedPattern::ListEmpty
+            | TypedPattern::ListExact { .. }
+            | TypedPattern::ListPrefix { .. } => {
+                // TODO: Nested list patterns would need recursive handling
+                // For now, we don't support nested list patterns in the initial implementation
+            }
+        }
+    }
+
+    let condition = if conditions.is_empty() {
+        "true".to_string()
+    } else {
+        conditions.join(" && ")
+    };
+
+    let bindings_code = bindings.join(" ");
+
+    (condition, bindings_code)
 }
 
 /// Wrap an Int32 expression with overflow checking

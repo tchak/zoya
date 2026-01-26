@@ -24,7 +24,8 @@ pub struct Param {
 /// Type annotation in source code
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeAnnotation {
-    Named(String), // Int, Float, T, etc.
+    Named(String),                              // Int32, Float, T, etc.
+    Parameterized(String, Vec<TypeAnnotation>), // List<Int32>, Map<K, V>, etc.
 }
 
 /// Let binding: `let x = expr` or `let x: Type = expr`
@@ -41,6 +42,15 @@ pub enum Pattern {
     Literal(Box<Expr>), // 0, "hello", true
     Var(String),        // x (binds value)
     Wildcard,           // _ (matches all)
+    List(ListPattern),  // [], [a, b], [x, ..]
+}
+
+/// List pattern variants
+#[derive(Debug, Clone, PartialEq)]
+pub enum ListPattern {
+    Empty,                // []
+    Exact(Vec<Pattern>),  // [a, b, c] - match exactly N elements
+    Prefix(Vec<Pattern>), // [a, b, ..] - match at least N elements, discard rest
 }
 
 /// Match arm: pattern => result
@@ -56,6 +66,7 @@ pub enum Expr {
     Float(f64),
     Bool(bool),
     String(String),
+    List(Vec<Expr>),
     Var(String),
     Call {
         func: String,

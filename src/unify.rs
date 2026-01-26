@@ -38,6 +38,7 @@ impl UnifyCtx {
                     ty.clone()
                 }
             }
+            Type::List(elem) => Type::List(Box::new(self.resolve(elem))),
             _ => ty.clone(),
         }
     }
@@ -48,8 +49,7 @@ impl UnifyCtx {
         let ty = self.resolve(ty);
         match ty {
             Type::Var(id) => id == var_id,
-            // For now, only Var can contain type variables
-            // When we add App(constructor, args), we'll check args recursively
+            Type::List(elem) => self.occurs(var_id, &elem),
             _ => false,
         }
     }
@@ -67,6 +67,9 @@ impl UnifyCtx {
             (Type::Float, Type::Float) => Ok(()),
             (Type::Bool, Type::Bool) => Ok(()),
             (Type::String, Type::String) => Ok(()),
+
+            // List types - unify element types
+            (Type::List(e1), Type::List(e2)) => self.unify(e1, e2),
 
             // Same type variable - already unified
             (Type::Var(id1), Type::Var(id2)) if id1 == id2 => Ok(()),
@@ -104,7 +107,11 @@ impl UnifyCtx {
     #[allow(dead_code)]
     pub fn is_concrete(&self, ty: &Type) -> bool {
         let resolved = self.resolve(ty);
-        !matches!(resolved, Type::Var(_))
+        match resolved {
+            Type::Var(_) => false,
+            Type::List(elem) => self.is_concrete(&elem),
+            _ => true,
+        }
     }
 }
 
@@ -233,5 +240,64 @@ mod tests {
 
         ctx.unify(&var, &Type::Float).unwrap();
         assert!(ctx.is_concrete(&var));
+    }
+
+    #[test]
+    fn test_unify_list_same_element() {
+        let mut ctx = UnifyCtx::new();
+        let list1 = Type::List(Box::new(Type::Int32));
+        let list2 = Type::List(Box::new(Type::Int32));
+        assert!(ctx.unify(&list1, &list2).is_ok());
+    }
+
+    #[test]
+    fn test_unify_list_different_element() {
+        let mut ctx = UnifyCtx::new();
+        let list1 = Type::List(Box::new(Type::Int32));
+        let list2 = Type::List(Box::new(Type::String));
+        let result = ctx.unify(&list1, &list2);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_unify_list_with_var_element() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+        let list1 = Type::List(Box::new(var.clone()));
+        let list2 = Type::List(Box::new(Type::Int32));
+
+        assert!(ctx.unify(&list1, &list2).is_ok());
+        assert_eq!(ctx.resolve(&var), Type::Int32);
+        assert_eq!(
+            ctx.resolve(&list1),
+            Type::List(Box::new(Type::Int32))
+        );
+    }
+
+    #[test]
+    fn test_unify_list_occurs_check() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+        let list = Type::List(Box::new(var.clone()));
+
+        // T = List<T> should fail (infinite type)
+        let result = ctx.unify(&var, &list);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("infinite type"));
+    }
+
+    #[test]
+    fn test_is_concrete_list() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+
+        let list_concrete = Type::List(Box::new(Type::Int32));
+        let list_var = Type::List(Box::new(var.clone()));
+
+        assert!(ctx.is_concrete(&list_concrete));
+        assert!(!ctx.is_concrete(&list_var));
+
+        ctx.unify(&var, &Type::String).unwrap();
+        assert!(ctx.is_concrete(&list_var));
     }
 }

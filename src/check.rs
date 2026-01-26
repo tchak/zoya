@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use crate::ast::{
-    BinOp, Expr, FunctionDef, Item, LetBinding, MatchArm, Pattern, Statement, TypeAnnotation,
-    UnaryOp,
+    BinOp, Expr, FunctionDef, Item, LetBinding, ListPattern, MatchArm, Pattern, Statement,
+    TypeAnnotation, UnaryOp,
 };
 use crate::ir::{TypedExpr, TypedFunction, TypedLetBinding, TypedMatchArm, TypedPattern};
 use crate::types::{FunctionType, Type, TypeError, TypeVarId};
@@ -49,6 +49,21 @@ fn resolve_type_annotation(
             } else {
                 Err(TypeError {
                     message: format!("unknown type: {}", name),
+                })
+            }
+        }
+        TypeAnnotation::Parameterized(name, params) => {
+            if name == "List" {
+                if params.len() != 1 {
+                    return Err(TypeError {
+                        message: "List requires exactly one type parameter".to_string(),
+                    });
+                }
+                let elem_type = resolve_type_annotation(&params[0], type_param_map)?;
+                Ok(Type::List(Box::new(elem_type)))
+            } else {
+                Err(TypeError {
+                    message: format!("unknown parameterized type: {}", name),
                 })
             }
         }
@@ -417,6 +432,12 @@ fn check_with_env(
                 typed_arms.push(typed_arm);
             }
 
+            // Check exhaustiveness for List types
+            let resolved_scrutinee_ty = ctx.resolve(&scrutinee_ty);
+            if let Type::List(_) = resolved_scrutinee_ty {
+                check_list_exhaustiveness(&typed_arms)?;
+            }
+
             Ok(TypedExpr::Match {
                 scrutinee: Box::new(typed_scrutinee),
                 arms: typed_arms,
@@ -476,6 +497,36 @@ fn check_with_env(
                 ty: return_type,
             })
         }
+
+        Expr::List(elements) => {
+            if elements.is_empty() {
+                // Empty list: create fresh type variable for element type
+                let elem_ty = ctx.fresh_var();
+                Ok(TypedExpr::List {
+                    elements: vec![],
+                    ty: Type::List(Box::new(elem_ty)),
+                })
+            } else {
+                // Non-empty list: infer element type from first element
+                let first_typed = check_with_env(&elements[0], env, ctx)?;
+                let elem_ty = first_typed.ty();
+                let mut typed_elements = vec![first_typed];
+
+                // Check remaining elements unify with first element's type
+                for elem in &elements[1..] {
+                    let typed = check_with_env(elem, env, ctx)?;
+                    ctx.unify(&typed.ty(), &elem_ty).map_err(|e| TypeError {
+                        message: format!("list element type mismatch: {}", e.message),
+                    })?;
+                    typed_elements.push(typed);
+                }
+
+                Ok(TypedExpr::List {
+                    elements: typed_elements,
+                    ty: Type::List(Box::new(ctx.resolve(&elem_ty))),
+                })
+            }
+        }
     }
 }
 
@@ -523,6 +574,64 @@ fn check_pattern(
             ))
         }
         Pattern::Wildcard => Ok((TypedPattern::Wildcard, HashMap::new())),
+
+        Pattern::List(list_pattern) => {
+            // Unify scrutinee with List<T> for some fresh T
+            let elem_ty = ctx.fresh_var();
+            ctx.unify(scrutinee_ty, &Type::List(Box::new(elem_ty.clone())))
+                .map_err(|e| TypeError {
+                    message: format!(
+                        "list pattern cannot match type {}: {}",
+                        ctx.resolve(scrutinee_ty),
+                        e.message
+                    ),
+                })?;
+            let resolved_elem = ctx.resolve(&elem_ty);
+
+            match list_pattern {
+                ListPattern::Empty => Ok((TypedPattern::ListEmpty, HashMap::new())),
+
+                ListPattern::Exact(patterns) => {
+                    let mut typed_patterns = Vec::new();
+                    let mut all_bindings = HashMap::new();
+
+                    for pat in patterns {
+                        let (typed_pat, bindings) =
+                            check_pattern(pat, &resolved_elem, env, ctx)?;
+                        typed_patterns.push(typed_pat);
+                        all_bindings.extend(bindings);
+                    }
+
+                    Ok((
+                        TypedPattern::ListExact {
+                            patterns: typed_patterns,
+                            len: patterns.len(),
+                        },
+                        all_bindings,
+                    ))
+                }
+
+                ListPattern::Prefix(patterns) => {
+                    let mut typed_patterns = Vec::new();
+                    let mut all_bindings = HashMap::new();
+
+                    for pat in patterns {
+                        let (typed_pat, bindings) =
+                            check_pattern(pat, &resolved_elem, env, ctx)?;
+                        typed_patterns.push(typed_pat);
+                        all_bindings.extend(bindings);
+                    }
+
+                    Ok((
+                        TypedPattern::ListPrefix {
+                            patterns: typed_patterns,
+                            min_len: patterns.len(),
+                        },
+                        all_bindings,
+                    ))
+                }
+            }
+        }
     }
 }
 
@@ -545,6 +654,65 @@ fn check_match_arm(
         pattern: typed_pattern,
         result: typed_result,
     })
+}
+
+/// Check exhaustiveness of list patterns
+/// For lists, we need to cover both empty and non-empty cases
+fn check_list_exhaustiveness(arms: &[TypedMatchArm]) -> Result<(), TypeError> {
+    let mut has_catch_all = false;
+    let mut empty_covered = false;
+    let mut nonempty_covered = false;
+
+    for arm in arms {
+        match &arm.pattern {
+            // Variable or wildcard covers everything
+            TypedPattern::Var { .. } | TypedPattern::Wildcard => {
+                has_catch_all = true;
+            }
+            // Empty list pattern covers empty case
+            TypedPattern::ListEmpty => {
+                empty_covered = true;
+            }
+            // Prefix pattern covers non-empty (matches any length >= min_len)
+            TypedPattern::ListPrefix { .. } => {
+                nonempty_covered = true;
+            }
+            // Exact pattern only covers specific length, but combined with others might help
+            TypedPattern::ListExact { .. } => {
+                // ListExact alone doesn't guarantee non-empty coverage
+                // But if we have at least one exact pattern with len > 0, it covers some non-empty
+                // We'll be conservative here - require explicit coverage
+            }
+            // Literal patterns don't cover list cases
+            TypedPattern::Literal(_) => {}
+        }
+
+        // If we have a catch-all, we're done
+        if has_catch_all {
+            return Ok(());
+        }
+    }
+
+    // Check if all cases are covered
+    if !empty_covered && !nonempty_covered {
+        return Err(TypeError {
+            message: "non-exhaustive match on list: missing patterns for both empty and non-empty lists".to_string(),
+        });
+    }
+
+    if !empty_covered {
+        return Err(TypeError {
+            message: "non-exhaustive match on list: missing pattern for empty list []".to_string(),
+        });
+    }
+
+    if !nonempty_covered {
+        return Err(TypeError {
+            message: "non-exhaustive match on list: missing pattern for non-empty list (use [_, ..] or similar)".to_string(),
+        });
+    }
+
+    Ok(())
 }
 
 /// Check a let binding and return a typed let binding

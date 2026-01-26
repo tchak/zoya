@@ -21,6 +21,7 @@ pub enum Value {
     Float(f64),
     Bool(bool),
     String(String),
+    List(Vec<Value>),
 }
 
 impl fmt::Display for Value {
@@ -31,6 +32,10 @@ impl fmt::Display for Value {
             Value::Float(n) => write!(f, "{}", n),
             Value::Bool(b) => write!(f, "{}", b),
             Value::String(s) => write!(f, "\"{}\"", s),
+            Value::List(elements) => {
+                let items: Vec<String> = elements.iter().map(|v| v.to_string()).collect();
+                write!(f, "[{}]", items.join(", "))
+            }
         }
     }
 }
@@ -116,8 +121,82 @@ pub fn eval_js_in_context(
 
             Ok(Value::String(result))
         }
+        Type::List(elem_type) => {
+            let result: rquickjs::Array = ctx
+                .eval(js_code)
+                .catch(ctx)
+                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+
+            let mut values = Vec::new();
+            for i in 0..result.len() {
+                // Get each element as a JS value and convert based on element type
+                let elem_value = js_array_elem_to_value(ctx, &result, i, &elem_type)?;
+                values.push(elem_value);
+            }
+
+            Ok(Value::List(values))
+        }
         Type::Var(name) => Err(EvalError::RuntimeError(format!(
             "unresolved type variable: {}",
+            name
+        ))),
+    }
+}
+
+/// Convert a JS array element to a Zoya Value based on element type
+fn js_array_elem_to_value(
+    ctx: &rquickjs::Ctx<'_>,
+    array: &rquickjs::Array,
+    index: usize,
+    elem_type: &Type,
+) -> Result<Value, EvalError> {
+    match elem_type {
+        Type::Int32 => {
+            let val: f64 = array
+                .get(index)
+                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+            Ok(Value::Int32(val as i32))
+        }
+        Type::Int64 => {
+            let val: BigInt = array
+                .get(index)
+                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+            let value = val
+                .to_i64()
+                .map_err(|_| EvalError::RuntimeError("BigInt value too large for i64".to_string()))?;
+            Ok(Value::Int64(value))
+        }
+        Type::Float => {
+            let val: f64 = array
+                .get(index)
+                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+            Ok(Value::Float(val))
+        }
+        Type::Bool => {
+            let val: bool = array
+                .get(index)
+                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+            Ok(Value::Bool(val))
+        }
+        Type::String => {
+            let val: String = array
+                .get(index)
+                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+            Ok(Value::String(val))
+        }
+        Type::List(inner_type) => {
+            let inner_array: rquickjs::Array = array
+                .get(index)
+                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+            let mut values = Vec::new();
+            for i in 0..inner_array.len() {
+                let elem_value = js_array_elem_to_value(ctx, &inner_array, i, inner_type)?;
+                values.push(elem_value);
+            }
+            Ok(Value::List(values))
+        }
+        Type::Var(name) => Err(EvalError::RuntimeError(format!(
+            "unresolved type variable in list element: {}",
             name
         ))),
     }
