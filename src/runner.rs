@@ -751,4 +751,114 @@ mod tests {
         let result = run_source(source).unwrap();
         assert_eq!(result, Value::Int32(14)); // 1 + 2 + 5 + 6
     }
+
+    // Tuple tests
+    #[test]
+    fn test_run_tuple_literal() {
+        let source = r#"fn main() -> (Int32, String) { (42, "hello") }"#;
+        let result = run_source(source).unwrap();
+        assert_eq!(
+            result,
+            Value::Tuple(vec![Value::Int32(42), Value::String("hello".to_string())])
+        );
+    }
+
+    #[test]
+    fn test_run_empty_tuple() {
+        let source = "fn main() -> () { () }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Tuple(vec![]));
+    }
+
+    #[test]
+    fn test_run_single_element_tuple() {
+        let source = "fn main() -> (Int32,) { (42,) }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Tuple(vec![Value::Int32(42)]));
+    }
+
+    #[test]
+    fn test_run_tuple_match_exact() {
+        let source = r#"
+            fn first(t: (Int32, String)) -> Int32 {
+                match t {
+                    (x, _) => x
+                }
+            }
+            fn main() -> Int32 { first((10, "hello")) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(10));
+    }
+
+    #[test]
+    fn test_run_tuple_match_prefix() {
+        let source = r#"
+            fn get_first(t: (Int32, Int32, Int32)) -> Int32 {
+                match t {
+                    (x, ..) => x
+                }
+            }
+            fn main() -> Int32 { get_first((1, 2, 3)) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(1));
+    }
+
+    #[test]
+    fn test_run_tuple_match_suffix() {
+        let source = r#"
+            fn get_last(t: (Int32, Int32, Int32)) -> Int32 {
+                match t {
+                    (.., z) => z
+                }
+            }
+            fn main() -> Int32 { get_last((1, 2, 3)) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(3));
+    }
+
+    #[test]
+    fn test_run_tuple_match_prefix_suffix() {
+        let source = r#"
+            fn first_and_last(t: (Int32, Int32, Int32)) -> Int32 {
+                match t {
+                    (a, .., c) => a + c
+                }
+            }
+            fn main() -> Int32 { first_and_last((1, 2, 3)) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(4)); // 1 + 3
+    }
+
+    #[test]
+    fn test_run_tuple_heterogeneous() {
+        let source = r#"
+            fn get_int(t: (Int32, String, Bool)) -> Int32 {
+                match t {
+                    (x, _, _) => x
+                }
+            }
+            fn main() -> Int32 { get_int((42, "hello", true)) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(42));
+    }
+
+    #[test]
+    fn test_run_tuple_with_list() {
+        let source = r#"
+            fn main() -> (Int32, List<Int32>) { (1, [2, 3]) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(
+            result,
+            Value::Tuple(vec![
+                Value::Int32(1),
+                Value::List(vec![Value::Int32(2), Value::Int32(3)])
+            ])
+        );
+    }
 }

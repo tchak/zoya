@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::ast::{
     BinOp, Expr, FunctionDef, Item, LetBinding, ListPattern, MatchArm, Pattern, Statement,
-    TypeAnnotation, UnaryOp,
+    TuplePattern, TypeAnnotation, UnaryOp,
 };
 use crate::ir::{TypedExpr, TypedFunction, TypedLetBinding, TypedMatchArm, TypedPattern};
 use crate::types::{FunctionType, Type, TypeError, TypeVarId};
@@ -66,6 +66,13 @@ fn resolve_type_annotation(
                     message: format!("unknown parameterized type: {}", name),
                 })
             }
+        }
+        TypeAnnotation::Tuple(params) => {
+            let mut types = Vec::new();
+            for param in params {
+                types.push(resolve_type_annotation(param, type_param_map)?);
+            }
+            Ok(Type::Tuple(types))
         }
     }
 }
@@ -527,6 +534,22 @@ fn check_with_env(
                 })
             }
         }
+
+        Expr::Tuple(elements) => {
+            let mut typed_elements = Vec::new();
+            let mut element_types = Vec::new();
+
+            for elem in elements {
+                let typed = check_with_env(elem, env, ctx)?;
+                element_types.push(typed.ty());
+                typed_elements.push(typed);
+            }
+
+            Ok(TypedExpr::Tuple {
+                elements: typed_elements,
+                ty: Type::Tuple(element_types),
+            })
+        }
     }
 }
 
@@ -681,6 +704,162 @@ fn check_pattern(
                 }
             }
         }
+
+        Pattern::Tuple(tuple_pattern) => {
+            // Get the tuple element types from scrutinee
+            let tuple_types = match ctx.resolve(scrutinee_ty) {
+                Type::Tuple(types) => types,
+                other => {
+                    return Err(TypeError {
+                        message: format!("tuple pattern cannot match type {}", other),
+                    });
+                }
+            };
+
+            match tuple_pattern {
+                TuplePattern::Empty => {
+                    if !tuple_types.is_empty() {
+                        return Err(TypeError {
+                            message: format!(
+                                "empty tuple pattern cannot match tuple with {} elements",
+                                tuple_types.len()
+                            ),
+                        });
+                    }
+                    Ok((TypedPattern::TupleEmpty, HashMap::new()))
+                }
+
+                TuplePattern::Exact(patterns) => {
+                    if patterns.len() != tuple_types.len() {
+                        return Err(TypeError {
+                            message: format!(
+                                "tuple pattern has {} elements but tuple has {} elements",
+                                patterns.len(),
+                                tuple_types.len()
+                            ),
+                        });
+                    }
+
+                    let mut typed_patterns = Vec::new();
+                    let mut all_bindings = HashMap::new();
+
+                    for (pat, ty) in patterns.iter().zip(tuple_types.iter()) {
+                        let (typed_pat, bindings) = check_pattern(pat, ty, env, ctx)?;
+                        typed_patterns.push(typed_pat);
+                        all_bindings.extend(bindings);
+                    }
+
+                    Ok((
+                        TypedPattern::TupleExact {
+                            patterns: typed_patterns,
+                            len: patterns.len(),
+                        },
+                        all_bindings,
+                    ))
+                }
+
+                TuplePattern::Prefix(patterns) => {
+                    if patterns.len() > tuple_types.len() {
+                        return Err(TypeError {
+                            message: format!(
+                                "tuple pattern has {} prefix elements but tuple has only {} elements",
+                                patterns.len(),
+                                tuple_types.len()
+                            ),
+                        });
+                    }
+
+                    let mut typed_patterns = Vec::new();
+                    let mut all_bindings = HashMap::new();
+
+                    for (pat, ty) in patterns.iter().zip(tuple_types.iter()) {
+                        let (typed_pat, bindings) = check_pattern(pat, ty, env, ctx)?;
+                        typed_patterns.push(typed_pat);
+                        all_bindings.extend(bindings);
+                    }
+
+                    Ok((
+                        TypedPattern::TuplePrefix {
+                            patterns: typed_patterns,
+                            total_len: tuple_types.len(),
+                        },
+                        all_bindings,
+                    ))
+                }
+
+                TuplePattern::Suffix(patterns) => {
+                    if patterns.len() > tuple_types.len() {
+                        return Err(TypeError {
+                            message: format!(
+                                "tuple pattern has {} suffix elements but tuple has only {} elements",
+                                patterns.len(),
+                                tuple_types.len()
+                            ),
+                        });
+                    }
+
+                    let mut typed_patterns = Vec::new();
+                    let mut all_bindings = HashMap::new();
+
+                    // Suffix patterns match from the end
+                    let start_idx = tuple_types.len() - patterns.len();
+                    for (pat, ty) in patterns.iter().zip(tuple_types[start_idx..].iter()) {
+                        let (typed_pat, bindings) = check_pattern(pat, ty, env, ctx)?;
+                        typed_patterns.push(typed_pat);
+                        all_bindings.extend(bindings);
+                    }
+
+                    Ok((
+                        TypedPattern::TupleSuffix {
+                            patterns: typed_patterns,
+                            total_len: tuple_types.len(),
+                        },
+                        all_bindings,
+                    ))
+                }
+
+                TuplePattern::PrefixSuffix(prefix_pats, suffix_pats) => {
+                    let total_patterns = prefix_pats.len() + suffix_pats.len();
+                    if total_patterns > tuple_types.len() {
+                        return Err(TypeError {
+                            message: format!(
+                                "tuple pattern has {} elements but tuple has only {} elements",
+                                total_patterns,
+                                tuple_types.len()
+                            ),
+                        });
+                    }
+
+                    let mut prefix_typed = Vec::new();
+                    let mut suffix_typed = Vec::new();
+                    let mut all_bindings = HashMap::new();
+
+                    // Prefix patterns match from the start
+                    for (pat, ty) in prefix_pats.iter().zip(tuple_types.iter()) {
+                        let (typed_pat, bindings) = check_pattern(pat, ty, env, ctx)?;
+                        prefix_typed.push(typed_pat);
+                        all_bindings.extend(bindings);
+                    }
+
+                    // Suffix patterns match from the end
+                    let suffix_start = tuple_types.len() - suffix_pats.len();
+                    for (pat, ty) in suffix_pats.iter().zip(tuple_types[suffix_start..].iter()) {
+                        let (typed_pat, bindings) = check_pattern(pat, ty, env, ctx)?;
+                        suffix_typed.push(typed_pat);
+                        all_bindings.extend(bindings);
+                    }
+
+                    Ok((
+                        TypedPattern::TuplePrefixSuffix {
+                            prefix: prefix_typed,
+                            suffix: suffix_typed,
+                            total_len: tuple_types.len(),
+                        },
+                        all_bindings,
+                    ))
+                }
+            }
+        }
     }
 }
 
@@ -742,6 +921,12 @@ fn check_list_exhaustiveness(arms: &[TypedMatchArm]) -> Result<(), TypeError> {
             }
             // Literal patterns don't cover list cases
             TypedPattern::Literal(_) => {}
+            // Tuple patterns don't cover list cases
+            TypedPattern::TupleEmpty
+            | TypedPattern::TupleExact { .. }
+            | TypedPattern::TuplePrefix { .. }
+            | TypedPattern::TupleSuffix { .. }
+            | TypedPattern::TuplePrefixSuffix { .. } => {}
         }
 
         // If we have a catch-all, we're done

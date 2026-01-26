@@ -26,6 +26,7 @@ pub struct Param {
 pub enum TypeAnnotation {
     Named(String),                              // Int32, Float, T, etc.
     Parameterized(String, Vec<TypeAnnotation>), // List<Int32>, Map<K, V>, etc.
+    Tuple(Vec<TypeAnnotation>),                 // (Int32, String, Bool)
 }
 
 /// Let binding: `let x = expr` or `let x: Type = expr`
@@ -39,10 +40,11 @@ pub struct LetBinding {
 /// Pattern in a match arm
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pattern {
-    Literal(Box<Expr>), // 0, "hello", true
-    Var(String),        // x (binds value)
-    Wildcard,           // _ (matches all)
-    List(ListPattern),  // [], [a, b], [x, ..]
+    Literal(Box<Expr>),  // 0, "hello", true
+    Var(String),         // x (binds value)
+    Wildcard,            // _ (matches all)
+    List(ListPattern),   // [], [a, b], [x, ..]
+    Tuple(TuplePattern), // (), (a, b), (x, ..)
 }
 
 /// List pattern variants
@@ -53,6 +55,16 @@ pub enum ListPattern {
     Prefix(Vec<Pattern>),                     // [a, b, ..] - match at least N elements at start
     Suffix(Vec<Pattern>),                     // [.., x, y] - match at least N elements at end
     PrefixSuffix(Vec<Pattern>, Vec<Pattern>), // [a, .., z] - match first and last elements
+}
+
+/// Tuple pattern variants
+#[derive(Debug, Clone, PartialEq)]
+pub enum TuplePattern {
+    Empty,                                    // ()
+    Exact(Vec<Pattern>),                      // (a, b, c) - match exactly N elements
+    Prefix(Vec<Pattern>),                     // (a, b, ..) - match first N, skip rest
+    Suffix(Vec<Pattern>),                     // (.., y, z) - skip first, match last N
+    PrefixSuffix(Vec<Pattern>, Vec<Pattern>), // (a, .., z) - match first and last
 }
 
 /// Match arm: pattern => result
@@ -69,6 +81,7 @@ pub enum Expr {
     Bool(bool),
     String(String),
     List(Vec<Expr>),
+    Tuple(Vec<Expr>),
     Var(String),
     Call {
         func: String,

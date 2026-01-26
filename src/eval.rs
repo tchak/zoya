@@ -22,6 +22,7 @@ pub enum Value {
     Bool(bool),
     String(String),
     List(Vec<Value>),
+    Tuple(Vec<Value>),
 }
 
 impl fmt::Display for Value {
@@ -35,6 +36,14 @@ impl fmt::Display for Value {
             Value::List(elements) => {
                 let items: Vec<String> = elements.iter().map(|v| v.to_string()).collect();
                 write!(f, "[{}]", items.join(", "))
+            }
+            Value::Tuple(elements) => {
+                let items: Vec<String> = elements.iter().map(|v| v.to_string()).collect();
+                if elements.len() == 1 {
+                    write!(f, "({},)", items.join(", "))
+                } else {
+                    write!(f, "({})", items.join(", "))
+                }
             }
         }
     }
@@ -136,6 +145,20 @@ pub fn eval_js_in_context(
 
             Ok(Value::List(values))
         }
+        Type::Tuple(elem_types) => {
+            let result: rquickjs::Array = ctx
+                .eval(js_code)
+                .catch(ctx)
+                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+
+            let mut values = Vec::new();
+            for (i, elem_type) in elem_types.iter().enumerate() {
+                let elem_value = js_array_elem_to_value(ctx, &result, i, elem_type)?;
+                values.push(elem_value);
+            }
+
+            Ok(Value::Tuple(values))
+        }
         Type::Var(name) => Err(EvalError::RuntimeError(format!(
             "unresolved type variable: {}",
             name
@@ -194,6 +217,17 @@ fn js_array_elem_to_value(
                 values.push(elem_value);
             }
             Ok(Value::List(values))
+        }
+        Type::Tuple(elem_types) => {
+            let inner_array: rquickjs::Array = array
+                .get(index)
+                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+            let mut values = Vec::new();
+            for (i, elem_type) in elem_types.iter().enumerate() {
+                let elem_value = js_array_elem_to_value(ctx, &inner_array, i, elem_type)?;
+                values.push(elem_value);
+            }
+            Ok(Value::Tuple(values))
         }
         Type::Var(name) => Err(EvalError::RuntimeError(format!(
             "unresolved type variable in list element: {}",

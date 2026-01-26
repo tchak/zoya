@@ -33,6 +33,15 @@ pub enum TypedPattern {
         suffix: Vec<TypedPattern>,
         min_len: usize,
     },
+    TupleEmpty,
+    TupleExact { patterns: Vec<TypedPattern>, len: usize },
+    TuplePrefix { patterns: Vec<TypedPattern>, total_len: usize },
+    TupleSuffix { patterns: Vec<TypedPattern>, total_len: usize },
+    TuplePrefixSuffix {
+        prefix: Vec<TypedPattern>,
+        suffix: Vec<TypedPattern>,
+        total_len: usize,
+    },
 }
 
 /// Typed match arm
@@ -51,6 +60,10 @@ pub enum TypedExpr {
     Bool(bool),
     String(String),
     List {
+        elements: Vec<TypedExpr>,
+        ty: Type,
+    },
+    Tuple {
         elements: Vec<TypedExpr>,
         ty: Type,
     },
@@ -100,6 +113,7 @@ impl TypedExpr {
             TypedExpr::Bool(_) => Type::Bool,
             TypedExpr::String(_) => Type::String,
             TypedExpr::List { ty, .. } => ty.clone(),
+            TypedExpr::Tuple { ty, .. } => ty.clone(),
             TypedExpr::Var { ty, .. } => ty.clone(),
             TypedExpr::Call { ty, .. } => ty.clone(),
             TypedExpr::UnaryOp { ty, .. } => ty.clone(),

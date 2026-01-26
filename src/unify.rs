@@ -39,6 +39,9 @@ impl UnifyCtx {
                 }
             }
             Type::List(elem) => Type::List(Box::new(self.resolve(elem))),
+            Type::Tuple(elems) => {
+                Type::Tuple(elems.iter().map(|e| self.resolve(e)).collect())
+            }
             _ => ty.clone(),
         }
     }
@@ -50,6 +53,7 @@ impl UnifyCtx {
         match ty {
             Type::Var(id) => id == var_id,
             Type::List(elem) => self.occurs(var_id, &elem),
+            Type::Tuple(elems) => elems.iter().any(|e| self.occurs(var_id, e)),
             _ => false,
         }
     }
@@ -70,6 +74,23 @@ impl UnifyCtx {
 
             // List types - unify element types
             (Type::List(e1), Type::List(e2)) => self.unify(e1, e2),
+
+            // Tuple types - unify element types pairwise
+            (Type::Tuple(elems1), Type::Tuple(elems2)) => {
+                if elems1.len() != elems2.len() {
+                    return Err(TypeError {
+                        message: format!(
+                            "tuple length mismatch: {} vs {}",
+                            elems1.len(),
+                            elems2.len()
+                        ),
+                    });
+                }
+                for (e1, e2) in elems1.iter().zip(elems2.iter()) {
+                    self.unify(e1, e2)?;
+                }
+                Ok(())
+            }
 
             // Same type variable - already unified
             (Type::Var(id1), Type::Var(id2)) if id1 == id2 => Ok(()),
@@ -110,6 +131,7 @@ impl UnifyCtx {
         match resolved {
             Type::Var(_) => false,
             Type::List(elem) => self.is_concrete(&elem),
+            Type::Tuple(elems) => elems.iter().all(|e| self.is_concrete(e)),
             _ => true,
         }
     }

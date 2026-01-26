@@ -2,7 +2,7 @@ use chumsky::prelude::*;
 
 use crate::ast::{
     BinOp, Expr, FunctionDef, Item, LetBinding, ListPattern, MatchArm, Param, Pattern, Statement,
-    TypeAnnotation, UnaryOp,
+    TuplePattern, TypeAnnotation, UnaryOp,
 };
 use crate::lexer::Token;
 
@@ -52,16 +52,55 @@ fn type_annotation<'a>() -> impl Parser<'a, &'a [Token], TypeAnnotation, extra::
     recursive(|type_ann| {
         // Type parameters: <T, U>
         let type_params = type_ann
+            .clone()
             .separated_by(just(Token::Comma))
             .collect::<Vec<_>>()
             .delimited_by(just(Token::Lt), just(Token::Gt));
 
-        ident()
+        // Named or parameterized type: Int32, List<Int32>
+        let named_type = ident()
             .then(type_params.or_not())
             .map(|(name, params)| match params {
                 Some(params) => TypeAnnotation::Parameterized(name, params),
                 None => TypeAnnotation::Named(name),
-            })
+            });
+
+        // Empty tuple type: ()
+        let empty_tuple_type = just(Token::LParen)
+            .ignore_then(just(Token::RParen))
+            .to(TypeAnnotation::Tuple(vec![]));
+
+        // Tuple type: (T1, T2) or (T1,) - requires at least one comma
+        let tuple_type = just(Token::LParen)
+            .ignore_then(type_ann.clone())
+            .then(
+                just(Token::Comma)
+                    .ignore_then(
+                        type_ann
+                            .separated_by(just(Token::Comma))
+                            .allow_trailing()
+                            .collect::<Vec<_>>(),
+                    )
+                    .or_not(),
+            )
+            .then_ignore(just(Token::RParen))
+            .try_map(|(first, rest), span| match rest {
+                None => {
+                    // (T) - not a valid type annotation (use T directly)
+                    Err(Rich::custom(
+                        span,
+                        "single type in parentheses is not valid; use the type directly or add a trailing comma for a single-element tuple",
+                    ))
+                }
+                Some(mut more) => {
+                    // (T,) or (T1, T2, ...) - tuple type
+                    let mut elements = vec![first];
+                    elements.append(&mut more);
+                    Ok(TypeAnnotation::Tuple(elements))
+                }
+            });
+
+        choice((empty_tuple_type, tuple_type, named_type))
     })
 }
 
@@ -255,7 +294,89 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                     }
                 });
 
-            choice((list_pattern, simple_pattern))
+            // Tuple pattern element: pattern or .. (rest marker)
+            #[derive(Clone)]
+            enum TuplePatternElement {
+                Pattern(Pattern),
+                Rest, // ..
+            }
+
+            let tuple_element = choice((
+                just(Token::DotDot).to(TuplePatternElement::Rest),
+                pattern.clone().map(TuplePatternElement::Pattern),
+            ));
+
+            // Tuple pattern: (), (a,), (a, b), (a, ..)
+            let tuple_pattern = tuple_element
+                .separated_by(just(Token::Comma))
+                .allow_trailing()
+                .collect::<Vec<_>>()
+                .delimited_by(just(Token::LParen), just(Token::RParen))
+                .try_map(|elements, span| {
+                    // Check for .. and convert to appropriate TuplePattern
+                    let rest_pos = elements
+                        .iter()
+                        .position(|e| matches!(e, TuplePatternElement::Rest));
+
+                    // Check for multiple .. markers
+                    if elements
+                        .iter()
+                        .filter(|e| matches!(e, TuplePatternElement::Rest))
+                        .count()
+                        > 1
+                    {
+                        return Err(Rich::custom(span, "only one .. allowed in tuple pattern"));
+                    }
+
+                    match rest_pos {
+                        None => {
+                            // No .., this is an exact pattern
+                            let patterns: Vec<Pattern> = elements
+                                .into_iter()
+                                .map(|e| match e {
+                                    TuplePatternElement::Pattern(p) => p,
+                                    TuplePatternElement::Rest => unreachable!(),
+                                })
+                                .collect();
+                            if patterns.is_empty() {
+                                Ok(Pattern::Tuple(TuplePattern::Empty))
+                            } else {
+                                Ok(Pattern::Tuple(TuplePattern::Exact(patterns)))
+                            }
+                        }
+                        Some(pos) => {
+                            // Split into before and after ..
+                            let before: Vec<Pattern> = elements[..pos]
+                                .iter()
+                                .filter_map(|e| match e {
+                                    TuplePatternElement::Pattern(p) => Some(p.clone()),
+                                    TuplePatternElement::Rest => None,
+                                })
+                                .collect();
+
+                            let after: Vec<Pattern> = elements[pos + 1..]
+                                .iter()
+                                .filter_map(|e| match e {
+                                    TuplePatternElement::Pattern(p) => Some(p.clone()),
+                                    TuplePatternElement::Rest => None,
+                                })
+                                .collect();
+
+                            if after.is_empty() {
+                                // (a, b, ..) - prefix only
+                                Ok(Pattern::Tuple(TuplePattern::Prefix(before)))
+                            } else if before.is_empty() {
+                                // (.., x, y) - suffix only
+                                Ok(Pattern::Tuple(TuplePattern::Suffix(after)))
+                            } else {
+                                // (a, .., z) - prefix and suffix
+                                Ok(Pattern::Tuple(TuplePattern::PrefixSuffix(before, after)))
+                            }
+                        }
+                    }
+                });
+
+            choice((list_pattern, tuple_pattern, simple_pattern))
         });
 
         // Match arm: pattern => expr
@@ -293,12 +414,45 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
             None => Expr::Var(name),
         });
 
+        // Empty tuple: ()
+        let empty_tuple = just(Token::LParen)
+            .ignore_then(just(Token::RParen))
+            .to(Expr::Tuple(vec![]));
+
+        // Tuple or parenthesized expression: (expr) or (expr,) or (expr, expr, ...)
+        // - (expr) with no comma is a parenthesized expression
+        // - (expr,) with trailing comma is a single-element tuple
+        // - (expr, expr, ...) is a multi-element tuple
+        let paren_or_tuple = just(Token::LParen)
+            .ignore_then(expr.clone())
+            .then(
+                just(Token::Comma)
+                    .ignore_then(
+                        expr.clone()
+                            .separated_by(just(Token::Comma))
+                            .allow_trailing()
+                            .collect::<Vec<_>>(),
+                    )
+                    .or_not(),
+            )
+            .then_ignore(just(Token::RParen))
+            .map(|(first, rest)| match rest {
+                None => first, // (expr) - parenthesized expression
+                Some(mut more) => {
+                    // (expr,) or (expr, expr, ...) - tuple
+                    let mut elements = vec![first];
+                    elements.append(&mut more);
+                    Expr::Tuple(elements)
+                }
+            });
+
         let atom = choice((
             literal,
             list_literal,
             match_expr,
             ident_expr,
-            expr.clone().delimited_by(just(Token::LParen), just(Token::RParen)),
+            empty_tuple,
+            paren_or_tuple,
         ));
 
         // Method calls: expr.method(args) - highest precedence postfix operator
@@ -1470,5 +1624,111 @@ mod tests {
             TypeAnnotation::Parameterized(name, args)
                 if name == "List" && args.len() == 1
         ));
+    }
+
+    // Tuple tests
+    #[test]
+    fn test_parse_empty_tuple() {
+        let expr = parse_str("()").unwrap();
+        assert_eq!(expr, Expr::Tuple(vec![]));
+    }
+
+    #[test]
+    fn test_parse_single_element_tuple() {
+        let expr = parse_str("(42,)").unwrap();
+        assert_eq!(expr, Expr::Tuple(vec![Expr::Int(42)]));
+    }
+
+    #[test]
+    fn test_parse_tuple_literal() {
+        let expr = parse_str("(1, \"hello\", true)").unwrap();
+        assert_eq!(
+            expr,
+            Expr::Tuple(vec![
+                Expr::Int(1),
+                Expr::String("hello".to_string()),
+                Expr::Bool(true)
+            ])
+        );
+    }
+
+    #[test]
+    fn test_parse_parenthesized_expr_not_tuple() {
+        let expr = parse_str("(1 + 2)").unwrap();
+        // Should be a BinOp, not a tuple
+        assert!(matches!(expr, Expr::BinOp { .. }));
+    }
+
+    #[test]
+    fn test_parse_tuple_pattern_exact() {
+        let expr = parse_str("match t { (a, b) => a }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::Tuple(TuplePattern::Exact(patterns)) = &arms[0].pattern {
+                assert_eq!(patterns.len(), 2);
+                assert!(matches!(&patterns[0], Pattern::Var(s) if s == "a"));
+                assert!(matches!(&patterns[1], Pattern::Var(s) if s == "b"));
+            } else {
+                panic!("expected exact tuple pattern");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_tuple_pattern_prefix() {
+        let expr = parse_str("match t { (a, ..) => a }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::Tuple(TuplePattern::Prefix(patterns)) = &arms[0].pattern {
+                assert_eq!(patterns.len(), 1);
+                assert!(matches!(&patterns[0], Pattern::Var(s) if s == "a"));
+            } else {
+                panic!("expected prefix tuple pattern");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_tuple_pattern_suffix() {
+        let expr = parse_str("match t { (.., z) => z }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::Tuple(TuplePattern::Suffix(patterns)) = &arms[0].pattern {
+                assert_eq!(patterns.len(), 1);
+                assert!(matches!(&patterns[0], Pattern::Var(s) if s == "z"));
+            } else {
+                panic!("expected suffix tuple pattern");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_tuple_pattern_prefix_suffix() {
+        let expr = parse_str("match t { (a, .., z) => a + z }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::Tuple(TuplePattern::PrefixSuffix(prefix, suffix)) = &arms[0].pattern {
+                assert_eq!(prefix.len(), 1);
+                assert_eq!(suffix.len(), 1);
+                assert!(matches!(&prefix[0], Pattern::Var(s) if s == "a"));
+                assert!(matches!(&suffix[0], Pattern::Var(s) if s == "z"));
+            } else {
+                panic!("expected prefix+suffix tuple pattern");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_tuple_pattern_empty() {
+        let expr = parse_str("match t { () => 0 }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            assert!(matches!(&arms[0].pattern, Pattern::Tuple(TuplePattern::Empty)));
+        } else {
+            panic!("expected match expression");
+        }
     }
 }

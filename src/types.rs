@@ -17,8 +17,9 @@ pub enum Type {
     Float,
     Bool,
     String,
-    List(Box<Type>), // List with element type
-    Var(TypeVarId),  // Unification type variable
+    List(Box<Type>),  // List with element type
+    Tuple(Vec<Type>), // Tuple with element types (heterogeneous, fixed size)
+    Var(TypeVarId),   // Unification type variable
 }
 
 impl fmt::Display for Type {
@@ -30,6 +31,10 @@ impl fmt::Display for Type {
             Type::Bool => write!(f, "Bool"),
             Type::String => write!(f, "String"),
             Type::List(elem) => write!(f, "List<{}>", elem),
+            Type::Tuple(elems) => {
+                let elem_strs: Vec<String> = elems.iter().map(|e| e.to_string()).collect();
+                write!(f, "({})", elem_strs.join(", "))
+            }
             Type::Var(id) => write!(f, "{}", id),
         }
     }
