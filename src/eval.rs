@@ -1,10 +1,18 @@
 use std::fmt;
 
-use rquickjs::{BigInt, CatchResultExt, Context, Runtime};
+pub use rquickjs::Context;
+use rquickjs::{BigInt, CatchResultExt, Runtime};
 
 use crate::codegen::codegen;
 use crate::ir::TypedExpr;
 use crate::types::Type;
+
+/// Create a new QuickJS runtime and context
+pub fn create_context() -> Result<(Runtime, Context), String> {
+    let runtime = Runtime::new().map_err(|e| e.to_string())?;
+    let context = Context::full(&runtime).map_err(|e| e.to_string())?;
+    Ok((runtime, context))
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
