@@ -138,3 +138,40 @@ jj squash          # squash into parent commit
 - Write descriptions in imperative mood ("add feature" not "added feature")
 - Keep the description line under 72 characters
 - Use scope sparingly, only when it adds clarity
+
+---
+
+## Testing Guidelines
+
+Every new feature should include tests at multiple levels of the compilation pipeline.
+
+### Required Tests by Module
+
+| Module | Test Location | What to Test |
+|--------|---------------|--------------|
+| `lexer.rs` | `lexer::tests` | New tokens lex correctly |
+| `parser.rs` | `parser::tests` | AST structure is correct |
+| `check.rs` | `check::tests` | Type checking succeeds/fails appropriately |
+| `codegen.rs` | `codegen::tests` | Generated JS is correct |
+| `runner.rs` | `runner::tests` | End-to-end integration tests |
+
+### Example: Adding a New Feature
+
+When adding a feature like method calls, include:
+
+1. **Lexer tests** - New tokens (e.g., `Dot`) are recognized
+2. **Parser tests** - Expressions parse to correct AST shape
+3. **Type checker tests** - Valid code type-checks, invalid code produces errors
+4. **Codegen tests** - Generated JavaScript is correct (if applicable)
+5. **Runner tests** - Full pipeline works end-to-end with actual execution
+
+### Running Tests
+
+```bash
+cargo test                 # Run all tests
+cargo test lexer           # Run only lexer tests
+cargo test parser          # Run only parser tests
+cargo test check           # Run only type checker tests
+cargo test runner          # Run only integration tests
+cargo test -- --nocapture  # Show println! output
+```
