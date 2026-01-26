@@ -139,4 +139,88 @@ mod tests {
         let result = run_source(source);
         assert!(matches!(result, Err(EvalError::DivisionByZero)));
     }
+
+    #[test]
+    fn test_run_bool_true() {
+        let source = "fn main() -> Bool { true }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_bool_false() {
+        let source = "fn main() -> Bool { false }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(false));
+    }
+
+    #[test]
+    fn test_run_equality_true() {
+        let source = "fn main() -> Bool { 1 == 1 }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_equality_false() {
+        let source = "fn main() -> Bool { 1 == 2 }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(false));
+    }
+
+    #[test]
+    fn test_run_inequality() {
+        let source = "fn main() -> Bool { 1 != 2 }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_less_than() {
+        let source = "fn main() -> Bool { 1 < 2 }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_greater_than() {
+        let source = "fn main() -> Bool { 2 > 1 }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_less_equal() {
+        let source = "fn main() -> Bool { 2 <= 2 }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_greater_equal() {
+        let source = "fn main() -> Bool { 2 >= 2 }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_bool_equality() {
+        let source = "fn main() -> Bool { true == false }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(false));
+    }
+
+    #[test]
+    fn test_run_float_comparison() {
+        let source = "fn main() -> Bool { 1.5 < 2.5 }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_comparison_with_arithmetic() {
+        let source = "fn main() -> Bool { 1 + 2 == 3 }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
 }

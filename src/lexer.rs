@@ -11,6 +11,12 @@ pub enum Token {
     #[token("fn")]
     Fn,
 
+    #[token("true")]
+    True,
+
+    #[token("false")]
+    False,
+
     // Float must come before Int for proper matching of `.5`
     #[regex(r"[0-9][0-9_]*\.[0-9_]*|[0-9_]*\.[0-9][0-9_]*", parse_float)]
     Float(f64),
@@ -37,6 +43,18 @@ pub enum Token {
 
     #[token("->")]
     Arrow,
+
+    #[token("==")]
+    EqEq,
+
+    #[token("!=")]
+    Ne,
+
+    #[token("<=")]
+    Le,
+
+    #[token(">=")]
+    Ge,
 
     // Delimiters
     #[token("(")]
@@ -325,6 +343,40 @@ mod tests {
                 Token::Ident("x".to_string()),
                 Token::RBrace,
             ]
+        );
+    }
+
+    #[test]
+    fn test_bool_literals() {
+        let tokens = lex("true false").unwrap();
+        assert_eq!(tokens, vec![Token::True, Token::False]);
+    }
+
+    #[test]
+    fn test_comparison_operators() {
+        let tokens = lex("== != <= >= < >").unwrap();
+        assert_eq!(
+            tokens,
+            vec![Token::EqEq, Token::Ne, Token::Le, Token::Ge, Token::Lt, Token::Gt]
+        );
+    }
+
+    #[test]
+    fn test_comparison_expression() {
+        let tokens = lex("1 == 2").unwrap();
+        assert_eq!(
+            tokens,
+            vec![Token::Int(1), Token::EqEq, Token::Int(2)]
+        );
+    }
+
+    #[test]
+    fn test_le_ge_not_arrow() {
+        // Make sure <= and >= don't interfere with -> or <>
+        let tokens = lex("<= >= -> < >").unwrap();
+        assert_eq!(
+            tokens,
+            vec![Token::Le, Token::Ge, Token::Arrow, Token::Lt, Token::Gt]
         );
     }
 }

@@ -16,6 +16,7 @@ pub enum TypedExpr {
     #[allow(dead_code)] // Used in tests and through function parameters
     Int64(i64),
     Float(f64),
+    Bool(bool),
     Var {
         name: String,
         ty: Type,
@@ -44,6 +45,7 @@ impl TypedExpr {
             TypedExpr::Int32(_) => Type::Int32,
             TypedExpr::Int64(_) => Type::Int64,
             TypedExpr::Float(_) => Type::Float,
+            TypedExpr::Bool(_) => Type::Bool,
             TypedExpr::Var { ty, .. } => ty.clone(),
             TypedExpr::Call { ty, .. } => ty.clone(),
             TypedExpr::UnaryOp { ty, .. } => ty.clone(),

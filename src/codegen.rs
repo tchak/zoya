@@ -10,6 +10,7 @@ pub fn codegen(expr: &TypedExpr) -> String {
         TypedExpr::Int32(n) => n.to_string(),
         TypedExpr::Int64(n) => format!("{}n", n), // BigInt literal
         TypedExpr::Float(n) => format_float(*n),
+        TypedExpr::Bool(b) => b.to_string(),
         TypedExpr::Var { name, .. } => name.clone(),
         TypedExpr::Call { func, args, ty } => {
             let args_str: Vec<String> = args.iter().map(codegen).collect();
@@ -46,6 +47,12 @@ pub fn codegen(expr: &TypedExpr) -> String {
                 BinOp::Sub => "-",
                 BinOp::Mul => "*",
                 BinOp::Div => "/",
+                BinOp::Eq => "===",
+                BinOp::Ne => "!==",
+                BinOp::Lt => "<",
+                BinOp::Gt => ">",
+                BinOp::Le => "<=",
+                BinOp::Ge => ">=",
             };
             let result = format!("(({}) {} ({}))", l, op_str, r);
             // Wrap Int32 operations with overflow check

@@ -31,6 +31,7 @@ pub enum TypeAnnotation {
 pub enum Expr {
     Int(i64),
     Float(f64),
+    Bool(bool),
     Var(String),
     Call {
         func: String,
@@ -58,4 +59,11 @@ pub enum BinOp {
     Sub,
     Mul,
     Div,
+    // Comparison operators
+    Eq,
+    Ne,
+    Lt,
+    Gt,
+    Le,
+    Ge,
 }

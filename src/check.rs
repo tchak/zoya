@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::ast::{Expr, FunctionDef, TypeAnnotation, UnaryOp};
+use crate::ast::{BinOp, Expr, FunctionDef, TypeAnnotation, UnaryOp};
 use crate::ir::{TypedExpr, TypedFunction};
 use crate::types::{FunctionType, Type, TypeError};
 
@@ -51,6 +51,8 @@ fn resolve_type_annotation(
                 Ok(Type::Int64)
             } else if name == "Float" {
                 Ok(Type::Float)
+            } else if name == "Bool" {
+                Ok(Type::Bool)
             } else if type_params.contains(name) {
                 Ok(Type::Var(name.clone()))
             } else {
@@ -141,12 +143,18 @@ fn types_compatible(actual: &Type, expected: &Type) -> bool {
         (Type::Int32, Type::Int32) => true,
         (Type::Int64, Type::Int64) => true,
         (Type::Float, Type::Float) => true,
+        (Type::Bool, Type::Bool) => true,
         (Type::Var(a), Type::Var(b)) => a == b,
         // Type variables can match any concrete type during instantiation
         (_, Type::Var(_)) => true,
         (Type::Var(_), _) => true,
         _ => false,
     }
+}
+
+/// Check if a type is numeric (for ordering comparisons)
+fn is_numeric_type(ty: &Type) -> bool {
+    matches!(ty, Type::Int32 | Type::Int64 | Type::Float)
 }
 
 /// Check an expression with a type environment
@@ -167,6 +175,7 @@ pub fn check_with_env(expr: &Expr, env: &TypeEnv) -> Result<TypedExpr, TypeError
             }
         }
         Expr::Float(n) => Ok(TypedExpr::Float(*n)),
+        Expr::Bool(b) => Ok(TypedExpr::Bool(*b)),
 
         Expr::Var(name) => {
             if let Some(ty) = env.locals.get(name) {
@@ -274,11 +283,34 @@ pub fn check_with_env(expr: &Expr, env: &TypeEnv) -> Result<TypedExpr, TypeError
                     message: format!("type mismatch: {} vs {}", left_ty, right_ty),
                 });
             }
+
+            // Determine result type based on operator
+            let result_ty = match op {
+                // Arithmetic operators: result has same type as operands
+                BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => left_ty,
+
+                // Equality operators: work on any type, result is Bool
+                BinOp::Eq | BinOp::Ne => Type::Bool,
+
+                // Ordering operators: only work on numeric types, result is Bool
+                BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
+                    if !is_numeric_type(&left_ty) {
+                        return Err(TypeError {
+                            message: format!(
+                                "ordering operators only work on numeric types, not {}",
+                                left_ty
+                            ),
+                        });
+                    }
+                    Type::Bool
+                }
+            };
+
             Ok(TypedExpr::BinOp {
                 op: *op,
                 left: Box::new(typed_left),
                 right: Box::new(typed_right),
-                ty: left_ty,
+                ty: result_ty,
             })
         }
     }
@@ -676,5 +708,125 @@ mod tests {
         assert_eq!(ft.type_params, vec!["T".to_string()]);
         assert_eq!(ft.params, vec![Type::Var("T".to_string())]);
         assert_eq!(ft.return_type, Type::Var("T".to_string()));
+    }
+
+    #[test]
+    fn test_check_bool_true() {
+        let expr = Expr::Bool(true);
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Bool);
+        assert_eq!(result, TypedExpr::Bool(true));
+    }
+
+    #[test]
+    fn test_check_bool_false() {
+        let expr = Expr::Bool(false);
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Bool);
+        assert_eq!(result, TypedExpr::Bool(false));
+    }
+
+    #[test]
+    fn test_check_equality_int() {
+        let expr = Expr::BinOp {
+            op: BinOp::Eq,
+            left: Box::new(Expr::Int(1)),
+            right: Box::new(Expr::Int(2)),
+        };
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Bool);
+    }
+
+    #[test]
+    fn test_check_inequality_int() {
+        let expr = Expr::BinOp {
+            op: BinOp::Ne,
+            left: Box::new(Expr::Int(1)),
+            right: Box::new(Expr::Int(2)),
+        };
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Bool);
+    }
+
+    #[test]
+    fn test_check_equality_bool() {
+        let expr = Expr::BinOp {
+            op: BinOp::Eq,
+            left: Box::new(Expr::Bool(true)),
+            right: Box::new(Expr::Bool(false)),
+        };
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Bool);
+    }
+
+    #[test]
+    fn test_check_less_than_int() {
+        let expr = Expr::BinOp {
+            op: BinOp::Lt,
+            left: Box::new(Expr::Int(1)),
+            right: Box::new(Expr::Int(2)),
+        };
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Bool);
+    }
+
+    #[test]
+    fn test_check_greater_than_float() {
+        let expr = Expr::BinOp {
+            op: BinOp::Gt,
+            left: Box::new(Expr::Float(1.5)),
+            right: Box::new(Expr::Float(2.5)),
+        };
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Bool);
+    }
+
+    #[test]
+    fn test_check_less_equal_int() {
+        let expr = Expr::BinOp {
+            op: BinOp::Le,
+            left: Box::new(Expr::Int(1)),
+            right: Box::new(Expr::Int(2)),
+        };
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Bool);
+    }
+
+    #[test]
+    fn test_check_greater_equal_int() {
+        let expr = Expr::BinOp {
+            op: BinOp::Ge,
+            left: Box::new(Expr::Int(1)),
+            right: Box::new(Expr::Int(2)),
+        };
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Bool);
+    }
+
+    #[test]
+    fn test_check_ordering_on_bool_error() {
+        let expr = Expr::BinOp {
+            op: BinOp::Lt,
+            left: Box::new(Expr::Bool(true)),
+            right: Box::new(Expr::Bool(false)),
+        };
+        let result = check(&expr);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .message
+            .contains("ordering operators only work on numeric types"));
+    }
+
+    #[test]
+    fn test_check_comparison_type_mismatch() {
+        let expr = Expr::BinOp {
+            op: BinOp::Eq,
+            left: Box::new(Expr::Int(1)),
+            right: Box::new(Expr::Float(1.0)),
+        };
+        let result = check(&expr);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("type mismatch"));
     }
 }

@@ -19,6 +19,7 @@ pub enum Value {
     Int32(i32),
     Int64(i64),
     Float(f64),
+    Bool(bool),
 }
 
 impl fmt::Display for Value {
@@ -27,6 +28,7 @@ impl fmt::Display for Value {
             Value::Int32(n) => write!(f, "{}", n),
             Value::Int64(n) => write!(f, "{}", n),
             Value::Float(n) => write!(f, "{}", n),
+            Value::Bool(b) => write!(f, "{}", b),
         }
     }
 }
@@ -95,6 +97,14 @@ pub fn eval_js_in_context(
             }
 
             Ok(Value::Float(result))
+        }
+        Type::Bool => {
+            let result: bool = ctx
+                .eval(js_code)
+                .catch(ctx)
+                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+
+            Ok(Value::Bool(result))
         }
         Type::Var(name) => Err(EvalError::RuntimeError(format!(
             "unresolved type variable: {}",

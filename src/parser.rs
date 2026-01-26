@@ -114,6 +114,8 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
         let literal = select! {
             Token::Int(n) => Expr::Int(n),
             Token::Float(n) => Expr::Float(n),
+            Token::True => Expr::Bool(true),
+            Token::False => Expr::Bool(false),
         };
 
         // Arguments: (expr, expr, ...)
@@ -161,12 +163,31 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
             },
         );
 
-        product.clone().foldl(
+        let sum = product.clone().foldl(
             choice((
                 op(Token::Plus, BinOp::Add),
                 op(Token::Minus, BinOp::Sub),
             ))
             .then(product)
+            .repeated(),
+            |left, (op, right)| Expr::BinOp {
+                op,
+                left: Box::new(left),
+                right: Box::new(right),
+            },
+        );
+
+        // Comparison operators (lowest precedence)
+        sum.clone().foldl(
+            choice((
+                op(Token::EqEq, BinOp::Eq),
+                op(Token::Ne, BinOp::Ne),
+                op(Token::Le, BinOp::Le),
+                op(Token::Ge, BinOp::Ge),
+                op(Token::Lt, BinOp::Lt),
+                op(Token::Gt, BinOp::Gt),
+            ))
+            .then(sum)
             .repeated(),
             |left, (op, right)| Expr::BinOp {
                 op,
@@ -626,6 +647,132 @@ mod tests {
                     ],
                 },
             })
+        );
+    }
+
+    #[test]
+    fn test_parse_bool_true() {
+        let expr = parse_str("true").unwrap();
+        assert_eq!(expr, Expr::Bool(true));
+    }
+
+    #[test]
+    fn test_parse_bool_false() {
+        let expr = parse_str("false").unwrap();
+        assert_eq!(expr, Expr::Bool(false));
+    }
+
+    #[test]
+    fn test_parse_equality() {
+        let expr = parse_str("1 == 2").unwrap();
+        assert_eq!(
+            expr,
+            Expr::BinOp {
+                op: BinOp::Eq,
+                left: Box::new(Expr::Int(1)),
+                right: Box::new(Expr::Int(2)),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_inequality() {
+        let expr = parse_str("1 != 2").unwrap();
+        assert_eq!(
+            expr,
+            Expr::BinOp {
+                op: BinOp::Ne,
+                left: Box::new(Expr::Int(1)),
+                right: Box::new(Expr::Int(2)),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_less_than() {
+        let expr = parse_str("1 < 2").unwrap();
+        assert_eq!(
+            expr,
+            Expr::BinOp {
+                op: BinOp::Lt,
+                left: Box::new(Expr::Int(1)),
+                right: Box::new(Expr::Int(2)),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_greater_than() {
+        let expr = parse_str("1 > 2").unwrap();
+        assert_eq!(
+            expr,
+            Expr::BinOp {
+                op: BinOp::Gt,
+                left: Box::new(Expr::Int(1)),
+                right: Box::new(Expr::Int(2)),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_less_equal() {
+        let expr = parse_str("1 <= 2").unwrap();
+        assert_eq!(
+            expr,
+            Expr::BinOp {
+                op: BinOp::Le,
+                left: Box::new(Expr::Int(1)),
+                right: Box::new(Expr::Int(2)),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_greater_equal() {
+        let expr = parse_str("1 >= 2").unwrap();
+        assert_eq!(
+            expr,
+            Expr::BinOp {
+                op: BinOp::Ge,
+                left: Box::new(Expr::Int(1)),
+                right: Box::new(Expr::Int(2)),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_comparison_precedence() {
+        // Arithmetic has higher precedence than comparison
+        let expr = parse_str("1 + 2 == 3").unwrap();
+        assert_eq!(
+            expr,
+            Expr::BinOp {
+                op: BinOp::Eq,
+                left: Box::new(Expr::BinOp {
+                    op: BinOp::Add,
+                    left: Box::new(Expr::Int(1)),
+                    right: Box::new(Expr::Int(2)),
+                }),
+                right: Box::new(Expr::Int(3)),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_chained_comparison() {
+        // Left associative: 1 < 2 < 3 parses as (1 < 2) < 3
+        let expr = parse_str("1 < 2 < 3").unwrap();
+        assert_eq!(
+            expr,
+            Expr::BinOp {
+                op: BinOp::Lt,
+                left: Box::new(Expr::BinOp {
+                    op: BinOp::Lt,
+                    left: Box::new(Expr::Int(1)),
+                    right: Box::new(Expr::Int(2)),
+                }),
+                right: Box::new(Expr::Int(3)),
+            }
         );
     }
 }
