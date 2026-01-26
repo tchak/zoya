@@ -21,18 +21,19 @@ src/
 ├── parser.rs    # Parser (chumsky)
 ├── ast.rs       # Untyped AST
 ├── check.rs     # Type checker (returns TypedExpr)
+├── unify.rs     # Type unification (Union-Find)
 ├── ir.rs        # Typed IR (TypedExpr)
 ├── types.rs     # Type definitions
 ├── codegen.rs   # JavaScript code generation
 ├── eval.rs      # JS execution via rquickjs
-├── repl.rs      # Interactive REPL
+├── repl.rs      # Interactive REPL (rustyline)
 └── runner.rs    # File runner
 ```
 
 ### Current Features
 
 - **Types:** `Int32`, `Int64`, `Float`, `Bool`, `String`, type variables (`T`, `U`)
-- **Literals:** integers (`42`, `1_000`), floats (`3.14`, `.5`, `1.`), booleans (`true`, `false`), strings (`"hello"`, `"line\nbreak"`)
+- **Literals:** integers (`42`, `1_000`), floats (`3.14`, `0.5`), booleans (`true`, `false`), strings (`"hello"`, `"line\nbreak"`)
 - **Operators:**
   - Arithmetic: `+`, `-`, `*`, `/`
   - Comparison: `==`, `!=`, `<`, `>`, `<=`, `>=`
@@ -46,7 +47,13 @@ src/
   - Variable patterns: `n` (binds the matched value)
   - Wildcard pattern: `_` (matches anything, no binding)
   - Example: `match x { 0 => "zero" 1 => "one" _ => "other" }`
+- **Method calls:** `expr.method(args)` on built-in types
+  - String: `len()`, `is_empty()`, `contains(s)`, `starts_with(s)`, `ends_with(s)`, `to_uppercase()`, `to_lowercase()`, `trim()`
+  - Int32: `abs()`, `to_string()`, `to_float()`, `min(n)`, `max(n)`
+  - Int64: `abs()`, `to_string()`, `min(n)`, `max(n)`
+  - Float: `abs()`, `to_string()`, `to_int()`, `floor()`, `ceil()`, `round()`, `sqrt()`, `min(n)`, `max(n)`
 - **Type checking:** operands must match types (no implicit coercion)
+- **REPL:** line editing, history (persisted to `~/.zoya_history`)
 
 ### Running
 
@@ -63,6 +70,8 @@ cargo clippy               # Lint
 - `chumsky` - Parser combinators
 - `rquickjs` - QuickJS JavaScript engine bindings
 - `clap` - CLI argument parsing
+- `rustyline` - REPL line editing and history
+- `dirs` - Cross-platform directory paths
 
 ---
 
