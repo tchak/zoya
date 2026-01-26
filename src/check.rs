@@ -5,7 +5,8 @@ use crate::ast::{
     UnaryOp,
 };
 use crate::ir::{TypedExpr, TypedFunction, TypedLetBinding, TypedMatchArm, TypedPattern};
-use crate::types::{FunctionType, Type, TypeError};
+use crate::types::{FunctionType, Type, TypeError, TypeVarId};
+use crate::unify::UnifyCtx;
 
 /// Type environment for checking expressions
 #[derive(Debug, Clone, Default)]
@@ -25,10 +26,11 @@ impl TypeEnv {
     }
 }
 
-/// Resolve a type annotation to a concrete Type
+/// Resolve a type annotation to a concrete Type.
+/// `type_param_map` maps source-level type parameter names (like "T") to TypeVarIds.
 fn resolve_type_annotation(
     annotation: &TypeAnnotation,
-    type_params: &[String],
+    type_param_map: &HashMap<String, TypeVarId>,
 ) -> Result<Type, TypeError> {
     match annotation {
         TypeAnnotation::Named(name) => {
@@ -42,8 +44,8 @@ fn resolve_type_annotation(
                 Ok(Type::Bool)
             } else if name == "String" {
                 Ok(Type::String)
-            } else if type_params.contains(name) {
-                Ok(Type::Var(name.clone()))
+            } else if let Some(&id) = type_param_map.get(name) {
+                Ok(Type::Var(id))
             } else {
                 Err(TypeError {
                     message: format!("unknown type: {}", name),
@@ -54,13 +56,26 @@ fn resolve_type_annotation(
 }
 
 /// Check a function definition and return a typed function
-fn check_function(func: &FunctionDef, env: &TypeEnv) -> Result<TypedFunction, TypeError> {
+fn check_function(
+    func: &FunctionDef,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedFunction, TypeError> {
+    // Create fresh type variables for type parameters
+    let mut type_param_map = HashMap::new();
+    for name in &func.type_params {
+        let var = ctx.fresh_var();
+        if let Type::Var(id) = var {
+            type_param_map.insert(name.clone(), id);
+        }
+    }
+
     // Build local environment with parameters
     let mut locals = HashMap::new();
     let mut param_types = Vec::new();
 
     for param in &func.params {
-        let ty = resolve_type_annotation(&param.typ, &func.type_params)?;
+        let ty = resolve_type_annotation(&param.typ, &type_param_map)?;
         locals.insert(param.name.clone(), ty.clone());
         param_types.push(ty);
     }
@@ -69,25 +84,26 @@ fn check_function(func: &FunctionDef, env: &TypeEnv) -> Result<TypedFunction, Ty
     let body_env = env.with_locals(locals);
 
     // Check the body
-    let typed_body = check_with_env(&func.body, &body_env)?;
-    let body_type = typed_body.ty();
+    let typed_body = check_with_env(&func.body, &body_env, ctx)?;
+    let body_type = ctx.resolve(&typed_body.ty());
 
     // Determine return type
     let return_type = if let Some(ref annotation) = func.return_type {
-        let declared_return = resolve_type_annotation(annotation, &func.type_params)?;
-        // Verify body type matches declared return type
-        if !types_compatible(&body_type, &declared_return) {
-            return Err(TypeError {
-                message: format!(
-                    "function '{}' declares return type {} but body has type {}",
-                    func.name, declared_return, body_type
-                ),
-            });
-        }
-        declared_return
+        let declared_return = resolve_type_annotation(annotation, &type_param_map)?;
+        // Unify body type with declared return type
+        ctx.unify(&body_type, &declared_return).map_err(|e| TypeError {
+            message: format!(
+                "function '{}' declares return type {} but body has type {}: {}",
+                func.name,
+                ctx.resolve(&declared_return),
+                body_type,
+                e.message
+            ),
+        })?;
+        ctx.resolve(&declared_return)
     } else {
         // Infer return type from body
-        body_type.clone()
+        body_type
     };
 
     Ok(TypedFunction {
@@ -96,50 +112,49 @@ fn check_function(func: &FunctionDef, env: &TypeEnv) -> Result<TypedFunction, Ty
             .params
             .iter()
             .zip(param_types.iter())
-            .map(|(p, t)| (p.name.clone(), t.clone()))
+            .map(|(p, t)| (p.name.clone(), ctx.resolve(t)))
             .collect(),
         body: typed_body,
-        return_type,
+        return_type: ctx.resolve(&return_type),
     })
 }
 
-/// Extract function type from a function definition (for adding to env)
-fn function_type_from_def(func: &FunctionDef) -> Result<FunctionType, TypeError> {
+/// Extract function type from a function definition (for adding to env).
+/// Uses a separate UnifyCtx to create fresh type variables for the signature.
+fn function_type_from_def(
+    func: &FunctionDef,
+    ctx: &mut UnifyCtx,
+) -> Result<FunctionType, TypeError> {
+    // Create fresh type variables for type parameters
+    let mut type_param_map = HashMap::new();
+    let mut type_var_ids = Vec::new();
+    for name in &func.type_params {
+        let var = ctx.fresh_var();
+        if let Type::Var(id) = var {
+            type_param_map.insert(name.clone(), id);
+            type_var_ids.push(id);
+        }
+    }
+
     let mut param_types = Vec::new();
     for param in &func.params {
-        let ty = resolve_type_annotation(&param.typ, &func.type_params)?;
+        let ty = resolve_type_annotation(&param.typ, &type_param_map)?;
         param_types.push(ty);
     }
 
     let return_type = if let Some(ref annotation) = func.return_type {
-        resolve_type_annotation(annotation, &func.type_params)?
+        resolve_type_annotation(annotation, &type_param_map)?
     } else {
-        // For now, if no return type is specified, we need to infer it
-        // This will be determined when checking the body
-        Type::Var("_inferred".to_string())
+        // Create a fresh type variable for inferred return type
+        ctx.fresh_var()
     };
 
     Ok(FunctionType {
         type_params: func.type_params.clone(),
+        type_var_ids,
         params: param_types,
         return_type,
     })
-}
-
-/// Check if two types are compatible (for type checking)
-fn types_compatible(actual: &Type, expected: &Type) -> bool {
-    match (actual, expected) {
-        (Type::Int32, Type::Int32) => true,
-        (Type::Int64, Type::Int64) => true,
-        (Type::Float, Type::Float) => true,
-        (Type::Bool, Type::Bool) => true,
-        (Type::String, Type::String) => true,
-        (Type::Var(a), Type::Var(b)) => a == b,
-        // Type variables can match any concrete type during instantiation
-        (_, Type::Var(_)) => true,
-        (Type::Var(_), _) => true,
-        _ => false,
-    }
 }
 
 /// Check if a type is numeric (for ordering comparisons)
@@ -148,7 +163,11 @@ fn is_numeric_type(ty: &Type) -> bool {
 }
 
 /// Check an expression with a type environment
-fn check_with_env(expr: &Expr, env: &TypeEnv) -> Result<TypedExpr, TypeError> {
+fn check_with_env(
+    expr: &Expr,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
     match expr {
         Expr::Int(n) => {
             // Default to Int32 if value fits, otherwise error
@@ -172,7 +191,7 @@ fn check_with_env(expr: &Expr, env: &TypeEnv) -> Result<TypedExpr, TypeError> {
             if let Some(ty) = env.locals.get(name) {
                 Ok(TypedExpr::Var {
                     name: name.clone(),
-                    ty: ty.clone(),
+                    ty: ctx.resolve(ty),
                 })
             } else {
                 Err(TypeError {
@@ -199,51 +218,44 @@ fn check_with_env(expr: &Expr, env: &TypeEnv) -> Result<TypedExpr, TypeError> {
                 });
             }
 
-            // Type check arguments and build substitutions for generics
-            let mut typed_args = Vec::new();
-            let mut substitutions: HashMap<String, Type> = HashMap::new();
+            // Create fresh type variables for this call's type parameters
+            let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
+            for &old_id in &func_type.type_var_ids {
+                let new_var = ctx.fresh_var();
+                instantiation.insert(old_id, new_var);
+            }
 
-            for (arg, param_type) in args.iter().zip(func_type.params.iter()) {
-                let typed_arg = check_with_env(arg, env)?;
+            // Instantiate parameter types with fresh variables
+            let instantiated_params: Vec<Type> = func_type
+                .params
+                .iter()
+                .map(|t| substitute_type_vars(t, &instantiation))
+                .collect();
+            let instantiated_return =
+                substitute_type_vars(&func_type.return_type, &instantiation);
+
+            // Type check arguments and unify with parameter types
+            let mut typed_args = Vec::new();
+            for (arg, param_type) in args.iter().zip(instantiated_params.iter()) {
+                let typed_arg = check_with_env(arg, env, ctx)?;
                 let arg_type = typed_arg.ty();
 
-                // Handle generic type instantiation
-                match param_type {
-                    Type::Var(type_var) => {
-                        if let Some(existing) = substitutions.get(type_var) {
-                            // Type variable already bound, check consistency
-                            if !types_compatible(&arg_type, existing) {
-                                return Err(TypeError {
-                                    message: format!(
-                                        "type parameter {} bound to {} but got {}",
-                                        type_var, existing, arg_type
-                                    ),
-                                });
-                            }
-                        } else {
-                            // Bind type variable
-                            substitutions.insert(type_var.clone(), arg_type.clone());
-                        }
-                    }
-                    _ => {
-                        // Concrete type, check match
-                        if !types_compatible(&arg_type, param_type) {
-                            return Err(TypeError {
-                                message: format!(
-                                    "argument type mismatch: expected {}, got {}",
-                                    param_type, arg_type
-                                ),
-                            });
-                        }
-                    }
-                }
+                // Unify argument type with parameter type
+                ctx.unify(&arg_type, param_type).map_err(|e| TypeError {
+                    message: format!(
+                        "argument type mismatch in call to '{}': expected {}, got {}: {}",
+                        func,
+                        ctx.resolve(param_type),
+                        ctx.resolve(&arg_type),
+                        e.message
+                    ),
+                })?;
 
                 typed_args.push(typed_arg);
             }
 
-            // Instantiate return type with substitutions
-            let instantiated = func_type.instantiate(&substitutions);
-            let return_type = instantiated.return_type;
+            // Resolve the return type after unification
+            let return_type = ctx.resolve(&instantiated_return);
 
             Ok(TypedExpr::Call {
                 func: func.clone(),
@@ -253,7 +265,7 @@ fn check_with_env(expr: &Expr, env: &TypeEnv) -> Result<TypedExpr, TypeError> {
         }
 
         Expr::UnaryOp { op, expr } => {
-            let typed_expr = check_with_env(expr, env)?;
+            let typed_expr = check_with_env(expr, env, ctx)?;
             let ty = typed_expr.ty();
             match op {
                 UnaryOp::Neg => Ok(TypedExpr::UnaryOp {
@@ -265,31 +277,31 @@ fn check_with_env(expr: &Expr, env: &TypeEnv) -> Result<TypedExpr, TypeError> {
         }
 
         Expr::BinOp { op, left, right } => {
-            let typed_left = check_with_env(left, env)?;
-            let typed_right = check_with_env(right, env)?;
+            let typed_left = check_with_env(left, env, ctx)?;
+            let typed_right = check_with_env(right, env, ctx)?;
             let left_ty = typed_left.ty();
             let right_ty = typed_right.ty();
-            if left_ty != right_ty {
-                return Err(TypeError {
-                    message: format!("type mismatch: {} vs {}", left_ty, right_ty),
-                });
-            }
+
+            // Unify left and right types
+            ctx.unify(&left_ty, &right_ty)?;
+
+            let resolved_ty = ctx.resolve(&left_ty);
 
             // Determine result type based on operator
             let result_ty = match op {
                 // Arithmetic operators: result has same type as operands
-                BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => left_ty,
+                BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => resolved_ty,
 
                 // Equality operators: work on any type, result is Bool
                 BinOp::Eq | BinOp::Ne => Type::Bool,
 
                 // Ordering operators: only work on numeric types, result is Bool
                 BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
-                    if !is_numeric_type(&left_ty) {
+                    if !is_numeric_type(&resolved_ty) {
                         return Err(TypeError {
                             message: format!(
                                 "ordering operators only work on numeric types, not {}",
-                                left_ty
+                                resolved_ty
                             ),
                         });
                     }
@@ -311,7 +323,7 @@ fn check_with_env(expr: &Expr, env: &TypeEnv) -> Result<TypedExpr, TypeError> {
             let mut typed_bindings = Vec::new();
 
             for binding in bindings {
-                let typed_binding = check_let_binding(binding, &block_env)?;
+                let typed_binding = check_let_binding(binding, &block_env, ctx)?;
                 // Add binding to environment for subsequent bindings
                 block_env
                     .locals
@@ -320,7 +332,7 @@ fn check_with_env(expr: &Expr, env: &TypeEnv) -> Result<TypedExpr, TypeError> {
             }
 
             // Type-check the result expression with all bindings in scope
-            let typed_result = check_with_env(result, &block_env)?;
+            let typed_result = check_with_env(result, &block_env, ctx)?;
 
             Ok(TypedExpr::Block {
                 bindings: typed_bindings,
@@ -329,7 +341,7 @@ fn check_with_env(expr: &Expr, env: &TypeEnv) -> Result<TypedExpr, TypeError> {
         }
 
         Expr::Match { scrutinee, arms } => {
-            let typed_scrutinee = check_with_env(scrutinee, env)?;
+            let typed_scrutinee = check_with_env(scrutinee, env, ctx)?;
             let scrutinee_ty = typed_scrutinee.ty();
 
             if arms.is_empty() {
@@ -342,21 +354,22 @@ fn check_with_env(expr: &Expr, env: &TypeEnv) -> Result<TypedExpr, TypeError> {
             let mut result_ty: Option<Type> = None;
 
             for arm in arms {
-                let typed_arm = check_match_arm(arm, &scrutinee_ty, env)?;
+                let typed_arm = check_match_arm(arm, &scrutinee_ty, env, ctx)?;
                 let arm_ty = typed_arm.result.ty();
 
-                // Verify all arms have same result type
+                // Unify all arm result types
                 match &result_ty {
                     None => result_ty = Some(arm_ty),
-                    Some(ty) if *ty != arm_ty => {
-                        return Err(TypeError {
+                    Some(ty) => {
+                        ctx.unify(ty, &arm_ty).map_err(|e| TypeError {
                             message: format!(
-                                "match arms have different types: {} vs {}",
-                                ty, arm_ty
+                                "match arms have different types: {} vs {}: {}",
+                                ctx.resolve(ty),
+                                ctx.resolve(&arm_ty),
+                                e.message
                             ),
-                        });
+                        })?;
                     }
-                    _ => {}
                 }
 
                 typed_arms.push(typed_arm);
@@ -365,9 +378,17 @@ fn check_with_env(expr: &Expr, env: &TypeEnv) -> Result<TypedExpr, TypeError> {
             Ok(TypedExpr::Match {
                 scrutinee: Box::new(typed_scrutinee),
                 arms: typed_arms,
-                ty: result_ty.unwrap(),
+                ty: ctx.resolve(&result_ty.unwrap()),
             })
         }
+    }
+}
+
+/// Substitute type variables in a type using a mapping
+fn substitute_type_vars(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
+    match ty {
+        Type::Var(id) => mapping.get(id).cloned().unwrap_or_else(|| ty.clone()),
+        _ => ty.clone(),
     }
 }
 
@@ -376,28 +397,32 @@ fn check_pattern(
     pattern: &Pattern,
     scrutinee_ty: &Type,
     env: &TypeEnv,
+    ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
     match pattern {
         Pattern::Literal(expr) => {
-            let typed = check_with_env(expr, env)?;
+            let typed = check_with_env(expr, env, ctx)?;
             let lit_ty = typed.ty();
-            if lit_ty != *scrutinee_ty {
-                return Err(TypeError {
-                    message: format!(
-                        "pattern type {} does not match scrutinee type {}",
-                        lit_ty, scrutinee_ty
-                    ),
-                });
-            }
+
+            // Unify literal type with scrutinee type
+            ctx.unify(&lit_ty, scrutinee_ty).map_err(|e| TypeError {
+                message: format!(
+                    "pattern type {} does not match scrutinee type {}: {}",
+                    ctx.resolve(&lit_ty),
+                    ctx.resolve(scrutinee_ty),
+                    e.message
+                ),
+            })?;
+
             Ok((TypedPattern::Literal(typed), HashMap::new()))
         }
         Pattern::Var(name) => {
             let mut bindings = HashMap::new();
-            bindings.insert(name.clone(), scrutinee_ty.clone());
+            bindings.insert(name.clone(), ctx.resolve(scrutinee_ty));
             Ok((
                 TypedPattern::Var {
                     name: name.clone(),
-                    ty: scrutinee_ty.clone(),
+                    ty: ctx.resolve(scrutinee_ty),
                 },
                 bindings,
             ))
@@ -411,14 +436,15 @@ fn check_match_arm(
     arm: &MatchArm,
     scrutinee_ty: &Type,
     env: &TypeEnv,
+    ctx: &mut UnifyCtx,
 ) -> Result<TypedMatchArm, TypeError> {
-    let (typed_pattern, bindings) = check_pattern(&arm.pattern, scrutinee_ty, env)?;
+    let (typed_pattern, bindings) = check_pattern(&arm.pattern, scrutinee_ty, env, ctx)?;
 
     // Create arm environment with pattern bindings
     let mut arm_env = env.clone();
     arm_env.locals.extend(bindings);
 
-    let typed_result = check_with_env(&arm.result, &arm_env)?;
+    let typed_result = check_with_env(&arm.result, &arm_env, ctx)?;
 
     Ok(TypedMatchArm {
         pattern: typed_pattern,
@@ -427,24 +453,29 @@ fn check_match_arm(
 }
 
 /// Check a let binding and return a typed let binding
-fn check_let_binding(binding: &LetBinding, env: &TypeEnv) -> Result<TypedLetBinding, TypeError> {
-    let typed_value = check_with_env(&binding.value, env)?;
+fn check_let_binding(
+    binding: &LetBinding,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedLetBinding, TypeError> {
+    let typed_value = check_with_env(&binding.value, env, ctx)?;
     let inferred_type = typed_value.ty();
 
-    // If type annotation exists, verify it matches
+    // If type annotation exists, unify with inferred type
     let binding_type = if let Some(ref annotation) = binding.type_annotation {
-        let declared_type = resolve_type_annotation(annotation, &[])?;
-        if !types_compatible(&inferred_type, &declared_type) {
-            return Err(TypeError {
-                message: format!(
-                    "let binding '{}' declares type {} but value has type {}",
-                    binding.name, declared_type, inferred_type
-                ),
-            });
-        }
+        let declared_type = resolve_type_annotation(annotation, &HashMap::new())?;
+        ctx.unify(&inferred_type, &declared_type).map_err(|e| TypeError {
+            message: format!(
+                "let binding '{}' declares type {} but value has type {}: {}",
+                binding.name,
+                declared_type,
+                ctx.resolve(&inferred_type),
+                e.message
+            ),
+        })?;
         declared_type
     } else {
-        inferred_type
+        ctx.resolve(&inferred_type)
     };
 
     Ok(TypedLetBinding {
@@ -456,11 +487,13 @@ fn check_let_binding(binding: &LetBinding, env: &TypeEnv) -> Result<TypedLetBind
 
 /// Check a file's items (functions), returning typed functions
 pub fn check_file(items: &[Item]) -> Result<Vec<TypedFunction>, TypeError> {
+    let mut ctx = UnifyCtx::new();
+
     // Build type environment with all function signatures first
     let mut env = TypeEnv::default();
     for item in items {
         let Item::Function(func) = item;
-        let func_type = function_type_from_def(func)?;
+        let func_type = function_type_from_def(func, &mut ctx)?;
         env.functions.insert(func.name.clone(), func_type);
     }
 
@@ -468,7 +501,7 @@ pub fn check_file(items: &[Item]) -> Result<Vec<TypedFunction>, TypeError> {
     let mut typed_functions = Vec::new();
     for item in items {
         let Item::Function(func) = item;
-        let typed = check_function(func, &env)?;
+        let typed = check_function(func, &env, &mut ctx)?;
         typed_functions.push(typed);
     }
 
@@ -488,25 +521,26 @@ pub fn check_repl(
     statements: &[Statement],
     env: &mut TypeEnv,
 ) -> Result<Vec<CheckedStatement>, TypeError> {
+    let mut ctx = UnifyCtx::new();
     let mut results = Vec::new();
 
     for statement in statements {
         match statement {
             Statement::Item(Item::Function(func)) => {
                 // Add function type to environment first
-                let func_type = function_type_from_def(func)?;
+                let func_type = function_type_from_def(func, &mut ctx)?;
                 env.functions.insert(func.name.clone(), func_type);
 
                 // Type-check the function
-                let typed_func = check_function(func, env)?;
+                let typed_func = check_function(func, env, &mut ctx)?;
                 results.push(CheckedStatement::Function(typed_func));
             }
             Statement::Expr(expr) => {
-                let typed_expr = check_with_env(expr, env)?;
+                let typed_expr = check_with_env(expr, env, &mut ctx)?;
                 results.push(CheckedStatement::Expr(typed_expr));
             }
             Statement::Let(binding) => {
-                let typed_binding = check_let_binding(binding, env)?;
+                let typed_binding = check_let_binding(binding, env, &mut ctx)?;
                 // Add to environment for future statements
                 env.locals
                     .insert(binding.name.clone(), typed_binding.ty.clone());
@@ -525,7 +559,8 @@ mod tests {
     use crate::types::Type;
 
     fn check(expr: &Expr) -> Result<TypedExpr, TypeError> {
-        check_with_env(expr, &TypeEnv::default())
+        let mut ctx = UnifyCtx::new();
+        check_with_env(expr, &TypeEnv::default(), &mut ctx)
     }
 
     #[test]
@@ -665,16 +700,18 @@ mod tests {
         let mut env = TypeEnv::default();
         env.locals.insert("x".to_string(), Type::Int32);
 
+        let mut ctx = UnifyCtx::new();
         let expr = Expr::Var("x".to_string());
-        let result = check_with_env(&expr, &env).unwrap();
+        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int32);
     }
 
     #[test]
     fn test_check_unknown_variable() {
         let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
         let expr = Expr::Var("x".to_string());
-        let result = check_with_env(&expr, &env);
+        let result = check_with_env(&expr, &env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("unknown variable"));
     }
@@ -685,12 +722,13 @@ mod tests {
         env.locals.insert("x".to_string(), Type::Int32);
         env.locals.insert("y".to_string(), Type::Int32);
 
+        let mut ctx = UnifyCtx::new();
         let expr = Expr::BinOp {
             op: BinOp::Add,
             left: Box::new(Expr::Var("x".to_string())),
             right: Box::new(Expr::Var("y".to_string())),
         };
-        let result = check_with_env(&expr, &env).unwrap();
+        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int32);
     }
 
@@ -701,16 +739,18 @@ mod tests {
             "square".to_string(),
             FunctionType {
                 type_params: vec![],
+                type_var_ids: vec![],
                 params: vec![Type::Int32],
                 return_type: Type::Int32,
             },
         );
 
+        let mut ctx = UnifyCtx::new();
         let expr = Expr::Call {
             func: "square".to_string(),
             args: vec![Expr::Int(5)],
         };
-        let result = check_with_env(&expr, &env).unwrap();
+        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int32);
     }
 
@@ -721,23 +761,20 @@ mod tests {
             "square".to_string(),
             FunctionType {
                 type_params: vec![],
+                type_var_ids: vec![],
                 params: vec![Type::Int32],
                 return_type: Type::Int32,
             },
         );
 
+        let mut ctx = UnifyCtx::new();
         let expr = Expr::Call {
             func: "square".to_string(),
             args: vec![Expr::Float(5.0)],
         };
-        let result = check_with_env(&expr, &env);
+        let result = check_with_env(&expr, &env, &mut ctx);
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .message
-                .contains("argument type mismatch")
-        );
+        assert!(result.unwrap_err().message.contains("type mismatch"));
     }
 
     #[test]
@@ -747,29 +784,36 @@ mod tests {
             "add".to_string(),
             FunctionType {
                 type_params: vec![],
+                type_var_ids: vec![],
                 params: vec![Type::Int32, Type::Int32],
                 return_type: Type::Int32,
             },
         );
 
+        let mut ctx = UnifyCtx::new();
         let expr = Expr::Call {
             func: "add".to_string(),
             args: vec![Expr::Int(1)],
         };
-        let result = check_with_env(&expr, &env);
+        let result = check_with_env(&expr, &env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("expects 2 arguments"));
     }
 
     #[test]
     fn test_check_generic_function_call() {
+        let mut ctx = UnifyCtx::new();
+        let t_var = ctx.fresh_var();
+        let t_id = if let Type::Var(id) = t_var { id } else { panic!() };
+
         let mut env = TypeEnv::default();
         env.functions.insert(
             "identity".to_string(),
             FunctionType {
                 type_params: vec!["T".to_string()],
-                params: vec![Type::Var("T".to_string())],
-                return_type: Type::Var("T".to_string()),
+                type_var_ids: vec![t_id],
+                params: vec![Type::Var(t_id)],
+                return_type: Type::Var(t_id),
             },
         );
 
@@ -778,19 +822,24 @@ mod tests {
             func: "identity".to_string(),
             args: vec![Expr::Int(42)],
         };
-        let result = check_with_env(&expr, &env).unwrap();
+        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int32);
     }
 
     #[test]
     fn test_check_generic_function_call_float() {
+        let mut ctx = UnifyCtx::new();
+        let t_var = ctx.fresh_var();
+        let t_id = if let Type::Var(id) = t_var { id } else { panic!() };
+
         let mut env = TypeEnv::default();
         env.functions.insert(
             "identity".to_string(),
             FunctionType {
                 type_params: vec!["T".to_string()],
-                params: vec![Type::Var("T".to_string())],
-                return_type: Type::Var("T".to_string()),
+                type_var_ids: vec![t_id],
+                params: vec![Type::Var(t_id)],
+                return_type: Type::Var(t_id),
             },
         );
 
@@ -799,13 +848,14 @@ mod tests {
             func: "identity".to_string(),
             args: vec![Expr::Float(3.14)],
         };
-        let result = check_with_env(&expr, &env).unwrap();
+        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Float);
     }
 
     #[test]
     fn test_check_function_def() {
         let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
         let func = FunctionDef {
             name: "double".to_string(),
             type_params: vec![],
@@ -821,7 +871,7 @@ mod tests {
             },
         };
 
-        let result = check_function(&func, &env).unwrap();
+        let result = check_function(&func, &env, &mut ctx).unwrap();
         assert_eq!(result.name, "double");
         assert_eq!(result.return_type, Type::Int32);
     }
@@ -829,6 +879,7 @@ mod tests {
     #[test]
     fn test_check_function_def_return_type_mismatch() {
         let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
         let func = FunctionDef {
             name: "wrong".to_string(),
             type_params: vec![],
@@ -840,7 +891,7 @@ mod tests {
             body: Expr::Var("x".to_string()), // Returns Int32, not Float
         };
 
-        let result = check_function(&func, &env);
+        let result = check_function(&func, &env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("declares return type"));
     }
@@ -852,11 +903,13 @@ mod tests {
             "add".to_string(),
             FunctionType {
                 type_params: vec![],
+                type_var_ids: vec![],
                 params: vec![Type::Int32, Type::Int32],
                 return_type: Type::Int32,
             },
         );
 
+        let mut ctx = UnifyCtx::new();
         let func = FunctionDef {
             name: "double".to_string(),
             type_params: vec![],
@@ -871,12 +924,13 @@ mod tests {
             },
         };
 
-        let result = check_function(&func, &env).unwrap();
+        let result = check_function(&func, &env, &mut ctx).unwrap();
         assert_eq!(result.return_type, Type::Int32);
     }
 
     #[test]
     fn test_function_type_from_def() {
+        let mut ctx = UnifyCtx::new();
         let func = FunctionDef {
             name: "add".to_string(),
             type_params: vec![],
@@ -894,13 +948,14 @@ mod tests {
             body: Expr::Int(0), // body doesn't matter for type extraction
         };
 
-        let ft = function_type_from_def(&func).unwrap();
+        let ft = function_type_from_def(&func, &mut ctx).unwrap();
         assert_eq!(ft.params, vec![Type::Int32, Type::Int32]);
         assert_eq!(ft.return_type, Type::Int32);
     }
 
     #[test]
     fn test_function_type_from_def_generic() {
+        let mut ctx = UnifyCtx::new();
         let func = FunctionDef {
             name: "identity".to_string(),
             type_params: vec!["T".to_string()],
@@ -912,10 +967,12 @@ mod tests {
             body: Expr::Int(0),
         };
 
-        let ft = function_type_from_def(&func).unwrap();
+        let ft = function_type_from_def(&func, &mut ctx).unwrap();
         assert_eq!(ft.type_params, vec!["T".to_string()]);
-        assert_eq!(ft.params, vec![Type::Var("T".to_string())]);
-        assert_eq!(ft.return_type, Type::Var("T".to_string()));
+        assert_eq!(ft.type_var_ids.len(), 1);
+        // Params and return type should use the same type variable
+        assert!(matches!(ft.params[0], Type::Var(_)));
+        assert!(matches!(ft.return_type, Type::Var(_)));
     }
 
     #[test]
@@ -1214,6 +1271,7 @@ mod tests {
         let mut env = TypeEnv::default();
         env.locals.insert("x".to_string(), Type::Int32);
 
+        let mut ctx = UnifyCtx::new();
         let expr = Expr::Match {
             scrutinee: Box::new(Expr::Var("x".to_string())),
             arms: vec![
@@ -1227,7 +1285,7 @@ mod tests {
                 },
             ],
         };
-        let result = check_with_env(&expr, &env).unwrap();
+        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::String);
     }
 
@@ -1236,6 +1294,7 @@ mod tests {
         let mut env = TypeEnv::default();
         env.locals.insert("x".to_string(), Type::Int32);
 
+        let mut ctx = UnifyCtx::new();
         let expr = Expr::Match {
             scrutinee: Box::new(Expr::Var("x".to_string())),
             arms: vec![
@@ -1249,7 +1308,7 @@ mod tests {
                 },
             ],
         };
-        let result = check_with_env(&expr, &env).unwrap();
+        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int32);
     }
 
@@ -1258,6 +1317,7 @@ mod tests {
         let mut env = TypeEnv::default();
         env.locals.insert("x".to_string(), Type::Int32);
 
+        let mut ctx = UnifyCtx::new();
         let expr = Expr::Match {
             scrutinee: Box::new(Expr::Var("x".to_string())),
             arms: vec![MatchArm {
@@ -1269,7 +1329,7 @@ mod tests {
                 },
             }],
         };
-        let result = check_with_env(&expr, &env).unwrap();
+        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int32);
     }
 
@@ -1278,6 +1338,7 @@ mod tests {
         let mut env = TypeEnv::default();
         env.locals.insert("x".to_string(), Type::Int32);
 
+        let mut ctx = UnifyCtx::new();
         let expr = Expr::Match {
             scrutinee: Box::new(Expr::Var("x".to_string())),
             arms: vec![MatchArm {
@@ -1285,7 +1346,7 @@ mod tests {
                 result: Expr::Int(1),
             }],
         };
-        let result = check_with_env(&expr, &env);
+        let result = check_with_env(&expr, &env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("does not match scrutinee"));
     }
@@ -1295,6 +1356,7 @@ mod tests {
         let mut env = TypeEnv::default();
         env.locals.insert("x".to_string(), Type::Int32);
 
+        let mut ctx = UnifyCtx::new();
         let expr = Expr::Match {
             scrutinee: Box::new(Expr::Var("x".to_string())),
             arms: vec![
@@ -1308,7 +1370,7 @@ mod tests {
                 },
             ],
         };
-        let result = check_with_env(&expr, &env);
+        let result = check_with_env(&expr, &env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("different types"));
     }

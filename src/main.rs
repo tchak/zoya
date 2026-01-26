@@ -12,6 +12,7 @@ mod parser;
 mod repl;
 mod runner;
 mod types;
+mod unify;
 
 #[derive(Parser)]
 #[command(name = "zoya")]

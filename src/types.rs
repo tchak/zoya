@@ -1,5 +1,14 @@
-use std::collections::HashMap;
 use std::fmt;
+
+/// Unique identifier for a type variable
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TypeVarId(pub usize);
+
+impl fmt::Display for TypeVarId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "?{}", self.0)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
@@ -8,7 +17,7 @@ pub enum Type {
     Float,
     Bool,
     String,
-    Var(String), // Type variable for generics (e.g., T, U)
+    Var(TypeVarId), // Unification type variable
 }
 
 impl fmt::Display for Type {
@@ -19,7 +28,7 @@ impl fmt::Display for Type {
             Type::Float => write!(f, "Float"),
             Type::Bool => write!(f, "Bool"),
             Type::String => write!(f, "String"),
-            Type::Var(name) => write!(f, "{}", name),
+            Type::Var(id) => write!(f, "{}", id),
         }
     }
 }
@@ -27,32 +36,14 @@ impl fmt::Display for Type {
 /// Function type signature
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionType {
+    /// Source-level type parameter names (e.g., ["T", "U"])
     pub type_params: Vec<String>,
+    /// TypeVarIds corresponding to each type parameter
+    pub type_var_ids: Vec<TypeVarId>,
+    /// Parameter types
     pub params: Vec<Type>,
+    /// Return type
     pub return_type: Type,
-}
-
-impl FunctionType {
-    /// Instantiate a generic function with concrete types
-    pub fn instantiate(&self, substitutions: &HashMap<String, Type>) -> FunctionType {
-        FunctionType {
-            type_params: vec![], // Instantiated function has no type params
-            params: self
-                .params
-                .iter()
-                .map(|t| substitute(t, substitutions))
-                .collect(),
-            return_type: substitute(&self.return_type, substitutions),
-        }
-    }
-}
-
-/// Apply substitutions to a type
-fn substitute(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
-    match ty {
-        Type::Var(name) => substitutions.get(name).cloned().unwrap_or_else(|| ty.clone()),
-        _ => ty.clone(),
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
