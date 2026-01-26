@@ -32,7 +32,7 @@ src/
 
 ### Current Features
 
-- **Types:** `Int32`, `Int64`, `Float`, `Bool`, `String`, `List<T>`, tuples `(T, U, ...)`, type variables (`T`, `U`)
+- **Types:** `Int32`, `Int64`, `Float`, `Bool`, `String`, `List<T>`, tuples `(T, U, ...)`, functions `T -> U`, type variables (`T`, `U`)
 - **Literals:**
   - Integers: `42`, `1_000`
   - Floats: `3.14`, `0.5`
@@ -49,6 +49,17 @@ src/
 - **Let bindings:** `let x = expr` or `let x: Type = expr`
   - In function bodies (semicolons required): `fn foo() { let x = 1; let y = 2; x + y }`
   - In REPL (persists across inputs)
+- **Lambdas (anonymous functions):** Rust-inspired syntax with let polymorphism
+  - Simple: `|x| x + 1`
+  - Multi-param: `|x, y| x + y`
+  - No params: `|| 42`
+  - Type annotations: `|x: Int32| x * 2`
+  - Return type: `|x| -> Int32 x + 1`
+  - Block body: `|x| { let y = x * 2; y + 1 }`
+  - Function type annotations: `let f: Int32 -> Int32 = |x| x + 1`
+  - Multi-param function types: `let f: (Int32, Int32) -> Int32 = |x, y| x + y`
+  - Higher-order functions: `fn apply(f: Int32 -> Int32, x: Int32) -> Int32 f(x)`
+  - Let polymorphism: `let id = |x| x; id(42); id("hello")` (both work!)
 - **Pattern matching:** `match expr { pattern => result ... }`
   - Literal patterns: `0`, `"hello"`, `true`, `3.14`
   - Variable patterns: `n` (binds the matched value)
