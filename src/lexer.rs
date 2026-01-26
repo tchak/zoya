@@ -55,8 +55,8 @@ pub enum Token {
     #[regex(r#""([^"\\]|\\.)*""#, parse_string)]
     String(String),
 
-    // Float must come before Int for proper matching of `.5`
-    #[regex(r"[0-9][0-9_]*\.[0-9_]*|[0-9_]*\.[0-9][0-9_]*", parse_float)]
+    // Float requires both integer and decimal parts (e.g., 1.0, not .5 or 1.)
+    #[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*", parse_float)]
     Float(f64),
 
     #[regex(r"[0-9][0-9_]*", |lex| lex.slice().replace('_', "").parse::<i64>().ok())]
@@ -253,18 +253,6 @@ mod tests {
     }
 
     #[test]
-    fn test_float_leading_dot() {
-        let tokens = lex(".5").unwrap();
-        assert_eq!(tokens, vec![Token::Float(0.5)]);
-    }
-
-    #[test]
-    fn test_float_trailing_dot() {
-        let tokens = lex("1.").unwrap();
-        assert_eq!(tokens, vec![Token::Float(1.0)]);
-    }
-
-    #[test]
     fn test_float_with_underscores() {
         let tokens = lex("1_000.5").unwrap();
         assert_eq!(tokens, vec![Token::Float(1000.5)]);
@@ -272,7 +260,7 @@ mod tests {
 
     #[test]
     fn test_float_expression() {
-        let tokens = lex("1.5 + .5").unwrap();
+        let tokens = lex("1.5 + 0.5").unwrap();
         assert_eq!(
             tokens,
             vec![Token::Float(1.5), Token::Plus, Token::Float(0.5)]
