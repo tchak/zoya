@@ -7,7 +7,10 @@
       "Bash(cargo build:*)",
       "Bash(cargo run:*)",
       "Bash(cargo test:*)",
-      "Bash(jj status:*)"
+      "Bash(jj status:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(cargo check:*)",
+      "Bash(RUSTFLAGS=\"-D warnings\" cargo check:*)"
     ]
   }
 }

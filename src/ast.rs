@@ -1,6 +1,7 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Int(i64),
+    Float(f64),
     UnaryOp {
         op: UnaryOp,
         expr: Box<Expr>,

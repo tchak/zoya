@@ -23,11 +23,12 @@ pub fn parse(tokens: Vec<Token>) -> Result<Expr, ParseError> {
 
 fn parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, Token>>> {
     recursive(|expr| {
-        let int = select! {
+        let literal = select! {
             Token::Int(n) => Expr::Int(n),
+            Token::Float(n) => Expr::Float(n),
         };
 
-        let atom = int.or(expr
+        let atom = literal.or(expr
             .delimited_by(just(Token::LParen), just(Token::RParen)));
 
         let unary = just(Token::Minus)
@@ -53,7 +54,7 @@ fn parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, Token>
             },
         );
 
-        let sum = product.clone().foldl(
+        product.clone().foldl(
             choice((
                 op(Token::Plus, BinOp::Add),
                 op(Token::Minus, BinOp::Sub),
@@ -65,9 +66,7 @@ fn parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, Token>
                 left: Box::new(left),
                 right: Box::new(right),
             },
-        );
-
-        sum
+        )
     })
 }
 
@@ -248,6 +247,37 @@ mod tests {
                     left: Box::new(Expr::Int(2)),
                     right: Box::new(Expr::Int(3)),
                 }),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_float() {
+        let expr = parse_str("3.14").unwrap();
+        assert_eq!(expr, Expr::Float(3.14));
+    }
+
+    #[test]
+    fn test_parse_float_addition() {
+        let expr = parse_str("1.5 + 2.5").unwrap();
+        assert_eq!(
+            expr,
+            Expr::BinOp {
+                op: BinOp::Add,
+                left: Box::new(Expr::Float(1.5)),
+                right: Box::new(Expr::Float(2.5)),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_negate_float() {
+        let expr = parse_str("-3.14").unwrap();
+        assert_eq!(
+            expr,
+            Expr::UnaryOp {
+                op: UnaryOp::Neg,
+                expr: Box::new(Expr::Float(3.14)),
             }
         );
     }

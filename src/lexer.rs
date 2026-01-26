@@ -1,8 +1,16 @@
 use logos::Logos;
 
+fn parse_float(lex: &logos::Lexer<Token>) -> Option<f64> {
+    lex.slice().replace('_', "").parse::<f64>().ok()
+}
+
 #[derive(Logos, Debug, Clone, PartialEq)]
 #[logos(skip r"[ \t\n\r]+")]
 pub enum Token {
+    // Float must come before Int for proper matching of `.5`
+    #[regex(r"[0-9][0-9_]*\.[0-9_]*|[0-9_]*\.[0-9][0-9_]*", parse_float)]
+    Float(f64),
+
     #[regex(r"[0-9][0-9_]*", |lex| lex.slice().replace('_', "").parse::<i64>().ok())]
     Int(i64),
 
@@ -137,5 +145,38 @@ mod tests {
     fn test_integer_with_trailing_underscore() {
         let tokens = lex("100_").unwrap();
         assert_eq!(tokens, vec![Token::Int(100)]);
+    }
+
+    #[test]
+    fn test_float_standard() {
+        let tokens = lex("3.14").unwrap();
+        assert_eq!(tokens, vec![Token::Float(3.14)]);
+    }
+
+    #[test]
+    fn test_float_leading_dot() {
+        let tokens = lex(".5").unwrap();
+        assert_eq!(tokens, vec![Token::Float(0.5)]);
+    }
+
+    #[test]
+    fn test_float_trailing_dot() {
+        let tokens = lex("1.").unwrap();
+        assert_eq!(tokens, vec![Token::Float(1.0)]);
+    }
+
+    #[test]
+    fn test_float_with_underscores() {
+        let tokens = lex("1_000.5").unwrap();
+        assert_eq!(tokens, vec![Token::Float(1000.5)]);
+    }
+
+    #[test]
+    fn test_float_expression() {
+        let tokens = lex("1.5 + .5").unwrap();
+        assert_eq!(
+            tokens,
+            vec![Token::Float(1.5), Token::Plus, Token::Float(0.5)]
+        );
     }
 }
