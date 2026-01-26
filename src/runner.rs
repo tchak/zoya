@@ -861,4 +861,132 @@ mod tests {
             ])
         );
     }
+
+    // Match arm block expression tests
+    #[test]
+    fn test_run_match_with_commas() {
+        let source = r#"
+            fn main() -> Int32 {
+                match 1 { 0 => 0, 1 => 10, _ => 100 }
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(10));
+    }
+
+    #[test]
+    fn test_run_match_braced_simple() {
+        let source = r#"
+            fn main() -> Int32 {
+                match 1 { 0 => { 0 }, 1 => { 10 }, _ => { 100 } }
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(10));
+    }
+
+    #[test]
+    fn test_run_match_braced_block() {
+        let source = r#"
+            fn main() -> Int32 {
+                match 5 {
+                    n => {
+                        let doubled = n * 2
+                        doubled + 1
+                    }
+                }
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(11)); // 5 * 2 + 1
+    }
+
+    #[test]
+    fn test_run_match_block_multiple_bindings() {
+        let source = r#"
+            fn main() -> Int32 {
+                match 3 {
+                    n => {
+                        let a = n * 2
+                        let b = a + 1
+                        let c = b * 2
+                        c
+                    }
+                }
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(14)); // ((3 * 2) + 1) * 2
+    }
+
+    #[test]
+    fn test_run_match_block_pattern_binding_visible() {
+        let source = r#"
+            fn main() -> Int32 {
+                match 10 {
+                    x => {
+                        let y = x + 5
+                        x + y
+                    }
+                }
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(25)); // 10 + 15
+    }
+
+    #[test]
+    fn test_run_match_mixed_arms() {
+        let source = r#"
+            fn main() -> Int32 {
+                match 2 {
+                    0 => 100,
+                    1 => { let x = 1 x * 10 },
+                    n => {
+                        let base = n * 10
+                        base + n
+                    }
+                }
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(22)); // 2 * 10 + 2
+    }
+
+    #[test]
+    fn test_run_match_block_with_list_pattern() {
+        let source = r#"
+            fn sum_first_two(xs: List<Int32>) -> Int32 {
+                match xs {
+                    [a, b, ..] => {
+                        let sum = a + b
+                        sum
+                    },
+                    [a] => a,
+                    [] => 0,
+                }
+            }
+            fn main() -> Int32 { sum_first_two([5, 7, 9]) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(12));
+    }
+
+    #[test]
+    fn test_run_match_block_with_tuple_pattern() {
+        let source = r#"
+            fn process(t: (Int32, Int32)) -> Int32 {
+                match t {
+                    (a, b) => {
+                        let sum = a + b
+                        let product = a * b
+                        sum + product
+                    }
+                }
+            }
+            fn main() -> Int32 { process((3, 4)) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(19)); // (3 + 4) + (3 * 4) = 7 + 12
+    }
 }

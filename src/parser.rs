@@ -379,17 +379,57 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
             choice((list_pattern, tuple_pattern, simple_pattern))
         });
 
-        // Match arm: pattern => expr
+        // Let binding for use in match arm blocks (uses expr from recursive context)
+        let let_in_arm = just(Token::Let)
+            .ignore_then(ident())
+            .then(just(Token::Colon).ignore_then(type_annotation()).or_not())
+            .then_ignore(just(Token::Eq))
+            .then(expr.clone())
+            .map(|((name, type_annotation), value)| LetBinding {
+                name,
+                type_annotation,
+                value: Box::new(value),
+            });
+
+        // Arm body: { [let x = e [;]]* expr } OR expr
+        let arm_body = choice((
+            // Braced body (block or simple expression)
+            just(Token::LBrace)
+                .ignore_then(
+                    let_in_arm
+                        .then_ignore(just(Token::Semicolon).or_not())
+                        .repeated()
+                        .collect::<Vec<_>>(),
+                )
+                .then(expr.clone())
+                .then_ignore(just(Token::RBrace))
+                .map(|(bindings, result)| {
+                    if bindings.is_empty() {
+                        result // { expr } → just the expression
+                    } else {
+                        Expr::Block {
+                            bindings,
+                            result: Box::new(result),
+                        }
+                    }
+                }),
+            // Non-braced expression (unchanged)
+            expr.clone(),
+        ));
+
+        // Match arm: pattern => arm_body
         let match_arm = pattern
             .then_ignore(just(Token::FatArrow))
-            .then(expr.clone())
+            .then(arm_body)
             .map(|(pattern, result)| MatchArm { pattern, result });
 
         // Match expression: match scrutinee { arms }
+        // Commas between arms are optional, trailing comma allowed
         let match_expr = just(Token::Match)
             .ignore_then(expr.clone())
             .then(
                 match_arm
+                    .then_ignore(just(Token::Comma).or_not())
                     .repeated()
                     .at_least(1)
                     .collect::<Vec<_>>()
@@ -1727,6 +1767,114 @@ mod tests {
         let expr = parse_str("match t { () => 0 }").unwrap();
         if let Expr::Match { arms, .. } = expr {
             assert!(matches!(&arms[0].pattern, Pattern::Tuple(TuplePattern::Empty)));
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    // Match arm block expression tests
+    #[test]
+    fn test_parse_match_with_commas() {
+        let expr = parse_str("match x { 0 => 1, 1 => 2 }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            assert_eq!(arms.len(), 2);
+            assert!(matches!(&arms[0].result, Expr::Int(1)));
+            assert!(matches!(&arms[1].result, Expr::Int(2)));
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_match_with_trailing_comma() {
+        let expr = parse_str("match x { 0 => 1, _ => 2, }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            assert_eq!(arms.len(), 2);
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_match_braced_simple() {
+        let expr = parse_str("match x { 0 => { 1 } _ => { 2 } }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            assert_eq!(arms.len(), 2);
+            // Braced simple expressions should unwrap to just the expression
+            assert!(matches!(&arms[0].result, Expr::Int(1)));
+            assert!(matches!(&arms[1].result, Expr::Int(2)));
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_match_braced_block() {
+        let expr = parse_str("match x { 0 => { let y = 1 y + 1 } _ => 0 }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            assert_eq!(arms.len(), 2);
+            if let Expr::Block { bindings, result } = &arms[0].result {
+                assert_eq!(bindings.len(), 1);
+                assert_eq!(bindings[0].name, "y");
+                assert!(matches!(**result, Expr::BinOp { .. }));
+            } else {
+                panic!("expected block expression in first arm");
+            }
+            assert!(matches!(&arms[1].result, Expr::Int(0)));
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_match_mixed() {
+        // Mix of braced and non-braced arms with commas
+        let expr = parse_str("match x { 0 => 1, 1 => { 2 }, _ => { let z = 3 z } }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            assert_eq!(arms.len(), 3);
+            assert!(matches!(&arms[0].result, Expr::Int(1)));
+            assert!(matches!(&arms[1].result, Expr::Int(2)));
+            assert!(matches!(&arms[2].result, Expr::Block { .. }));
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_match_braced_block_with_semicolons() {
+        let expr = parse_str("match x { n => { let a = n; let b = a * 2; a + b } }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Expr::Block { bindings, .. } = &arms[0].result {
+                assert_eq!(bindings.len(), 2);
+                assert_eq!(bindings[0].name, "a");
+                assert_eq!(bindings[1].name, "b");
+            } else {
+                panic!("expected block expression");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_match_braced_with_pattern_binding() {
+        // Pattern binding should be usable in the block
+        let expr = parse_str("match x { n => { let doubled = n * 2 doubled + 1 } }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Expr::Block { bindings, result } = &arms[0].result {
+                assert_eq!(bindings.len(), 1);
+                assert_eq!(bindings[0].name, "doubled");
+                // The binding value should reference 'n' from the pattern
+                if let Expr::BinOp { left, .. } = &*bindings[0].value {
+                    assert!(matches!(**left, Expr::Var(ref s) if s == "n"));
+                }
+                // The result should reference 'doubled'
+                if let Expr::BinOp { left, .. } = &**result {
+                    assert!(matches!(**left, Expr::Var(ref s) if s == "doubled"));
+                }
+            } else {
+                panic!("expected block expression");
+            }
         } else {
             panic!("expected match expression");
         }
