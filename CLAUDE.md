@@ -4,7 +4,7 @@ A strongly-typed functional programming language that compiles to JavaScript.
 
 ## Project Overview
 
-**Goal:** Build a Hindley-Milner type-inferred language inspired by Rust's syntax but with a more functional approach.
+**Goal:** Build a Hindley-Milner type-inferred language inspired by Rust's syntax.
 
 ### Compilation Pipeline
 
@@ -16,7 +16,7 @@ Source → Lexer → Parser → Type Checker → Typed IR → Codegen → JavaSc
 
 ```
 src/
-├── main.rs      # CLI and REPL
+├── main.rs      # CLI entry point
 ├── lexer.rs     # Tokenizer (logos)
 ├── parser.rs    # Parser (chumsky)
 ├── ast.rs       # Untyped AST
@@ -24,22 +24,29 @@ src/
 ├── ir.rs        # Typed IR (TypedExpr)
 ├── types.rs     # Type definitions
 ├── codegen.rs   # JavaScript code generation
-└── eval.rs      # JS execution via rquickjs
+├── eval.rs      # JS execution via rquickjs
+├── repl.rs      # Interactive REPL
+└── runner.rs    # File runner
 ```
 
 ### Current Features
 
-- **Types:** `Int`, `Float`
-- **Literals:** integers (`42`, `1_000`), floats (`3.14`, `.5`, `1.`)
-- **Operators:** `+`, `-`, `*`, `/` (binary), `-` (unary negation)
+- **Types:** `Int32`, `Int64`, `Float`, `Bool`, type variables (`T`, `U`)
+- **Literals:** integers (`42`, `1_000`), floats (`3.14`, `.5`, `1.`), booleans (`true`, `false`)
+- **Operators:**
+  - Arithmetic: `+`, `-`, `*`, `/`
+  - Comparison: `==`, `!=`, `<`, `>`, `<=`, `>=`
+  - Unary: `-` (negation)
+- **Functions:** definitions with `fn`, generic type parameters, type annotations, calls
 - **Type checking:** operands must match types (no implicit coercion)
 
 ### Running
 
 ```bash
-cargo run -- run    # Start REPL
-cargo test          # Run tests
-cargo clippy        # Lint
+cargo run -- run           # Start REPL
+cargo run -- run file.zoya # Run a file
+cargo test                 # Run tests
+cargo clippy               # Lint
 ```
 
 ### Key Dependencies
