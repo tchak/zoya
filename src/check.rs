@@ -332,11 +332,23 @@ fn check_with_env(
             let typed_expr = check_with_env(expr, env, ctx)?;
             let ty = typed_expr.ty();
             match op {
-                UnaryOp::Neg => Ok(TypedExpr::UnaryOp {
-                    op: *op,
-                    expr: Box::new(typed_expr),
-                    ty,
-                }),
+                UnaryOp::Neg => {
+                    // Negation only works on numeric types
+                    let resolved = ctx.resolve(&ty);
+                    match resolved {
+                        Type::Int32 | Type::Int64 | Type::Float => Ok(TypedExpr::UnaryOp {
+                            op: *op,
+                            expr: Box::new(typed_expr),
+                            ty,
+                        }),
+                        _ => Err(TypeError {
+                            message: format!(
+                                "negation operator only works on numeric types, not {}",
+                                resolved
+                            ),
+                        }),
+                    }
+                }
             }
         }
 
@@ -1187,6 +1199,28 @@ mod tests {
         };
         let result = check(&expr).unwrap();
         assert_eq!(result.ty(), Type::Int32);
+    }
+
+    #[test]
+    fn test_check_negate_bool_error() {
+        let expr = Expr::UnaryOp {
+            op: UnaryOp::Neg,
+            expr: Box::new(Expr::Bool(true)),
+        };
+        let result = check(&expr);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("negation"));
+    }
+
+    #[test]
+    fn test_check_negate_string_error() {
+        let expr = Expr::UnaryOp {
+            op: UnaryOp::Neg,
+            expr: Box::new(Expr::String("hello".to_string())),
+        };
+        let result = check(&expr);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("negation"));
     }
 
     #[test]
