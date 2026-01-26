@@ -8,3 +8,5 @@ clap = { version = "4", features = ["derive"] }
 logos = "0.15"
 chumsky = "0.10"
 rquickjs = { version = "0.9", features = ["bindgen"] }
+rustyline = "14"
+dirs = "5"

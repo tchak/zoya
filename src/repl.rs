@@ -1,5 +1,8 @@
 use std::collections::HashMap;
-use std::io::{self, BufRead, Write};
+use std::path::PathBuf;
+
+use rustyline::error::ReadlineError;
+use rustyline::DefaultEditor;
 
 use crate::ast::FunctionDef;
 use crate::check::{check_repl, CheckedStatement, TypeEnv};
@@ -103,10 +106,26 @@ impl State {
     }
 }
 
+/// Get path to history file
+fn history_path() -> PathBuf {
+    dirs::home_dir()
+        .map(|p| p.join(".zoya_history"))
+        .unwrap_or_else(|| PathBuf::from(".zoya_history"))
+}
+
 /// Run the interactive REPL
 pub fn run() {
-    let stdin = io::stdin();
-    let mut stdout = io::stdout();
+    let mut rl = match DefaultEditor::new() {
+        Ok(editor) => editor,
+        Err(e) => {
+            eprintln!("Failed to create editor: {}", e);
+            return;
+        }
+    };
+
+    // Load history (ignore errors if file doesn't exist)
+    let history_file = history_path();
+    let _ = rl.load_history(&history_file);
 
     let mut state = match State::new() {
         Ok(s) => s,
@@ -117,26 +136,35 @@ pub fn run() {
     };
 
     loop {
-        print!("> ");
-        stdout.flush().unwrap();
+        match rl.readline("> ") {
+            Ok(line) => {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
 
-        let mut line = String::new();
-        match stdin.lock().read_line(&mut line) {
-            Ok(0) => break, // EOF
-            Ok(_) => {}
-            Err(e) => {
-                eprintln!("Error reading input: {}", e);
+                // Add to history
+                let _ = rl.add_history_entry(line);
+
+                if let Err(e) = state.process_input(line) {
+                    eprintln!("Error: {}", e);
+                }
+            }
+            Err(ReadlineError::Interrupted) => {
+                // Ctrl-C: clear current line, continue
+                continue;
+            }
+            Err(ReadlineError::Eof) => {
+                // Ctrl-D: exit
+                break;
+            }
+            Err(err) => {
+                eprintln!("Error: {:?}", err);
                 break;
             }
         }
-
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-
-        if let Err(e) = state.process_input(line) {
-            eprintln!("Error: {}", e);
-        }
     }
+
+    // Save history on exit
+    let _ = rl.save_history(&history_file);
 }
