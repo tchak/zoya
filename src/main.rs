@@ -3,7 +3,7 @@ use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use rquickjs::{BigInt, CatchResultExt, Context, Runtime};
+use rquickjs::{Context, Runtime};
 
 mod ast;
 mod check;
@@ -17,7 +17,6 @@ mod types;
 use ast::{FunctionDef, Item};
 use check::{check_function, check_with_env, function_type_from_def, TypeEnv};
 use codegen::{codegen, codegen_function};
-use types::Type;
 
 #[derive(Parser)]
 #[command(name = "zoya")]
@@ -139,54 +138,8 @@ impl ReplState {
         let js_code = codegen(&typed_expr);
         let result_type = typed_expr.ty();
 
-        self.context.with(|ctx| match result_type {
-            Type::Int32 => {
-                let result: f64 = ctx.eval(js_code).catch(&ctx).map_err(|e| {
-                    let msg = e.to_string();
-                    if msg.contains("division by zero") {
-                        "division by zero".to_string()
-                    } else if msg.contains("Int32 overflow") {
-                        "Int32 overflow".to_string()
-                    } else {
-                        format!("runtime error: {}", msg)
-                    }
-                })?;
-
-                // Backup check for division by zero
-                if result.is_infinite() || result.is_nan() {
-                    return Err("division by zero".to_string());
-                }
-
-                Ok(eval::Value::Int32(result as i32))
-            }
-            Type::Int64 => {
-                // BigInt needs explicit type handling in rquickjs
-                let result: BigInt = ctx
-                    .eval(js_code)
-                    .catch(&ctx)
-                    .map_err(|e| format!("runtime error: {}", e))?;
-
-                let value = result
-                    .to_i64()
-                    .map_err(|_| "BigInt value too large for i64".to_string())?;
-
-                Ok(eval::Value::Int64(value))
-            }
-            Type::Float => {
-                let result: f64 = ctx
-                    .eval(js_code)
-                    .catch(&ctx)
-                    .map_err(|e| format!("runtime error: {}", e))?;
-
-                // Check for division by zero
-                if result.is_infinite() || result.is_nan() {
-                    return Err("division by zero".to_string());
-                }
-
-                Ok(eval::Value::Float(result))
-            }
-            Type::Var(name) => Err(format!("unresolved type variable: {}", name)),
-        })
+        self.context
+            .with(|ctx| eval::eval_js_in_context(&ctx, js_code, result_type).map_err(|e| e.to_string()))
     }
 }
 
@@ -312,55 +265,8 @@ fn run_file(path: &PathBuf) -> Result<(), String> {
     let context = Context::full(&runtime).map_err(|e| e.to_string())?;
 
     context.with(|ctx| {
-        let value = match &main_func.return_type {
-            Type::Int32 => {
-                let result: f64 = ctx.eval(js_code.clone()).catch(&ctx).map_err(|e| {
-                    let msg = e.to_string();
-                    if msg.contains("division by zero") {
-                        "division by zero".to_string()
-                    } else if msg.contains("Int32 overflow") {
-                        "Int32 overflow".to_string()
-                    } else {
-                        format!("runtime error: {}", msg)
-                    }
-                })?;
-
-                // Backup check for division by zero
-                if result.is_infinite() || result.is_nan() {
-                    return Err("division by zero".to_string());
-                }
-
-                eval::Value::Int32(result as i32)
-            }
-            Type::Int64 => {
-                // BigInt needs explicit type handling in rquickjs
-                let result: BigInt = ctx
-                    .eval(js_code.clone())
-                    .catch(&ctx)
-                    .map_err(|e| format!("runtime error: {}", e))?;
-
-                let value = result
-                    .to_i64()
-                    .map_err(|_| "BigInt value too large for i64".to_string())?;
-
-                eval::Value::Int64(value)
-            }
-            Type::Float => {
-                let result: f64 = ctx
-                    .eval(js_code.clone())
-                    .catch(&ctx)
-                    .map_err(|e| format!("runtime error: {}", e))?;
-
-                // Check for division by zero
-                if result.is_infinite() || result.is_nan() {
-                    return Err("division by zero".to_string());
-                }
-
-                eval::Value::Float(result)
-            }
-            Type::Var(name) => return Err(format!("unresolved type variable: {}", name)),
-        };
-
+        let value =
+            eval::eval_js_in_context(&ctx, js_code, main_func.return_type.clone()).map_err(|e| e.to_string())?;
         println!("{}", value);
         Ok(())
     })
