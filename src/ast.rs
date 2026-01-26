@@ -48,9 +48,11 @@ pub enum Pattern {
 /// List pattern variants
 #[derive(Debug, Clone, PartialEq)]
 pub enum ListPattern {
-    Empty,                // []
-    Exact(Vec<Pattern>),  // [a, b, c] - match exactly N elements
-    Prefix(Vec<Pattern>), // [a, b, ..] - match at least N elements, discard rest
+    Empty,                                    // []
+    Exact(Vec<Pattern>),                      // [a, b, c] - match exactly N elements
+    Prefix(Vec<Pattern>),                     // [a, b, ..] - match at least N elements at start
+    Suffix(Vec<Pattern>),                     // [.., x, y] - match at least N elements at end
+    PrefixSuffix(Vec<Pattern>, Vec<Pattern>), // [a, .., z] - match first and last elements
 }
 
 /// Match arm: pattern => result

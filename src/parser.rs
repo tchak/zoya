@@ -219,28 +219,38 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                             }
                         }
                         Some(pos) => {
-                            // Has .., this is a prefix pattern
-                            // .. must be at the end (for now, prefix-only)
-                            if pos != elements.len() - 1 {
-                                return Err(Rich::custom(
-                                    span,
-                                    ".. must be at the end of list pattern (suffix patterns not yet supported)",
-                                ));
-                            }
-
                             // Multiple .. not allowed
                             if elements.iter().filter(|e| matches!(e, ListPatternElement::Rest)).count() > 1 {
                                 return Err(Rich::custom(span, "only one .. allowed in list pattern"));
                             }
 
-                            let patterns: Vec<Pattern> = elements[..pos]
+                            // Split into before and after ..
+                            let before: Vec<Pattern> = elements[..pos]
                                 .iter()
-                                .map(|e| match e {
-                                    ListPatternElement::Pattern(p) => p.clone(),
-                                    ListPatternElement::Rest => unreachable!(),
+                                .filter_map(|e| match e {
+                                    ListPatternElement::Pattern(p) => Some(p.clone()),
+                                    ListPatternElement::Rest => None,
                                 })
                                 .collect();
-                            Ok(Pattern::List(ListPattern::Prefix(patterns)))
+
+                            let after: Vec<Pattern> = elements[pos + 1..]
+                                .iter()
+                                .filter_map(|e| match e {
+                                    ListPatternElement::Pattern(p) => Some(p.clone()),
+                                    ListPatternElement::Rest => None,
+                                })
+                                .collect();
+
+                            if after.is_empty() {
+                                // [a, b, ..] - prefix only
+                                Ok(Pattern::List(ListPattern::Prefix(before)))
+                            } else if before.is_empty() {
+                                // [.., x, y] - suffix only
+                                Ok(Pattern::List(ListPattern::Suffix(after)))
+                            } else {
+                                // [a, .., z] - prefix and suffix
+                                Ok(Pattern::List(ListPattern::PrefixSuffix(before, after)))
+                            }
                         }
                     }
                 });
@@ -1377,6 +1387,73 @@ mod tests {
                 assert!(matches!(&patterns[1], Pattern::Var(s) if s == "x"));
             } else {
                 panic!("expected exact list pattern");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_match_suffix_list_pattern() {
+        let expr = parse_str("match xs { [.., last] => last }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::List(ListPattern::Suffix(patterns)) = &arms[0].pattern {
+                assert_eq!(patterns.len(), 1);
+                assert!(matches!(&patterns[0], Pattern::Var(s) if s == "last"));
+            } else {
+                panic!("expected suffix list pattern");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_match_suffix_list_pattern_multiple() {
+        let expr = parse_str("match xs { [.., x, y] => x }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::List(ListPattern::Suffix(patterns)) = &arms[0].pattern {
+                assert_eq!(patterns.len(), 2);
+                assert!(matches!(&patterns[0], Pattern::Var(s) if s == "x"));
+                assert!(matches!(&patterns[1], Pattern::Var(s) if s == "y"));
+            } else {
+                panic!("expected suffix list pattern");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_match_prefix_suffix_list_pattern() {
+        let expr = parse_str("match xs { [first, .., last] => first }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::List(ListPattern::PrefixSuffix(prefix, suffix)) = &arms[0].pattern {
+                assert_eq!(prefix.len(), 1);
+                assert_eq!(suffix.len(), 1);
+                assert!(matches!(&prefix[0], Pattern::Var(s) if s == "first"));
+                assert!(matches!(&suffix[0], Pattern::Var(s) if s == "last"));
+            } else {
+                panic!("expected prefix+suffix list pattern");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_match_prefix_suffix_multiple() {
+        let expr = parse_str("match xs { [a, b, .., y, z] => a }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::List(ListPattern::PrefixSuffix(prefix, suffix)) = &arms[0].pattern {
+                assert_eq!(prefix.len(), 2);
+                assert_eq!(suffix.len(), 2);
+                assert!(matches!(&prefix[0], Pattern::Var(s) if s == "a"));
+                assert!(matches!(&prefix[1], Pattern::Var(s) if s == "b"));
+                assert!(matches!(&suffix[0], Pattern::Var(s) if s == "y"));
+                assert!(matches!(&suffix[1], Pattern::Var(s) if s == "z"));
+            } else {
+                panic!("expected prefix+suffix list pattern");
             }
         } else {
             panic!("expected match expression");

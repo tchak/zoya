@@ -229,6 +229,36 @@ fn codegen_match(scrutinee: &TypedExpr, arms: &[TypedMatchArm]) -> String {
                     ));
                 }
             }
+            TypedPattern::ListSuffix { patterns, min_len } => {
+                let result_code = codegen(&arm.result);
+                let (condition, bindings) = codegen_suffix_pattern_bindings(patterns, *min_len);
+                if condition == "true" {
+                    parts.push(format!(
+                        "if (Array.isArray($match) && $match.length >= {}) {{ {} return {}; }}",
+                        min_len, bindings, result_code
+                    ));
+                } else {
+                    parts.push(format!(
+                        "if (Array.isArray($match) && $match.length >= {} && {}) {{ {} return {}; }}",
+                        min_len, condition, bindings, result_code
+                    ));
+                }
+            }
+            TypedPattern::ListPrefixSuffix { prefix, suffix, min_len } => {
+                let result_code = codegen(&arm.result);
+                let (condition, bindings) = codegen_prefix_suffix_pattern_bindings(prefix, suffix);
+                if condition == "true" {
+                    parts.push(format!(
+                        "if (Array.isArray($match) && $match.length >= {}) {{ {} return {}; }}",
+                        min_len, bindings, result_code
+                    ));
+                } else {
+                    parts.push(format!(
+                        "if (Array.isArray($match) && $match.length >= {} && {}) {{ {} return {}; }}",
+                        min_len, condition, bindings, result_code
+                    ));
+                }
+            }
         }
     }
 
@@ -265,7 +295,9 @@ fn codegen_list_pattern_bindings(
             }
             TypedPattern::ListEmpty
             | TypedPattern::ListExact { .. }
-            | TypedPattern::ListPrefix { .. } => {
+            | TypedPattern::ListPrefix { .. }
+            | TypedPattern::ListSuffix { .. }
+            | TypedPattern::ListPrefixSuffix { .. } => {
                 // TODO: Nested list patterns would need recursive handling
                 // For now, we don't support nested list patterns in the initial implementation
             }
@@ -281,6 +313,123 @@ fn codegen_list_pattern_bindings(
     let bindings_code = bindings.join(" ");
 
     (condition, bindings_code)
+}
+
+/// Generate condition checks and bindings for suffix patterns [.., x, y]
+/// Returns (condition_expr, bindings_code)
+fn codegen_suffix_pattern_bindings(
+    patterns: &[TypedPattern],
+    min_len: usize,
+) -> (String, String) {
+    let mut conditions = Vec::new();
+    let mut bindings = Vec::new();
+
+    for (i, pat) in patterns.iter().enumerate() {
+        // Index from end: patterns[i] is at $match.length - (min_len - i)
+        // For [.., x, y] with min_len=2: x is at length-2, y is at length-1
+        let offset = min_len - i;
+        let index_expr = format!("$match.length - {}", offset);
+
+        match pat {
+            TypedPattern::Literal(lit) => {
+                let lit_code = codegen(lit);
+                if needs_deep_equality(&lit.ty()) {
+                    conditions.push(format!("{}($match[{}], {})", DEEP_EQ_FN, index_expr, lit_code));
+                } else {
+                    conditions.push(format!("$match[{}] === {}", index_expr, lit_code));
+                }
+            }
+            TypedPattern::Var { name, .. } => {
+                bindings.push(format!("const {} = $match[{}];", name, index_expr));
+            }
+            TypedPattern::Wildcard => {
+                // No binding or condition needed
+            }
+            TypedPattern::ListEmpty
+            | TypedPattern::ListExact { .. }
+            | TypedPattern::ListPrefix { .. }
+            | TypedPattern::ListSuffix { .. }
+            | TypedPattern::ListPrefixSuffix { .. } => {
+                // Nested list patterns not yet supported
+            }
+        }
+    }
+
+    let condition = if conditions.is_empty() {
+        "true".to_string()
+    } else {
+        conditions.join(" && ")
+    };
+
+    (condition, bindings.join(" "))
+}
+
+/// Generate condition checks and bindings for prefix+suffix patterns [a, .., z]
+/// Returns (condition_expr, bindings_code)
+fn codegen_prefix_suffix_pattern_bindings(
+    prefix: &[TypedPattern],
+    suffix: &[TypedPattern],
+) -> (String, String) {
+    let mut conditions = Vec::new();
+    let mut bindings = Vec::new();
+
+    // Prefix patterns: indexed from start
+    for (i, pat) in prefix.iter().enumerate() {
+        match pat {
+            TypedPattern::Literal(lit) => {
+                let lit_code = codegen(lit);
+                if needs_deep_equality(&lit.ty()) {
+                    conditions.push(format!("{}($match[{}], {})", DEEP_EQ_FN, i, lit_code));
+                } else {
+                    conditions.push(format!("$match[{}] === {}", i, lit_code));
+                }
+            }
+            TypedPattern::Var { name, .. } => {
+                bindings.push(format!("const {} = $match[{}];", name, i));
+            }
+            TypedPattern::Wildcard => {}
+            TypedPattern::ListEmpty
+            | TypedPattern::ListExact { .. }
+            | TypedPattern::ListPrefix { .. }
+            | TypedPattern::ListSuffix { .. }
+            | TypedPattern::ListPrefixSuffix { .. } => {}
+        }
+    }
+
+    // Suffix patterns: indexed from end
+    let suffix_len = suffix.len();
+    for (i, pat) in suffix.iter().enumerate() {
+        let offset = suffix_len - i;
+        let index_expr = format!("$match.length - {}", offset);
+
+        match pat {
+            TypedPattern::Literal(lit) => {
+                let lit_code = codegen(lit);
+                if needs_deep_equality(&lit.ty()) {
+                    conditions.push(format!("{}($match[{}], {})", DEEP_EQ_FN, index_expr, lit_code));
+                } else {
+                    conditions.push(format!("$match[{}] === {}", index_expr, lit_code));
+                }
+            }
+            TypedPattern::Var { name, .. } => {
+                bindings.push(format!("const {} = $match[{}];", name, index_expr));
+            }
+            TypedPattern::Wildcard => {}
+            TypedPattern::ListEmpty
+            | TypedPattern::ListExact { .. }
+            | TypedPattern::ListPrefix { .. }
+            | TypedPattern::ListSuffix { .. }
+            | TypedPattern::ListPrefixSuffix { .. } => {}
+        }
+    }
+
+    let condition = if conditions.is_empty() {
+        "true".to_string()
+    } else {
+        conditions.join(" && ")
+    };
+
+    (condition, bindings.join(" "))
 }
 
 /// Wrap an Int32 expression with overflow checking

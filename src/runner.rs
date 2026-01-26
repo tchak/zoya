@@ -620,4 +620,135 @@ mod tests {
         let result = run_source(source).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
+
+    // Suffix pattern tests
+    #[test]
+    fn test_run_list_match_suffix_pattern() {
+        let source = r#"
+            fn last_elem(xs: List<Int32>) -> Int32 {
+                match xs {
+                    [.., x] => x
+                    [] => 0
+                }
+            }
+            fn main() -> Int32 { last_elem([1, 2, 3]) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(3));
+    }
+
+    #[test]
+    fn test_run_list_match_suffix_pattern_single_elem() {
+        let source = r#"
+            fn last_elem(xs: List<Int32>) -> Int32 {
+                match xs {
+                    [.., x] => x
+                    [] => 0
+                }
+            }
+            fn main() -> Int32 { last_elem([42]) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(42));
+    }
+
+    #[test]
+    fn test_run_list_match_suffix_two_elements() {
+        let source = r#"
+            fn last_two(xs: List<Int32>) -> Int32 {
+                match xs {
+                    [.., a, b] => a + b
+                    [x] => x
+                    [] => 0
+                }
+            }
+            fn main() -> Int32 { last_two([1, 2, 3, 4]) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(7)); // 3 + 4
+    }
+
+    #[test]
+    fn test_run_list_match_suffix_literal_pattern() {
+        let source = r#"
+            fn ends_with_zero(xs: List<Int32>) -> Bool {
+                match xs {
+                    [.., 0] => true
+                    [_, ..] => false
+                    [] => false
+                }
+            }
+            fn main() -> Bool { ends_with_zero([1, 2, 0]) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    // Prefix+Suffix pattern tests
+    #[test]
+    fn test_run_list_match_prefix_suffix_pattern() {
+        let source = r#"
+            fn first_and_last(xs: List<Int32>) -> Int32 {
+                match xs {
+                    [a, .., b] => a + b
+                    [a] => a
+                    [] => 0
+                }
+            }
+            fn main() -> Int32 { first_and_last([1, 2, 3, 4]) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(5)); // 1 + 4
+    }
+
+    #[test]
+    fn test_run_list_match_prefix_suffix_min_length() {
+        // [a, .., b] requires at least 2 elements
+        let source = r#"
+            fn first_and_last(xs: List<Int32>) -> Int32 {
+                match xs {
+                    [a, .., b] => a + b
+                    [a] => a
+                    [] => 0
+                }
+            }
+            fn main() -> Int32 { first_and_last([10, 20]) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(30)); // 10 + 20
+    }
+
+    #[test]
+    fn test_run_list_match_prefix_suffix_literals() {
+        let source = r#"
+            fn bookended_by_ones(xs: List<Int32>) -> Bool {
+                match xs {
+                    [1, .., 1] => true
+                    [_, ..] => false
+                    [] => false
+                }
+            }
+            fn main() -> Bool { bookended_by_ones([1, 2, 3, 1]) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_list_match_prefix_suffix_multiple() {
+        let source = r#"
+            fn middle_free(xs: List<Int32>) -> Int32 {
+                match xs {
+                    [a, b, .., y, z] => a + b + y + z
+                    [a, b, c] => a + b + c
+                    [a, b] => a + b
+                    [a] => a
+                    [] => 0
+                }
+            }
+            fn main() -> Int32 { middle_free([1, 2, 3, 4, 5, 6]) }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(14)); // 1 + 2 + 5 + 6
+    }
 }

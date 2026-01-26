@@ -27,6 +27,12 @@ pub enum TypedPattern {
     ListEmpty,
     ListExact { patterns: Vec<TypedPattern>, len: usize },
     ListPrefix { patterns: Vec<TypedPattern>, min_len: usize },
+    ListSuffix { patterns: Vec<TypedPattern>, min_len: usize },
+    ListPrefixSuffix {
+        prefix: Vec<TypedPattern>,
+        suffix: Vec<TypedPattern>,
+        min_len: usize,
+    },
 }
 
 /// Typed match arm

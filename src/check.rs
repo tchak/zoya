@@ -630,6 +630,55 @@ fn check_pattern(
                         all_bindings,
                     ))
                 }
+
+                ListPattern::Suffix(patterns) => {
+                    let mut typed_patterns = Vec::new();
+                    let mut all_bindings = HashMap::new();
+
+                    for pat in patterns {
+                        let (typed_pat, bindings) =
+                            check_pattern(pat, &resolved_elem, env, ctx)?;
+                        typed_patterns.push(typed_pat);
+                        all_bindings.extend(bindings);
+                    }
+
+                    Ok((
+                        TypedPattern::ListSuffix {
+                            patterns: typed_patterns,
+                            min_len: patterns.len(),
+                        },
+                        all_bindings,
+                    ))
+                }
+
+                ListPattern::PrefixSuffix(prefix_pats, suffix_pats) => {
+                    let mut prefix_typed = Vec::new();
+                    let mut suffix_typed = Vec::new();
+                    let mut all_bindings = HashMap::new();
+
+                    for pat in prefix_pats {
+                        let (typed_pat, bindings) =
+                            check_pattern(pat, &resolved_elem, env, ctx)?;
+                        prefix_typed.push(typed_pat);
+                        all_bindings.extend(bindings);
+                    }
+
+                    for pat in suffix_pats {
+                        let (typed_pat, bindings) =
+                            check_pattern(pat, &resolved_elem, env, ctx)?;
+                        suffix_typed.push(typed_pat);
+                        all_bindings.extend(bindings);
+                    }
+
+                    Ok((
+                        TypedPattern::ListPrefixSuffix {
+                            prefix: prefix_typed,
+                            suffix: suffix_typed,
+                            min_len: prefix_pats.len() + suffix_pats.len(),
+                        },
+                        all_bindings,
+                    ))
+                }
             }
         }
     }
@@ -675,6 +724,14 @@ fn check_list_exhaustiveness(arms: &[TypedMatchArm]) -> Result<(), TypeError> {
             }
             // Prefix pattern covers non-empty (matches any length >= min_len)
             TypedPattern::ListPrefix { .. } => {
+                nonempty_covered = true;
+            }
+            // Suffix pattern covers non-empty (matches any length >= min_len)
+            TypedPattern::ListSuffix { .. } => {
+                nonempty_covered = true;
+            }
+            // PrefixSuffix pattern covers non-empty (matches any length >= min_len)
+            TypedPattern::ListPrefixSuffix { .. } => {
                 nonempty_covered = true;
             }
             // Exact pattern only covers specific length, but combined with others might help
