@@ -31,8 +31,8 @@ src/
 
 ### Current Features
 
-- **Types:** `Int32`, `Int64`, `Float`, `Bool`, type variables (`T`, `U`)
-- **Literals:** integers (`42`, `1_000`), floats (`3.14`, `.5`, `1.`), booleans (`true`, `false`)
+- **Types:** `Int32`, `Int64`, `Float`, `Bool`, `String`, type variables (`T`, `U`)
+- **Literals:** integers (`42`, `1_000`), floats (`3.14`, `.5`, `1.`), booleans (`true`, `false`), strings (`"hello"`, `"line\nbreak"`)
 - **Operators:**
   - Arithmetic: `+`, `-`, `*`, `/`
   - Comparison: `==`, `!=`, `<`, `>`, `<=`, `>=`
