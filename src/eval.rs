@@ -23,7 +23,14 @@ pub enum Value {
     String(String),
     List(Vec<Value>),
     Tuple(Vec<Value>),
-    Struct { name: String, repr: String },
+    Struct {
+        name: String,
+        fields: Vec<(String, Value)>,
+    },
+    Fn {
+        params: Vec<Type>,
+        ret: Box<Type>,
+    },
 }
 
 impl fmt::Display for Value {
@@ -46,8 +53,26 @@ impl fmt::Display for Value {
                     write!(f, "({})", items.join(", "))
                 }
             }
-            Value::Struct { name, repr } => {
-                write!(f, "{} {}", name, repr)
+            Value::Struct { name, fields } => {
+                if fields.is_empty() {
+                    write!(f, "{} {{}}", name)
+                } else {
+                    let field_strs: Vec<String> = fields
+                        .iter()
+                        .map(|(k, v)| format!("{}: {}", k, v))
+                        .collect();
+                    write!(f, "{} {{ {} }}", name, field_strs.join(", "))
+                }
+            }
+            Value::Fn { params, ret } => {
+                if params.is_empty() {
+                    write!(f, "<fn() -> {}>", ret)
+                } else if params.len() == 1 {
+                    write!(f, "<fn({}) -> {}>", params[0], ret)
+                } else {
+                    let param_strs: Vec<String> = params.iter().map(|p| p.to_string()).collect();
+                    write!(f, "<fn({}) -> {}>", param_strs.join(", "), ret)
+                }
             }
         }
     }
@@ -74,134 +99,40 @@ pub fn eval_js_in_context(
     js_code: String,
     result_type: Type,
 ) -> Result<Value, EvalError> {
-    match result_type {
-        Type::Int32 => {
-            let result: f64 = ctx.eval(js_code).catch(ctx).map_err(|e| {
-                let msg = e.to_string();
-                if msg.contains("division by zero") {
-                    EvalError::DivisionByZero
-                } else if msg.contains("Int32 overflow") {
-                    EvalError::RuntimeError("Int32 overflow".to_string())
-                } else {
-                    EvalError::RuntimeError(msg)
-                }
-            })?;
-
-            // Backup check for non-finite results
-            if result.is_infinite() || result.is_nan() {
-                return Err(EvalError::DivisionByZero);
-            }
-
-            Ok(Value::Int32(result as i32))
+    let js_val: rquickjs::Value = ctx.eval(js_code).catch(ctx).map_err(|e| {
+        let msg = e.to_string();
+        if msg.contains("division by zero") {
+            EvalError::DivisionByZero
+        } else if msg.contains("Int32 overflow") {
+            EvalError::RuntimeError("Int32 overflow".to_string())
+        } else {
+            EvalError::RuntimeError(msg)
         }
-        Type::Int64 => {
-            let result: BigInt = ctx
-                .eval(js_code)
-                .catch(ctx)
-                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+    })?;
 
-            let value = result.to_i64().map_err(|_| {
-                EvalError::RuntimeError("BigInt value too large for i64".to_string())
-            })?;
-
-            Ok(Value::Int64(value))
-        }
-        Type::Float => {
-            let result: f64 = ctx
-                .eval(js_code)
-                .catch(ctx)
-                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-
-            if result.is_infinite() || result.is_nan() {
-                return Err(EvalError::DivisionByZero);
-            }
-
-            Ok(Value::Float(result))
-        }
-        Type::Bool => {
-            let result: bool = ctx
-                .eval(js_code)
-                .catch(ctx)
-                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-
-            Ok(Value::Bool(result))
-        }
-        Type::String => {
-            let result: String = ctx
-                .eval(js_code)
-                .catch(ctx)
-                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-
-            Ok(Value::String(result))
-        }
-        Type::List(elem_type) => {
-            let result: rquickjs::Array = ctx
-                .eval(js_code)
-                .catch(ctx)
-                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-
-            let mut values = Vec::new();
-            for i in 0..result.len() {
-                // Get each element as a JS value and convert based on element type
-                let elem_value = js_array_elem_to_value(ctx, &result, i, &elem_type)?;
-                values.push(elem_value);
-            }
-
-            Ok(Value::List(values))
-        }
-        Type::Tuple(elem_types) => {
-            let result: rquickjs::Array = ctx
-                .eval(js_code)
-                .catch(ctx)
-                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-
-            let mut values = Vec::new();
-            for (i, elem_type) in elem_types.iter().enumerate() {
-                let elem_value = js_array_elem_to_value(ctx, &result, i, elem_type)?;
-                values.push(elem_value);
-            }
-
-            Ok(Value::Tuple(values))
-        }
-        Type::Struct { name, .. } => {
-            // Structs are JS objects - return as string representation for now
-            let result: String = ctx
-                .eval(format!("JSON.stringify({})", js_code))
-                .catch(ctx)
-                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-            Ok(Value::Struct {
-                name: name.clone(),
-                repr: result,
-            })
-        }
-        Type::Var(name) => Err(EvalError::RuntimeError(format!(
-            "unresolved type variable: {}",
-            name
-        ))),
-        Type::Function { .. } => Err(EvalError::RuntimeError(
-            "cannot return function as top-level value".to_string(),
-        )),
-    }
+    js_value_to_value(ctx, js_val, &result_type)
 }
 
-/// Convert a JS array element to a Zoya Value based on element type
+/// Convert a JavaScript value to a Zoya Value based on expected type
 #[allow(clippy::only_used_in_recursion)]
-fn js_array_elem_to_value(
+fn js_value_to_value(
     ctx: &rquickjs::Ctx<'_>,
-    array: &rquickjs::Array,
-    index: usize,
-    elem_type: &Type,
+    js_val: rquickjs::Value<'_>,
+    expected_type: &Type,
 ) -> Result<Value, EvalError> {
-    match elem_type {
+    match expected_type {
         Type::Int32 => {
-            let val: f64 = array
-                .get(index)
+            let val: f64 = js_val
+                .get()
                 .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+            if !val.is_finite() {
+                return Err(EvalError::DivisionByZero);
+            }
             Ok(Value::Int32(val as i32))
         }
         Type::Int64 => {
-            let val: BigInt = array
-                .get(index)
+            let val: BigInt = js_val
+                .get()
                 .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
             let value = val.to_i64().map_err(|_| {
                 EvalError::RuntimeError("BigInt value too large for i64".to_string())
@@ -209,65 +140,79 @@ fn js_array_elem_to_value(
             Ok(Value::Int64(value))
         }
         Type::Float => {
-            let val: f64 = array
-                .get(index)
+            let val: f64 = js_val
+                .get()
                 .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+            if !val.is_finite() {
+                return Err(EvalError::DivisionByZero);
+            }
             Ok(Value::Float(val))
         }
         Type::Bool => {
-            let val: bool = array
-                .get(index)
+            let val: bool = js_val
+                .get()
                 .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
             Ok(Value::Bool(val))
         }
         Type::String => {
-            let val: String = array
-                .get(index)
+            let val: String = js_val
+                .get()
                 .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
             Ok(Value::String(val))
         }
-        Type::List(inner_type) => {
-            let inner_array: rquickjs::Array = array
-                .get(index)
+        Type::List(elem_type) => {
+            let array: rquickjs::Array = js_val
+                .get()
                 .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
             let mut values = Vec::new();
-            for i in 0..inner_array.len() {
-                let elem_value = js_array_elem_to_value(ctx, &inner_array, i, inner_type)?;
+            for i in 0..array.len() {
+                let elem_js: rquickjs::Value = array
+                    .get(i)
+                    .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+                let elem_value = js_value_to_value(ctx, elem_js, elem_type)?;
                 values.push(elem_value);
             }
             Ok(Value::List(values))
         }
         Type::Tuple(elem_types) => {
-            let inner_array: rquickjs::Array = array
-                .get(index)
+            let array: rquickjs::Array = js_val
+                .get()
                 .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
             let mut values = Vec::new();
             for (i, elem_type) in elem_types.iter().enumerate() {
-                let elem_value = js_array_elem_to_value(ctx, &inner_array, i, elem_type)?;
+                let elem_js: rquickjs::Value = array
+                    .get(i)
+                    .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+                let elem_value = js_value_to_value(ctx, elem_js, elem_type)?;
                 values.push(elem_value);
             }
             Ok(Value::Tuple(values))
         }
-        Type::Struct { name, .. } => {
-            // Get the struct object as a generic JS value
-            let val: rquickjs::Value = array
-                .get(index)
+        Type::Struct { name, fields, .. } => {
+            let obj: rquickjs::Object = js_val
+                .get()
                 .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-            // Convert to JSON string for display
-            // Since we can't easily call JSON.stringify, use debug format
-            let repr = format!("{:?}", val);
+            let mut field_values = Vec::new();
+            for (field_name, field_type) in fields {
+                let field_js: rquickjs::Value = obj
+                    .get(field_name.as_str())
+                    .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+                let field_value = js_value_to_value(ctx, field_js, field_type)?;
+                field_values.push((field_name.clone(), field_value));
+            }
             Ok(Value::Struct {
                 name: name.clone(),
-                repr,
+                fields: field_values,
             })
         }
-        Type::Var(name) => Err(EvalError::RuntimeError(format!(
-            "unresolved type variable in list element: {}",
-            name
+        Type::Var(id) => Err(EvalError::RuntimeError(format!(
+            "unresolved type variable: {}",
+            id
         ))),
-        Type::Function { .. } => Err(EvalError::RuntimeError(
-            "cannot have function as list/tuple element value".to_string(),
-        )),
+        Type::Function { params, ret } => Ok(Value::Fn {
+            params: params.clone(),
+            ret: ret.clone(),
+        }),
     }
 }
 

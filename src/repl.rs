@@ -447,10 +447,16 @@ mod tests {
         let mut state = State::new().unwrap();
         state.eval("struct Point { x: Int32, y: Int32 }").unwrap();
         let results = state.eval("Point { x: 10, y: 20 }").unwrap();
-        assert!(matches!(
-            &results[0],
-            ReplResult::Expression(Value::Struct { .. })
-        ));
+        assert_eq!(
+            results,
+            vec![ReplResult::Expression(Value::Struct {
+                name: "Point".to_string(),
+                fields: vec![
+                    ("x".to_string(), Value::Int32(10)),
+                    ("y".to_string(), Value::Int32(20)),
+                ],
+            })]
+        );
     }
 
     #[test]
