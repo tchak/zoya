@@ -78,20 +78,6 @@ pub struct TypeScheme {
     pub ty: Type,
 }
 
-impl TypeScheme {
-    /// Create a monomorphic scheme (no quantified variables)
-    pub fn mono(ty: Type) -> Self {
-        TypeScheme {
-            quantified: vec![],
-            ty,
-        }
-    }
-
-    /// Check if this scheme is monomorphic (no quantified vars)
-    pub fn is_mono(&self) -> bool {
-        self.quantified.is_empty()
-    }
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeError {

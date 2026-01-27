@@ -96,9 +96,9 @@ pub fn eval_js_in_context(
                 .catch(ctx)
                 .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
 
-            let value = result
-                .to_i64()
-                .map_err(|_| EvalError::RuntimeError("BigInt value too large for i64".to_string()))?;
+            let value = result.to_i64().map_err(|_| {
+                EvalError::RuntimeError("BigInt value too large for i64".to_string())
+            })?;
 
             Ok(Value::Int64(value))
         }
@@ -170,6 +170,7 @@ pub fn eval_js_in_context(
 }
 
 /// Convert a JS array element to a Zoya Value based on element type
+#[allow(clippy::only_used_in_recursion)]
 fn js_array_elem_to_value(
     ctx: &rquickjs::Ctx<'_>,
     array: &rquickjs::Array,
@@ -187,9 +188,9 @@ fn js_array_elem_to_value(
             let val: BigInt = array
                 .get(index)
                 .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-            let value = val
-                .to_i64()
-                .map_err(|_| EvalError::RuntimeError("BigInt value too large for i64".to_string()))?;
+            let value = val.to_i64().map_err(|_| {
+                EvalError::RuntimeError("BigInt value too large for i64".to_string())
+            })?;
             Ok(Value::Int64(value))
         }
         Type::Float => {

@@ -214,23 +214,23 @@ impl UnifyCtx {
             mapping.insert(var_id, self.fresh_var());
         }
 
-        self.substitute_in_type(&scheme.ty, &mapping)
+        substitute_in_type(&scheme.ty, &mapping)
     }
+}
 
-    /// Substitute type variables in a type using a mapping.
-    fn substitute_in_type(&self, ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
-        match ty {
-            Type::Var(id) => mapping.get(id).cloned().unwrap_or_else(|| ty.clone()),
-            Type::List(elem) => Type::List(Box::new(self.substitute_in_type(elem, mapping))),
-            Type::Tuple(elems) => {
-                Type::Tuple(elems.iter().map(|e| self.substitute_in_type(e, mapping)).collect())
-            }
-            Type::Function { params, ret } => Type::Function {
-                params: params.iter().map(|p| self.substitute_in_type(p, mapping)).collect(),
-                ret: Box::new(self.substitute_in_type(ret, mapping)),
-            },
-            _ => ty.clone(),
+/// Substitute type variables in a type using a mapping.
+fn substitute_in_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
+    match ty {
+        Type::Var(id) => mapping.get(id).cloned().unwrap_or_else(|| ty.clone()),
+        Type::List(elem) => Type::List(Box::new(substitute_in_type(elem, mapping))),
+        Type::Tuple(elems) => {
+            Type::Tuple(elems.iter().map(|e| substitute_in_type(e, mapping)).collect())
         }
+        Type::Function { params, ret } => Type::Function {
+            params: params.iter().map(|p| substitute_in_type(p, mapping)).collect(),
+            ret: Box::new(substitute_in_type(ret, mapping)),
+        },
+        _ => ty.clone(),
     }
 }
 
