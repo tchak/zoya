@@ -5,6 +5,7 @@ use clap::{Parser, Subcommand};
 mod ast;
 mod check;
 mod codegen;
+mod commands;
 mod eval;
 mod ir;
 mod lexer;
@@ -50,20 +51,20 @@ fn main() {
 
     match cli.command {
         Some(Command::Run { file: Some(path) }) => {
-            if let Err(e) = runner::run_file_command(&path) {
+            if let Err(e) = commands::run::execute(&path) {
                 eprintln!("Error: {e}");
                 std::process::exit(1);
             }
         }
         Some(Command::Run { file: None }) => repl::run(),
         Some(Command::Check { file }) => {
-            if let Err(e) = runner::check_file_command(&file) {
+            if let Err(e) = commands::check::execute(&file) {
                 eprintln!("{}", e);
                 std::process::exit(1);
             }
         }
         Some(Command::Build { file, output }) => {
-            if let Err(e) = runner::build_file_command(&file, output.as_deref()) {
+            if let Err(e) = commands::build::execute(&file, output.as_deref()) {
                 eprintln!("{}", e);
                 std::process::exit(1);
             }
