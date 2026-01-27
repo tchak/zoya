@@ -252,6 +252,18 @@ fn builtin_method(receiver_ty: &Type, method: &str) -> Option<(Vec<Type>, Type)>
         (Type::Float, "min") => Some((vec![Type::Float], Type::Float)),
         (Type::Float, "max") => Some((vec![Type::Float], Type::Float)),
 
+        // List methods
+        (Type::List(_), "len") => Some((vec![], Type::Int32)),
+        (Type::List(_), "is_empty") => Some((vec![], Type::Bool)),
+        (Type::List(elem_ty), "reverse") => Some((vec![], Type::List(elem_ty.clone()))),
+        (Type::List(elem_ty), "push") => {
+            Some((vec![*elem_ty.clone()], Type::List(elem_ty.clone())))
+        }
+        (Type::List(elem_ty), "concat") => Some((
+            vec![Type::List(elem_ty.clone())],
+            Type::List(elem_ty.clone()),
+        )),
+
         _ => None,
     }
 }
@@ -2225,6 +2237,103 @@ mod tests {
         };
         let result = check(&expr).unwrap();
         assert_eq!(result.ty(), Type::Int32);
+    }
+
+    // Tests for List methods
+
+    #[test]
+    fn test_check_list_len() {
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::List(vec![Expr::Int(1), Expr::Int(2)])),
+            method: "len".to_string(),
+            args: vec![],
+        };
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Int32);
+    }
+
+    #[test]
+    fn test_check_list_is_empty() {
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::List(vec![])),
+            method: "is_empty".to_string(),
+            args: vec![],
+        };
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Bool);
+    }
+
+    #[test]
+    fn test_check_list_reverse() {
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::List(vec![Expr::Int(1), Expr::Int(2)])),
+            method: "reverse".to_string(),
+            args: vec![],
+        };
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::List(Box::new(Type::Int32)));
+    }
+
+    #[test]
+    fn test_check_list_push() {
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::List(vec![Expr::Int(1), Expr::Int(2)])),
+            method: "push".to_string(),
+            args: vec![Expr::Int(3)],
+        };
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::List(Box::new(Type::Int32)));
+    }
+
+    #[test]
+    fn test_check_list_push_type_mismatch() {
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::List(vec![Expr::Int(1), Expr::Int(2)])),
+            method: "push".to_string(),
+            args: vec![Expr::String("hello".to_string())],
+        };
+        let result = check(&expr);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("type mismatch"));
+    }
+
+    #[test]
+    fn test_check_list_concat() {
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::List(vec![Expr::Int(1), Expr::Int(2)])),
+            method: "concat".to_string(),
+            args: vec![Expr::List(vec![Expr::Int(3), Expr::Int(4)])],
+        };
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::List(Box::new(Type::Int32)));
+    }
+
+    #[test]
+    fn test_check_list_concat_type_mismatch() {
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::List(vec![Expr::Int(1), Expr::Int(2)])),
+            method: "concat".to_string(),
+            args: vec![Expr::List(vec![Expr::String("hello".to_string())])],
+        };
+        let result = check(&expr);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("type mismatch"));
+    }
+
+    #[test]
+    fn test_check_list_chained_methods() {
+        // [1, 2].push(3).reverse()
+        let expr = Expr::MethodCall {
+            receiver: Box::new(Expr::MethodCall {
+                receiver: Box::new(Expr::List(vec![Expr::Int(1), Expr::Int(2)])),
+                method: "push".to_string(),
+                args: vec![Expr::Int(3)],
+            }),
+            method: "reverse".to_string(),
+            args: vec![],
+        };
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::List(Box::new(Type::Int32)));
     }
 
     // Tests for multi-pass type checking in REPL mode

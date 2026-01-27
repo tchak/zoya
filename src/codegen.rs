@@ -163,6 +163,11 @@ pub fn codegen(expr: &TypedExpr) -> String {
                 "round" => format!("Math.round({})", receiver_code),
                 "sqrt" => format!("Math.sqrt({})", receiver_code),
 
+                // List methods
+                "reverse" => format!("([...({})].reverse())", receiver_code),
+                "push" => format!("([...{}, {}])", receiver_code, args_code[0]),
+                "concat" => format!("([...{}, ...{}])", receiver_code, args_code[0]),
+
                 _ => panic!("unknown method in codegen: {}", method),
             };
 

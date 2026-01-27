@@ -833,6 +833,102 @@ mod tests {
         assert_eq!(result, Value::Int32(14)); // 1 + 2 + 5 + 6
     }
 
+    // List method tests
+
+    #[test]
+    fn test_run_list_len() {
+        let source = "fn main() -> Int32 { [1, 2, 3].len() }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(3));
+    }
+
+    #[test]
+    fn test_run_list_len_empty() {
+        let source = "fn main() -> Int32 { [].len() }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(0));
+    }
+
+    #[test]
+    fn test_run_list_is_empty_true() {
+        let source = "fn main() -> Bool { [].is_empty() }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_list_is_empty_false() {
+        let source = "fn main() -> Bool { [1, 2].is_empty() }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(false));
+    }
+
+    #[test]
+    fn test_run_list_reverse() {
+        let source = "fn main() -> List<Int32> { [1, 2, 3].reverse() }";
+        let result = run_source(source).unwrap();
+        assert_eq!(
+            result,
+            Value::List(vec![Value::Int32(3), Value::Int32(2), Value::Int32(1)])
+        );
+    }
+
+    #[test]
+    fn test_run_list_reverse_empty() {
+        let source = "fn main() -> List<Int32> { [].reverse() }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::List(vec![]));
+    }
+
+    #[test]
+    fn test_run_list_push() {
+        let source = "fn main() -> List<Int32> { [1, 2].push(3) }";
+        let result = run_source(source).unwrap();
+        assert_eq!(
+            result,
+            Value::List(vec![Value::Int32(1), Value::Int32(2), Value::Int32(3)])
+        );
+    }
+
+    #[test]
+    fn test_run_list_push_empty() {
+        let source = "fn main() -> List<Int32> { [].push(1) }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::List(vec![Value::Int32(1)]));
+    }
+
+    #[test]
+    fn test_run_list_concat() {
+        let source = "fn main() -> List<Int32> { [1, 2].concat([3, 4]) }";
+        let result = run_source(source).unwrap();
+        assert_eq!(
+            result,
+            Value::List(vec![
+                Value::Int32(1),
+                Value::Int32(2),
+                Value::Int32(3),
+                Value::Int32(4)
+            ])
+        );
+    }
+
+    #[test]
+    fn test_run_list_concat_empty() {
+        let source = "fn main() -> List<Int32> { [1, 2].concat([]) }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::List(vec![Value::Int32(1), Value::Int32(2)]));
+    }
+
+    #[test]
+    fn test_run_list_chained_methods() {
+        let source = "fn main() -> List<Int32> { [1, 2].push(3).reverse() }";
+        let result = run_source(source).unwrap();
+        assert_eq!(
+            result,
+            Value::List(vec![Value::Int32(3), Value::Int32(2), Value::Int32(1)])
+        );
+    }
+
     // Tuple tests
     #[test]
     fn test_run_tuple_literal() {
