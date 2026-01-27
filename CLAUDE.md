@@ -67,6 +67,13 @@ src/
   - Generic structs: `struct Pair<T, U> { first: T, second: U }`
   - Construction: `Point { x: 1, y: 2 }`, shorthand `Point { x, y }` when variable names match
   - Field access: `point.x`, `pair.first`
+- **Enums:** sum types with unit, tuple, and struct variants
+  - Definition: `enum Option<T> { None, Some(T) }`
+  - Unit variants: `enum Color { Red, Green, Blue }`
+  - Tuple variants: `enum Result<T, E> { Ok(T), Err(E) }`
+  - Struct variants: `enum Message { Quit, Move { x: Int, y: Int }, Write(String) }`
+  - Construction: `Option::Some(42)`, `Color::Red`, `Message::Move { x: 1, y: 2 }`
+  - Pattern matching with all variant types
 - **Pattern matching:** `match expr { pattern => result ... }`
   - Literal patterns: `0`, `"hello"`, `true`, `3.14`
   - Variable patterns: `n` (binds the matched value)
@@ -74,6 +81,7 @@ src/
   - List patterns: `[]`, `[x, ..]`, `[.., x]`, `[a, .., b]`, `[a, b]`
   - Tuple patterns: `(x, y)`, `(a, ..)`, `(.., z)`, `(a, .., z)`
   - Struct patterns: `Point { x, y }`, `Point { x: px, .. }` (with shorthand and rest)
+  - Enum patterns: `Option::Some(x)`, `Message::Move { x, y }`, `Color::Red`
   - Block expressions in arms: `n => { let x = n * 2; x + 1 }`
   - Exhaustiveness checking (compile error if cases missing)
   - Unreachable pattern detection (compile error for dead code)
@@ -91,30 +99,25 @@ src/
 
 Planned features in rough implementation order:
 
-1. **Enums** - Sum types with unit, tuple, and struct variants, generic support
-   - `enum Option<T> { None, Some(T) }`
-   - `enum Result<T, E> { Ok(T), Err(E) }`
-   - `enum Message { Quit, Move { x: Int, y: Int }, Write(String) }`
-
-2. **Expanded pattern matching** - Destructuring in more contexts
+1. **Expanded pattern matching** - Destructuring in more contexts
    - Let bindings: `let (x, y) = point`
    - Function params: `fn first((a, _): (Int, Int)) -> Int a`
    - Lambda params: `|(x, y)| x + y`
    - Requires irrefutability checking (patterns must be exhaustive)
 
-3. **impl blocks** - Methods on user-defined types
+2. **impl blocks** - Methods on user-defined types
    - `impl Point { fn distance(self) -> Float { ... } }`
    - Generic methods: `impl<T> Option<T> { fn unwrap(self) -> T { ... } }`
 
-4. **Traits** - Shared behavior definitions
+3. **Traits** - Shared behavior definitions
    - `trait Display { fn to_string(self) -> String }`
    - `impl Display for Point { ... }`
 
-5. **Trait-based operators** - Operators defined via traits
+4. **Trait-based operators** - Operators defined via traits
    - `+` requires `Add` trait, `==` requires `Eq` trait, etc.
    - Enables operator overloading for user types
 
-6. **Standard library expansion** - Once trait infrastructure exists
+5. **Standard library expansion** - Once trait infrastructure exists
    - `Option<T>`, `Result<T, E>` with full method sets
    - `map`, `filter`, `fold` on List via traits
    - Common traits: `Eq`, `Ord`, `Display`, `Default`
