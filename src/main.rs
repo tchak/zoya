@@ -50,7 +50,7 @@ fn main() {
 
     match cli.command {
         Some(Command::Run { file: Some(path) }) => {
-            if let Err(e) = runner::run(&path) {
+            if let Err(e) = runner::run_file_command(&path) {
                 eprintln!("Error: {e}");
                 std::process::exit(1);
             }

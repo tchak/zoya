@@ -8,7 +8,7 @@ use crate::lexer;
 use crate::parser;
 
 /// Run a Zoya source file and print the result
-pub fn run(path: &Path) -> Result<(), EvalError> {
+pub fn run_file_command(path: &Path) -> Result<(), EvalError> {
     let source = std::fs::read_to_string(path)
         .map_err(|e| EvalError::RuntimeError(format!("failed to read file: {}", e)))?;
 
