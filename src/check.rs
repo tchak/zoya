@@ -964,6 +964,7 @@ fn check_with_env(
                 })
             }
         }
+        Expr::Int64(n) => Ok(TypedExpr::Int64(*n)),
         Expr::Float(n) => Ok(TypedExpr::Float(*n)),
         Expr::Bool(b) => Ok(TypedExpr::Bool(*b)),
         Expr::String(s) => Ok(TypedExpr::String(s.clone())),
@@ -1029,7 +1030,7 @@ fn get_callable_type(name: &str, env: &TypeEnv, ctx: &mut UnifyCtx) -> Option<Ty
 fn is_syntactic_value(expr: &Expr) -> bool {
     match expr {
         Expr::Lambda { .. } => true,
-        Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) | Expr::String(_) => true,
+        Expr::Int(_) | Expr::Int64(_) | Expr::Float(_) | Expr::Bool(_) | Expr::String(_) => true,
         Expr::List(elems) => elems.iter().all(is_syntactic_value),
         Expr::Tuple(elems) => elems.iter().all(is_syntactic_value),
         Expr::Var(_) => true,
@@ -1712,6 +1713,33 @@ mod tests {
         let result = check(&expr);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("too large for Int32"));
+    }
+
+    #[test]
+    fn test_check_int64() {
+        let expr = Expr::Int64(42);
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Int64);
+        assert_eq!(result, TypedExpr::Int64(42));
+    }
+
+    #[test]
+    fn test_check_int64_large() {
+        let expr = Expr::Int64(9_000_000_000);
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Int64);
+        assert_eq!(result, TypedExpr::Int64(9_000_000_000));
+    }
+
+    #[test]
+    fn test_check_int64_addition() {
+        let expr = Expr::BinOp {
+            op: BinOp::Add,
+            left: Box::new(Expr::Int64(1)),
+            right: Box::new(Expr::Int64(2)),
+        };
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::Int64);
     }
 
     #[test]

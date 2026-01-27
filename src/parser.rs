@@ -238,6 +238,7 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
     recursive(|expr| {
         let literal = select! {
             Token::Int(n) => Expr::Int(n),
+            Token::Int64(n) => Expr::Int64(n),
             Token::Float(n) => Expr::Float(n),
             Token::True => Expr::Bool(true),
             Token::False => Expr::Bool(false),
@@ -262,6 +263,7 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                 // Literals
                 select! {
                     Token::Int(n) => Pattern::Literal(Box::new(Expr::Int(n))),
+                    Token::Int64(n) => Pattern::Literal(Box::new(Expr::Int64(n))),
                     Token::Float(n) => Pattern::Literal(Box::new(Expr::Float(n))),
                     Token::True => Pattern::Literal(Box::new(Expr::Bool(true))),
                     Token::False => Pattern::Literal(Box::new(Expr::Bool(false))),
@@ -997,6 +999,31 @@ mod tests {
                     left: Box::new(Expr::Int(2)),
                     right: Box::new(Expr::Int(3)),
                 }),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_int64() {
+        let expr = parse_str("42n").unwrap();
+        assert_eq!(expr, Expr::Int64(42));
+    }
+
+    #[test]
+    fn test_parse_int64_large() {
+        let expr = parse_str("9_000_000_000n").unwrap();
+        assert_eq!(expr, Expr::Int64(9_000_000_000));
+    }
+
+    #[test]
+    fn test_parse_int64_addition() {
+        let expr = parse_str("1n + 2n").unwrap();
+        assert_eq!(
+            expr,
+            Expr::BinOp {
+                op: BinOp::Add,
+                left: Box::new(Expr::Int64(1)),
+                right: Box::new(Expr::Int64(2)),
             }
         );
     }

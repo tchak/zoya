@@ -29,21 +29,42 @@ pub struct TypedLetBinding {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedPattern {
     Literal(TypedExpr),
-    Var { name: String, ty: Type },
+    Var {
+        name: String,
+        ty: Type,
+    },
     Wildcard,
     ListEmpty,
-    ListExact { patterns: Vec<TypedPattern>, len: usize },
-    ListPrefix { patterns: Vec<TypedPattern>, min_len: usize },
-    ListSuffix { patterns: Vec<TypedPattern>, min_len: usize },
+    ListExact {
+        patterns: Vec<TypedPattern>,
+        len: usize,
+    },
+    ListPrefix {
+        patterns: Vec<TypedPattern>,
+        min_len: usize,
+    },
+    ListSuffix {
+        patterns: Vec<TypedPattern>,
+        min_len: usize,
+    },
     ListPrefixSuffix {
         prefix: Vec<TypedPattern>,
         suffix: Vec<TypedPattern>,
         min_len: usize,
     },
     TupleEmpty,
-    TupleExact { patterns: Vec<TypedPattern>, len: usize },
-    TuplePrefix { patterns: Vec<TypedPattern>, total_len: usize },
-    TupleSuffix { patterns: Vec<TypedPattern>, total_len: usize },
+    TupleExact {
+        patterns: Vec<TypedPattern>,
+        len: usize,
+    },
+    TuplePrefix {
+        patterns: Vec<TypedPattern>,
+        total_len: usize,
+    },
+    TupleSuffix {
+        patterns: Vec<TypedPattern>,
+        total_len: usize,
+    },
     TuplePrefixSuffix {
         prefix: Vec<TypedPattern>,
         suffix: Vec<TypedPattern>,
@@ -74,7 +95,6 @@ pub struct TypedMatchArm {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedExpr {
     Int32(i32),
-    #[allow(dead_code)] // Used in tests and through function parameters
     Int64(i64),
     Float(f64),
     Bool(bool),

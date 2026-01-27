@@ -4,6 +4,12 @@ fn parse_float(lex: &logos::Lexer<Token>) -> Option<f64> {
     lex.slice().replace('_', "").parse::<f64>().ok()
 }
 
+fn parse_int64(lex: &logos::Lexer<Token>) -> Option<i64> {
+    let s = lex.slice();
+    // Strip trailing 'n' and underscores
+    s[..s.len() - 1].replace('_', "").parse::<i64>().ok()
+}
+
 fn parse_string(lex: &logos::Lexer<Token>) -> Option<String> {
     let s = lex.slice();
     // Strip surrounding quotes
@@ -61,6 +67,10 @@ pub enum Token {
     // Float requires both integer and decimal parts (e.g., 1.0, not .5 or 1.)
     #[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*", parse_float)]
     Float(f64),
+
+    // Int64 literals with 'n' suffix (must come before Int to match first)
+    #[regex(r"[0-9][0-9_]*n", parse_int64)]
+    Int64(i64),
 
     #[regex(r"[0-9][0-9_]*", |lex| lex.slice().replace('_', "").parse::<i64>().ok())]
     Int(i64),
@@ -500,6 +510,33 @@ mod tests {
                 Token::RBracket,
             ]
         );
+    }
+
+    #[test]
+    fn test_int64_simple() {
+        let tokens = lex("42n").unwrap();
+        assert_eq!(tokens, vec![Token::Int64(42)]);
+    }
+
+    #[test]
+    fn test_int64_with_underscores() {
+        let tokens = lex("9_000_000_000n").unwrap();
+        assert_eq!(tokens, vec![Token::Int64(9_000_000_000)]);
+    }
+
+    #[test]
+    fn test_int64_in_expression() {
+        let tokens = lex("42n + 1n").unwrap();
+        assert_eq!(
+            tokens,
+            vec![Token::Int64(42), Token::Plus, Token::Int64(1)]
+        );
+    }
+
+    #[test]
+    fn test_int64_zero() {
+        let tokens = lex("0n").unwrap();
+        assert_eq!(tokens, vec![Token::Int64(0)]);
     }
 
     #[test]

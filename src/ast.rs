@@ -124,6 +124,7 @@ pub struct MatchArm {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Int(i64),
+    Int64(i64),
     Float(f64),
     Bool(bool),
     String(String),

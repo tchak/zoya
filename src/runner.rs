@@ -434,6 +434,42 @@ mod tests {
         assert_eq!(result, Value::Int32(5));
     }
 
+    // Int64 literal tests
+    #[test]
+    fn test_run_int64_literal() {
+        let source = "fn main() -> Int64 { 42n }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int64(42));
+    }
+
+    #[test]
+    fn test_run_int64_large_literal() {
+        let source = "fn main() -> Int64 { 9_000_000_000n }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int64(9_000_000_000));
+    }
+
+    #[test]
+    fn test_run_int64_addition() {
+        let source = "fn main() -> Int64 { 1n + 2n }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int64(3));
+    }
+
+    #[test]
+    fn test_run_int64_method_abs() {
+        let source = "fn main() -> Int64 { (-42n).abs() }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int64(42));
+    }
+
+    #[test]
+    fn test_run_int64_method_to_string() {
+        let source = "fn main() -> String { 42n.to_string() }";
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::String("42".to_string()));
+    }
+
     // Float method tests
     #[test]
     fn test_run_float_abs() {
