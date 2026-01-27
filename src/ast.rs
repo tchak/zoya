@@ -1,3 +1,51 @@
+/// A path representing a potentially qualified name
+/// Examples: `foo`, `Foo::Bar`, `mod::Type::variant`
+#[derive(Debug, Clone, PartialEq)]
+pub struct Path {
+    pub segments: Vec<String>,
+}
+
+impl Path {
+    /// Create a single-segment path (e.g., `foo`)
+    pub fn simple(name: String) -> Self {
+        Path {
+            segments: vec![name],
+        }
+    }
+
+    /// Check if this is a simple (single-segment) path
+    pub fn is_simple(&self) -> bool {
+        self.segments.len() == 1
+    }
+
+    /// Get the single segment if this is a simple path
+    pub fn as_simple(&self) -> Option<&str> {
+        if self.segments.len() == 1 {
+            Some(&self.segments[0])
+        } else {
+            None
+        }
+    }
+
+    /// Get the last segment (useful for display and some lookups)
+    pub fn last(&self) -> &str {
+        self.segments
+            .last()
+            .expect("Path must have at least one segment")
+    }
+
+    /// Format path as string with :: separators
+    pub fn to_string(&self) -> String {
+        self.segments.join("::")
+    }
+}
+
+impl std::fmt::Display for Path {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.segments.join("::"))
+    }
+}
+
 /// Top-level item (function, enum, struct, etc.)
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
@@ -103,8 +151,7 @@ pub enum Pattern {
 /// Enum pattern: `Option::Some(x)`, `Option::None`, `Message::Move { x, .. }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumPattern {
-    pub enum_name: String,
-    pub variant_name: String,
+    pub path: Path,
     pub fields: EnumPatternFields,
 }
 
@@ -134,12 +181,12 @@ pub struct StructFieldPattern {
 pub enum StructPattern {
     /// `Point { x, y }` - exact field match (all fields must be present)
     Exact {
-        name: String,
+        path: Path,
         fields: Vec<StructFieldPattern>,
     },
     /// `Point { x, .. }` - partial match with rest (some fields can be omitted)
     Partial {
-        name: String,
+        path: Path,
         fields: Vec<StructFieldPattern>,
     },
 }
@@ -180,9 +227,11 @@ pub enum Expr {
     String(String),
     List(Vec<Expr>),
     Tuple(Vec<Expr>),
-    Var(String),
+    /// A path expression: `foo`, `Option::None`, `Mod::Type`
+    Path(Path),
+    /// Function/constructor call: `foo(1)`, `Option::Some(1)`
     Call {
-        func: String,
+        path: Path,
         args: Vec<Expr>,
     },
     UnaryOp {
@@ -212,33 +261,16 @@ pub enum Expr {
         return_type: Option<TypeAnnotation>,
         body: Box<Expr>,
     },
-    /// Struct constructor: `Point { x: 1, y: 2 }`
-    StructConstruct {
-        name: String,
-        fields: Vec<(String, Expr)>, // field name -> value
+    /// Struct/enum struct variant constructor: `Point { x: 1 }`, `Message::Move { x: 1 }`
+    Struct {
+        path: Path,
+        fields: Vec<(String, Expr)>,
     },
     /// Field access: `point.x` (distinct from method call)
     FieldAccess {
         expr: Box<Expr>,
         field: String,
     },
-    /// Enum variant constructor: `Option::Some(42)`, `Option::None`, `Message::Move { x: 1, y: 2 }`
-    EnumConstruct {
-        enum_name: String,
-        variant_name: String,
-        fields: EnumConstructFields,
-    },
-}
-
-/// Fields for enum variant construction
-#[derive(Debug, Clone, PartialEq)]
-pub enum EnumConstructFields {
-    /// Unit variant: `Option::None`
-    Unit,
-    /// Tuple variant: `Option::Some(42)` or `Result::Ok(1, 2)`
-    Tuple(Vec<Expr>),
-    /// Struct variant: `Message::Move { x: 1, y: 2 }`
-    Struct(Vec<(String, Expr)>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

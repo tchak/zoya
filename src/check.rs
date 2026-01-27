@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::{
-    BinOp, EnumConstructFields, EnumDef, EnumPattern, EnumPatternFields, Expr, FunctionDef, Item,
-    LetBinding, ListPattern, MatchArm, Pattern, Statement, StructDef, StructPattern, TuplePattern,
+    BinOp, EnumDef, EnumPattern, EnumPatternFields, Expr, FunctionDef, Item, LetBinding,
+    ListPattern, MatchArm, Path, Pattern, Statement, StructDef, StructPattern, TuplePattern,
     TypeAnnotation, UnaryOp,
 };
 use crate::ir::{
@@ -376,22 +376,122 @@ fn builtin_method(receiver_ty: &Type, method: &str) -> Option<(Vec<Type>, Type)>
 // ============================================================================
 
 /// Check a variable reference
-fn check_var(name: &str, env: &TypeEnv, ctx: &mut UnifyCtx) -> Result<TypedExpr, TypeError> {
-    if let Some(scheme) = env.locals.get(name) {
-        let ty = ctx.instantiate(scheme);
-        Ok(TypedExpr::Var {
-            name: name.to_string(),
-            ty: ctx.resolve(&ty),
-        })
-    } else {
-        Err(TypeError {
-            message: format!("unknown variable: {}", name),
-        })
+/// Check a path expression (variable or unit enum variant)
+fn check_path_expr(path: &Path, env: &TypeEnv, ctx: &mut UnifyCtx) -> Result<TypedExpr, TypeError> {
+    match path.segments.as_slice() {
+        // Single segment: must be a variable
+        [name] => {
+            if let Some(scheme) = env.locals.get(name) {
+                let ty = ctx.instantiate(scheme);
+                Ok(TypedExpr::Var {
+                    name: name.to_string(),
+                    ty: ctx.resolve(&ty),
+                })
+            } else {
+                Err(TypeError {
+                    message: format!("unknown variable: {}", name),
+                })
+            }
+        }
+        // Two segments: must be Enum::Variant (unit variant)
+        [enum_name, variant_name] => {
+            let enum_type = env.enums.get(enum_name).ok_or_else(|| TypeError {
+                message: format!("unknown enum: {}", enum_name),
+            })?;
+
+            let variant_type = enum_type
+                .variants
+                .iter()
+                .find(|(name, _)| name == variant_name)
+                .map(|(_, vt)| vt)
+                .ok_or_else(|| TypeError {
+                    message: format!("enum {} has no variant {}", enum_name, variant_name),
+                })?;
+
+            // Must be a unit variant when used as a bare path
+            if !matches!(variant_type, EnumVariantType::Unit) {
+                return Err(TypeError {
+                    message: format!(
+                        "enum variant {}::{} requires arguments",
+                        enum_name, variant_name
+                    ),
+                });
+            }
+
+            // Create fresh type variables for generic parameters
+            let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
+            for &old_id in &enum_type.type_var_ids {
+                instantiation.insert(old_id, ctx.fresh_var());
+            }
+
+            let type_args: Vec<Type> = enum_type
+                .type_var_ids
+                .iter()
+                .map(|id| ctx.resolve(&instantiation[id]))
+                .collect();
+
+            let resolved_variants: Vec<(String, EnumVariantType)> = enum_type
+                .variants
+                .iter()
+                .map(|(name, vt)| {
+                    (
+                        name.clone(),
+                        substitute_variant_type_vars(vt, &instantiation),
+                    )
+                })
+                .map(|(name, vt)| {
+                    let resolved_vt = match vt {
+                        EnumVariantType::Unit => EnumVariantType::Unit,
+                        EnumVariantType::Tuple(types) => {
+                            EnumVariantType::Tuple(types.iter().map(|t| ctx.resolve(t)).collect())
+                        }
+                        EnumVariantType::Struct(fields) => EnumVariantType::Struct(
+                            fields.iter().map(|(n, t)| (n.clone(), ctx.resolve(t))).collect(),
+                        ),
+                    };
+                    (name, resolved_vt)
+                })
+                .collect();
+
+            Ok(TypedExpr::EnumConstruct {
+                enum_name: enum_name.to_string(),
+                variant_name: variant_name.to_string(),
+                fields: TypedEnumConstructFields::Unit,
+                ty: Type::Enum {
+                    name: enum_name.to_string(),
+                    type_args,
+                    variants: resolved_variants,
+                },
+            })
+        }
+        _ => Err(TypeError {
+            message: format!("unknown path: {}", path),
+        }),
     }
 }
 
-/// Check a function call
-fn check_call(
+/// Check a path call expression (function call or tuple enum variant)
+fn check_path_call(
+    path: &Path,
+    args: &[Expr],
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
+    match path.segments.as_slice() {
+        // Single segment: function or lambda call
+        [func] => check_simple_call(func, args, env, ctx),
+        // Two segments: Enum::Variant(args)
+        [enum_name, variant_name] => {
+            check_enum_tuple_construct(enum_name, variant_name, args, env, ctx)
+        }
+        _ => Err(TypeError {
+            message: format!("unknown path: {}", path),
+        }),
+    }
+}
+
+/// Check a simple (single-name) function call
+fn check_simple_call(
     func: &str,
     args: &[Expr],
     env: &TypeEnv,
@@ -508,6 +608,127 @@ fn check_call(
             message: format!("unknown function: {}", func),
         })
     }
+}
+
+/// Check an enum tuple variant construction: Enum::Variant(args)
+fn check_enum_tuple_construct(
+    enum_name: &str,
+    variant_name: &str,
+    args: &[Expr],
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
+    let enum_type = env.enums.get(enum_name).ok_or_else(|| TypeError {
+        message: format!("unknown enum: {}", enum_name),
+    })?;
+
+    let variant_type = enum_type
+        .variants
+        .iter()
+        .find(|(name, _)| name == variant_name)
+        .map(|(_, vt)| vt)
+        .ok_or_else(|| TypeError {
+            message: format!("enum {} has no variant {}", enum_name, variant_name),
+        })?;
+
+    // Must be a tuple variant
+    let expected_types = match variant_type {
+        EnumVariantType::Tuple(types) => types,
+        EnumVariantType::Unit => {
+            return Err(TypeError {
+                message: format!(
+                    "enum variant {}::{} is a unit variant, doesn't take arguments",
+                    enum_name, variant_name
+                ),
+            });
+        }
+        EnumVariantType::Struct(_) => {
+            return Err(TypeError {
+                message: format!(
+                    "enum variant {}::{} is a struct variant, use {{ }} syntax",
+                    enum_name, variant_name
+                ),
+            });
+        }
+    };
+
+    if args.len() != expected_types.len() {
+        return Err(TypeError {
+            message: format!(
+                "enum variant {}::{} expects {} argument(s), got {}",
+                enum_name,
+                variant_name,
+                expected_types.len(),
+                args.len()
+            ),
+        });
+    }
+
+    // Create fresh type variables for generic parameters
+    let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
+    for &old_id in &enum_type.type_var_ids {
+        instantiation.insert(old_id, ctx.fresh_var());
+    }
+
+    let mut typed_exprs = Vec::new();
+    for (expr, expected) in args.iter().zip(expected_types.iter()) {
+        let expected_type = substitute_type_vars(expected, &instantiation);
+        let typed_expr = check_with_env(expr, env, ctx)?;
+        let actual_type = typed_expr.ty();
+
+        ctx.unify(&actual_type, &expected_type).map_err(|e| TypeError {
+            message: format!(
+                "in enum variant {}::{}: expected {} but got {}: {}",
+                enum_name,
+                variant_name,
+                ctx.resolve(&expected_type),
+                ctx.resolve(&actual_type),
+                e.message
+            ),
+        })?;
+
+        typed_exprs.push(typed_expr);
+    }
+
+    let type_args: Vec<Type> = enum_type
+        .type_var_ids
+        .iter()
+        .map(|id| ctx.resolve(&instantiation[id]))
+        .collect();
+
+    let resolved_variants: Vec<(String, EnumVariantType)> = enum_type
+        .variants
+        .iter()
+        .map(|(name, vt)| {
+            (
+                name.clone(),
+                substitute_variant_type_vars(vt, &instantiation),
+            )
+        })
+        .map(|(name, vt)| {
+            let resolved_vt = match vt {
+                EnumVariantType::Unit => EnumVariantType::Unit,
+                EnumVariantType::Tuple(types) => {
+                    EnumVariantType::Tuple(types.iter().map(|t| ctx.resolve(t)).collect())
+                }
+                EnumVariantType::Struct(fields) => EnumVariantType::Struct(
+                    fields.iter().map(|(n, t)| (n.clone(), ctx.resolve(t))).collect(),
+                ),
+            };
+            (name, resolved_vt)
+        })
+        .collect();
+
+    Ok(TypedExpr::EnumConstruct {
+        enum_name: enum_name.to_string(),
+        variant_name: variant_name.to_string(),
+        fields: TypedEnumConstructFields::Tuple(typed_exprs),
+        ty: Type::Enum {
+            name: enum_name.to_string(),
+            type_args,
+            variants: resolved_variants,
+        },
+    })
 }
 
 /// Check a unary operation
@@ -851,6 +1072,27 @@ fn check_lambda(
 }
 
 /// Check a struct constructor expression
+/// Check a path struct expression (struct construction or enum struct variant)
+fn check_path_struct(
+    path: &Path,
+    fields: &[(String, Expr)],
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
+    match path.segments.as_slice() {
+        // Single segment: struct construction
+        [name] => check_struct_construct(name, fields, env, ctx),
+        // Two segments: Enum::Variant { fields }
+        [enum_name, variant_name] => {
+            check_enum_struct_construct(enum_name, variant_name, fields, env, ctx)
+        }
+        _ => Err(TypeError {
+            message: format!("unknown path: {}", path),
+        }),
+    }
+}
+
+/// Check a struct construction expression
 fn check_struct_construct(
     name: &str,
     fields: &[(String, Expr)],
@@ -869,7 +1111,8 @@ fn check_struct_construct(
     }
 
     // Check that all required fields are present and no extra fields
-    let expected_field_names: HashSet<&str> = struct_type.fields.iter().map(|(n, _)| n.as_str()).collect();
+    let expected_field_names: HashSet<&str> =
+        struct_type.fields.iter().map(|(n, _)| n.as_str()).collect();
     let provided_field_names: HashSet<&str> = fields.iter().map(|(n, _)| n.as_str()).collect();
 
     // Check for missing fields
@@ -910,16 +1153,17 @@ fn check_struct_construct(
         let actual_type = typed_expr.ty();
 
         // Unify with expected type
-        ctx.unify(&actual_type, &expected_type).map_err(|e| TypeError {
-            message: format!(
-                "field '{}' in struct {} expects type {} but got {}: {}",
-                field_name,
-                name,
-                ctx.resolve(&expected_type),
-                ctx.resolve(&actual_type),
-                e.message
-            ),
-        })?;
+        ctx.unify(&actual_type, &expected_type)
+            .map_err(|e| TypeError {
+                message: format!(
+                    "field '{}' in struct {} expects type {} but got {}: {}",
+                    field_name,
+                    name,
+                    ctx.resolve(&expected_type),
+                    ctx.resolve(&actual_type),
+                    e.message
+                ),
+            })?;
 
         typed_fields.push((field_name.clone(), typed_expr));
     }
@@ -935,7 +1179,12 @@ fn check_struct_construct(
     let resolved_fields: Vec<(String, Type)> = struct_type
         .fields
         .iter()
-        .map(|(name, ty)| (name.clone(), ctx.resolve(&substitute_type_vars(ty, &instantiation))))
+        .map(|(name, ty)| {
+            (
+                name.clone(),
+                ctx.resolve(&substitute_type_vars(ty, &instantiation)),
+            )
+        })
         .collect();
 
     Ok(TypedExpr::StructConstruct {
@@ -949,20 +1198,18 @@ fn check_struct_construct(
     })
 }
 
-/// Check an enum constructor expression
-fn check_enum_construct(
+/// Check an enum struct variant construction: Enum::Variant { fields }
+fn check_enum_struct_construct(
     enum_name: &str,
     variant_name: &str,
-    fields: &EnumConstructFields,
+    provided_fields: &[(String, Expr)],
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    // Look up the enum definition
     let enum_type = env.enums.get(enum_name).ok_or_else(|| TypeError {
         message: format!("unknown enum: {}", enum_name),
     })?;
 
-    // Find the variant
     let variant_type = enum_type
         .variants
         .iter()
@@ -972,144 +1219,92 @@ fn check_enum_construct(
             message: format!("enum {} has no variant {}", enum_name, variant_name),
         })?;
 
-    // Create fresh type variables for generic parameters
-    let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
-    for &old_id in &enum_type.type_var_ids {
-        instantiation.insert(old_id, ctx.fresh_var());
-    }
-
-    // Type check based on variant kind
-    let typed_fields = match (fields, variant_type) {
-        (EnumConstructFields::Unit, EnumVariantType::Unit) => TypedEnumConstructFields::Unit,
-
-        (EnumConstructFields::Tuple(exprs), EnumVariantType::Tuple(expected_types)) => {
-            if exprs.len() != expected_types.len() {
-                return Err(TypeError {
-                    message: format!(
-                        "enum variant {}::{} expects {} argument(s), got {}",
-                        enum_name,
-                        variant_name,
-                        expected_types.len(),
-                        exprs.len()
-                    ),
-                });
-            }
-
-            let mut typed_exprs = Vec::new();
-            for (expr, expected) in exprs.iter().zip(expected_types.iter()) {
-                let expected_type = substitute_type_vars(expected, &instantiation);
-                let typed_expr = check_with_env(expr, env, ctx)?;
-                let actual_type = typed_expr.ty();
-
-                ctx.unify(&actual_type, &expected_type).map_err(|e| TypeError {
-                    message: format!(
-                        "in enum variant {}::{}: expected {} but got {}: {}",
-                        enum_name,
-                        variant_name,
-                        ctx.resolve(&expected_type),
-                        ctx.resolve(&actual_type),
-                        e.message
-                    ),
-                })?;
-
-                typed_exprs.push(typed_expr);
-            }
-            TypedEnumConstructFields::Tuple(typed_exprs)
-        }
-
-        (EnumConstructFields::Struct(provided_fields), EnumVariantType::Struct(expected_fields)) => {
-            // Check for missing and extra fields
-            let expected_names: HashSet<&str> =
-                expected_fields.iter().map(|(n, _)| n.as_str()).collect();
-            let provided_names: HashSet<&str> =
-                provided_fields.iter().map(|(n, _)| n.as_str()).collect();
-
-            for expected in &expected_names {
-                if !provided_names.contains(expected) {
-                    return Err(TypeError {
-                        message: format!(
-                            "missing field '{}' in enum variant {}::{}",
-                            expected, enum_name, variant_name
-                        ),
-                    });
-                }
-            }
-
-            for provided in &provided_names {
-                if !expected_names.contains(provided) {
-                    return Err(TypeError {
-                        message: format!(
-                            "unknown field '{}' in enum variant {}::{}",
-                            provided, enum_name, variant_name
-                        ),
-                    });
-                }
-            }
-
-            let mut typed_fields = Vec::new();
-            for (field_name, field_expr) in provided_fields {
-                let (_, field_type) = expected_fields
-                    .iter()
-                    .find(|(n, _)| n == field_name)
-                    .unwrap();
-
-                let expected_type = substitute_type_vars(field_type, &instantiation);
-                let typed_expr = check_with_env(field_expr, env, ctx)?;
-                let actual_type = typed_expr.ty();
-
-                ctx.unify(&actual_type, &expected_type).map_err(|e| TypeError {
-                    message: format!(
-                        "field '{}' in enum variant {}::{} expects {} but got {}: {}",
-                        field_name,
-                        enum_name,
-                        variant_name,
-                        ctx.resolve(&expected_type),
-                        ctx.resolve(&actual_type),
-                        e.message
-                    ),
-                })?;
-
-                typed_fields.push((field_name.clone(), typed_expr));
-            }
-            TypedEnumConstructFields::Struct(typed_fields)
-        }
-
-        (EnumConstructFields::Unit, _) => {
+    // Must be a struct variant
+    let expected_fields = match variant_type {
+        EnumVariantType::Struct(fields) => fields,
+        EnumVariantType::Unit => {
             return Err(TypeError {
                 message: format!(
-                    "enum variant {}::{} is not a unit variant",
+                    "enum variant {}::{} is a unit variant, doesn't take fields",
                     enum_name, variant_name
                 ),
             });
         }
-
-        (EnumConstructFields::Tuple(_), _) => {
+        EnumVariantType::Tuple(_) => {
             return Err(TypeError {
                 message: format!(
-                    "enum variant {}::{} is not a tuple variant",
-                    enum_name, variant_name
-                ),
-            });
-        }
-
-        (EnumConstructFields::Struct(_), _) => {
-            return Err(TypeError {
-                message: format!(
-                    "enum variant {}::{} is not a struct variant",
+                    "enum variant {}::{} is a tuple variant, use ( ) syntax",
                     enum_name, variant_name
                 ),
             });
         }
     };
 
-    // Build the enum type with resolved type arguments
+    // Create fresh type variables for generic parameters
+    let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
+    for &old_id in &enum_type.type_var_ids {
+        instantiation.insert(old_id, ctx.fresh_var());
+    }
+
+    // Check for missing and extra fields
+    let expected_names: HashSet<&str> = expected_fields.iter().map(|(n, _)| n.as_str()).collect();
+    let provided_names: HashSet<&str> = provided_fields.iter().map(|(n, _)| n.as_str()).collect();
+
+    for expected in &expected_names {
+        if !provided_names.contains(expected) {
+            return Err(TypeError {
+                message: format!(
+                    "missing field '{}' in enum variant {}::{}",
+                    expected, enum_name, variant_name
+                ),
+            });
+        }
+    }
+
+    for provided in &provided_names {
+        if !expected_names.contains(provided) {
+            return Err(TypeError {
+                message: format!(
+                    "unknown field '{}' in enum variant {}::{}",
+                    provided, enum_name, variant_name
+                ),
+            });
+        }
+    }
+
+    let mut typed_fields = Vec::new();
+    for (field_name, field_expr) in provided_fields {
+        let (_, field_type) = expected_fields
+            .iter()
+            .find(|(n, _)| n == field_name)
+            .unwrap();
+
+        let expected_type = substitute_type_vars(field_type, &instantiation);
+        let typed_expr = check_with_env(field_expr, env, ctx)?;
+        let actual_type = typed_expr.ty();
+
+        ctx.unify(&actual_type, &expected_type)
+            .map_err(|e| TypeError {
+                message: format!(
+                    "field '{}' in enum variant {}::{} expects {} but got {}: {}",
+                    field_name,
+                    enum_name,
+                    variant_name,
+                    ctx.resolve(&expected_type),
+                    ctx.resolve(&actual_type),
+                    e.message
+                ),
+            })?;
+
+        typed_fields.push((field_name.clone(), typed_expr));
+    }
+
     let type_args: Vec<Type> = enum_type
         .type_var_ids
         .iter()
         .map(|id| ctx.resolve(&instantiation[id]))
         .collect();
 
-    // Build resolved variant types for the Type::Enum
     let resolved_variants: Vec<(String, EnumVariantType)> = enum_type
         .variants
         .iter()
@@ -1120,14 +1315,16 @@ fn check_enum_construct(
             )
         })
         .map(|(name, vt)| {
-            // Also resolve any type vars that got unified
             let resolved_vt = match vt {
                 EnumVariantType::Unit => EnumVariantType::Unit,
                 EnumVariantType::Tuple(types) => {
                     EnumVariantType::Tuple(types.iter().map(|t| ctx.resolve(t)).collect())
                 }
                 EnumVariantType::Struct(fields) => EnumVariantType::Struct(
-                    fields.iter().map(|(n, t)| (n.clone(), ctx.resolve(t))).collect(),
+                    fields
+                        .iter()
+                        .map(|(n, t)| (n.clone(), ctx.resolve(t)))
+                        .collect(),
                 ),
             };
             (name, resolved_vt)
@@ -1137,7 +1334,7 @@ fn check_enum_construct(
     Ok(TypedExpr::EnumConstruct {
         enum_name: enum_name.to_string(),
         variant_name: variant_name.to_string(),
-        fields: typed_fields,
+        fields: TypedEnumConstructFields::Struct(typed_fields),
         ty: Type::Enum {
             name: enum_name.to_string(),
             type_args,
@@ -1193,8 +1390,8 @@ fn check_with_env(
         Expr::Float(n) => Ok(TypedExpr::Float(*n)),
         Expr::Bool(b) => Ok(TypedExpr::Bool(*b)),
         Expr::String(s) => Ok(TypedExpr::String(s.clone())),
-        Expr::Var(name) => check_var(name, env, ctx),
-        Expr::Call { func, args } => check_call(func, args, env, ctx),
+        Expr::Path(path) => check_path_expr(path, env, ctx),
+        Expr::Call { path, args } => check_path_call(path, args, env, ctx),
         Expr::UnaryOp { op, expr } => check_unary_op(*op, expr, env, ctx),
         Expr::BinOp { op, left, right } => check_bin_op(*op, left, right, env, ctx),
         Expr::Block { bindings, result } => check_block(bindings, result, env, ctx),
@@ -1211,13 +1408,8 @@ fn check_with_env(
             return_type,
             body,
         } => check_lambda(params, return_type, body, env, ctx),
-        Expr::StructConstruct { name, fields } => check_struct_construct(name, fields, env, ctx),
+        Expr::Struct { path, fields } => check_path_struct(path, fields, env, ctx),
         Expr::FieldAccess { expr, field } => check_field_access(expr, field, env, ctx),
-        Expr::EnumConstruct {
-            enum_name,
-            variant_name,
-            fields,
-        } => check_enum_construct(enum_name, variant_name, fields, env, ctx),
     }
 }
 
@@ -1285,7 +1477,7 @@ fn is_syntactic_value(expr: &Expr) -> bool {
         Expr::Int(_) | Expr::BigInt(_) | Expr::Float(_) | Expr::Bool(_) | Expr::String(_) => true,
         Expr::List(elems) => elems.iter().all(is_syntactic_value),
         Expr::Tuple(elems) => elems.iter().all(is_syntactic_value),
-        Expr::Var(_) => true,
+        Expr::Path(_) => true,
         _ => false,
     }
 }
@@ -1558,11 +1750,16 @@ fn check_pattern(
         }
 
         Pattern::Struct(struct_pattern) => {
-            // Get struct name and fields based on pattern variant
-            let (struct_name, field_patterns, is_partial) = match struct_pattern {
-                StructPattern::Exact { name, fields } => (name, fields, false),
-                StructPattern::Partial { name, fields } => (name, fields, true),
+            // Get struct path and fields based on pattern variant
+            let (path, field_patterns, is_partial) = match struct_pattern {
+                StructPattern::Exact { path, fields } => (path, fields, false),
+                StructPattern::Partial { path, fields } => (path, fields, true),
             };
+
+            // Extract struct name from path (must be single segment for now)
+            let struct_name = path.as_simple().ok_or_else(|| TypeError {
+                message: format!("struct patterns don't support qualified paths yet: {}", path),
+            })?;
 
             // Unify scrutinee with the struct type
             let struct_type = env.structs.get(struct_name).ok_or_else(|| TypeError {
@@ -1587,7 +1784,7 @@ fn check_pattern(
                 .map(|(n, t)| (n.clone(), substitute_type_vars(t, &instantiation)))
                 .collect();
             let expected_struct_ty = Type::Struct {
-                name: struct_name.clone(),
+                name: struct_name.to_string(),
                 type_args,
                 fields: resolved_fields,
             };
@@ -1656,12 +1853,12 @@ fn check_pattern(
 
             let typed_pattern = if is_partial {
                 TypedPattern::StructPartial {
-                    name: struct_name.clone(),
+                    name: struct_name.to_string(),
                     fields: typed_fields,
                 }
             } else {
                 TypedPattern::StructExact {
-                    name: struct_name.clone(),
+                    name: struct_name.to_string(),
                     fields: typed_fields,
                 }
             };
@@ -1682,11 +1879,17 @@ fn check_enum_pattern(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
-    let EnumPattern {
-        enum_name,
-        variant_name,
-        fields,
-    } = enum_pattern;
+    let EnumPattern { path, fields } = enum_pattern;
+
+    // Extract enum_name and variant_name from path
+    let (enum_name, variant_name) = match path.segments.as_slice() {
+        [e, v] => (e.as_str(), v.as_str()),
+        _ => {
+            return Err(TypeError {
+                message: format!("invalid enum pattern path: {}", path),
+            });
+        }
+    };
 
     // Look up the enum definition
     let enum_type = env.enums.get(enum_name).ok_or_else(|| TypeError {
@@ -1721,7 +1924,7 @@ fn check_enum_pattern(
         .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, &instantiation)))
         .collect();
     let expected_enum_ty = Type::Enum {
-        name: enum_name.clone(),
+        name: enum_name.to_string(),
         type_args,
         variants: resolved_variants,
     };
@@ -1741,8 +1944,8 @@ fn check_enum_pattern(
     match (fields, variant_type) {
         (EnumPatternFields::Unit, EnumVariantType::Unit) => Ok((
             TypedPattern::EnumUnit {
-                enum_name: enum_name.clone(),
-                variant_name: variant_name.clone(),
+                enum_name: enum_name.to_string(),
+                variant_name: variant_name.to_string(),
             },
             HashMap::new(),
         )),
@@ -2591,7 +2794,7 @@ mod tests {
         assert_eq!(result.ty(), Type::Int);
     }
 
-    use crate::ast::{FunctionDef, Param, TypeAnnotation};
+    use crate::ast::{FunctionDef, Param, Path, TypeAnnotation};
     use crate::types::FunctionType;
 
     #[test]
@@ -2600,7 +2803,7 @@ mod tests {
         env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
 
         let mut ctx = UnifyCtx::new();
-        let expr = Expr::Var("x".to_string());
+        let expr = Expr::Path(Path::simple("x".to_string()));
         let result = check_with_env(&expr, &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
@@ -2609,7 +2812,7 @@ mod tests {
     fn test_check_unknown_variable() {
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let expr = Expr::Var("x".to_string());
+        let expr = Expr::Path(Path::simple("x".to_string()));
         let result = check_with_env(&expr, &env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("unknown variable"));
@@ -2624,8 +2827,8 @@ mod tests {
         let mut ctx = UnifyCtx::new();
         let expr = Expr::BinOp {
             op: BinOp::Add,
-            left: Box::new(Expr::Var("x".to_string())),
-            right: Box::new(Expr::Var("y".to_string())),
+            left: Box::new(Expr::Path(Path::simple("x".to_string()))),
+            right: Box::new(Expr::Path(Path::simple("y".to_string()))),
         };
         let result = check_with_env(&expr, &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int);
@@ -2646,7 +2849,7 @@ mod tests {
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Call {
-            func: "square".to_string(),
+            path: Path::simple("square".to_string()),
             args: vec![Expr::Int(5)],
         };
         let result = check_with_env(&expr, &env, &mut ctx).unwrap();
@@ -2668,7 +2871,7 @@ mod tests {
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Call {
-            func: "square".to_string(),
+            path: Path::simple("square".to_string()),
             args: vec![Expr::Float(5.0)],
         };
         let result = check_with_env(&expr, &env, &mut ctx);
@@ -2691,7 +2894,7 @@ mod tests {
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Call {
-            func: "add".to_string(),
+            path: Path::simple("add".to_string()),
             args: vec![Expr::Int(1)],
         };
         let result = check_with_env(&expr, &env, &mut ctx);
@@ -2718,7 +2921,7 @@ mod tests {
 
         // identity(42) should return Int
         let expr = Expr::Call {
-            func: "identity".to_string(),
+            path: Path::simple("identity".to_string()),
             args: vec![Expr::Int(42)],
         };
         let result = check_with_env(&expr, &env, &mut ctx).unwrap();
@@ -2744,7 +2947,7 @@ mod tests {
 
         // identity(3.14) should return Float
         let expr = Expr::Call {
-            func: "identity".to_string(),
+            path: Path::simple("identity".to_string()),
             args: vec![Expr::Float(3.14)],
         };
         let result = check_with_env(&expr, &env, &mut ctx).unwrap();
@@ -2765,8 +2968,8 @@ mod tests {
             return_type: Some(TypeAnnotation::Named("Int".to_string())),
             body: Expr::BinOp {
                 op: BinOp::Add,
-                left: Box::new(Expr::Var("x".to_string())),
-                right: Box::new(Expr::Var("x".to_string())),
+                left: Box::new(Expr::Path(Path::simple("x".to_string()))),
+                right: Box::new(Expr::Path(Path::simple("x".to_string()))),
             },
         };
 
@@ -2787,7 +2990,7 @@ mod tests {
                 typ: TypeAnnotation::Named("Int".to_string()),
             }],
             return_type: Some(TypeAnnotation::Named("Float".to_string())),
-            body: Expr::Var("x".to_string()), // Returns Int, not Float
+            body: Expr::Path(Path::simple("x".to_string())), // Returns Int, not Float
         };
 
         let result = check_function(&func, &env, &mut ctx);
@@ -2818,8 +3021,8 @@ mod tests {
             }],
             return_type: Some(TypeAnnotation::Named("Int".to_string())),
             body: Expr::Call {
-                func: "add".to_string(),
-                args: vec![Expr::Var("x".to_string()), Expr::Var("x".to_string())],
+                path: Path::simple("add".to_string()),
+                args: vec![Expr::Path(Path::simple("x".to_string())), Expr::Path(Path::simple("x".to_string()))],
             },
         };
 
@@ -3041,12 +3244,12 @@ mod tests {
                 return_type: Some(TypeAnnotation::Named("Int".to_string())),
                 body: Expr::BinOp {
                     op: BinOp::Add,
-                    left: Box::new(Expr::Var("x".to_string())),
-                    right: Box::new(Expr::Var("x".to_string())),
+                    left: Box::new(Expr::Path(Path::simple("x".to_string()))),
+                    right: Box::new(Expr::Path(Path::simple("x".to_string()))),
                 },
             })),
             Statement::Expr(Expr::Call {
-                func: "double".to_string(),
+                path: Path::simple("double".to_string()),
                 args: vec![Expr::Int(5)],
             }),
         ];
@@ -3083,7 +3286,7 @@ mod tests {
             }),
             Statement::Expr(Expr::BinOp {
                 op: BinOp::Add,
-                left: Box::new(Expr::Var("x".to_string())),
+                left: Box::new(Expr::Path(Path::simple("x".to_string()))),
                 right: Box::new(Expr::Int(1)),
             }),
         ];
@@ -3131,7 +3334,7 @@ mod tests {
             }],
             result: Box::new(Expr::BinOp {
                 op: BinOp::Add,
-                left: Box::new(Expr::Var("x".to_string())),
+                left: Box::new(Expr::Path(Path::simple("x".to_string()))),
                 right: Box::new(Expr::Int(2)),
             }),
         };
@@ -3153,15 +3356,15 @@ mod tests {
                     type_annotation: None,
                     value: Box::new(Expr::BinOp {
                         op: BinOp::Add,
-                        left: Box::new(Expr::Var("x".to_string())),
+                        left: Box::new(Expr::Path(Path::simple("x".to_string()))),
                         right: Box::new(Expr::Int(1)),
                     }),
                 },
             ],
             result: Box::new(Expr::BinOp {
                 op: BinOp::Add,
-                left: Box::new(Expr::Var("x".to_string())),
-                right: Box::new(Expr::Var("y".to_string())),
+                left: Box::new(Expr::Path(Path::simple("x".to_string()))),
+                right: Box::new(Expr::Path(Path::simple("y".to_string()))),
             }),
         };
         let result = check(&expr).unwrap();
@@ -3177,7 +3380,7 @@ mod tests {
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Match {
-            scrutinee: Box::new(Expr::Var("x".to_string())),
+            scrutinee: Box::new(Expr::Path(Path::simple("x".to_string()))),
             arms: vec![
                 MatchArm {
                     pattern: Pattern::Literal(Box::new(Expr::Int(0))),
@@ -3204,7 +3407,7 @@ mod tests {
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Match {
-            scrutinee: Box::new(Expr::Var("x".to_string())),
+            scrutinee: Box::new(Expr::Path(Path::simple("x".to_string()))),
             arms: vec![
                 MatchArm {
                     pattern: Pattern::Literal(Box::new(Expr::Int(0))),
@@ -3227,12 +3430,12 @@ mod tests {
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Match {
-            scrutinee: Box::new(Expr::Var("x".to_string())),
+            scrutinee: Box::new(Expr::Path(Path::simple("x".to_string()))),
             arms: vec![MatchArm {
                 pattern: Pattern::Var("n".to_string()),
                 result: Expr::BinOp {
                     op: BinOp::Add,
-                    left: Box::new(Expr::Var("n".to_string())),
+                    left: Box::new(Expr::Path(Path::simple("n".to_string()))),
                     right: Box::new(Expr::Int(1)),
                 },
             }],
@@ -3248,7 +3451,7 @@ mod tests {
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Match {
-            scrutinee: Box::new(Expr::Var("x".to_string())),
+            scrutinee: Box::new(Expr::Path(Path::simple("x".to_string()))),
             arms: vec![MatchArm {
                 pattern: Pattern::Literal(Box::new(Expr::String("hello".to_string()))),
                 result: Expr::Int(1),
@@ -3266,7 +3469,7 @@ mod tests {
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Match {
-            scrutinee: Box::new(Expr::Var("x".to_string())),
+            scrutinee: Box::new(Expr::Path(Path::simple("x".to_string()))),
             arms: vec![
                 MatchArm {
                     pattern: Pattern::Literal(Box::new(Expr::Int(0))),
@@ -3513,7 +3716,7 @@ mod tests {
                 params: vec![],
                 return_type: Some(TypeAnnotation::Named("Int".to_string())),
                 body: Expr::Call {
-                    func: "callee".to_string(),
+                    path: Path::simple("callee".to_string()),
                     args: vec![],
                 },
             })),
@@ -3550,7 +3753,7 @@ mod tests {
                 }],
                 return_type: Some(TypeAnnotation::Named("Bool".to_string())),
                 body: Expr::Match {
-                    scrutinee: Box::new(Expr::Var("n".to_string())),
+                    scrutinee: Box::new(Expr::Path(Path::simple("n".to_string()))),
                     arms: vec![
                         MatchArm {
                             pattern: Pattern::Literal(Box::new(Expr::Int(0))),
@@ -3559,10 +3762,10 @@ mod tests {
                         MatchArm {
                             pattern: Pattern::Wildcard,
                             result: Expr::Call {
-                                func: "is_odd".to_string(),
+                                path: Path::simple("is_odd".to_string()),
                                 args: vec![Expr::BinOp {
                                     op: BinOp::Sub,
-                                    left: Box::new(Expr::Var("n".to_string())),
+                                    left: Box::new(Expr::Path(Path::simple("n".to_string()))),
                                     right: Box::new(Expr::Int(1)),
                                 }],
                             },
@@ -3579,7 +3782,7 @@ mod tests {
                 }],
                 return_type: Some(TypeAnnotation::Named("Bool".to_string())),
                 body: Expr::Match {
-                    scrutinee: Box::new(Expr::Var("n".to_string())),
+                    scrutinee: Box::new(Expr::Path(Path::simple("n".to_string()))),
                     arms: vec![
                         MatchArm {
                             pattern: Pattern::Literal(Box::new(Expr::Int(0))),
@@ -3588,10 +3791,10 @@ mod tests {
                         MatchArm {
                             pattern: Pattern::Wildcard,
                             result: Expr::Call {
-                                func: "is_even".to_string(),
+                                path: Path::simple("is_even".to_string()),
                                 args: vec![Expr::BinOp {
                                     op: BinOp::Sub,
-                                    left: Box::new(Expr::Var("n".to_string())),
+                                    left: Box::new(Expr::Path(Path::simple("n".to_string()))),
                                     right: Box::new(Expr::Int(1)),
                                 }],
                             },
@@ -3624,13 +3827,13 @@ mod tests {
                 params: vec![],
                 return_type: Some(TypeAnnotation::Named("Int".to_string())),
                 body: Expr::Call {
-                    func: "f1".to_string(),
+                    path: Path::simple("f1".to_string()),
                     args: vec![],
                 },
             })),
             Statement::Expr(Expr::BinOp {
                 op: BinOp::Add,
-                left: Box::new(Expr::Var("x".to_string())),
+                left: Box::new(Expr::Path(Path::simple("x".to_string()))),
                 right: Box::new(Expr::Int(1)),
             }),
             Statement::Item(Item::Function(FunctionDef {
@@ -3669,7 +3872,7 @@ mod tests {
                 type_params: vec![],
                 params: vec![],
                 return_type: Some(TypeAnnotation::Named("Int".to_string())),
-                body: Expr::Var("x".to_string()),
+                body: Expr::Path(Path::simple("x".to_string())),
             })),
         ];
         let result = check_repl(&stmts, &mut env);
@@ -3695,7 +3898,7 @@ mod tests {
             }],
             return_type: Some(TypeAnnotation::Named("Int".to_string())),
             body: Expr::Match {
-                scrutinee: Box::new(Expr::Var("n".to_string())),
+                scrutinee: Box::new(Expr::Path(Path::simple("n".to_string()))),
                 arms: vec![
                     MatchArm {
                         pattern: Pattern::Literal(Box::new(Expr::Int(0))),
@@ -3705,12 +3908,12 @@ mod tests {
                         pattern: Pattern::Wildcard,
                         result: Expr::BinOp {
                             op: BinOp::Mul,
-                            left: Box::new(Expr::Var("n".to_string())),
+                            left: Box::new(Expr::Path(Path::simple("n".to_string()))),
                             right: Box::new(Expr::Call {
-                                func: "factorial".to_string(),
+                                path: Path::simple("factorial".to_string()),
                                 args: vec![Expr::BinOp {
                                     op: BinOp::Sub,
-                                    left: Box::new(Expr::Var("n".to_string())),
+                                    left: Box::new(Expr::Path(Path::simple("n".to_string()))),
                                     right: Box::new(Expr::Int(1)),
                                 }],
                             }),

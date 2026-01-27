@@ -1,10 +1,10 @@
 use chumsky::prelude::*;
 
 use crate::ast::{
-    BinOp, EnumConstructFields, EnumDef, EnumPattern, EnumPatternFields, EnumVariant,
-    EnumVariantKind, Expr, FunctionDef, Item, LambdaParam, LetBinding, ListPattern, MatchArm,
-    Param, Pattern, Statement, StructDef, StructFieldDef, StructFieldPattern, StructPattern,
-    TuplePattern, TypeAnnotation, UnaryOp,
+    BinOp, EnumDef, EnumPattern, EnumPatternFields, EnumVariant, EnumVariantKind, Expr,
+    FunctionDef, Item, LambdaParam, LetBinding, ListPattern, MatchArm, Param, Path, Pattern,
+    Statement, StructDef, StructFieldDef, StructFieldPattern, StructPattern, TuplePattern,
+    TypeAnnotation, UnaryOp,
 };
 use crate::lexer::Token;
 
@@ -529,10 +529,11 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                         })
                         .collect();
 
+                    let path = Path::simple(name);
                     if has_rest {
-                        Ok(Pattern::Struct(StructPattern::Partial { name, fields }))
+                        Ok(Pattern::Struct(StructPattern::Partial { path, fields }))
                     } else {
-                        Ok(Pattern::Struct(StructPattern::Exact { name, fields }))
+                        Ok(Pattern::Struct(StructPattern::Exact { path, fields }))
                     }
                 });
 
@@ -649,11 +650,10 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                 )
                 .map(|((enum_name, variant_name), fields)| {
                     let fields = fields.unwrap_or(EnumPatternFields::Unit);
-                    Pattern::Enum(EnumPattern {
-                        enum_name,
-                        variant_name,
-                        fields,
-                    })
+                    let path = Path {
+                        segments: vec![enum_name, variant_name],
+                    };
+                    Pattern::Enum(EnumPattern { path, fields })
                 });
 
             // enum_pattern must come before struct_pattern to match :: first
@@ -733,7 +733,7 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
         let struct_field = ident()
             .then(just(Token::Colon).ignore_then(expr.clone()).or_not())
             .map(|(name, value)| {
-                let value = value.unwrap_or_else(|| Expr::Var(name.clone()));
+                let value = value.unwrap_or_else(|| Expr::Path(Path::simple(name.clone())));
                 (name, value)
             });
 
@@ -744,56 +744,33 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
             .collect::<Vec<_>>()
             .delimited_by(just(Token::LBrace), just(Token::RBrace));
 
-        // What can follow an identifier
+        // Path parser: `foo` or `Foo::Bar` or `Mod::Type::variant`
+        let path = ident()
+            .separated_by(just(Token::ColonColon))
+            .at_least(1)
+            .collect::<Vec<_>>()
+            .map(|segments| Path { segments });
+
+        // What can follow a path
         #[derive(Clone)]
-        enum IdentSuffix {
+        enum PathSuffix {
             Call(Vec<Expr>),
             Struct(Vec<(String, Expr)>),
         }
 
-        // Identifier: variable, function call, or struct constructor
-        let ident_expr = ident()
+        // Path expression: variable, function call, struct/enum constructor
+        let path_expr = path
             .then(
                 choice((
-                    args.clone().map(IdentSuffix::Call),
-                    struct_fields.clone().map(IdentSuffix::Struct),
+                    args.clone().map(PathSuffix::Call),
+                    struct_fields.clone().map(PathSuffix::Struct),
                 ))
                 .or_not(),
             )
-            .map(|(name, suffix)| match suffix {
-                Some(IdentSuffix::Call(args)) => Expr::Call { func: name, args },
-                Some(IdentSuffix::Struct(fields)) => Expr::StructConstruct { name, fields },
-                None => Expr::Var(name),
-            });
-
-        // Enum construction: Enum::Variant, Enum::Variant(args), Enum::Variant { fields }
-        #[derive(Clone)]
-        enum EnumSuffix {
-            Tuple(Vec<Expr>),
-            Struct(Vec<(String, Expr)>),
-        }
-
-        let enum_construct = ident()
-            .then_ignore(just(Token::ColonColon))
-            .then(ident())
-            .then(
-                choice((
-                    args.clone().map(EnumSuffix::Tuple),
-                    struct_fields.clone().map(EnumSuffix::Struct),
-                ))
-                .or_not(),
-            )
-            .map(|((enum_name, variant_name), suffix)| {
-                let fields = match suffix {
-                    None => EnumConstructFields::Unit,
-                    Some(EnumSuffix::Tuple(exprs)) => EnumConstructFields::Tuple(exprs),
-                    Some(EnumSuffix::Struct(fields)) => EnumConstructFields::Struct(fields),
-                };
-                Expr::EnumConstruct {
-                    enum_name,
-                    variant_name,
-                    fields,
-                }
+            .map(|(path, suffix)| match suffix {
+                Some(PathSuffix::Call(args)) => Expr::Call { path, args },
+                Some(PathSuffix::Struct(fields)) => Expr::Struct { path, fields },
+                None => Expr::Path(path),
             });
 
         // Empty tuple: ()
@@ -897,8 +874,7 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
             literal,
             list_literal,
             match_expr,
-            enum_construct, // Must come before ident_expr to match :: first
-            ident_expr,
+            path_expr,
             empty_tuple,
             paren_or_tuple,
         ));
@@ -1268,7 +1244,7 @@ mod tests {
     #[test]
     fn test_parse_variable() {
         let expr = parse_str("x").unwrap();
-        assert_eq!(expr, Expr::Var("x".to_string()));
+        assert_eq!(expr, Expr::Path(Path::simple("x".to_string())));
     }
 
     #[test]
@@ -1278,8 +1254,8 @@ mod tests {
             expr,
             Expr::BinOp {
                 op: BinOp::Add,
-                left: Box::new(Expr::Var("x".to_string())),
-                right: Box::new(Expr::Var("y".to_string())),
+                left: Box::new(Expr::Path(Path::simple("x".to_string()))),
+                right: Box::new(Expr::Path(Path::simple("y".to_string()))),
             }
         );
     }
@@ -1290,7 +1266,7 @@ mod tests {
         assert_eq!(
             expr,
             Expr::Call {
-                func: "foo".to_string(),
+                path: Path::simple("foo".to_string()),
                 args: vec![],
             }
         );
@@ -1302,7 +1278,7 @@ mod tests {
         assert_eq!(
             expr,
             Expr::Call {
-                func: "square".to_string(),
+                path: Path::simple("square".to_string()),
                 args: vec![Expr::Int(5)],
             }
         );
@@ -1314,7 +1290,7 @@ mod tests {
         assert_eq!(
             expr,
             Expr::Call {
-                func: "add".to_string(),
+                path: Path::simple("add".to_string()),
                 args: vec![Expr::Int(1), Expr::Int(2)],
             }
         );
@@ -1326,7 +1302,7 @@ mod tests {
         assert_eq!(
             expr,
             Expr::Call {
-                func: "add".to_string(),
+                path: Path::simple("add".to_string()),
                 args: vec![
                     Expr::BinOp {
                         op: BinOp::Add,
@@ -1335,7 +1311,7 @@ mod tests {
                     },
                     Expr::BinOp {
                         op: BinOp::Mul,
-                        left: Box::new(Expr::Var("x".to_string())),
+                        left: Box::new(Expr::Path(Path::simple("x".to_string()))),
                         right: Box::new(Expr::Int(3)),
                     },
                 ],
@@ -1349,9 +1325,9 @@ mod tests {
         assert_eq!(
             expr,
             Expr::Call {
-                func: "foo".to_string(),
+                path: Path::simple("foo".to_string()),
                 args: vec![Expr::Call {
-                    func: "bar".to_string(),
+                    path: Path::simple("bar".to_string()),
                     args: vec![Expr::Int(1)],
                 }],
             }
@@ -1367,7 +1343,7 @@ mod tests {
                 op: BinOp::Add,
                 left: Box::new(Expr::Int(1)),
                 right: Box::new(Expr::Call {
-                    func: "square".to_string(),
+                    path: Path::simple("square".to_string()),
                     args: vec![Expr::Int(2)],
                 }),
             }
@@ -1432,8 +1408,8 @@ mod tests {
                 return_type: Some(TypeAnnotation::Named("Int".to_string())),
                 body: Expr::BinOp {
                     op: BinOp::Add,
-                    left: Box::new(Expr::Var("x".to_string())),
-                    right: Box::new(Expr::Var("y".to_string())),
+                    left: Box::new(Expr::Path(Path::simple("x".to_string()))),
+                    right: Box::new(Expr::Path(Path::simple("y".to_string()))),
                 },
             })
         );
@@ -1452,7 +1428,7 @@ mod tests {
                     typ: TypeAnnotation::Named("T".to_string()),
                 }],
                 return_type: Some(TypeAnnotation::Named("T".to_string())),
-                body: Expr::Var("x".to_string()),
+                body: Expr::Path(Path::simple("x".to_string())),
             })
         );
     }
@@ -1476,7 +1452,7 @@ mod tests {
                     },
                 ],
                 return_type: None,
-                body: Expr::Var("a".to_string()),
+                body: Expr::Path(Path::simple("a".to_string())),
             })
         );
     }
@@ -1495,8 +1471,8 @@ mod tests {
                 }],
                 return_type: Some(TypeAnnotation::Named("Int".to_string())),
                 body: Expr::Call {
-                    func: "add".to_string(),
-                    args: vec![Expr::Var("x".to_string()), Expr::Var("x".to_string()),],
+                    path: Path::simple("add".to_string()),
+                    args: vec![Expr::Path(Path::simple("x".to_string())), Expr::Path(Path::simple("x".to_string())),],
                 },
             })
         );
@@ -1802,8 +1778,8 @@ mod tests {
                 return_type: Some(TypeAnnotation::Named("Int".to_string())),
                 body: Expr::BinOp {
                     op: BinOp::Add,
-                    left: Box::new(Expr::Var("x".to_string())),
-                    right: Box::new(Expr::Var("y".to_string())),
+                    left: Box::new(Expr::Path(Path::simple("x".to_string()))),
+                    right: Box::new(Expr::Path(Path::simple("y".to_string()))),
                 },
             })
         );
@@ -1823,7 +1799,7 @@ mod tests {
     fn test_parse_match_with_literals() {
         let expr = parse_str("match x { 0 => 1, 1 => 2 }").unwrap();
         if let Expr::Match { scrutinee, arms } = expr {
-            assert!(matches!(*scrutinee, Expr::Var(ref s) if s == "x"));
+            assert!(matches!(*scrutinee, Expr::Path(ref p) if p.as_simple() == Some("x")));
             assert_eq!(arms.len(), 2);
             assert!(matches!(
                 &arms[0],
@@ -1861,7 +1837,7 @@ mod tests {
         if let Expr::Match { arms, .. } = expr {
             assert_eq!(arms.len(), 1);
             assert!(matches!(&arms[0].pattern, Pattern::Var(s) if s == "n"));
-            assert!(matches!(&arms[0].result, Expr::Var(s) if s == "n"));
+            assert!(matches!(&arms[0].result, Expr::Path(p) if p.as_simple() == Some("n")));
         } else {
             panic!("expected match expression");
         }
@@ -1951,7 +1927,7 @@ mod tests {
                 receiver,
                 method,
                 args,
-            } if matches!(*receiver, Expr::Var(ref name) if name == "s")
+            } if matches!(*receiver, Expr::Path(ref p) if p.as_simple() == Some("s"))
                 && method == "trim"
                 && args.is_empty()
         ));
@@ -2359,11 +2335,11 @@ mod tests {
                 assert_eq!(bindings[0].name, "doubled");
                 // The binding value should reference 'n' from the pattern
                 if let Expr::BinOp { left, .. } = &*bindings[0].value {
-                    assert!(matches!(**left, Expr::Var(ref s) if s == "n"));
+                    assert!(matches!(**left, Expr::Path(ref p) if p.as_simple() == Some("n")));
                 }
                 // The result should reference 'doubled'
                 if let Expr::BinOp { left, .. } = &**result {
-                    assert!(matches!(**left, Expr::Var(ref s) if s == "doubled"));
+                    assert!(matches!(**left, Expr::Path(ref p) if p.as_simple() == Some("doubled")));
                 }
             } else {
                 panic!("expected block expression");
@@ -2629,20 +2605,20 @@ mod tests {
         let expr = parse_str("Point { x: 1, y: 2 }").unwrap();
         assert!(matches!(
             expr,
-            Expr::StructConstruct { name, fields }
-            if name == "Point" && fields.len() == 2
+            Expr::Struct { path, fields }
+            if path.as_simple() == Some("Point") && fields.len() == 2
         ));
     }
 
     #[test]
     fn test_parse_struct_construct_shorthand() {
         let expr = parse_str("Point { x, y }").unwrap();
-        if let Expr::StructConstruct { name, fields } = expr {
-            assert_eq!(name, "Point");
+        if let Expr::Struct { path, fields } = expr {
+            assert_eq!(path.as_simple(), Some("Point"));
             assert_eq!(fields.len(), 2);
             // Shorthand: x means x: x
             assert_eq!(fields[0].0, "x");
-            assert!(matches!(&fields[0].1, Expr::Var(n) if n == "x"));
+            assert!(matches!(&fields[0].1, Expr::Path(p) if p.as_simple() == Some("x")));
         } else {
             panic!("expected struct construct");
         }
@@ -2653,8 +2629,8 @@ mod tests {
         let expr = parse_str("Empty {}").unwrap();
         assert!(matches!(
             expr,
-            Expr::StructConstruct { name, fields }
-            if name == "Empty" && fields.is_empty()
+            Expr::Struct { path, fields }
+            if path.as_simple() == Some("Empty") && fields.is_empty()
         ));
     }
 
@@ -2689,8 +2665,8 @@ mod tests {
         if let Expr::Match { arms, .. } = expr {
             assert!(matches!(
                 &arms[0].pattern,
-                Pattern::Struct(StructPattern::Exact { name, fields })
-                if name == "Point" && fields.len() == 2
+                Pattern::Struct(StructPattern::Exact { path, fields })
+                if path.as_simple() == Some("Point") && fields.len() == 2
             ));
         } else {
             panic!("expected match");
@@ -2703,8 +2679,8 @@ mod tests {
         if let Expr::Match { arms, .. } = expr {
             assert!(matches!(
                 &arms[0].pattern,
-                Pattern::Struct(StructPattern::Partial { name, fields })
-                if name == "Point" && fields.len() == 1
+                Pattern::Struct(StructPattern::Partial { path, fields })
+                if path.as_simple() == Some("Point") && fields.len() == 1
             ));
         } else {
             panic!("expected match");
@@ -2715,8 +2691,8 @@ mod tests {
     fn test_parse_struct_pattern_with_binding() {
         let expr = parse_str("match p { Point { x: a, y: b } => a }").unwrap();
         if let Expr::Match { arms, .. } = expr {
-            if let Pattern::Struct(StructPattern::Exact { name, fields }) = &arms[0].pattern {
-                assert_eq!(name, "Point");
+            if let Pattern::Struct(StructPattern::Exact { path, fields }) = &arms[0].pattern {
+                assert_eq!(path.as_simple(), Some("Point"));
                 assert_eq!(fields.len(), 2);
                 assert_eq!(fields[0].field_name, "x");
                 assert!(matches!(&*fields[0].pattern, Pattern::Var(n) if n == "a"));
