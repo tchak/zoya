@@ -18,7 +18,8 @@
       "Bash(find:*)",
       "Bash(ls:*)",
       "Bash(cat:*)",
-      "WebFetch(domain:docs.rs)"
+      "WebFetch(domain:docs.rs)",
+      "WebFetch(domain:internals.rust-lang.org)"
     ]
   }
 }

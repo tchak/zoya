@@ -56,7 +56,7 @@ impl State {
         Ok(State {
             structs: HashMap::new(),
             enums: HashMap::new(),
-            type_env: TypeEnv::default(),
+            type_env: TypeEnv::with_builtins(),
             runtime,
             context,
         })

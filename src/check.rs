@@ -27,6 +27,14 @@ pub struct TypeEnv {
 }
 
 impl TypeEnv {
+    /// Create a TypeEnv with built-in types (Option, Result)
+    pub fn with_builtins() -> Self {
+        TypeEnv {
+            enums: builtin_enums(),
+            ..Default::default()
+        }
+    }
+
     pub fn with_locals(&self, locals: HashMap<String, TypeScheme>) -> Self {
         TypeEnv {
             functions: self.functions.clone(),
@@ -2286,7 +2294,7 @@ fn check_let_binding(
 /// Check a file's items (functions, structs, and enums), returning checked items
 pub fn check_file(items: &[Item]) -> Result<Vec<CheckedItem>, TypeError> {
     let mut ctx = UnifyCtx::new();
-    let mut env = TypeEnv::default();
+    let mut env = TypeEnv::with_builtins();
 
     // Phase 1a: Register all struct names with placeholder types
     // This allows structs to reference each other
@@ -2613,6 +2621,58 @@ pub fn check_repl(
     // Phase 6: Sort by original index to preserve input order
     results.sort_by_key(|(idx, _)| *idx);
     Ok(results.into_iter().map(|(_, stmt)| stmt).collect())
+}
+
+/// Create built-in enum types (Option, Result)
+///
+/// Uses high type variable IDs (1_000_000+) to avoid conflicts with
+/// normal type checking which starts from 0.
+fn builtin_enums() -> HashMap<String, EnumType> {
+    let mut enums = HashMap::new();
+
+    // Option<T> { None, Some(T) }
+    // Type var ID 1_000_000 for T
+    let option_t_id = TypeVarId(1_000_000);
+    enums.insert(
+        "Option".to_string(),
+        EnumType {
+            name: "Option".to_string(),
+            type_params: vec!["T".to_string()],
+            type_var_ids: vec![option_t_id],
+            variants: vec![
+                ("None".to_string(), EnumVariantType::Unit),
+                (
+                    "Some".to_string(),
+                    EnumVariantType::Tuple(vec![Type::Var(option_t_id)]),
+                ),
+            ],
+        },
+    );
+
+    // Result<T, E> { Ok(T), Err(E) }
+    // Type var ID 1_000_001 for T, 1_000_002 for E
+    let result_t_id = TypeVarId(1_000_001);
+    let result_e_id = TypeVarId(1_000_002);
+    enums.insert(
+        "Result".to_string(),
+        EnumType {
+            name: "Result".to_string(),
+            type_params: vec!["T".to_string(), "E".to_string()],
+            type_var_ids: vec![result_t_id, result_e_id],
+            variants: vec![
+                (
+                    "Ok".to_string(),
+                    EnumVariantType::Tuple(vec![Type::Var(result_t_id)]),
+                ),
+                (
+                    "Err".to_string(),
+                    EnumVariantType::Tuple(vec![Type::Var(result_e_id)]),
+                ),
+            ],
+        },
+    );
+
+    enums
 }
 
 #[cfg(test)]
