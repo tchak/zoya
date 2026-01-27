@@ -259,7 +259,7 @@ mod tests {
     fn test_repl_simple_expression() {
         let mut state = State::new().unwrap();
         let results = state.eval("42").unwrap();
-        assert_eq!(results, vec![ReplResult::Expression(Value::Int32(42))]);
+        assert_eq!(results, vec![ReplResult::Expression(Value::Int(42))]);
     }
 
     #[test]
@@ -290,14 +290,14 @@ mod tests {
     fn test_repl_arithmetic() {
         let mut state = State::new().unwrap();
         let results = state.eval("1 + 2 * 3").unwrap();
-        assert_eq!(results, vec![ReplResult::Expression(Value::Int32(7))]);
+        assert_eq!(results, vec![ReplResult::Expression(Value::Int(7))]);
     }
 
     #[test]
     fn test_repl_function_definition() {
         let mut state = State::new().unwrap();
         let results = state
-            .eval("fn add(x: Int32, y: Int32) -> Int32 { x + y }")
+            .eval("fn add(x: Int, y: Int) -> Int { x + y }")
             .unwrap();
         assert_eq!(
             results,
@@ -312,7 +312,7 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert!(matches!(
             &results[0],
-            ReplResult::LetBinding { name, ty } if name == "x" && *ty == Type::Int32
+            ReplResult::LetBinding { name, ty } if name == "x" && *ty == Type::Int
         ));
     }
 
@@ -322,24 +322,24 @@ mod tests {
         state.eval("let x = 10").unwrap();
         state.eval("let y = 20").unwrap();
         let results = state.eval("x + y").unwrap();
-        assert_eq!(results, vec![ReplResult::Expression(Value::Int32(30))]);
+        assert_eq!(results, vec![ReplResult::Expression(Value::Int(30))]);
     }
 
     #[test]
     fn test_repl_function_call() {
         let mut state = State::new().unwrap();
         state
-            .eval("fn double(n: Int32) -> Int32 { n * 2 }")
+            .eval("fn double(n: Int) -> Int { n * 2 }")
             .unwrap();
         let results = state.eval("double(21)").unwrap();
-        assert_eq!(results, vec![ReplResult::Expression(Value::Int32(42))]);
+        assert_eq!(results, vec![ReplResult::Expression(Value::Int(42))]);
     }
 
     #[test]
     fn test_repl_forward_reference() {
         let mut state = State::new().unwrap();
         let results = state
-            .eval("fn caller() -> Int32 { callee() } fn callee() -> Int32 { 42 }")
+            .eval("fn caller() -> Int { callee() } fn callee() -> Int { 42 }")
             .unwrap();
         assert_eq!(results.len(), 2);
         assert!(matches!(&results[0], ReplResult::FunctionDefined(name) if name == "caller"));
@@ -347,7 +347,7 @@ mod tests {
 
         // Call caller to verify it works
         let results = state.eval("caller()").unwrap();
-        assert_eq!(results, vec![ReplResult::Expression(Value::Int32(42))]);
+        assert_eq!(results, vec![ReplResult::Expression(Value::Int(42))]);
     }
 
     #[test]
@@ -356,8 +356,8 @@ mod tests {
         state
             .eval(
                 r#"
-            fn is_even(n: Int32) -> Bool { match n { 0 => true, _ => is_odd(n - 1) } }
-            fn is_odd(n: Int32) -> Bool { match n { 0 => false, _ => is_even(n - 1) } }
+            fn is_even(n: Int) -> Bool { match n { 0 => true, _ => is_odd(n - 1) } }
+            fn is_odd(n: Int) -> Bool { match n { 0 => false, _ => is_even(n - 1) } }
         "#,
             )
             .unwrap();
@@ -396,7 +396,7 @@ mod tests {
         assert_eq!(results.len(), 3);
         assert!(matches!(&results[0], ReplResult::LetBinding { name, .. } if name == "a"));
         assert!(matches!(&results[1], ReplResult::LetBinding { name, .. } if name == "b"));
-        assert_eq!(results[2], ReplResult::Expression(Value::Int32(3)));
+        assert_eq!(results[2], ReplResult::Expression(Value::Int(3)));
     }
 
     #[test]
@@ -416,21 +416,21 @@ mod tests {
     #[test]
     fn test_repl_function_redefine() {
         let mut state = State::new().unwrap();
-        state.eval("fn f() -> Int32 { 1 }").unwrap();
+        state.eval("fn f() -> Int { 1 }").unwrap();
         let results = state.eval("f()").unwrap();
-        assert_eq!(results, vec![ReplResult::Expression(Value::Int32(1))]);
+        assert_eq!(results, vec![ReplResult::Expression(Value::Int(1))]);
 
         // Redefine function
-        state.eval("fn f() -> Int32 { 2 }").unwrap();
+        state.eval("fn f() -> Int { 2 }").unwrap();
         let results = state.eval("f()").unwrap();
-        assert_eq!(results, vec![ReplResult::Expression(Value::Int32(2))]);
+        assert_eq!(results, vec![ReplResult::Expression(Value::Int(2))]);
     }
 
     #[test]
     fn test_repl_method_call() {
         let mut state = State::new().unwrap();
         let results = state.eval(r#""hello".len()"#).unwrap();
-        assert_eq!(results, vec![ReplResult::Expression(Value::Int32(5))]);
+        assert_eq!(results, vec![ReplResult::Expression(Value::Int(5))]);
     }
 
     #[test]
@@ -440,9 +440,9 @@ mod tests {
         assert_eq!(
             results,
             vec![ReplResult::Expression(Value::List(vec![
-                Value::Int32(1),
-                Value::Int32(2),
-                Value::Int32(3)
+                Value::Int(1),
+                Value::Int(2),
+                Value::Int(3)
             ]))]
         );
     }
@@ -454,7 +454,7 @@ mod tests {
         assert_eq!(
             results,
             vec![ReplResult::Expression(Value::Tuple(vec![
-                Value::Int32(1),
+                Value::Int(1),
                 Value::Bool(true)
             ]))]
         );
@@ -470,7 +470,7 @@ mod tests {
     #[test]
     fn test_repl_struct_definition() {
         let mut state = State::new().unwrap();
-        let results = state.eval("struct Point { x: Int32, y: Int32 }").unwrap();
+        let results = state.eval("struct Point { x: Int, y: Int }").unwrap();
         assert_eq!(
             results,
             vec![ReplResult::StructDefined("Point".to_string())]
@@ -480,15 +480,15 @@ mod tests {
     #[test]
     fn test_repl_struct_construction() {
         let mut state = State::new().unwrap();
-        state.eval("struct Point { x: Int32, y: Int32 }").unwrap();
+        state.eval("struct Point { x: Int, y: Int }").unwrap();
         let results = state.eval("Point { x: 10, y: 20 }").unwrap();
         assert_eq!(
             results,
             vec![ReplResult::Expression(Value::Struct {
                 name: "Point".to_string(),
                 fields: vec![
-                    ("x".to_string(), Value::Int32(10)),
-                    ("y".to_string(), Value::Int32(20)),
+                    ("x".to_string(), Value::Int(10)),
+                    ("y".to_string(), Value::Int(20)),
                 ],
             })]
         );
@@ -497,18 +497,18 @@ mod tests {
     #[test]
     fn test_repl_struct_field_access() {
         let mut state = State::new().unwrap();
-        state.eval("struct Point { x: Int32, y: Int32 }").unwrap();
+        state.eval("struct Point { x: Int, y: Int }").unwrap();
         state.eval("let p = Point { x: 10, y: 20 }").unwrap();
         let results = state.eval("p.x").unwrap();
-        assert_eq!(results, vec![ReplResult::Expression(Value::Int32(10))]);
+        assert_eq!(results, vec![ReplResult::Expression(Value::Int(10))]);
     }
 
     #[test]
     fn test_repl_struct_pattern_match() {
         let mut state = State::new().unwrap();
-        state.eval("struct Point { x: Int32, y: Int32 }").unwrap();
+        state.eval("struct Point { x: Int, y: Int }").unwrap();
         state.eval("let p = Point { x: 10, y: 20 }").unwrap();
         let results = state.eval("match p { Point { x, y } => x + y }").unwrap();
-        assert_eq!(results, vec![ReplResult::Expression(Value::Int32(30))]);
+        assert_eq!(results, vec![ReplResult::Expression(Value::Int(30))]);
     }
 }

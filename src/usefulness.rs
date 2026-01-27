@@ -195,7 +195,7 @@ impl Constructor {
                 } else {
                     let elem_types = match ty {
                         Type::Tuple(ts) => ts.clone(),
-                        _ => vec![Type::Int32; *n], // fallback
+                        _ => vec![Type::Int; *n], // fallback
                     };
                     let arg_strs: Vec<String> = args
                         .iter()
@@ -300,7 +300,7 @@ impl TypeCtors {
                 base_ctors: vec![Constructor::ListNil, Constructor::ListCons],
             },
             Type::Tuple(elems) => TypeCtors::Finite(vec![Constructor::Tuple(elems.len())]),
-            Type::Int32 | Type::Int64 | Type::Float | Type::String => TypeCtors::Infinite,
+            Type::Int | Type::BigInt | Type::Float | Type::String => TypeCtors::Infinite,
             Type::Var(_) | Type::Function { .. } => TypeCtors::Infinite, // Conservative
             Type::Struct { name, fields, .. } => {
                 // Structs have exactly one constructor
@@ -396,8 +396,8 @@ impl Pat {
                 let ctor = match lit {
                     TypedExpr::Bool(true) => Constructor::True,
                     TypedExpr::Bool(false) => Constructor::False,
-                    TypedExpr::Int32(n) => Constructor::IntLiteral(*n as i64),
-                    TypedExpr::Int64(n) => Constructor::IntLiteral(*n),
+                    TypedExpr::Int(n) => Constructor::IntLiteral(*n),
+                    TypedExpr::BigInt(n) => Constructor::IntLiteral(*n),
                     TypedExpr::Float(f) => Constructor::FloatLiteral(OrderedFloat(*f)),
                     TypedExpr::String(s) => Constructor::StringLiteral(s.clone()),
                     _ => return Pat::Wild, // Fallback for complex expressions
@@ -454,7 +454,7 @@ impl Pat {
             TypedPattern::TupleExact { patterns, len } => {
                 let elem_types = match ty {
                     Type::Tuple(ts) => ts.clone(),
-                    _ => vec![Type::Int32; *len], // fallback
+                    _ => vec![Type::Int; *len], // fallback
                 };
                 let sub_pats: Vec<Pat> = patterns
                     .iter()
@@ -748,7 +748,7 @@ impl Pat {
     fn list_exact_to_cons(patterns: &[TypedPattern], ty: &Type) -> Pat {
         let elem_ty = match ty {
             Type::List(e) => (**e).clone(),
-            _ => Type::Int32, // Fallback
+            _ => Type::Int, // Fallback
         };
 
         let mut result = Pat::Ctor(Constructor::ListNil, vec![]);
@@ -763,7 +763,7 @@ impl Pat {
     fn list_prefix_to_cons(patterns: &[TypedPattern], ty: &Type) -> Pat {
         let elem_ty = match ty {
             Type::List(e) => (**e).clone(),
-            _ => Type::Int32,
+            _ => Type::Int,
         };
 
         let mut result = Pat::Wild; // Tail is wildcard
@@ -788,7 +788,7 @@ impl Pat {
     fn expand_tuple_pattern_prefix(patterns: &[TypedPattern], total_len: usize, ty: &Type) -> Pat {
         let elem_types = match ty {
             Type::Tuple(ts) => ts.clone(),
-            _ => vec![Type::Int32; total_len],
+            _ => vec![Type::Int; total_len],
         };
 
         let mut sub_pats = Vec::with_capacity(total_len);
@@ -806,7 +806,7 @@ impl Pat {
     fn expand_tuple_pattern_suffix(patterns: &[TypedPattern], total_len: usize, ty: &Type) -> Pat {
         let elem_types = match ty {
             Type::Tuple(ts) => ts.clone(),
-            _ => vec![Type::Int32; total_len],
+            _ => vec![Type::Int; total_len],
         };
 
         let prefix_wilds = total_len - patterns.len();
@@ -831,7 +831,7 @@ impl Pat {
     ) -> Pat {
         let elem_types = match ty {
             Type::Tuple(ts) => ts.clone(),
-            _ => vec![Type::Int32; total_len],
+            _ => vec![Type::Int; total_len],
         };
 
         let middle_wilds = total_len - prefix.len() - suffix.len();
@@ -863,7 +863,7 @@ impl Pat {
 fn flatten_list_pattern(pat: &Pat, ty: &Type) -> String {
     let elem_ty = match ty {
         Type::List(e) => (**e).clone(),
-        _ => Type::Int32,
+        _ => Type::Int,
     };
 
     let mut elements = vec![];
@@ -1321,14 +1321,14 @@ mod tests {
     fn make_bool_arm(val: bool) -> TypedMatchArm {
         TypedMatchArm {
             pattern: TypedPattern::Literal(TypedExpr::Bool(val)),
-            result: TypedExpr::Int32(0),
+            result: TypedExpr::Int(0),
         }
     }
 
     fn make_wildcard_arm() -> TypedMatchArm {
         TypedMatchArm {
             pattern: TypedPattern::Wildcard,
-            result: TypedExpr::Int32(0),
+            result: TypedExpr::Int(0),
         }
     }
 
@@ -1338,14 +1338,14 @@ mod tests {
                 name: name.to_string(),
                 ty,
             },
-            result: TypedExpr::Int32(0),
+            result: TypedExpr::Int(0),
         }
     }
 
     fn make_list_empty_arm() -> TypedMatchArm {
         TypedMatchArm {
             pattern: TypedPattern::ListEmpty,
-            result: TypedExpr::Int32(0),
+            result: TypedExpr::Int(0),
         }
     }
 
@@ -1353,7 +1353,7 @@ mod tests {
         let patterns: Vec<TypedPattern> = (0..len)
             .map(|i| TypedPattern::Var {
                 name: format!("x{}", i),
-                ty: Type::Int32,
+                ty: Type::Int,
             })
             .collect();
         TypedMatchArm {
@@ -1361,7 +1361,7 @@ mod tests {
                 patterns,
                 min_len: len,
             },
-            result: TypedExpr::Int32(0),
+            result: TypedExpr::Int(0),
         }
     }
 
@@ -1412,25 +1412,25 @@ mod tests {
     #[test]
     fn test_list_exhaustive_empty_and_nonempty() {
         let arms = vec![make_list_empty_arm(), make_list_prefix_arm(1)];
-        let result = check_exhaustiveness(&arms, &Type::List(Box::new(Type::Int32)));
+        let result = check_exhaustiveness(&arms, &Type::List(Box::new(Type::Int)));
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
     #[test]
     fn test_list_exhaustive_wildcard() {
-        let arms = vec![make_var_arm("xs", Type::List(Box::new(Type::Int32)))];
-        let result = check_exhaustiveness(&arms, &Type::List(Box::new(Type::Int32)));
+        let arms = vec![make_var_arm("xs", Type::List(Box::new(Type::Int)))];
+        let result = check_exhaustiveness(&arms, &Type::List(Box::new(Type::Int)));
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
     #[test]
     fn test_list_missing_empty() {
         let arms = vec![make_list_prefix_arm(1)];
-        let result = check_exhaustiveness(&arms, &Type::List(Box::new(Type::Int32)));
+        let result = check_exhaustiveness(&arms, &Type::List(Box::new(Type::Int)));
         match result {
             Exhaustiveness::NonExhaustive(witnesses) => {
                 assert!(!witnesses.is_empty());
-                let missing = witnesses[0].to_string(&[Type::List(Box::new(Type::Int32))]);
+                let missing = witnesses[0].to_string(&[Type::List(Box::new(Type::Int))]);
                 assert_eq!(missing, "[]");
             }
             _ => panic!("expected non-exhaustive"),
@@ -1440,11 +1440,11 @@ mod tests {
     #[test]
     fn test_list_missing_nonempty() {
         let arms = vec![make_list_empty_arm()];
-        let result = check_exhaustiveness(&arms, &Type::List(Box::new(Type::Int32)));
+        let result = check_exhaustiveness(&arms, &Type::List(Box::new(Type::Int)));
         match result {
             Exhaustiveness::NonExhaustive(witnesses) => {
                 assert!(!witnesses.is_empty());
-                let missing = witnesses[0].to_string(&[Type::List(Box::new(Type::Int32))]);
+                let missing = witnesses[0].to_string(&[Type::List(Box::new(Type::Int))]);
                 assert!(missing.contains("[") && missing.contains("..")); // [_, ..]
             }
             _ => panic!("expected non-exhaustive"),
@@ -1481,10 +1481,10 @@ mod tests {
     #[test]
     fn test_int_not_exhaustive_without_wildcard() {
         let arms = vec![TypedMatchArm {
-            pattern: TypedPattern::Literal(TypedExpr::Int32(0)),
-            result: TypedExpr::Int32(0),
+            pattern: TypedPattern::Literal(TypedExpr::Int(0)),
+            result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &Type::Int32);
+        let result = check_exhaustiveness(&arms, &Type::Int);
         assert!(matches!(result, Exhaustiveness::NonExhaustive(_)));
     }
 
@@ -1492,19 +1492,19 @@ mod tests {
     fn test_int_exhaustive_with_wildcard() {
         let arms = vec![
             TypedMatchArm {
-                pattern: TypedPattern::Literal(TypedExpr::Int32(0)),
-                result: TypedExpr::Int32(0),
+                pattern: TypedPattern::Literal(TypedExpr::Int(0)),
+                result: TypedExpr::Int(0),
             },
             make_wildcard_arm(),
         ];
-        let result = check_exhaustiveness(&arms, &Type::Int32);
+        let result = check_exhaustiveness(&arms, &Type::Int);
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
     // Tuple exhaustiveness
     #[test]
     fn test_tuple_exhaustive_single_pattern() {
-        let tuple_ty = Type::Tuple(vec![Type::Int32, Type::Bool]);
+        let tuple_ty = Type::Tuple(vec![Type::Int, Type::Bool]);
         let arms = vec![TypedMatchArm {
             pattern: TypedPattern::TupleExact {
                 patterns: vec![
@@ -1513,7 +1513,7 @@ mod tests {
                 ],
                 len: 2,
             },
-            result: TypedExpr::Int32(0),
+            result: TypedExpr::Int(0),
         }];
         let result = check_exhaustiveness(&arms, &tuple_ty);
         assert!(matches!(result, Exhaustiveness::Exhaustive));
@@ -1521,7 +1521,7 @@ mod tests {
 
     #[test]
     fn test_tuple_with_bool_needs_both() {
-        let tuple_ty = Type::Tuple(vec![Type::Int32, Type::Bool]);
+        let tuple_ty = Type::Tuple(vec![Type::Int, Type::Bool]);
         let arms = vec![TypedMatchArm {
             pattern: TypedPattern::TupleExact {
                 patterns: vec![
@@ -1530,7 +1530,7 @@ mod tests {
                 ],
                 len: 2,
             },
-            result: TypedExpr::Int32(0),
+            result: TypedExpr::Int(0),
         }];
         let result = check_exhaustiveness(&arms, &tuple_ty);
         match result {

@@ -33,10 +33,10 @@ src/
 
 ### Current Features
 
-- **Types:** `Int32`, `Int64`, `Float`, `Bool`, `String`, `List<T>`, tuples `(T, U, ...)`, functions `T -> U`, type variables (`T`, `U`)
+- **Types:** `Int`, `BigInt`, `Float`, `Bool`, `String`, `List<T>`, tuples `(T, U, ...)`, functions `T -> U`, type variables (`T`, `U`)
 - **Literals:**
-  - Integers (Int32): `42`, `1_000`
-  - Integers (Int64): `42n`, `9_000_000_000n` (with `n` suffix)
+  - Integers (Int): `42`, `1_000`
+  - BigInts: `42n`, `9_000_000_000n` (with `n` suffix)
   - Floats: `3.14`, `0.5`
   - Booleans: `true`, `false`
   - Strings: `"hello"`, `"line\nbreak"`
@@ -47,7 +47,7 @@ src/
   - Comparison: `==`, `!=`, `<`, `>`, `<=`, `>=`
   - Unary: `-` (negation)
 - **Functions:** definitions with `fn`, generic type parameters, type annotations, calls
-  - Simple bodies can omit braces: `fn square(x: Int32) -> Int32 x * x`
+  - Simple bodies can omit braces: `fn square(x: Int) -> Int x * x`
 - **Let bindings:** `let x = expr` or `let x: Type = expr`
   - In function bodies (semicolons required): `fn foo() { let x = 1; let y = 2; x + y }`
   - In REPL (persists across inputs)
@@ -55,15 +55,15 @@ src/
   - Simple: `|x| x + 1`
   - Multi-param: `|x, y| x + y`
   - No params: `|| 42`
-  - Type annotations: `|x: Int32| x * 2`
-  - Return type: `|x| -> Int32 x + 1`
+  - Type annotations: `|x: Int| x * 2`
+  - Return type: `|x| -> Int x + 1`
   - Block body: `|x| { let y = x * 2; y + 1 }`
-  - Function type annotations: `let f: Int32 -> Int32 = |x| x + 1`
-  - Multi-param function types: `let f: (Int32, Int32) -> Int32 = |x, y| x + y`
-  - Higher-order functions: `fn apply(f: Int32 -> Int32, x: Int32) -> Int32 f(x)`
+  - Function type annotations: `let f: Int -> Int = |x| x + 1`
+  - Multi-param function types: `let f: (Int, Int) -> Int = |x, y| x + y`
+  - Higher-order functions: `fn apply(f: Int -> Int, x: Int) -> Int f(x)`
   - Let polymorphism: `let id = |x| x; id(42); id("hello")` (both work!)
 - **Structs:** product types with named fields
-  - Definition: `struct Point { x: Int32, y: Int32 }`
+  - Definition: `struct Point { x: Int, y: Int }`
   - Generic structs: `struct Pair<T, U> { first: T, second: U }`
   - Construction: `Point { x: 1, y: 2 }`, shorthand `Point { x, y }` when variable names match
   - Field access: `point.x`, `pair.first`
@@ -80,8 +80,8 @@ src/
   - Implementation: Maranget's algorithm (`src/usefulness.rs`)
 - **Method calls:** `expr.method(args)` on built-in types
   - String: `len()`, `is_empty()`, `contains(s)`, `starts_with(s)`, `ends_with(s)`, `to_uppercase()`, `to_lowercase()`, `trim()`
-  - Int32: `abs()`, `to_string()`, `to_float()`, `min(n)`, `max(n)`
-  - Int64: `abs()`, `to_string()`, `min(n)`, `max(n)`
+  - Int: `abs()`, `to_string()`, `to_float()`, `min(n)`, `max(n)`
+  - BigInt: `abs()`, `to_string()`, `min(n)`, `max(n)`
   - Float: `abs()`, `to_string()`, `to_int()`, `floor()`, `ceil()`, `round()`, `sqrt()`, `min(n)`, `max(n)`
   - List: `len()`, `is_empty()`, `push(x)`, `concat(list)`, `reverse()` (all return new lists, immutable)
 - **Type checking:** operands must match types (no implicit coercion)
@@ -94,11 +94,11 @@ Planned features in rough implementation order:
 1. **Enums** - Sum types with unit, tuple, and struct variants, generic support
    - `enum Option<T> { None, Some(T) }`
    - `enum Result<T, E> { Ok(T), Err(E) }`
-   - `enum Message { Quit, Move { x: Int32, y: Int32 }, Write(String) }`
+   - `enum Message { Quit, Move { x: Int, y: Int }, Write(String) }`
 
 2. **Expanded pattern matching** - Destructuring in more contexts
    - Let bindings: `let (x, y) = point`
-   - Function params: `fn first((a, _): (Int32, Int32)) -> Int32 a`
+   - Function params: `fn first((a, _): (Int, Int)) -> Int a`
    - Lambda params: `|(x, y)| x + y`
    - Requires irrefutability checking (patterns must be exhaustive)
 

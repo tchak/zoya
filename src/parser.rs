@@ -59,7 +59,7 @@ fn type_annotation<'a>() -> impl Parser<'a, &'a [Token], TypeAnnotation, extra::
             .collect::<Vec<_>>()
             .delimited_by(just(Token::Lt), just(Token::Gt));
 
-        // Named or parameterized type: Int32, List<Int32>
+        // Named or parameterized type: Int, List<Int>
         let named_type = ident()
             .then(type_params.or_not())
             .map(|(name, params)| match params {
@@ -287,7 +287,7 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
     recursive(|expr| {
         let literal = select! {
             Token::Int(n) => Expr::Int(n),
-            Token::Int64(n) => Expr::Int64(n),
+            Token::BigInt(n) => Expr::BigInt(n),
             Token::Float(n) => Expr::Float(n),
             Token::True => Expr::Bool(true),
             Token::False => Expr::Bool(false),
@@ -312,7 +312,7 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                 // Literals
                 select! {
                     Token::Int(n) => Pattern::Literal(Box::new(Expr::Int(n))),
-                    Token::Int64(n) => Pattern::Literal(Box::new(Expr::Int64(n))),
+                    Token::BigInt(n) => Pattern::Literal(Box::new(Expr::BigInt(n))),
                     Token::Float(n) => Pattern::Literal(Box::new(Expr::Float(n))),
                     Token::True => Pattern::Literal(Box::new(Expr::Bool(true))),
                     Token::False => Pattern::Literal(Box::new(Expr::Bool(false))),
@@ -833,7 +833,7 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
             .then(just(Token::Colon).ignore_then(type_annotation()).or_not())
             .map(|(name, typ)| LambdaParam { name, typ });
 
-        // Lambda parameters: |x| or |x, y| or |x: Int32|
+        // Lambda parameters: |x| or |x, y| or |x: Int|
         let lambda_params = lambda_param
             .separated_by(just(Token::Comma))
             .allow_trailing()
@@ -1212,13 +1212,13 @@ mod tests {
     #[test]
     fn test_parse_int64() {
         let expr = parse_str("42n").unwrap();
-        assert_eq!(expr, Expr::Int64(42));
+        assert_eq!(expr, Expr::BigInt(42));
     }
 
     #[test]
     fn test_parse_int64_large() {
         let expr = parse_str("9_000_000_000n").unwrap();
-        assert_eq!(expr, Expr::Int64(9_000_000_000));
+        assert_eq!(expr, Expr::BigInt(9_000_000_000));
     }
 
     #[test]
@@ -1228,8 +1228,8 @@ mod tests {
             expr,
             Expr::BinOp {
                 op: BinOp::Add,
-                left: Box::new(Expr::Int64(1)),
-                right: Box::new(Expr::Int64(2)),
+                left: Box::new(Expr::BigInt(1)),
+                right: Box::new(Expr::BigInt(2)),
             }
         );
     }
@@ -1661,14 +1661,14 @@ mod tests {
 
     #[test]
     fn test_parse_repl_single_function() {
-        let stmts = parse_repl_str("fn foo() -> Int32 { 42 }").unwrap();
+        let stmts = parse_repl_str("fn foo() -> Int { 42 }").unwrap();
         assert_eq!(stmts.len(), 1);
         assert!(matches!(stmts[0], Statement::Item(_)));
     }
 
     #[test]
     fn test_parse_repl_function_then_expr() {
-        let stmts = parse_repl_str("fn foo() -> Int32 { 42 } foo()").unwrap();
+        let stmts = parse_repl_str("fn foo() -> Int { 42 } foo()").unwrap();
         assert_eq!(stmts.len(), 2);
         assert!(matches!(stmts[0], Statement::Item(_)));
         assert!(matches!(stmts[1], Statement::Expr(_)));
@@ -1701,7 +1701,7 @@ mod tests {
 
     #[test]
     fn test_parse_let_with_type() {
-        let stmts = parse_repl_str("let x: Int32 = 42").unwrap();
+        let stmts = parse_repl_str("let x: Int = 42").unwrap();
         assert_eq!(stmts.len(), 1);
         assert!(matches!(
             &stmts[0],
@@ -1709,7 +1709,7 @@ mod tests {
                 name,
                 type_annotation: Some(TypeAnnotation::Named(ty)),
                 value,
-            }) if name == "x" && ty == "Int32" && **value == Expr::Int(42)
+            }) if name == "x" && ty == "Int" && **value == Expr::Int(42)
         ));
     }
 
@@ -1767,14 +1767,14 @@ mod tests {
     #[test]
     fn test_parse_function_simple_body_no_braces() {
         // Simple expression body without braces
-        let item = parse_item_str("fn foo() -> Int32 42").unwrap();
+        let item = parse_item_str("fn foo() -> Int 42").unwrap();
         assert_eq!(
             item,
             Item::Function(FunctionDef {
                 name: "foo".to_string(),
                 type_params: vec![],
                 params: vec![],
-                return_type: Some(TypeAnnotation::Named("Int32".to_string())),
+                return_type: Some(TypeAnnotation::Named("Int".to_string())),
                 body: Expr::Int(42),
             })
         );
@@ -1783,7 +1783,7 @@ mod tests {
     #[test]
     fn test_parse_function_expression_body_no_braces() {
         // Expression body without braces
-        let item = parse_item_str("fn add(x: Int32, y: Int32) -> Int32 x + y").unwrap();
+        let item = parse_item_str("fn add(x: Int, y: Int) -> Int x + y").unwrap();
         assert_eq!(
             item,
             Item::Function(FunctionDef {
@@ -1792,14 +1792,14 @@ mod tests {
                 params: vec![
                     Param {
                         name: "x".to_string(),
-                        typ: TypeAnnotation::Named("Int32".to_string()),
+                        typ: TypeAnnotation::Named("Int".to_string()),
                     },
                     Param {
                         name: "y".to_string(),
-                        typ: TypeAnnotation::Named("Int32".to_string()),
+                        typ: TypeAnnotation::Named("Int".to_string()),
                     },
                 ],
-                return_type: Some(TypeAnnotation::Named("Int32".to_string())),
+                return_type: Some(TypeAnnotation::Named("Int".to_string())),
                 body: Expr::BinOp {
                     op: BinOp::Add,
                     left: Box::new(Expr::Var("x".to_string())),
@@ -1812,7 +1812,7 @@ mod tests {
     #[test]
     fn test_parse_function_no_braces_with_method_call() {
         // Method call expression body without braces
-        let item = parse_item_str("fn double(x: Int32) -> Int32 x * 2").unwrap();
+        let item = parse_item_str("fn double(x: Int) -> Int x * 2").unwrap();
         let Item::Function(FunctionDef { body, .. }) = item else { panic!("expected function") };
         assert!(matches!(body, Expr::BinOp { op: BinOp::Mul, .. }));
     }
@@ -1883,7 +1883,7 @@ mod tests {
 
     #[test]
     fn test_parse_match_in_function() {
-        let item = parse_item_str("fn f(x: Int32) -> Int32 { match x { 0 => 0, n => n } }").unwrap();
+        let item = parse_item_str("fn f(x: Int) -> Int { match x { 0 => 0, n => n } }").unwrap();
         let Item::Function(FunctionDef { body, .. }) = item else { panic!("expected function") };
         assert!(matches!(body, Expr::Match { .. }));
     }
@@ -2150,7 +2150,7 @@ mod tests {
     // Parameterized type annotation tests
     #[test]
     fn test_parse_function_with_list_param() {
-        let item = parse_item_str("fn len(xs: List<Int32>) -> Int32 { 0 }").unwrap();
+        let item = parse_item_str("fn len(xs: List<Int>) -> Int { 0 }").unwrap();
         let Item::Function(FunctionDef { params, .. }) = item else { panic!("expected function") };
         assert!(matches!(
             &params[0].typ,
@@ -2407,13 +2407,13 @@ mod tests {
 
     #[test]
     fn test_parse_lambda_with_type_annotation() {
-        let expr = parse_str("|x: Int32| x * 2").unwrap();
+        let expr = parse_str("|x: Int| x * 2").unwrap();
         if let Expr::Lambda { params, .. } = expr {
             assert_eq!(params.len(), 1);
             assert_eq!(params[0].name, "x");
             assert!(matches!(
                 &params[0].typ,
-                Some(TypeAnnotation::Named(s)) if s == "Int32"
+                Some(TypeAnnotation::Named(s)) if s == "Int"
             ));
         } else {
             panic!("expected lambda");
@@ -2422,7 +2422,7 @@ mod tests {
 
     #[test]
     fn test_parse_lambda_with_return_type() {
-        let expr = parse_str("|x| -> Int32 x + 1").unwrap();
+        let expr = parse_str("|x| -> Int x + 1").unwrap();
         if let Expr::Lambda {
             params, return_type, ..
         } = expr
@@ -2430,7 +2430,7 @@ mod tests {
             assert_eq!(params.len(), 1);
             assert!(matches!(
                 return_type,
-                Some(TypeAnnotation::Named(s)) if s == "Int32"
+                Some(TypeAnnotation::Named(s)) if s == "Int"
             ));
         } else {
             panic!("expected lambda");
@@ -2439,7 +2439,7 @@ mod tests {
 
     #[test]
     fn test_parse_lambda_fully_annotated() {
-        let expr = parse_str("|x: Int32| -> Int32 x * 2").unwrap();
+        let expr = parse_str("|x: Int| -> Int x * 2").unwrap();
         if let Expr::Lambda {
             params,
             return_type,
@@ -2449,11 +2449,11 @@ mod tests {
             assert_eq!(params.len(), 1);
             assert!(matches!(
                 &params[0].typ,
-                Some(TypeAnnotation::Named(s)) if s == "Int32"
+                Some(TypeAnnotation::Named(s)) if s == "Int"
             ));
             assert!(matches!(
                 return_type,
-                Some(TypeAnnotation::Named(s)) if s == "Int32"
+                Some(TypeAnnotation::Named(s)) if s == "Int"
             ));
         } else {
             panic!("expected lambda");
@@ -2505,15 +2505,15 @@ mod tests {
 
     #[test]
     fn test_parse_function_type_simple() {
-        // let f: Int32 -> Int32 = ...
-        let stmts = parse_repl_str("let f: Int32 -> Int32 = |x| x + 1").unwrap();
+        // let f: Int -> Int = ...
+        let stmts = parse_repl_str("let f: Int -> Int = |x| x + 1").unwrap();
         if let Statement::Let(binding) = &stmts[0] {
             assert!(matches!(
                 &binding.type_annotation,
                 Some(TypeAnnotation::Function(params, ret))
                 if params.len() == 1
-                    && matches!(&params[0], TypeAnnotation::Named(n) if n == "Int32")
-                    && matches!(ret.as_ref(), TypeAnnotation::Named(n) if n == "Int32")
+                    && matches!(&params[0], TypeAnnotation::Named(n) if n == "Int")
+                    && matches!(ret.as_ref(), TypeAnnotation::Named(n) if n == "Int")
             ));
         } else {
             panic!("expected let statement");
@@ -2522,12 +2522,12 @@ mod tests {
 
     #[test]
     fn test_parse_function_type_multi_param() {
-        // let f: (Int32, String) -> Bool = ...
-        let stmts = parse_repl_str("let f: (Int32, String) -> Bool = |x, y| true").unwrap();
+        // let f: (Int, String) -> Bool = ...
+        let stmts = parse_repl_str("let f: (Int, String) -> Bool = |x, y| true").unwrap();
         if let Statement::Let(binding) = &stmts[0] {
             if let Some(TypeAnnotation::Function(params, ret)) = &binding.type_annotation {
                 assert_eq!(params.len(), 2);
-                assert!(matches!(&params[0], TypeAnnotation::Named(n) if n == "Int32"));
+                assert!(matches!(&params[0], TypeAnnotation::Named(n) if n == "Int"));
                 assert!(matches!(&params[1], TypeAnnotation::Named(n) if n == "String"));
                 assert!(matches!(ret.as_ref(), TypeAnnotation::Named(n) if n == "Bool"));
             } else {
@@ -2540,12 +2540,12 @@ mod tests {
 
     #[test]
     fn test_parse_function_type_no_params() {
-        // let f: () -> Int32 = ...
-        let stmts = parse_repl_str("let f: () -> Int32 = || 42").unwrap();
+        // let f: () -> Int = ...
+        let stmts = parse_repl_str("let f: () -> Int = || 42").unwrap();
         if let Statement::Let(binding) = &stmts[0] {
             if let Some(TypeAnnotation::Function(params, ret)) = &binding.type_annotation {
                 assert!(params.is_empty());
-                assert!(matches!(ret.as_ref(), TypeAnnotation::Named(n) if n == "Int32"));
+                assert!(matches!(ret.as_ref(), TypeAnnotation::Named(n) if n == "Int"));
             } else {
                 panic!("expected function type annotation");
             }
@@ -2556,18 +2556,18 @@ mod tests {
 
     #[test]
     fn test_parse_function_type_nested() {
-        // let f: Int32 -> Int32 -> Int32 = |x| |y| x + y
-        // Should be: Int32 -> (Int32 -> Int32) (right associative)
-        let stmts = parse_repl_str("let f: Int32 -> Int32 -> Int32 = |x| |y| x + y").unwrap();
+        // let f: Int -> Int -> Int = |x| |y| x + y
+        // Should be: Int -> (Int -> Int) (right associative)
+        let stmts = parse_repl_str("let f: Int -> Int -> Int = |x| |y| x + y").unwrap();
         if let Statement::Let(binding) = &stmts[0] {
             if let Some(TypeAnnotation::Function(params, ret)) = &binding.type_annotation {
                 assert_eq!(params.len(), 1);
-                assert!(matches!(&params[0], TypeAnnotation::Named(n) if n == "Int32"));
-                // ret should be Int32 -> Int32
+                assert!(matches!(&params[0], TypeAnnotation::Named(n) if n == "Int"));
+                // ret should be Int -> Int
                 if let TypeAnnotation::Function(inner_params, inner_ret) = ret.as_ref() {
                     assert_eq!(inner_params.len(), 1);
-                    assert!(matches!(&inner_params[0], TypeAnnotation::Named(n) if n == "Int32"));
-                    assert!(matches!(inner_ret.as_ref(), TypeAnnotation::Named(n) if n == "Int32"));
+                    assert!(matches!(&inner_params[0], TypeAnnotation::Named(n) if n == "Int"));
+                    assert!(matches!(inner_ret.as_ref(), TypeAnnotation::Named(n) if n == "Int"));
                 } else {
                     panic!("expected nested function type");
                 }
@@ -2581,8 +2581,8 @@ mod tests {
 
     #[test]
     fn test_parse_function_param_with_function_type() {
-        // fn apply(f: Int32 -> Int32, x: Int32) -> Int32 f(x)
-        let item = parse_item_str("fn apply(f: Int32 -> Int32, x: Int32) -> Int32 f(x)").unwrap();
+        // fn apply(f: Int -> Int, x: Int) -> Int f(x)
+        let item = parse_item_str("fn apply(f: Int -> Int, x: Int) -> Int f(x)").unwrap();
         let Item::Function(func) = &item else { panic!("expected function") };
         assert_eq!(func.name, "apply");
         assert_eq!(func.params.len(), 2);
@@ -2590,15 +2590,15 @@ mod tests {
             &func.params[0].typ,
             TypeAnnotation::Function(params, ret)
             if params.len() == 1
-                && matches!(&params[0], TypeAnnotation::Named(n) if n == "Int32")
-                && matches!(ret.as_ref(), TypeAnnotation::Named(n) if n == "Int32")
+                && matches!(&params[0], TypeAnnotation::Named(n) if n == "Int")
+                && matches!(ret.as_ref(), TypeAnnotation::Named(n) if n == "Int")
         ));
     }
 
     // Struct tests
     #[test]
     fn test_parse_struct_simple() {
-        let item = parse_item_str("struct Point { x: Int32, y: Int32 }").unwrap();
+        let item = parse_item_str("struct Point { x: Int, y: Int }").unwrap();
         let Item::Struct(s) = item else { panic!("expected struct") };
         assert_eq!(s.name, "Point");
         assert_eq!(s.type_params, Vec::<String>::new());

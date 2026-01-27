@@ -12,8 +12,8 @@ impl fmt::Display for TypeVarId {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
-    Int32,
-    Int64,
+    Int,
+    BigInt,
     Float,
     Bool,
     String,
@@ -47,15 +47,15 @@ pub enum EnumVariantType {
     Unit,
     /// Tuple variant: `Some(T)` - types are the fields in order
     Tuple(Vec<Type>),
-    /// Struct variant: `Move { x: Int32, y: Int32 }` - field names and types
+    /// Struct variant: `Move { x: Int, y: Int }` - field names and types
     Struct(Vec<(String, Type)>),
 }
 
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Type::Int32 => write!(f, "Int32"),
-            Type::Int64 => write!(f, "Int64"),
+            Type::Int => write!(f, "Int"),
+            Type::BigInt => write!(f, "BigInt"),
             Type::Float => write!(f, "Float"),
             Type::Bool => write!(f, "Bool"),
             Type::String => write!(f, "String"),

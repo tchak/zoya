@@ -65,10 +65,10 @@ fn resolve_type_annotation(
 ) -> Result<Type, TypeError> {
     match annotation {
         TypeAnnotation::Named(name) => {
-            if name == "Int32" {
-                Ok(Type::Int32)
-            } else if name == "Int64" {
-                Ok(Type::Int64)
+            if name == "Int" {
+                Ok(Type::Int)
+            } else if name == "BigInt" {
+                Ok(Type::BigInt)
             } else if name == "Float" {
                 Ok(Type::Float)
             } else if name == "Bool" {
@@ -320,7 +320,7 @@ fn function_type_from_def(
 
 /// Check if a type is numeric (for ordering comparisons)
 fn is_numeric_type(ty: &Type) -> bool {
-    matches!(ty, Type::Int32 | Type::Int64 | Type::Float)
+    matches!(ty, Type::Int | Type::BigInt | Type::Float)
 }
 
 /// Get the type signature of a built-in method on a type.
@@ -328,7 +328,7 @@ fn is_numeric_type(ty: &Type) -> bool {
 fn builtin_method(receiver_ty: &Type, method: &str) -> Option<(Vec<Type>, Type)> {
     match (receiver_ty, method) {
         // String methods
-        (Type::String, "len") => Some((vec![], Type::Int32)),
+        (Type::String, "len") => Some((vec![], Type::Int)),
         (Type::String, "is_empty") => Some((vec![], Type::Bool)),
         (Type::String, "contains") => Some((vec![Type::String], Type::Bool)),
         (Type::String, "starts_with") => Some((vec![Type::String], Type::Bool)),
@@ -337,23 +337,23 @@ fn builtin_method(receiver_ty: &Type, method: &str) -> Option<(Vec<Type>, Type)>
         (Type::String, "to_lowercase") => Some((vec![], Type::String)),
         (Type::String, "trim") => Some((vec![], Type::String)),
 
-        // Int32 methods
-        (Type::Int32, "abs") => Some((vec![], Type::Int32)),
-        (Type::Int32, "to_string") => Some((vec![], Type::String)),
-        (Type::Int32, "to_float") => Some((vec![], Type::Float)),
-        (Type::Int32, "min") => Some((vec![Type::Int32], Type::Int32)),
-        (Type::Int32, "max") => Some((vec![Type::Int32], Type::Int32)),
+        // Int methods
+        (Type::Int, "abs") => Some((vec![], Type::Int)),
+        (Type::Int, "to_string") => Some((vec![], Type::String)),
+        (Type::Int, "to_float") => Some((vec![], Type::Float)),
+        (Type::Int, "min") => Some((vec![Type::Int], Type::Int)),
+        (Type::Int, "max") => Some((vec![Type::Int], Type::Int)),
 
-        // Int64 methods
-        (Type::Int64, "abs") => Some((vec![], Type::Int64)),
-        (Type::Int64, "to_string") => Some((vec![], Type::String)),
-        (Type::Int64, "min") => Some((vec![Type::Int64], Type::Int64)),
-        (Type::Int64, "max") => Some((vec![Type::Int64], Type::Int64)),
+        // BigInt methods
+        (Type::BigInt, "abs") => Some((vec![], Type::BigInt)),
+        (Type::BigInt, "to_string") => Some((vec![], Type::String)),
+        (Type::BigInt, "min") => Some((vec![Type::BigInt], Type::BigInt)),
+        (Type::BigInt, "max") => Some((vec![Type::BigInt], Type::BigInt)),
 
         // Float methods
         (Type::Float, "abs") => Some((vec![], Type::Float)),
         (Type::Float, "to_string") => Some((vec![], Type::String)),
-        (Type::Float, "to_int") => Some((vec![], Type::Int32)),
+        (Type::Float, "to_int") => Some((vec![], Type::Int)),
         (Type::Float, "floor") => Some((vec![], Type::Float)),
         (Type::Float, "ceil") => Some((vec![], Type::Float)),
         (Type::Float, "round") => Some((vec![], Type::Float)),
@@ -362,7 +362,7 @@ fn builtin_method(receiver_ty: &Type, method: &str) -> Option<(Vec<Type>, Type)>
         (Type::Float, "max") => Some((vec![Type::Float], Type::Float)),
 
         // List methods
-        (Type::List(_), "len") => Some((vec![], Type::Int32)),
+        (Type::List(_), "len") => Some((vec![], Type::Int)),
         (Type::List(_), "is_empty") => Some((vec![], Type::Bool)),
         (Type::List(elem_ty), "reverse") => Some((vec![], Type::List(elem_ty.clone()))),
         (Type::List(elem_ty), "push") => {
@@ -538,7 +538,7 @@ fn check_unary_op(
             // Negation only works on numeric types
             let resolved = ctx.resolve(&ty);
             match resolved {
-                Type::Int32 | Type::Int64 | Type::Float => Ok(TypedExpr::UnaryOp {
+                Type::Int | Type::BigInt | Type::Float => Ok(TypedExpr::UnaryOp {
                     op,
                     expr: Box::new(typed_expr),
                     ty,
@@ -1202,21 +1202,8 @@ fn check_with_env(
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
     match expr {
-        Expr::Int(n) => {
-            // Default to Int32 if value fits, otherwise error
-            if *n >= i32::MIN as i64 && *n <= i32::MAX as i64 {
-                Ok(TypedExpr::Int32(*n as i32))
-            } else {
-                Err(TypeError {
-                    message: format!(
-                        "integer literal {} is too large for Int32 (max: {})",
-                        n,
-                        i32::MAX
-                    ),
-                })
-            }
-        }
-        Expr::Int64(n) => Ok(TypedExpr::Int64(*n)),
+        Expr::Int(n) => Ok(TypedExpr::Int(*n)),
+        Expr::BigInt(n) => Ok(TypedExpr::BigInt(*n)),
         Expr::Float(n) => Ok(TypedExpr::Float(*n)),
         Expr::Bool(b) => Ok(TypedExpr::Bool(*b)),
         Expr::String(s) => Ok(TypedExpr::String(s.clone())),
@@ -1277,7 +1264,7 @@ fn substitute_type_vars(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
                 .collect(),
         },
         // Concrete types don't contain type vars
-        Type::Int32 | Type::Int64 | Type::Float | Type::Bool | Type::String => ty.clone(),
+        Type::Int | Type::BigInt | Type::Float | Type::Bool | Type::String => ty.clone(),
     }
 }
 
@@ -1317,7 +1304,7 @@ fn get_callable_type(name: &str, env: &TypeEnv, ctx: &mut UnifyCtx) -> Option<Ty
 fn is_syntactic_value(expr: &Expr) -> bool {
     match expr {
         Expr::Lambda { .. } => true,
-        Expr::Int(_) | Expr::Int64(_) | Expr::Float(_) | Expr::Bool(_) | Expr::String(_) => true,
+        Expr::Int(_) | Expr::BigInt(_) | Expr::Float(_) | Expr::Bool(_) | Expr::String(_) => true,
         Expr::List(elems) => elems.iter().all(is_syntactic_value),
         Expr::Tuple(elems) => elems.iter().all(is_syntactic_value),
         Expr::Var(_) => true,
@@ -2450,43 +2437,44 @@ mod tests {
     fn test_check_int() {
         let expr = Expr::Int(42);
         let result = check(&expr).unwrap();
-        assert_eq!(result.ty(), Type::Int32);
-        assert_eq!(result, TypedExpr::Int32(42));
+        assert_eq!(result.ty(), Type::Int);
+        assert_eq!(result, TypedExpr::Int(42));
     }
 
     #[test]
-    fn test_check_int_too_large() {
-        let expr = Expr::Int(3_000_000_000); // Exceeds i32::MAX
-        let result = check(&expr);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("too large for Int32"));
-    }
-
-    #[test]
-    fn test_check_int64() {
-        let expr = Expr::Int64(42);
+    fn test_check_int_large() {
+        // Large integers now work fine since Int uses i64 internally
+        let expr = Expr::Int(3_000_000_000);
         let result = check(&expr).unwrap();
-        assert_eq!(result.ty(), Type::Int64);
-        assert_eq!(result, TypedExpr::Int64(42));
+        assert_eq!(result.ty(), Type::Int);
+        assert_eq!(result, TypedExpr::Int(3_000_000_000));
     }
 
     #[test]
-    fn test_check_int64_large() {
-        let expr = Expr::Int64(9_000_000_000);
+    fn test_check_bigint() {
+        let expr = Expr::BigInt(42);
         let result = check(&expr).unwrap();
-        assert_eq!(result.ty(), Type::Int64);
-        assert_eq!(result, TypedExpr::Int64(9_000_000_000));
+        assert_eq!(result.ty(), Type::BigInt);
+        assert_eq!(result, TypedExpr::BigInt(42));
     }
 
     #[test]
-    fn test_check_int64_addition() {
+    fn test_check_bigint_large() {
+        let expr = Expr::BigInt(9_000_000_000);
+        let result = check(&expr).unwrap();
+        assert_eq!(result.ty(), Type::BigInt);
+        assert_eq!(result, TypedExpr::BigInt(9_000_000_000));
+    }
+
+    #[test]
+    fn test_check_bigint_addition() {
         let expr = Expr::BinOp {
             op: BinOp::Add,
-            left: Box::new(Expr::Int64(1)),
-            right: Box::new(Expr::Int64(2)),
+            left: Box::new(Expr::BigInt(1)),
+            right: Box::new(Expr::BigInt(2)),
         };
         let result = check(&expr).unwrap();
-        assert_eq!(result.ty(), Type::Int64);
+        assert_eq!(result.ty(), Type::BigInt);
     }
 
     #[test]
@@ -2505,7 +2493,7 @@ mod tests {
             right: Box::new(Expr::Int(2)),
         };
         let result = check(&expr).unwrap();
-        assert_eq!(result.ty(), Type::Int32);
+        assert_eq!(result.ty(), Type::Int);
     }
 
     #[test]
@@ -2539,7 +2527,7 @@ mod tests {
             expr: Box::new(Expr::Int(42)),
         };
         let result = check(&expr).unwrap();
-        assert_eq!(result.ty(), Type::Int32);
+        assert_eq!(result.ty(), Type::Int);
     }
 
     #[test]
@@ -2563,7 +2551,7 @@ mod tests {
             }),
         };
         let result = check(&expr).unwrap();
-        assert_eq!(result.ty(), Type::Int32);
+        assert_eq!(result.ty(), Type::Int);
     }
 
     #[test]
@@ -2621,7 +2609,7 @@ mod tests {
             }),
         };
         let result = check(&expr).unwrap();
-        assert_eq!(result.ty(), Type::Int32);
+        assert_eq!(result.ty(), Type::Int);
     }
 
     use crate::ast::{FunctionDef, Param, TypeAnnotation};
@@ -2630,12 +2618,12 @@ mod tests {
     #[test]
     fn test_check_variable() {
         let mut env = TypeEnv::default();
-        env.locals.insert("x".to_string(), Type::Int32);
+        env.locals.insert("x".to_string(), Type::Int);
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Var("x".to_string());
         let result = check_with_env(&expr, &env, &mut ctx).unwrap();
-        assert_eq!(result.ty(), Type::Int32);
+        assert_eq!(result.ty(), Type::Int);
     }
 
     #[test]
@@ -2651,8 +2639,8 @@ mod tests {
     #[test]
     fn test_check_variable_in_expression() {
         let mut env = TypeEnv::default();
-        env.locals.insert("x".to_string(), Type::Int32);
-        env.locals.insert("y".to_string(), Type::Int32);
+        env.locals.insert("x".to_string(), Type::Int);
+        env.locals.insert("y".to_string(), Type::Int);
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::BinOp {
@@ -2661,7 +2649,7 @@ mod tests {
             right: Box::new(Expr::Var("y".to_string())),
         };
         let result = check_with_env(&expr, &env, &mut ctx).unwrap();
-        assert_eq!(result.ty(), Type::Int32);
+        assert_eq!(result.ty(), Type::Int);
     }
 
     #[test]
@@ -2672,8 +2660,8 @@ mod tests {
             FunctionType {
                 type_params: vec![],
                 type_var_ids: vec![],
-                params: vec![Type::Int32],
-                return_type: Type::Int32,
+                params: vec![Type::Int],
+                return_type: Type::Int,
             },
         );
 
@@ -2683,7 +2671,7 @@ mod tests {
             args: vec![Expr::Int(5)],
         };
         let result = check_with_env(&expr, &env, &mut ctx).unwrap();
-        assert_eq!(result.ty(), Type::Int32);
+        assert_eq!(result.ty(), Type::Int);
     }
 
     #[test]
@@ -2694,8 +2682,8 @@ mod tests {
             FunctionType {
                 type_params: vec![],
                 type_var_ids: vec![],
-                params: vec![Type::Int32],
-                return_type: Type::Int32,
+                params: vec![Type::Int],
+                return_type: Type::Int,
             },
         );
 
@@ -2717,8 +2705,8 @@ mod tests {
             FunctionType {
                 type_params: vec![],
                 type_var_ids: vec![],
-                params: vec![Type::Int32, Type::Int32],
-                return_type: Type::Int32,
+                params: vec![Type::Int, Type::Int],
+                return_type: Type::Int,
             },
         );
 
@@ -2749,13 +2737,13 @@ mod tests {
             },
         );
 
-        // identity(42) should return Int32
+        // identity(42) should return Int
         let expr = Expr::Call {
             func: "identity".to_string(),
             args: vec![Expr::Int(42)],
         };
         let result = check_with_env(&expr, &env, &mut ctx).unwrap();
-        assert_eq!(result.ty(), Type::Int32);
+        assert_eq!(result.ty(), Type::Int);
     }
 
     #[test]
@@ -2793,9 +2781,9 @@ mod tests {
             type_params: vec![],
             params: vec![Param {
                 name: "x".to_string(),
-                typ: TypeAnnotation::Named("Int32".to_string()),
+                typ: TypeAnnotation::Named("Int".to_string()),
             }],
-            return_type: Some(TypeAnnotation::Named("Int32".to_string())),
+            return_type: Some(TypeAnnotation::Named("Int".to_string())),
             body: Expr::BinOp {
                 op: BinOp::Add,
                 left: Box::new(Expr::Var("x".to_string())),
@@ -2805,7 +2793,7 @@ mod tests {
 
         let result = check_function(&func, &env, &mut ctx).unwrap();
         assert_eq!(result.name, "double");
-        assert_eq!(result.return_type, Type::Int32);
+        assert_eq!(result.return_type, Type::Int);
     }
 
     #[test]
@@ -2817,10 +2805,10 @@ mod tests {
             type_params: vec![],
             params: vec![Param {
                 name: "x".to_string(),
-                typ: TypeAnnotation::Named("Int32".to_string()),
+                typ: TypeAnnotation::Named("Int".to_string()),
             }],
             return_type: Some(TypeAnnotation::Named("Float".to_string())),
-            body: Expr::Var("x".to_string()), // Returns Int32, not Float
+            body: Expr::Var("x".to_string()), // Returns Int, not Float
         };
 
         let result = check_function(&func, &env, &mut ctx);
@@ -2836,8 +2824,8 @@ mod tests {
             FunctionType {
                 type_params: vec![],
                 type_var_ids: vec![],
-                params: vec![Type::Int32, Type::Int32],
-                return_type: Type::Int32,
+                params: vec![Type::Int, Type::Int],
+                return_type: Type::Int,
             },
         );
 
@@ -2847,9 +2835,9 @@ mod tests {
             type_params: vec![],
             params: vec![Param {
                 name: "x".to_string(),
-                typ: TypeAnnotation::Named("Int32".to_string()),
+                typ: TypeAnnotation::Named("Int".to_string()),
             }],
-            return_type: Some(TypeAnnotation::Named("Int32".to_string())),
+            return_type: Some(TypeAnnotation::Named("Int".to_string())),
             body: Expr::Call {
                 func: "add".to_string(),
                 args: vec![Expr::Var("x".to_string()), Expr::Var("x".to_string())],
@@ -2857,7 +2845,7 @@ mod tests {
         };
 
         let result = check_function(&func, &env, &mut ctx).unwrap();
-        assert_eq!(result.return_type, Type::Int32);
+        assert_eq!(result.return_type, Type::Int);
     }
 
     #[test]
@@ -2869,21 +2857,21 @@ mod tests {
             params: vec![
                 Param {
                     name: "x".to_string(),
-                    typ: TypeAnnotation::Named("Int32".to_string()),
+                    typ: TypeAnnotation::Named("Int".to_string()),
                 },
                 Param {
                     name: "y".to_string(),
-                    typ: TypeAnnotation::Named("Int32".to_string()),
+                    typ: TypeAnnotation::Named("Int".to_string()),
                 },
             ],
-            return_type: Some(TypeAnnotation::Named("Int32".to_string())),
+            return_type: Some(TypeAnnotation::Named("Int".to_string())),
             body: Expr::Int(0), // body doesn't matter for type extraction
         };
 
         let env = TypeEnv::default();
         let ft = function_type_from_def(&func, &env, &mut ctx).unwrap();
-        assert_eq!(ft.params, vec![Type::Int32, Type::Int32]);
-        assert_eq!(ft.return_type, Type::Int32);
+        assert_eq!(ft.params, vec![Type::Int, Type::Int]);
+        assert_eq!(ft.return_type, Type::Int);
     }
 
     #[test]
@@ -3039,7 +3027,7 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert!(matches!(
             result[0],
-            CheckedStatement::Expr(TypedExpr::Int32(42))
+            CheckedStatement::Expr(TypedExpr::Int(42))
         ));
     }
 
@@ -3050,7 +3038,7 @@ mod tests {
             name: "foo".to_string(),
             type_params: vec![],
             params: vec![],
-            return_type: Some(TypeAnnotation::Named("Int32".to_string())),
+            return_type: Some(TypeAnnotation::Named("Int".to_string())),
             body: Expr::Int(42),
         }))];
         let result = check_repl(&stmts, &mut env).unwrap();
@@ -3069,9 +3057,9 @@ mod tests {
                 type_params: vec![],
                 params: vec![Param {
                     name: "x".to_string(),
-                    typ: TypeAnnotation::Named("Int32".to_string()),
+                    typ: TypeAnnotation::Named("Int".to_string()),
                 }],
-                return_type: Some(TypeAnnotation::Named("Int32".to_string())),
+                return_type: Some(TypeAnnotation::Named("Int".to_string())),
                 body: Expr::BinOp {
                     op: BinOp::Add,
                     left: Box::new(Expr::Var("x".to_string())),
@@ -3102,7 +3090,7 @@ mod tests {
         assert!(matches!(result[0], CheckedStatement::Let(_)));
         // Variable should be added to env (in poly_locals since it's a syntactic value)
         let scheme = env.poly_locals.get("x").expect("x should be in poly_locals");
-        assert_eq!(scheme.ty, Type::Int32);
+        assert_eq!(scheme.ty, Type::Int);
     }
 
     #[test]
@@ -3131,14 +3119,14 @@ mod tests {
         let mut env = TypeEnv::default();
         let stmts = vec![Statement::Let(LetBinding {
             name: "x".to_string(),
-            type_annotation: Some(TypeAnnotation::Named("Int32".to_string())),
+            type_annotation: Some(TypeAnnotation::Named("Int".to_string())),
             value: Box::new(Expr::Int(42)),
         })];
         let result = check_repl(&stmts, &mut env).unwrap();
         assert_eq!(result.len(), 1);
         // Variable should be in poly_locals since it's a syntactic value
         let scheme = env.poly_locals.get("x").expect("x should be in poly_locals");
-        assert_eq!(scheme.ty, Type::Int32);
+        assert_eq!(scheme.ty, Type::Int);
     }
 
     #[test]
@@ -3169,7 +3157,7 @@ mod tests {
             }),
         };
         let result = check(&expr).unwrap();
-        assert_eq!(result.ty(), Type::Int32);
+        assert_eq!(result.ty(), Type::Int);
     }
 
     #[test]
@@ -3198,7 +3186,7 @@ mod tests {
             }),
         };
         let result = check(&expr).unwrap();
-        assert_eq!(result.ty(), Type::Int32);
+        assert_eq!(result.ty(), Type::Int);
     }
 
     use crate::ast::{MatchArm, Pattern};
@@ -3206,7 +3194,7 @@ mod tests {
     #[test]
     fn test_check_match_with_literals() {
         let mut env = TypeEnv::default();
-        env.locals.insert("x".to_string(), Type::Int32);
+        env.locals.insert("x".to_string(), Type::Int);
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Match {
@@ -3233,7 +3221,7 @@ mod tests {
     #[test]
     fn test_check_match_with_wildcard() {
         let mut env = TypeEnv::default();
-        env.locals.insert("x".to_string(), Type::Int32);
+        env.locals.insert("x".to_string(), Type::Int);
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Match {
@@ -3250,13 +3238,13 @@ mod tests {
             ],
         };
         let result = check_with_env(&expr, &env, &mut ctx).unwrap();
-        assert_eq!(result.ty(), Type::Int32);
+        assert_eq!(result.ty(), Type::Int);
     }
 
     #[test]
     fn test_check_match_with_variable_binding() {
         let mut env = TypeEnv::default();
-        env.locals.insert("x".to_string(), Type::Int32);
+        env.locals.insert("x".to_string(), Type::Int);
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Match {
@@ -3271,13 +3259,13 @@ mod tests {
             }],
         };
         let result = check_with_env(&expr, &env, &mut ctx).unwrap();
-        assert_eq!(result.ty(), Type::Int32);
+        assert_eq!(result.ty(), Type::Int);
     }
 
     #[test]
     fn test_check_match_pattern_type_mismatch() {
         let mut env = TypeEnv::default();
-        env.locals.insert("x".to_string(), Type::Int32);
+        env.locals.insert("x".to_string(), Type::Int);
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Match {
@@ -3295,7 +3283,7 @@ mod tests {
     #[test]
     fn test_check_match_arm_type_mismatch() {
         let mut env = TypeEnv::default();
-        env.locals.insert("x".to_string(), Type::Int32);
+        env.locals.insert("x".to_string(), Type::Int);
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Match {
@@ -3307,7 +3295,7 @@ mod tests {
                 },
                 MatchArm {
                     pattern: Pattern::Literal(Box::new(Expr::Int(1))),
-                    result: Expr::Int(1), // Type mismatch: String vs Int32
+                    result: Expr::Int(1), // Type mismatch: String vs Int
                 },
             ],
         };
@@ -3324,7 +3312,7 @@ mod tests {
             args: vec![],
         };
         let result = check(&expr).unwrap();
-        assert_eq!(result.ty(), Type::Int32);
+        assert_eq!(result.ty(), Type::Int);
     }
 
     #[test]
@@ -3392,7 +3380,7 @@ mod tests {
         };
         let result = check(&expr);
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("no method 'len' on type Int32"));
+        assert!(result.unwrap_err().message.contains("no method 'len' on type Int"));
     }
 
     #[test]
@@ -3412,7 +3400,7 @@ mod tests {
         let expr = Expr::MethodCall {
             receiver: Box::new(Expr::String("hello".to_string())),
             method: "contains".to_string(),
-            args: vec![Expr::Int(42)], // contains expects String, not Int32
+            args: vec![Expr::Int(42)], // contains expects String, not Int
         };
         let result = check(&expr);
         assert!(result.is_err());
@@ -3431,7 +3419,7 @@ mod tests {
             args: vec![],
         };
         let result = check(&expr).unwrap();
-        assert_eq!(result.ty(), Type::Int32);
+        assert_eq!(result.ty(), Type::Int);
     }
 
     // Tests for List methods
@@ -3444,7 +3432,7 @@ mod tests {
             args: vec![],
         };
         let result = check(&expr).unwrap();
-        assert_eq!(result.ty(), Type::Int32);
+        assert_eq!(result.ty(), Type::Int);
     }
 
     #[test]
@@ -3466,7 +3454,7 @@ mod tests {
             args: vec![],
         };
         let result = check(&expr).unwrap();
-        assert_eq!(result.ty(), Type::List(Box::new(Type::Int32)));
+        assert_eq!(result.ty(), Type::List(Box::new(Type::Int)));
     }
 
     #[test]
@@ -3477,7 +3465,7 @@ mod tests {
             args: vec![Expr::Int(3)],
         };
         let result = check(&expr).unwrap();
-        assert_eq!(result.ty(), Type::List(Box::new(Type::Int32)));
+        assert_eq!(result.ty(), Type::List(Box::new(Type::Int)));
     }
 
     #[test]
@@ -3500,7 +3488,7 @@ mod tests {
             args: vec![Expr::List(vec![Expr::Int(3), Expr::Int(4)])],
         };
         let result = check(&expr).unwrap();
-        assert_eq!(result.ty(), Type::List(Box::new(Type::Int32)));
+        assert_eq!(result.ty(), Type::List(Box::new(Type::Int)));
     }
 
     #[test]
@@ -3528,15 +3516,15 @@ mod tests {
             args: vec![],
         };
         let result = check(&expr).unwrap();
-        assert_eq!(result.ty(), Type::List(Box::new(Type::Int32)));
+        assert_eq!(result.ty(), Type::List(Box::new(Type::Int)));
     }
 
     // Tests for multi-pass type checking in REPL mode
 
     #[test]
     fn test_check_repl_forward_reference() {
-        // fn caller() -> Int32 callee()
-        // fn callee() -> Int32 42
+        // fn caller() -> Int callee()
+        // fn callee() -> Int 42
         // Should succeed - caller can reference callee defined later
         let mut env = TypeEnv::default();
         let stmts = vec![
@@ -3544,7 +3532,7 @@ mod tests {
                 name: "caller".to_string(),
                 type_params: vec![],
                 params: vec![],
-                return_type: Some(TypeAnnotation::Named("Int32".to_string())),
+                return_type: Some(TypeAnnotation::Named("Int".to_string())),
                 body: Expr::Call {
                     func: "callee".to_string(),
                     args: vec![],
@@ -3554,7 +3542,7 @@ mod tests {
                 name: "callee".to_string(),
                 type_params: vec![],
                 params: vec![],
-                return_type: Some(TypeAnnotation::Named("Int32".to_string())),
+                return_type: Some(TypeAnnotation::Named("Int".to_string())),
                 body: Expr::Int(42),
             })),
         ];
@@ -3579,7 +3567,7 @@ mod tests {
                 type_params: vec![],
                 params: vec![Param {
                     name: "n".to_string(),
-                    typ: TypeAnnotation::Named("Int32".to_string()),
+                    typ: TypeAnnotation::Named("Int".to_string()),
                 }],
                 return_type: Some(TypeAnnotation::Named("Bool".to_string())),
                 body: Expr::Match {
@@ -3608,7 +3596,7 @@ mod tests {
                 type_params: vec![],
                 params: vec![Param {
                     name: "n".to_string(),
-                    typ: TypeAnnotation::Named("Int32".to_string()),
+                    typ: TypeAnnotation::Named("Int".to_string()),
                 }],
                 return_type: Some(TypeAnnotation::Named("Bool".to_string())),
                 body: Expr::Match {
@@ -3640,9 +3628,9 @@ mod tests {
     #[test]
     fn test_check_repl_mixed_preserves_order() {
         // let x = 1
-        // fn f2() -> Int32 f1()  (forward ref)
+        // fn f2() -> Int f1()  (forward ref)
         // x + 1
-        // fn f1() -> Int32 42
+        // fn f1() -> Int 42
         // Results should be in original order: [Let, Function, Expr, Function]
         let mut env = TypeEnv::default();
         let stmts = vec![
@@ -3655,7 +3643,7 @@ mod tests {
                 name: "f2".to_string(),
                 type_params: vec![],
                 params: vec![],
-                return_type: Some(TypeAnnotation::Named("Int32".to_string())),
+                return_type: Some(TypeAnnotation::Named("Int".to_string())),
                 body: Expr::Call {
                     func: "f1".to_string(),
                     args: vec![],
@@ -3670,7 +3658,7 @@ mod tests {
                 name: "f1".to_string(),
                 type_params: vec![],
                 params: vec![],
-                return_type: Some(TypeAnnotation::Named("Int32".to_string())),
+                return_type: Some(TypeAnnotation::Named("Int".to_string())),
                 body: Expr::Int(42),
             })),
         ];
@@ -3688,7 +3676,7 @@ mod tests {
     #[test]
     fn test_check_repl_let_not_visible_in_function() {
         // let x = 42
-        // fn bad() -> Int32 x
+        // fn bad() -> Int x
         // Should fail: "undefined variable 'x'"
         let mut env = TypeEnv::default();
         let stmts = vec![
@@ -3701,7 +3689,7 @@ mod tests {
                 name: "bad".to_string(),
                 type_params: vec![],
                 params: vec![],
-                return_type: Some(TypeAnnotation::Named("Int32".to_string())),
+                return_type: Some(TypeAnnotation::Named("Int".to_string())),
                 body: Expr::Var("x".to_string()),
             })),
         ];
@@ -3716,7 +3704,7 @@ mod tests {
 
     #[test]
     fn test_check_repl_self_recursion() {
-        // fn factorial(n) -> Int32 { match n { 0 => 1, _ => n * factorial(n-1) } }
+        // fn factorial(n) -> Int { match n { 0 => 1, _ => n * factorial(n-1) } }
         // Should succeed
         let mut env = TypeEnv::default();
         let stmts = vec![Statement::Item(Item::Function(FunctionDef {
@@ -3724,9 +3712,9 @@ mod tests {
             type_params: vec![],
             params: vec![Param {
                 name: "n".to_string(),
-                typ: TypeAnnotation::Named("Int32".to_string()),
+                typ: TypeAnnotation::Named("Int".to_string()),
             }],
-            return_type: Some(TypeAnnotation::Named("Int32".to_string())),
+            return_type: Some(TypeAnnotation::Named("Int".to_string())),
             body: Expr::Match {
                 scrutinee: Box::new(Expr::Var("n".to_string())),
                 arms: vec![
@@ -3763,11 +3751,11 @@ mod tests {
         let Type::Var(id) = var else { panic!("expected type var") };
 
         let mut mapping = HashMap::new();
-        mapping.insert(id, Type::Int32);
+        mapping.insert(id, Type::Int);
 
         let ty = Type::List(Box::new(Type::Var(id)));
         let result = substitute_type_vars(&ty, &mapping);
-        assert_eq!(result, Type::List(Box::new(Type::Int32)));
+        assert_eq!(result, Type::List(Box::new(Type::Int)));
     }
 
     #[test]
@@ -3779,9 +3767,9 @@ mod tests {
         let mut mapping = HashMap::new();
         mapping.insert(id, Type::String);
 
-        let ty = Type::Tuple(vec![Type::Var(id), Type::Int32]);
+        let ty = Type::Tuple(vec![Type::Var(id), Type::Int]);
         let result = substitute_type_vars(&ty, &mapping);
-        assert_eq!(result, Type::Tuple(vec![Type::String, Type::Int32]));
+        assert_eq!(result, Type::Tuple(vec![Type::String, Type::Int]));
     }
 
     #[test]

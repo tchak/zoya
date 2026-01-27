@@ -119,8 +119,8 @@ impl UnifyCtx {
 
         match (&t1, &t2) {
             // Same concrete types - always unify
-            (Type::Int32, Type::Int32) => Ok(()),
-            (Type::Int64, Type::Int64) => Ok(()),
+            (Type::Int, Type::Int) => Ok(()),
+            (Type::BigInt, Type::BigInt) => Ok(()),
             (Type::Float, Type::Float) => Ok(()),
             (Type::Bool, Type::Bool) => Ok(()),
             (Type::String, Type::String) => Ok(()),
@@ -428,7 +428,7 @@ mod tests {
     #[test]
     fn test_unify_same_concrete() {
         let mut ctx = UnifyCtx::new();
-        assert!(ctx.unify(&Type::Int32, &Type::Int32).is_ok());
+        assert!(ctx.unify(&Type::Int, &Type::Int).is_ok());
         assert!(ctx.unify(&Type::Float, &Type::Float).is_ok());
         assert!(ctx.unify(&Type::Bool, &Type::Bool).is_ok());
         assert!(ctx.unify(&Type::String, &Type::String).is_ok());
@@ -437,7 +437,7 @@ mod tests {
     #[test]
     fn test_unify_different_concrete() {
         let mut ctx = UnifyCtx::new();
-        let result = ctx.unify(&Type::Int32, &Type::Float);
+        let result = ctx.unify(&Type::Int, &Type::Float);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("type mismatch"));
     }
@@ -447,11 +447,11 @@ mod tests {
         let mut ctx = UnifyCtx::new();
         let var = ctx.fresh_var();
 
-        // Unify type variable with Int32
-        assert!(ctx.unify(&var, &Type::Int32).is_ok());
+        // Unify type variable with Int
+        assert!(ctx.unify(&var, &Type::Int).is_ok());
 
-        // The variable should now resolve to Int32
-        assert_eq!(ctx.resolve(&var), Type::Int32);
+        // The variable should now resolve to Int
+        assert_eq!(ctx.resolve(&var), Type::Int);
     }
 
     #[test]
@@ -459,11 +459,11 @@ mod tests {
         let mut ctx = UnifyCtx::new();
         let var = ctx.fresh_var();
 
-        // Unify Int32 with type variable (reversed order)
-        assert!(ctx.unify(&Type::Int32, &var).is_ok());
+        // Unify Int with type variable (reversed order)
+        assert!(ctx.unify(&Type::Int, &var).is_ok());
 
-        // The variable should now resolve to Int32
-        assert_eq!(ctx.resolve(&var), Type::Int32);
+        // The variable should now resolve to Int
+        assert_eq!(ctx.resolve(&var), Type::Int);
     }
 
     #[test]
@@ -476,11 +476,11 @@ mod tests {
         assert!(ctx.unify(&v1, &v2).is_ok());
 
         // Now bind one to a concrete type
-        assert!(ctx.unify(&v1, &Type::Int32).is_ok());
+        assert!(ctx.unify(&v1, &Type::Int).is_ok());
 
-        // Both should resolve to Int32
-        assert_eq!(ctx.resolve(&v1), Type::Int32);
-        assert_eq!(ctx.resolve(&v2), Type::Int32);
+        // Both should resolve to Int
+        assert_eq!(ctx.resolve(&v1), Type::Int);
+        assert_eq!(ctx.resolve(&v2), Type::Int);
     }
 
     #[test]
@@ -488,11 +488,11 @@ mod tests {
         let mut ctx = UnifyCtx::new();
         let var = ctx.fresh_var();
 
-        // Bind to Int32
-        assert!(ctx.unify(&var, &Type::Int32).is_ok());
+        // Bind to Int
+        assert!(ctx.unify(&var, &Type::Int).is_ok());
 
         // Unifying with same type should succeed
-        assert!(ctx.unify(&var, &Type::Int32).is_ok());
+        assert!(ctx.unify(&var, &Type::Int).is_ok());
 
         // Unifying with different type should fail
         let result = ctx.unify(&var, &Type::Float);
@@ -515,15 +515,15 @@ mod tests {
         let v2 = ctx.fresh_var();
         let v3 = ctx.fresh_var();
 
-        // Create chain: v1 -> v2 -> v3 -> Int32
+        // Create chain: v1 -> v2 -> v3 -> Int
         ctx.unify(&v1, &v2).unwrap();
         ctx.unify(&v2, &v3).unwrap();
-        ctx.unify(&v3, &Type::Int32).unwrap();
+        ctx.unify(&v3, &Type::Int).unwrap();
 
-        // All should resolve to Int32
-        assert_eq!(ctx.resolve(&v1), Type::Int32);
-        assert_eq!(ctx.resolve(&v2), Type::Int32);
-        assert_eq!(ctx.resolve(&v3), Type::Int32);
+        // All should resolve to Int
+        assert_eq!(ctx.resolve(&v1), Type::Int);
+        assert_eq!(ctx.resolve(&v2), Type::Int);
+        assert_eq!(ctx.resolve(&v3), Type::Int);
     }
 
     #[test]
@@ -531,7 +531,7 @@ mod tests {
         let mut ctx = UnifyCtx::new();
         let var = ctx.fresh_var();
 
-        assert!(ctx.is_concrete(&Type::Int32));
+        assert!(ctx.is_concrete(&Type::Int));
         assert!(!ctx.is_concrete(&var));
 
         ctx.unify(&var, &Type::Float).unwrap();
@@ -541,15 +541,15 @@ mod tests {
     #[test]
     fn test_unify_list_same_element() {
         let mut ctx = UnifyCtx::new();
-        let list1 = Type::List(Box::new(Type::Int32));
-        let list2 = Type::List(Box::new(Type::Int32));
+        let list1 = Type::List(Box::new(Type::Int));
+        let list2 = Type::List(Box::new(Type::Int));
         assert!(ctx.unify(&list1, &list2).is_ok());
     }
 
     #[test]
     fn test_unify_list_different_element() {
         let mut ctx = UnifyCtx::new();
-        let list1 = Type::List(Box::new(Type::Int32));
+        let list1 = Type::List(Box::new(Type::Int));
         let list2 = Type::List(Box::new(Type::String));
         let result = ctx.unify(&list1, &list2);
         assert!(result.is_err());
@@ -560,13 +560,13 @@ mod tests {
         let mut ctx = UnifyCtx::new();
         let var = ctx.fresh_var();
         let list1 = Type::List(Box::new(var.clone()));
-        let list2 = Type::List(Box::new(Type::Int32));
+        let list2 = Type::List(Box::new(Type::Int));
 
         assert!(ctx.unify(&list1, &list2).is_ok());
-        assert_eq!(ctx.resolve(&var), Type::Int32);
+        assert_eq!(ctx.resolve(&var), Type::Int);
         assert_eq!(
             ctx.resolve(&list1),
-            Type::List(Box::new(Type::Int32))
+            Type::List(Box::new(Type::Int))
         );
     }
 
@@ -587,7 +587,7 @@ mod tests {
         let mut ctx = UnifyCtx::new();
         let var = ctx.fresh_var();
 
-        let list_concrete = Type::List(Box::new(Type::Int32));
+        let list_concrete = Type::List(Box::new(Type::Int));
         let list_var = Type::List(Box::new(var.clone()));
 
         assert!(ctx.is_concrete(&list_concrete));
@@ -601,11 +601,11 @@ mod tests {
     fn test_unify_function_same() {
         let mut ctx = UnifyCtx::new();
         let f1 = Type::Function {
-            params: vec![Type::Int32],
+            params: vec![Type::Int],
             ret: Box::new(Type::Bool),
         };
         let f2 = Type::Function {
-            params: vec![Type::Int32],
+            params: vec![Type::Int],
             ret: Box::new(Type::Bool),
         };
         assert!(ctx.unify(&f1, &f2).is_ok());
@@ -615,11 +615,11 @@ mod tests {
     fn test_unify_function_different_return() {
         let mut ctx = UnifyCtx::new();
         let f1 = Type::Function {
-            params: vec![Type::Int32],
+            params: vec![Type::Int],
             ret: Box::new(Type::Bool),
         };
         let f2 = Type::Function {
-            params: vec![Type::Int32],
+            params: vec![Type::Int],
             ret: Box::new(Type::String),
         };
         assert!(ctx.unify(&f1, &f2).is_err());
@@ -629,11 +629,11 @@ mod tests {
     fn test_unify_function_different_arity() {
         let mut ctx = UnifyCtx::new();
         let f1 = Type::Function {
-            params: vec![Type::Int32],
+            params: vec![Type::Int],
             ret: Box::new(Type::Bool),
         };
         let f2 = Type::Function {
-            params: vec![Type::Int32, Type::String],
+            params: vec![Type::Int, Type::String],
             ret: Box::new(Type::Bool),
         };
         let result = ctx.unify(&f1, &f2);
@@ -650,17 +650,17 @@ mod tests {
             ret: Box::new(Type::Bool),
         };
         let expected = Type::Function {
-            params: vec![Type::Int32],
+            params: vec![Type::Int],
             ret: Box::new(Type::Bool),
         };
         assert!(ctx.unify(&f, &expected).is_ok());
-        assert_eq!(ctx.resolve(&var), Type::Int32);
+        assert_eq!(ctx.resolve(&var), Type::Int);
     }
 
     #[test]
     fn test_free_vars_concrete() {
         let ctx = UnifyCtx::new();
-        assert!(ctx.free_vars(&Type::Int32).is_empty());
+        assert!(ctx.free_vars(&Type::Int).is_empty());
         assert!(ctx.free_vars(&Type::String).is_empty());
     }
 
@@ -692,7 +692,7 @@ mod tests {
     fn test_generalize_no_free_vars() {
         let ctx = UnifyCtx::new();
         let ty = Type::Function {
-            params: vec![Type::Int32],
+            params: vec![Type::Int],
             ret: Box::new(Type::Bool),
         };
         let scheme = ctx.generalize(&ty, &HashSet::new());
@@ -732,7 +732,7 @@ mod tests {
     fn test_instantiate_mono() {
         let mut ctx = UnifyCtx::new();
         let ty = Type::Function {
-            params: vec![Type::Int32],
+            params: vec![Type::Int],
             ret: Box::new(Type::Bool),
         };
         let scheme = TypeScheme {

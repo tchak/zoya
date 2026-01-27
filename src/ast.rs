@@ -21,7 +21,7 @@ pub struct StructFieldDef {
     pub typ: TypeAnnotation,
 }
 
-/// Enum definition: `enum Option<T> { None, Some(T), Move { x: Int32, y: Int32 } }`
+/// Enum definition: `enum Option<T> { None, Some(T), Move { x: Int, y: Int } }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumDef {
     pub name: String,
@@ -43,7 +43,7 @@ pub enum EnumVariantKind {
     Unit,
     /// Tuple variant: `Some(T)` or `Pair(T, U)`
     Tuple(Vec<TypeAnnotation>),
-    /// Struct variant: `Move { x: Int32, y: Int32 }`
+    /// Struct variant: `Move { x: Int, y: Int }`
     Struct(Vec<StructFieldDef>),
 }
 
@@ -174,7 +174,7 @@ pub struct MatchArm {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Int(i64),
-    Int64(i64),
+    BigInt(i64),
     Float(f64),
     Bool(bool),
     String(String),

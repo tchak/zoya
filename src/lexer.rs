@@ -4,7 +4,7 @@ fn parse_float(lex: &logos::Lexer<Token>) -> Option<f64> {
     lex.slice().replace('_', "").parse::<f64>().ok()
 }
 
-fn parse_int64(lex: &logos::Lexer<Token>) -> Option<i64> {
+fn parse_bigint(lex: &logos::Lexer<Token>) -> Option<i64> {
     let s = lex.slice();
     // Strip trailing 'n' and underscores
     s[..s.len() - 1].replace('_', "").parse::<i64>().ok()
@@ -71,9 +71,9 @@ pub enum Token {
     #[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*", parse_float)]
     Float(f64),
 
-    // Int64 literals with 'n' suffix (must come before Int to match first)
-    #[regex(r"[0-9][0-9_]*n", parse_int64)]
-    Int64(i64),
+    // BigInt literals with 'n' suffix (must come before Int to match first)
+    #[regex(r"[0-9][0-9_]*n", parse_bigint)]
+    BigInt(i64),
 
     #[regex(r"[0-9][0-9_]*", |lex| lex.slice().replace('_', "").parse::<i64>().ok())]
     Int(i64),
@@ -519,30 +519,30 @@ mod tests {
     }
 
     #[test]
-    fn test_int64_simple() {
+    fn test_bigint_simple() {
         let tokens = lex("42n").unwrap();
-        assert_eq!(tokens, vec![Token::Int64(42)]);
+        assert_eq!(tokens, vec![Token::BigInt(42)]);
     }
 
     #[test]
-    fn test_int64_with_underscores() {
+    fn test_bigint_with_underscores() {
         let tokens = lex("9_000_000_000n").unwrap();
-        assert_eq!(tokens, vec![Token::Int64(9_000_000_000)]);
+        assert_eq!(tokens, vec![Token::BigInt(9_000_000_000)]);
     }
 
     #[test]
-    fn test_int64_in_expression() {
+    fn test_bigint_in_expression() {
         let tokens = lex("42n + 1n").unwrap();
         assert_eq!(
             tokens,
-            vec![Token::Int64(42), Token::Plus, Token::Int64(1)]
+            vec![Token::BigInt(42), Token::Plus, Token::BigInt(1)]
         );
     }
 
     #[test]
-    fn test_int64_zero() {
+    fn test_bigint_zero() {
         let tokens = lex("0n").unwrap();
-        assert_eq!(tokens, vec![Token::Int64(0)]);
+        assert_eq!(tokens, vec![Token::BigInt(0)]);
     }
 
     #[test]

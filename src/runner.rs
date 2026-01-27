@@ -143,26 +143,26 @@ mod tests {
 
     #[test]
     fn test_run_simple_main() {
-        let source = "fn main() -> Int32 { 42 }";
+        let source = "fn main() -> Int { 42 }";
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(42));
+        assert_eq!(result, Value::Int(42));
     }
 
     #[test]
     fn test_run_main_with_expression() {
-        let source = "fn main() -> Int32 { 1 + 2 * 3 }";
+        let source = "fn main() -> Int { 1 + 2 * 3 }";
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(7));
+        assert_eq!(result, Value::Int(7));
     }
 
     #[test]
     fn test_run_main_calling_function() {
         let source = r#"
-            fn add(x: Int32, y: Int32) -> Int32 { x + y }
-            fn main() -> Int32 { add(10, 20) }
+            fn add(x: Int, y: Int) -> Int { x + y }
+            fn main() -> Int { add(10, 20) }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(30));
+        assert_eq!(result, Value::Int(30));
     }
 
     #[test]
@@ -174,14 +174,14 @@ mod tests {
 
     #[test]
     fn test_run_no_main_error() {
-        let source = "fn foo() -> Int32 { 42 }";
+        let source = "fn foo() -> Int { 42 }";
         let result = run_source(source);
         assert!(matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("no main()")));
     }
 
     #[test]
     fn test_run_main_with_params_error() {
-        let source = "fn main(x: Int32) -> Int32 { x }";
+        let source = "fn main(x: Int) -> Int { x }";
         let result = run_source(source);
         assert!(
             matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("must not take any parameters"))
@@ -191,40 +191,40 @@ mod tests {
     #[test]
     fn test_run_multiple_functions() {
         let source = r#"
-            fn square(x: Int32) -> Int32 { x * x }
-            fn double(x: Int32) -> Int32 { x + x }
-            fn main() -> Int32 { square(double(3)) }
+            fn square(x: Int) -> Int { x * x }
+            fn double(x: Int) -> Int { x + x }
+            fn main() -> Int { square(double(3)) }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(36)); // double(3) = 6, square(6) = 36
+        assert_eq!(result, Value::Int(36)); // double(3) = 6, square(6) = 36
     }
 
     #[test]
     fn test_run_function_no_braces() {
         // Functions with simple expression bodies can omit braces
         let source = r#"
-            fn square(x: Int32) -> Int32 x * x
-            fn main() -> Int32 { square(5) }
+            fn square(x: Int) -> Int x * x
+            fn main() -> Int { square(5) }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(25));
+        assert_eq!(result, Value::Int(25));
     }
 
     #[test]
     fn test_run_function_no_braces_multiple() {
         // Multiple functions without braces
         let source = r#"
-            fn add(x: Int32, y: Int32) -> Int32 x + y
-            fn double(x: Int32) -> Int32 x * 2
-            fn main() -> Int32 add(double(3), 4)
+            fn add(x: Int, y: Int) -> Int x + y
+            fn double(x: Int) -> Int x * 2
+            fn main() -> Int add(double(3), 4)
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(10)); // double(3) = 6, add(6, 4) = 10
+        assert_eq!(result, Value::Int(10)); // double(3) = 6, add(6, 4) = 10
     }
 
     #[test]
     fn test_run_division_by_zero() {
-        let source = "fn main() -> Int32 { 1 / 0 }";
+        let source = "fn main() -> Int { 1 / 0 }";
         let result = run_source(source);
         assert!(matches!(result, Err(EvalError::DivisionByZero)));
     }
@@ -315,9 +315,9 @@ mod tests {
 
     #[test]
     fn test_run_string_len() {
-        let source = r#"fn main() -> Int32 { "hello".len() }"#;
+        let source = r#"fn main() -> Int { "hello".len() }"#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(5));
+        assert_eq!(result, Value::Int(5));
     }
 
     #[test]
@@ -385,27 +385,27 @@ mod tests {
 
     #[test]
     fn test_run_chained_method_calls() {
-        let source = r#"fn main() -> Int32 { "hello".to_uppercase().len() }"#;
+        let source = r#"fn main() -> Int { "hello".to_uppercase().len() }"#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(5));
+        assert_eq!(result, Value::Int(5));
     }
 
     #[test]
     fn test_run_method_call_in_function() {
         let source = r#"
-            fn get_length(s: String) -> Int32 { s.len() }
-            fn main() -> Int32 { get_length("hello") }
+            fn get_length(s: String) -> Int { s.len() }
+            fn main() -> Int { get_length("hello") }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(5));
+        assert_eq!(result, Value::Int(5));
     }
 
-    // Int32 method tests
+    // Int method tests
     #[test]
     fn test_run_int32_abs() {
-        let source = "fn main() -> Int32 { (-5).abs() }";
+        let source = "fn main() -> Int { (-5).abs() }";
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(5));
+        assert_eq!(result, Value::Int(5));
     }
 
     #[test]
@@ -424,45 +424,45 @@ mod tests {
 
     #[test]
     fn test_run_int32_min() {
-        let source = "fn main() -> Int32 { 3.min(5) }";
+        let source = "fn main() -> Int { 3.min(5) }";
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(3));
+        assert_eq!(result, Value::Int(3));
     }
 
     #[test]
     fn test_run_int32_max() {
-        let source = "fn main() -> Int32 { 3.max(5) }";
+        let source = "fn main() -> Int { 3.max(5) }";
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(5));
+        assert_eq!(result, Value::Int(5));
     }
 
-    // Int64 literal tests
+    // BigInt literal tests
     #[test]
     fn test_run_int64_literal() {
-        let source = "fn main() -> Int64 { 42n }";
+        let source = "fn main() -> BigInt { 42n }";
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int64(42));
+        assert_eq!(result, Value::BigInt(42));
     }
 
     #[test]
     fn test_run_int64_large_literal() {
-        let source = "fn main() -> Int64 { 9_000_000_000n }";
+        let source = "fn main() -> BigInt { 9_000_000_000n }";
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int64(9_000_000_000));
+        assert_eq!(result, Value::BigInt(9_000_000_000));
     }
 
     #[test]
     fn test_run_int64_addition() {
-        let source = "fn main() -> Int64 { 1n + 2n }";
+        let source = "fn main() -> BigInt { 1n + 2n }";
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int64(3));
+        assert_eq!(result, Value::BigInt(3));
     }
 
     #[test]
     fn test_run_int64_method_abs() {
-        let source = "fn main() -> Int64 { (-42n).abs() }";
+        let source = "fn main() -> BigInt { (-42n).abs() }";
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int64(42));
+        assert_eq!(result, Value::BigInt(42));
     }
 
     #[test]
@@ -489,9 +489,9 @@ mod tests {
 
     #[test]
     fn test_run_float_to_int() {
-        let source = "fn main() -> Int32 { 3.7.to_int() }";
+        let source = "fn main() -> Int { 3.7.to_int() }";
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(3));
+        assert_eq!(result, Value::Int(3));
     }
 
     #[test]
@@ -539,17 +539,17 @@ mod tests {
     // List tests
     #[test]
     fn test_run_list_literal() {
-        let source = "fn main() -> List<Int32> { [1, 2, 3] }";
+        let source = "fn main() -> List<Int> { [1, 2, 3] }";
         let result = run_source(source).unwrap();
         assert_eq!(
             result,
-            Value::List(vec![Value::Int32(1), Value::Int32(2), Value::Int32(3)])
+            Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
         );
     }
 
     #[test]
     fn test_run_empty_list() {
-        let source = "fn main() -> List<Int32> { [] }";
+        let source = "fn main() -> List<Int> { [] }";
         let result = run_source(source).unwrap();
         assert_eq!(result, Value::List(vec![]));
     }
@@ -622,67 +622,67 @@ mod tests {
     #[test]
     fn test_run_list_match_head() {
         let source = r#"
-            fn head_or_zero(xs: List<Int32>) -> Int32 {
+            fn head_or_zero(xs: List<Int>) -> Int {
                 match xs {
                     [] => 0,
                     [x, ..] => x,
                 }
             }
-            fn main() -> Int32 { head_or_zero([42, 1, 2]) }
+            fn main() -> Int { head_or_zero([42, 1, 2]) }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(42));
+        assert_eq!(result, Value::Int(42));
     }
 
     #[test]
     fn test_run_list_match_head_empty() {
         let source = r#"
-            fn head_or_zero(xs: List<Int32>) -> Int32 {
+            fn head_or_zero(xs: List<Int>) -> Int {
                 match xs {
                     [] => 0,
                     [x, ..] => x,
                 }
             }
-            fn main() -> Int32 { head_or_zero([]) }
+            fn main() -> Int { head_or_zero([]) }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(0));
+        assert_eq!(result, Value::Int(0));
     }
 
     #[test]
     fn test_run_list_match_exact() {
         let source = r#"
-            fn sum_pair(xs: List<Int32>) -> Int32 {
+            fn sum_pair(xs: List<Int>) -> Int {
                 match xs {
                     [a, b] => a + b,
                     _ => 0,
                 }
             }
-            fn main() -> Int32 { sum_pair([10, 20]) }
+            fn main() -> Int { sum_pair([10, 20]) }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(30));
+        assert_eq!(result, Value::Int(30));
     }
 
     #[test]
     fn test_run_list_match_exact_wrong_length() {
         let source = r#"
-            fn sum_pair(xs: List<Int32>) -> Int32 {
+            fn sum_pair(xs: List<Int>) -> Int {
                 match xs {
                     [a, b] => a + b,
                     _ => 0,
                 }
             }
-            fn main() -> Int32 { sum_pair([1, 2, 3]) }
+            fn main() -> Int { sum_pair([1, 2, 3]) }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(0));
+        assert_eq!(result, Value::Int(0));
     }
 
     #[test]
     fn test_run_list_match_literal_pattern() {
         let source = r#"
-            fn starts_with_one(xs: List<Int32>) -> Bool {
+            fn starts_with_one(xs: List<Int>) -> Bool {
                 match xs {
                     [1, ..] => true,
                     [_, ..] => false,
@@ -698,7 +698,7 @@ mod tests {
     #[test]
     fn test_run_list_match_literal_pattern_not_matching() {
         let source = r#"
-            fn starts_with_one(xs: List<Int32>) -> Bool {
+            fn starts_with_one(xs: List<Int>) -> Bool {
                 match xs {
                     [1, ..] => true,
                     [_, ..] => false,
@@ -715,12 +715,12 @@ mod tests {
     fn test_run_list_exhaustiveness_error() {
         // Missing empty list pattern should cause compile error
         let source = r#"
-            fn bad(xs: List<Int32>) -> Int32 {
+            fn bad(xs: List<Int>) -> Int {
                 match xs {
                     [x, ..] => x,
                 }
             }
-            fn main() -> Int32 { bad([1]) }
+            fn main() -> Int { bad([1]) }
         "#;
         let result = run_source(source);
         assert!(matches!(
@@ -745,7 +745,7 @@ mod tests {
     #[test]
     fn test_run_list_function_param() {
         let source = r#"
-            fn len_check(xs: List<Int32>) -> Bool {
+            fn len_check(xs: List<Int>) -> Bool {
                 match xs {
                     [] => true,
                     [_] => true,
@@ -763,53 +763,53 @@ mod tests {
     #[test]
     fn test_run_list_match_suffix_pattern() {
         let source = r#"
-            fn last_elem(xs: List<Int32>) -> Int32 {
+            fn last_elem(xs: List<Int>) -> Int {
                 match xs {
                     [.., x] => x,
                     [] => 0,
                 }
             }
-            fn main() -> Int32 { last_elem([1, 2, 3]) }
+            fn main() -> Int { last_elem([1, 2, 3]) }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(3));
+        assert_eq!(result, Value::Int(3));
     }
 
     #[test]
     fn test_run_list_match_suffix_pattern_single_elem() {
         let source = r#"
-            fn last_elem(xs: List<Int32>) -> Int32 {
+            fn last_elem(xs: List<Int>) -> Int {
                 match xs {
                     [.., x] => x,
                     [] => 0,
                 }
             }
-            fn main() -> Int32 { last_elem([42]) }
+            fn main() -> Int { last_elem([42]) }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(42));
+        assert_eq!(result, Value::Int(42));
     }
 
     #[test]
     fn test_run_list_match_suffix_two_elements() {
         let source = r#"
-            fn last_two(xs: List<Int32>) -> Int32 {
+            fn last_two(xs: List<Int>) -> Int {
                 match xs {
                     [.., a, b] => a + b,
                     [x] => x,
                     [] => 0,
                 }
             }
-            fn main() -> Int32 { last_two([1, 2, 3, 4]) }
+            fn main() -> Int { last_two([1, 2, 3, 4]) }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(7)); // 3 + 4
+        assert_eq!(result, Value::Int(7)); // 3 + 4
     }
 
     #[test]
     fn test_run_list_match_suffix_literal_pattern() {
         let source = r#"
-            fn ends_with_zero(xs: List<Int32>) -> Bool {
+            fn ends_with_zero(xs: List<Int>) -> Bool {
                 match xs {
                     [.., 0] => true,
                     [_, ..] => false,
@@ -826,40 +826,40 @@ mod tests {
     #[test]
     fn test_run_list_match_prefix_suffix_pattern() {
         let source = r#"
-            fn first_and_last(xs: List<Int32>) -> Int32 {
+            fn first_and_last(xs: List<Int>) -> Int {
                 match xs {
                     [a, .., b] => a + b,
                     [a] => a,
                     [] => 0,
                 }
             }
-            fn main() -> Int32 { first_and_last([1, 2, 3, 4]) }
+            fn main() -> Int { first_and_last([1, 2, 3, 4]) }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(5)); // 1 + 4
+        assert_eq!(result, Value::Int(5)); // 1 + 4
     }
 
     #[test]
     fn test_run_list_match_prefix_suffix_min_length() {
         // [a, .., b] requires at least 2 elements
         let source = r#"
-            fn first_and_last(xs: List<Int32>) -> Int32 {
+            fn first_and_last(xs: List<Int>) -> Int {
                 match xs {
                     [a, .., b] => a + b,
                     [a] => a,
                     [] => 0,
                 }
             }
-            fn main() -> Int32 { first_and_last([10, 20]) }
+            fn main() -> Int { first_and_last([10, 20]) }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(30)); // 10 + 20
+        assert_eq!(result, Value::Int(30)); // 10 + 20
     }
 
     #[test]
     fn test_run_list_match_prefix_suffix_literals() {
         let source = r#"
-            fn bookended_by_ones(xs: List<Int32>) -> Bool {
+            fn bookended_by_ones(xs: List<Int>) -> Bool {
                 match xs {
                     [1, .., 1] => true,
                     [_, ..] => false,
@@ -875,7 +875,7 @@ mod tests {
     #[test]
     fn test_run_list_match_prefix_suffix_multiple() {
         let source = r#"
-            fn middle_free(xs: List<Int32>) -> Int32 {
+            fn middle_free(xs: List<Int>) -> Int {
                 match xs {
                     [a, b, .., y, z] => a + b + y + z,
                     [a, b, c] => a + b + c,
@@ -884,26 +884,26 @@ mod tests {
                     [] => 0,
                 }
             }
-            fn main() -> Int32 { middle_free([1, 2, 3, 4, 5, 6]) }
+            fn main() -> Int { middle_free([1, 2, 3, 4, 5, 6]) }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(14)); // 1 + 2 + 5 + 6
+        assert_eq!(result, Value::Int(14)); // 1 + 2 + 5 + 6
     }
 
     // List method tests
 
     #[test]
     fn test_run_list_len() {
-        let source = "fn main() -> Int32 { [1, 2, 3].len() }";
+        let source = "fn main() -> Int { [1, 2, 3].len() }";
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(3));
+        assert_eq!(result, Value::Int(3));
     }
 
     #[test]
     fn test_run_list_len_empty() {
-        let source = "fn main() -> Int32 { [].len() }";
+        let source = "fn main() -> Int { [].len() }";
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(0));
+        assert_eq!(result, Value::Int(0));
     }
 
     #[test]
@@ -922,78 +922,78 @@ mod tests {
 
     #[test]
     fn test_run_list_reverse() {
-        let source = "fn main() -> List<Int32> { [1, 2, 3].reverse() }";
+        let source = "fn main() -> List<Int> { [1, 2, 3].reverse() }";
         let result = run_source(source).unwrap();
         assert_eq!(
             result,
-            Value::List(vec![Value::Int32(3), Value::Int32(2), Value::Int32(1)])
+            Value::List(vec![Value::Int(3), Value::Int(2), Value::Int(1)])
         );
     }
 
     #[test]
     fn test_run_list_reverse_empty() {
-        let source = "fn main() -> List<Int32> { [].reverse() }";
+        let source = "fn main() -> List<Int> { [].reverse() }";
         let result = run_source(source).unwrap();
         assert_eq!(result, Value::List(vec![]));
     }
 
     #[test]
     fn test_run_list_push() {
-        let source = "fn main() -> List<Int32> { [1, 2].push(3) }";
+        let source = "fn main() -> List<Int> { [1, 2].push(3) }";
         let result = run_source(source).unwrap();
         assert_eq!(
             result,
-            Value::List(vec![Value::Int32(1), Value::Int32(2), Value::Int32(3)])
+            Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
         );
     }
 
     #[test]
     fn test_run_list_push_empty() {
-        let source = "fn main() -> List<Int32> { [].push(1) }";
+        let source = "fn main() -> List<Int> { [].push(1) }";
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::List(vec![Value::Int32(1)]));
+        assert_eq!(result, Value::List(vec![Value::Int(1)]));
     }
 
     #[test]
     fn test_run_list_concat() {
-        let source = "fn main() -> List<Int32> { [1, 2].concat([3, 4]) }";
+        let source = "fn main() -> List<Int> { [1, 2].concat([3, 4]) }";
         let result = run_source(source).unwrap();
         assert_eq!(
             result,
             Value::List(vec![
-                Value::Int32(1),
-                Value::Int32(2),
-                Value::Int32(3),
-                Value::Int32(4)
+                Value::Int(1),
+                Value::Int(2),
+                Value::Int(3),
+                Value::Int(4)
             ])
         );
     }
 
     #[test]
     fn test_run_list_concat_empty() {
-        let source = "fn main() -> List<Int32> { [1, 2].concat([]) }";
+        let source = "fn main() -> List<Int> { [1, 2].concat([]) }";
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::List(vec![Value::Int32(1), Value::Int32(2)]));
+        assert_eq!(result, Value::List(vec![Value::Int(1), Value::Int(2)]));
     }
 
     #[test]
     fn test_run_list_chained_methods() {
-        let source = "fn main() -> List<Int32> { [1, 2].push(3).reverse() }";
+        let source = "fn main() -> List<Int> { [1, 2].push(3).reverse() }";
         let result = run_source(source).unwrap();
         assert_eq!(
             result,
-            Value::List(vec![Value::Int32(3), Value::Int32(2), Value::Int32(1)])
+            Value::List(vec![Value::Int(3), Value::Int(2), Value::Int(1)])
         );
     }
 
     // Tuple tests
     #[test]
     fn test_run_tuple_literal() {
-        let source = r#"fn main() -> (Int32, String) { (42, "hello") }"#;
+        let source = r#"fn main() -> (Int, String) { (42, "hello") }"#;
         let result = run_source(source).unwrap();
         assert_eq!(
             result,
-            Value::Tuple(vec![Value::Int32(42), Value::String("hello".to_string())])
+            Value::Tuple(vec![Value::Int(42), Value::String("hello".to_string())])
         );
     }
 
@@ -1006,92 +1006,92 @@ mod tests {
 
     #[test]
     fn test_run_single_element_tuple() {
-        let source = "fn main() -> (Int32,) { (42,) }";
+        let source = "fn main() -> (Int,) { (42,) }";
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Tuple(vec![Value::Int32(42)]));
+        assert_eq!(result, Value::Tuple(vec![Value::Int(42)]));
     }
 
     #[test]
     fn test_run_tuple_match_exact() {
         let source = r#"
-            fn first(t: (Int32, String)) -> Int32 {
+            fn first(t: (Int, String)) -> Int {
                 match t {
                     (x, _) => x,
                 }
             }
-            fn main() -> Int32 { first((10, "hello")) }
+            fn main() -> Int { first((10, "hello")) }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(10));
+        assert_eq!(result, Value::Int(10));
     }
 
     #[test]
     fn test_run_tuple_match_prefix() {
         let source = r#"
-            fn get_first(t: (Int32, Int32, Int32)) -> Int32 {
+            fn get_first(t: (Int, Int, Int)) -> Int {
                 match t {
                     (x, ..) => x,
                 }
             }
-            fn main() -> Int32 { get_first((1, 2, 3)) }
+            fn main() -> Int { get_first((1, 2, 3)) }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(1));
+        assert_eq!(result, Value::Int(1));
     }
 
     #[test]
     fn test_run_tuple_match_suffix() {
         let source = r#"
-            fn get_last(t: (Int32, Int32, Int32)) -> Int32 {
+            fn get_last(t: (Int, Int, Int)) -> Int {
                 match t {
                     (.., z) => z,
                 }
             }
-            fn main() -> Int32 { get_last((1, 2, 3)) }
+            fn main() -> Int { get_last((1, 2, 3)) }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(3));
+        assert_eq!(result, Value::Int(3));
     }
 
     #[test]
     fn test_run_tuple_match_prefix_suffix() {
         let source = r#"
-            fn first_and_last(t: (Int32, Int32, Int32)) -> Int32 {
+            fn first_and_last(t: (Int, Int, Int)) -> Int {
                 match t {
                     (a, .., c) => a + c,
                 }
             }
-            fn main() -> Int32 { first_and_last((1, 2, 3)) }
+            fn main() -> Int { first_and_last((1, 2, 3)) }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(4)); // 1 + 3
+        assert_eq!(result, Value::Int(4)); // 1 + 3
     }
 
     #[test]
     fn test_run_tuple_heterogeneous() {
         let source = r#"
-            fn get_int(t: (Int32, String, Bool)) -> Int32 {
+            fn get_int(t: (Int, String, Bool)) -> Int {
                 match t {
                     (x, _, _) => x,
                 }
             }
-            fn main() -> Int32 { get_int((42, "hello", true)) }
+            fn main() -> Int { get_int((42, "hello", true)) }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(42));
+        assert_eq!(result, Value::Int(42));
     }
 
     #[test]
     fn test_run_tuple_with_list() {
         let source = r#"
-            fn main() -> (Int32, List<Int32>) { (1, [2, 3]) }
+            fn main() -> (Int, List<Int>) { (1, [2, 3]) }
         "#;
         let result = run_source(source).unwrap();
         assert_eq!(
             result,
             Value::Tuple(vec![
-                Value::Int32(1),
-                Value::List(vec![Value::Int32(2), Value::Int32(3)])
+                Value::Int(1),
+                Value::List(vec![Value::Int(2), Value::Int(3)])
             ])
         );
     }
@@ -1100,29 +1100,29 @@ mod tests {
     #[test]
     fn test_run_match_with_commas() {
         let source = r#"
-            fn main() -> Int32 {
+            fn main() -> Int {
                 match 1 { 0 => 0, 1 => 10, _ => 100 }
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(10));
+        assert_eq!(result, Value::Int(10));
     }
 
     #[test]
     fn test_run_match_braced_simple() {
         let source = r#"
-            fn main() -> Int32 {
+            fn main() -> Int {
                 match 1 { 0 => { 0 }, 1 => { 10 }, _ => { 100 } }
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(10));
+        assert_eq!(result, Value::Int(10));
     }
 
     #[test]
     fn test_run_match_braced_block() {
         let source = r#"
-            fn main() -> Int32 {
+            fn main() -> Int {
                 match 5 {
                     n => {
                         let doubled = n * 2;
@@ -1132,13 +1132,13 @@ mod tests {
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(11)); // 5 * 2 + 1
+        assert_eq!(result, Value::Int(11)); // 5 * 2 + 1
     }
 
     #[test]
     fn test_run_match_block_multiple_bindings() {
         let source = r#"
-            fn main() -> Int32 {
+            fn main() -> Int {
                 match 3 {
                     n => {
                         let a = n * 2;
@@ -1150,13 +1150,13 @@ mod tests {
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(14)); // ((3 * 2) + 1) * 2
+        assert_eq!(result, Value::Int(14)); // ((3 * 2) + 1) * 2
     }
 
     #[test]
     fn test_run_match_block_pattern_binding_visible() {
         let source = r#"
-            fn main() -> Int32 {
+            fn main() -> Int {
                 match 10 {
                     x => {
                         let y = x + 5;
@@ -1166,13 +1166,13 @@ mod tests {
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(25)); // 10 + 15
+        assert_eq!(result, Value::Int(25)); // 10 + 15
     }
 
     #[test]
     fn test_run_match_mixed_arms() {
         let source = r#"
-            fn main() -> Int32 {
+            fn main() -> Int {
                 match 2 {
                     0 => 100,
                     1 => { let x = 1; x * 10 },
@@ -1184,13 +1184,13 @@ mod tests {
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(22)); // 2 * 10 + 2
+        assert_eq!(result, Value::Int(22)); // 2 * 10 + 2
     }
 
     #[test]
     fn test_run_match_block_with_list_pattern() {
         let source = r#"
-            fn sum_first_two(xs: List<Int32>) -> Int32 {
+            fn sum_first_two(xs: List<Int>) -> Int {
                 match xs {
                     [a, b, ..] => {
                         let sum = a + b;
@@ -1200,16 +1200,16 @@ mod tests {
                     [] => 0,
                 }
             }
-            fn main() -> Int32 { sum_first_two([5, 7, 9]) }
+            fn main() -> Int { sum_first_two([5, 7, 9]) }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(12));
+        assert_eq!(result, Value::Int(12));
     }
 
     #[test]
     fn test_run_match_block_with_tuple_pattern() {
         let source = r#"
-            fn process(t: (Int32, Int32)) -> Int32 {
+            fn process(t: (Int, Int)) -> Int {
                 match t {
                     (a, b) => {
                         let sum = a + b;
@@ -1218,10 +1218,10 @@ mod tests {
                     }
                 }
             }
-            fn main() -> Int32 { process((3, 4)) }
+            fn main() -> Int { process((3, 4)) }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(19)); // (3 + 4) + (3 * 4) = 7 + 12
+        assert_eq!(result, Value::Int(19)); // (3 + 4) + (3 * 4) = 7 + 12
     }
 
     // Forward reference and mutual recursion tests
@@ -1229,25 +1229,25 @@ mod tests {
     fn test_run_forward_reference() {
         // caller is defined before callee but calls it
         let source = r#"
-            fn caller() -> Int32 { callee() }
-            fn callee() -> Int32 { 42 }
-            fn main() -> Int32 { caller() }
+            fn caller() -> Int { callee() }
+            fn callee() -> Int { 42 }
+            fn main() -> Int { caller() }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(42));
+        assert_eq!(result, Value::Int(42));
     }
 
     #[test]
     fn test_run_mutual_recursion() {
         // is_even and is_odd call each other
         let source = r#"
-            fn is_even(n: Int32) -> Bool {
+            fn is_even(n: Int) -> Bool {
                 match n {
                     0 => true,
                     _ => is_odd(n - 1),
                 }
             }
-            fn is_odd(n: Int32) -> Bool {
+            fn is_odd(n: Int) -> Bool {
                 match n {
                     0 => false,
                     _ => is_even(n - 1),
@@ -1262,13 +1262,13 @@ mod tests {
     #[test]
     fn test_run_mutual_recursion_odd() {
         let source = r#"
-            fn is_even(n: Int32) -> Bool {
+            fn is_even(n: Int) -> Bool {
                 match n {
                     0 => true,
                     _ => is_odd(n - 1),
                 }
             }
-            fn is_odd(n: Int32) -> Bool {
+            fn is_odd(n: Int) -> Bool {
                 match n {
                     0 => false,
                     _ => is_even(n - 1),
@@ -1284,7 +1284,7 @@ mod tests {
     fn test_check_file_command_success() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zoya");
-        std::fs::write(&file, "fn main() -> Int32 { 42 }").unwrap();
+        std::fs::write(&file, "fn main() -> Int { 42 }").unwrap();
 
         let result = check_file_command(&file);
         assert!(result.is_ok());
@@ -1294,7 +1294,7 @@ mod tests {
     fn test_check_file_command_type_error() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zoya");
-        std::fs::write(&file, "fn main() -> Int32 { true }").unwrap();
+        std::fs::write(&file, "fn main() -> Int { true }").unwrap();
 
         let result = check_file_command(&file);
         assert!(result.is_err());
@@ -1311,7 +1311,7 @@ mod tests {
     fn test_build_file_command_to_stdout() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zoya");
-        std::fs::write(&file, "fn main() -> Int32 { 42 }").unwrap();
+        std::fs::write(&file, "fn main() -> Int { 42 }").unwrap();
 
         let result = build_file_command(&file, None);
         assert!(result.is_ok());
@@ -1322,7 +1322,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let input = dir.path().join("test.zoya");
         let output = dir.path().join("test.js");
-        std::fs::write(&input, "fn main() -> Int32 { 42 }").unwrap();
+        std::fs::write(&input, "fn main() -> Int { 42 }").unwrap();
 
         let result = build_file_command(&input, Some(&output));
         assert!(result.is_ok());
@@ -1335,7 +1335,7 @@ mod tests {
     fn test_build_file_command_type_error() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zoya");
-        std::fs::write(&file, "fn main() -> Int32 { true }").unwrap();
+        std::fs::write(&file, "fn main() -> Int { true }").unwrap();
 
         let result = build_file_command(&file, None);
         assert!(result.is_err());
@@ -1352,43 +1352,43 @@ mod tests {
     #[test]
     fn test_run_simple_lambda() {
         let source = r#"
-            fn main() -> Int32 {
+            fn main() -> Int {
                 let f = |x| x + 1;
                 f(41)
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(42));
+        assert_eq!(result, Value::Int(42));
     }
 
     #[test]
     fn test_run_lambda_multi_param() {
         let source = r#"
-            fn main() -> Int32 {
+            fn main() -> Int {
                 let add = |x, y| x + y;
                 add(10, 32)
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(42));
+        assert_eq!(result, Value::Int(42));
     }
 
     #[test]
     fn test_run_lambda_with_type_annotation() {
         let source = r#"
-            fn main() -> Int32 {
-                let f = |x: Int32| -> Int32 x * 2;
+            fn main() -> Int {
+                let f = |x: Int| -> Int x * 2;
                 f(21)
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(42));
+        assert_eq!(result, Value::Int(42));
     }
 
     #[test]
     fn test_run_lambda_block_body() {
         let source = r#"
-            fn main() -> Int32 {
+            fn main() -> Int {
                 let f = |x| {
                     let y = x * 2;
                     y + 1
@@ -1397,27 +1397,27 @@ mod tests {
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(41));
+        assert_eq!(result, Value::Int(41));
     }
 
     #[test]
     fn test_run_lambda_nested() {
         let source = r#"
-            fn main() -> Int32 {
+            fn main() -> Int {
                 let add = |x| |y| x + y;
                 let add10 = add(10);
                 add10(32)
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(42));
+        assert_eq!(result, Value::Int(42));
     }
 
     #[test]
     fn test_run_lambda_polymorphic_identity() {
         // Test let polymorphism: id can be used at different types
         let source = r#"
-            fn main() -> Int32 {
+            fn main() -> Int {
                 let id = |x| x;
                 let a = id(42);
                 let b = id(true);
@@ -1425,117 +1425,117 @@ mod tests {
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(42));
+        assert_eq!(result, Value::Int(42));
     }
 
     #[test]
     fn test_run_lambda_polymorphic_const() {
         // Test polymorphic const function
         let source = r#"
-            fn main() -> Int32 {
+            fn main() -> Int {
                 let const_ = |x| |y| x;
                 let always42 = const_(42);
                 always42(true)
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(42));
+        assert_eq!(result, Value::Int(42));
     }
 
     #[test]
     fn test_run_lambda_no_params() {
         let source = r#"
-            fn main() -> Int32 {
+            fn main() -> Int {
                 let f = || 42;
                 f()
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(42));
+        assert_eq!(result, Value::Int(42));
     }
 
     #[test]
     fn test_run_lambda_captures_outer_var() {
         // Lambda captures variable from outer scope
         let source = r#"
-            fn main() -> Int32 {
+            fn main() -> Int {
                 let x = 10;
                 let f = |y| x + y;
                 f(32)
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(42));
+        assert_eq!(result, Value::Int(42));
     }
 
     #[test]
     fn test_run_lambda_with_function_type_annotation() {
         let source = r#"
-            fn main() -> Int32 {
-                let f: Int32 -> Int32 = |x| x * 2;
+            fn main() -> Int {
+                let f: Int -> Int = |x| x * 2;
                 f(21)
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(42));
+        assert_eq!(result, Value::Int(42));
     }
 
     #[test]
     fn test_run_lambda_multi_param_function_type() {
         let source = r#"
-            fn main() -> Int32 {
-                let add: (Int32, Int32) -> Int32 = |x, y| x + y;
+            fn main() -> Int {
+                let add: (Int, Int) -> Int = |x, y| x + y;
                 add(10, 32)
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(42));
+        assert_eq!(result, Value::Int(42));
     }
 
     #[test]
     fn test_run_lambda_no_param_function_type() {
         let source = r#"
-            fn main() -> Int32 {
-                let f: () -> Int32 = || 42;
+            fn main() -> Int {
+                let f: () -> Int = || 42;
                 f()
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(42));
+        assert_eq!(result, Value::Int(42));
     }
 
     #[test]
     fn test_run_lambda_passed_to_function() {
         let source = r#"
-            fn apply(f: Int32 -> Int32, x: Int32) -> Int32 f(x)
+            fn apply(f: Int -> Int, x: Int) -> Int f(x)
 
-            fn main() -> Int32 {
+            fn main() -> Int {
                 apply(|x| x * 2, 21)
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(42));
+        assert_eq!(result, Value::Int(42));
     }
 
     #[test]
     fn test_run_higher_order_function_returns_lambda() {
         let source = r#"
-            fn make_adder(n: Int32) -> Int32 -> Int32 |x| x + n
+            fn make_adder(n: Int) -> Int -> Int |x| x + n
 
-            fn main() -> Int32 {
+            fn main() -> Int {
                 let add5 = make_adder(5);
                 add5(37)
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(42));
+        assert_eq!(result, Value::Int(42));
     }
 
     #[test]
     fn test_run_function_type_mismatch_error() {
         let source = r#"
-            fn main() -> Int32 {
-                let f: Int32 -> Int32 = |x| true;
+            fn main() -> Int {
+                let f: Int -> Int = |x| true;
                 0
             }
         "#;
@@ -1543,7 +1543,7 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("type mismatch") || err.contains("Bool") || err.contains("Int32"),
+            err.contains("type mismatch") || err.contains("Bool") || err.contains("Int"),
             "error should mention type mismatch: {}",
             err
         );
@@ -1553,20 +1553,20 @@ mod tests {
     #[test]
     fn test_run_struct_simple() {
         let source = r#"
-            struct Point { x: Int32, y: Int32 }
-            fn main() -> Int32 {
+            struct Point { x: Int, y: Int }
+            fn main() -> Int {
                 let p = Point { x: 10, y: 20 };
                 p.x + p.y
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(30));
+        assert_eq!(result, Value::Int(30));
     }
 
     #[test]
     fn test_run_struct_field_access() {
         let source = r#"
-            struct Person { name: String, age: Int32 }
+            struct Person { name: String, age: Int }
             fn main() -> String {
                 let p = Person { name: "Alice", age: 30 };
                 p.name
@@ -1580,33 +1580,33 @@ mod tests {
     fn test_run_struct_empty() {
         let source = r#"
             struct Empty {}
-            fn main() -> Int32 {
+            fn main() -> Int {
                 let e = Empty {};
                 42
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(42));
+        assert_eq!(result, Value::Int(42));
     }
 
     #[test]
     fn test_run_struct_generic() {
         let source = r#"
             struct Pair<T, U> { first: T, second: U }
-            fn main() -> Int32 {
+            fn main() -> Int {
                 let p = Pair { first: 1, second: 2 };
                 p.first + p.second
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(3));
+        assert_eq!(result, Value::Int(3));
     }
 
     #[test]
     fn test_run_struct_match_exact() {
         let source = r#"
-            struct Point { x: Int32, y: Int32 }
-            fn main() -> Int32 {
+            struct Point { x: Int, y: Int }
+            fn main() -> Int {
                 let p = Point { x: 10, y: 20 };
                 match p {
                     Point { x, y } => x + y,
@@ -1614,14 +1614,14 @@ mod tests {
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(30));
+        assert_eq!(result, Value::Int(30));
     }
 
     #[test]
     fn test_run_struct_match_partial() {
         let source = r#"
-            struct Point { x: Int32, y: Int32 }
-            fn main() -> Int32 {
+            struct Point { x: Int, y: Int }
+            fn main() -> Int {
                 let p = Point { x: 10, y: 20 };
                 match p {
                     Point { x, .. } => x,
@@ -1629,14 +1629,14 @@ mod tests {
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(10));
+        assert_eq!(result, Value::Int(10));
     }
 
     #[test]
     fn test_run_struct_match_with_binding() {
         let source = r#"
-            struct Point { x: Int32, y: Int32 }
-            fn main() -> Int32 {
+            struct Point { x: Int, y: Int }
+            fn main() -> Int {
                 let p = Point { x: 10, y: 20 };
                 match p {
                     Point { x: a, y: b } => a * b,
@@ -1644,15 +1644,15 @@ mod tests {
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(200));
+        assert_eq!(result, Value::Int(200));
     }
 
     #[test]
     fn test_run_struct_nested() {
         let source = r#"
-            struct Point { x: Int32, y: Int32 }
+            struct Point { x: Int, y: Int }
             struct Line { start: Point, end: Point }
-            fn main() -> Int32 {
+            fn main() -> Int {
                 let l = Line {
                     start: Point { x: 0, y: 0 },
                     end: Point { x: 10, y: 20 }
@@ -1661,14 +1661,14 @@ mod tests {
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(30));
+        assert_eq!(result, Value::Int(30));
     }
 
     #[test]
     fn test_run_struct_field_shorthand() {
         let source = r#"
-            struct Point { x: Int32, y: Int32 }
-            fn main() -> Int32 {
+            struct Point { x: Int, y: Int }
+            fn main() -> Int {
                 let x = 10;
                 let y = 20;
                 let p = Point { x, y };
@@ -1676,13 +1676,13 @@ mod tests {
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(30));
+        assert_eq!(result, Value::Int(30));
     }
 
     #[test]
     fn test_run_struct_equality() {
         let source = r#"
-            struct Point { x: Int32, y: Int32 }
+            struct Point { x: Int, y: Int }
             fn main() -> Bool {
                 let p1 = Point { x: 10, y: 20 };
                 let p2 = Point { x: 10, y: 20 };
@@ -1696,7 +1696,7 @@ mod tests {
     #[test]
     fn test_run_struct_inequality() {
         let source = r#"
-            struct Point { x: Int32, y: Int32 }
+            struct Point { x: Int, y: Int }
             fn main() -> Bool {
                 let p1 = Point { x: 10, y: 20 };
                 let p2 = Point { x: 10, y: 30 };
@@ -1713,7 +1713,7 @@ mod tests {
     fn test_run_enum_unit_variant() {
         let source = r#"
             enum Option<T> { None, Some(T) }
-            fn main() -> Int32 {
+            fn main() -> Int {
                 let x = Option::None;
                 match x {
                     Option::None => 0,
@@ -1722,14 +1722,14 @@ mod tests {
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(0));
+        assert_eq!(result, Value::Int(0));
     }
 
     #[test]
     fn test_run_enum_tuple_variant() {
         let source = r#"
             enum Option<T> { None, Some(T) }
-            fn main() -> Int32 {
+            fn main() -> Int {
                 let x = Option::Some(42);
                 match x {
                     Option::None => 0,
@@ -1738,14 +1738,14 @@ mod tests {
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(42));
+        assert_eq!(result, Value::Int(42));
     }
 
     #[test]
     fn test_run_enum_struct_variant() {
         let source = r#"
-            enum Message { Quit, Move { x: Int32, y: Int32 }, Write(String) }
-            fn main() -> Int32 {
+            enum Message { Quit, Move { x: Int, y: Int }, Write(String) }
+            fn main() -> Int {
                 let msg = Message::Move { x: 10, y: 20 };
                 match msg {
                     Message::Quit => 0,
@@ -1755,14 +1755,14 @@ mod tests {
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(30));
+        assert_eq!(result, Value::Int(30));
     }
 
     #[test]
     fn test_run_enum_all_variant_types() {
         let source = r#"
-            enum Message { Quit, Move { x: Int32, y: Int32 }, Write(String) }
-            fn handle_quit() -> Int32 {
+            enum Message { Quit, Move { x: Int, y: Int }, Write(String) }
+            fn handle_quit() -> Int {
                 let msg = Message::Quit;
                 match msg {
                     Message::Quit => 1,
@@ -1770,7 +1770,7 @@ mod tests {
                     Message::Write(s) => s.len()
                 }
             }
-            fn handle_write() -> Int32 {
+            fn handle_write() -> Int {
                 let msg = Message::Write("hello");
                 match msg {
                     Message::Quit => 0,
@@ -1778,19 +1778,19 @@ mod tests {
                     Message::Write(s) => s.len()
                 }
             }
-            fn main() -> Int32 {
+            fn main() -> Int {
                 handle_quit() + handle_write()
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(6)); // 1 + 5
+        assert_eq!(result, Value::Int(6)); // 1 + 5
     }
 
     #[test]
     fn test_run_enum_generic_multiple_types() {
         let source = r#"
             enum Option<T> { None, Some(T) }
-            fn main() -> Int32 {
+            fn main() -> Int {
                 let x = Option::Some(10);
                 let y = Option::Some("hello");
                 let a = match x {
@@ -1805,14 +1805,14 @@ mod tests {
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(15)); // 10 + 5
+        assert_eq!(result, Value::Int(15)); // 10 + 5
     }
 
     #[test]
     fn test_run_enum_nested_pattern() {
         let source = r#"
             enum Option<T> { None, Some(T) }
-            fn main() -> Int32 {
+            fn main() -> Int {
                 let x = Option::Some((1, 2));
                 match x {
                     Option::None => 0,
@@ -1821,14 +1821,14 @@ mod tests {
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(3));
+        assert_eq!(result, Value::Int(3));
     }
 
     #[test]
     fn test_run_enum_partial_struct_pattern() {
         let source = r#"
-            enum Message { Quit, Move { x: Int32, y: Int32, z: Int32 } }
-            fn main() -> Int32 {
+            enum Message { Quit, Move { x: Int, y: Int, z: Int } }
+            fn main() -> Int {
                 let msg = Message::Move { x: 1, y: 2, z: 3 };
                 match msg {
                     Message::Quit => 0,
@@ -1837,14 +1837,14 @@ mod tests {
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(1));
+        assert_eq!(result, Value::Int(1));
     }
 
     #[test]
     fn test_run_enum_wildcard_pattern() {
         let source = r#"
-            enum Message { Quit, Move { x: Int32, y: Int32 }, Write(String) }
-            fn main() -> Int32 {
+            enum Message { Quit, Move { x: Int, y: Int }, Write(String) }
+            fn main() -> Int {
                 let msg = Message::Write("hello");
                 match msg {
                     Message::Quit => 0,
@@ -1853,7 +1853,7 @@ mod tests {
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(42));
+        assert_eq!(result, Value::Int(42));
     }
 
     #[test]
@@ -1888,7 +1888,7 @@ mod tests {
     fn test_run_enum_multi_field_tuple() {
         let source = r#"
             enum Result<T, E> { Ok(T), Err(E) }
-            fn main() -> Int32 {
+            fn main() -> Int {
                 let x = Result::Ok(42);
                 match x {
                     Result::Ok(v) => v,
@@ -1897,6 +1897,6 @@ mod tests {
             }
         "#;
         let result = run_source(source).unwrap();
-        assert_eq!(result, Value::Int32(42));
+        assert_eq!(result, Value::Int(42));
     }
 }

@@ -141,8 +141,8 @@ pub struct TypedMatchArm {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedExpr {
-    Int32(i32),
-    Int64(i64),
+    Int(i64),
+    BigInt(i64),
     Float(f64),
     Bool(bool),
     String(String),
@@ -229,8 +229,8 @@ pub enum TypedEnumConstructFields {
 impl TypedExpr {
     pub fn ty(&self) -> Type {
         match self {
-            TypedExpr::Int32(_) => Type::Int32,
-            TypedExpr::Int64(_) => Type::Int64,
+            TypedExpr::Int(_) => Type::Int,
+            TypedExpr::BigInt(_) => Type::BigInt,
             TypedExpr::Float(_) => Type::Float,
             TypedExpr::Bool(_) => Type::Bool,
             TypedExpr::String(_) => Type::String,

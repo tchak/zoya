@@ -16,8 +16,8 @@ pub fn create_context() -> Result<(Runtime, Context), String> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
-    Int32(i32),
-    Int64(i64),
+    Int(i64),
+    BigInt(i64),
     Float(f64),
     Bool(bool),
     String(String),
@@ -48,8 +48,8 @@ pub enum EnumValueFields {
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Value::Int32(n) => write!(f, "{}", n),
-            Value::Int64(n) => write!(f, "{}", n),
+            Value::Int(n) => write!(f, "{}", n),
+            Value::BigInt(n) => write!(f, "{}", n),
             Value::Float(n) => write!(f, "{}", n),
             Value::Bool(b) => write!(f, "{}", b),
             Value::String(s) => write!(f, "\"{}\"", s),
@@ -143,8 +143,6 @@ pub fn eval_js_in_context(
         let msg = e.to_string();
         if msg.contains("division by zero") {
             EvalError::DivisionByZero
-        } else if msg.contains("Int32 overflow") {
-            EvalError::RuntimeError("Int32 overflow".to_string())
         } else {
             EvalError::RuntimeError(msg)
         }
@@ -161,23 +159,23 @@ fn js_value_to_value(
     expected_type: &Type,
 ) -> Result<Value, EvalError> {
     match expected_type {
-        Type::Int32 => {
+        Type::Int => {
             let val: f64 = js_val
                 .get()
                 .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
             if !val.is_finite() {
                 return Err(EvalError::DivisionByZero);
             }
-            Ok(Value::Int32(val as i32))
+            Ok(Value::Int(val as i64))
         }
-        Type::Int64 => {
+        Type::BigInt => {
             let val: BigInt = js_val
                 .get()
                 .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
             let value = val.to_i64().map_err(|_| {
                 EvalError::RuntimeError("BigInt value too large for i64".to_string())
             })?;
-            Ok(Value::Int64(value))
+            Ok(Value::BigInt(value))
         }
         Type::Float => {
             let val: f64 = js_val
@@ -333,15 +331,15 @@ mod tests {
     use crate::ast::{BinOp, UnaryOp};
 
     #[test]
-    fn test_eval_int32() {
-        let expr = TypedExpr::Int32(42);
-        assert_eq!(eval(&expr), Ok(Value::Int32(42)));
+    fn test_eval_int() {
+        let expr = TypedExpr::Int(42);
+        assert_eq!(eval(&expr), Ok(Value::Int(42)));
     }
 
     #[test]
-    fn test_eval_int64() {
-        let expr = TypedExpr::Int64(42);
-        assert_eq!(eval(&expr), Ok(Value::Int64(42)));
+    fn test_eval_bigint() {
+        let expr = TypedExpr::BigInt(42);
+        assert_eq!(eval(&expr), Ok(Value::BigInt(42)));
     }
 
     #[test]
@@ -351,25 +349,25 @@ mod tests {
     }
 
     #[test]
-    fn test_eval_int32_addition() {
+    fn test_eval_int_addition() {
         let expr = TypedExpr::BinOp {
             op: BinOp::Add,
-            left: Box::new(TypedExpr::Int32(2)),
-            right: Box::new(TypedExpr::Int32(3)),
-            ty: Type::Int32,
+            left: Box::new(TypedExpr::Int(2)),
+            right: Box::new(TypedExpr::Int(3)),
+            ty: Type::Int,
         };
-        assert_eq!(eval(&expr), Ok(Value::Int32(5)));
+        assert_eq!(eval(&expr), Ok(Value::Int(5)));
     }
 
     #[test]
-    fn test_eval_int64_addition() {
+    fn test_eval_bigint_addition() {
         let expr = TypedExpr::BinOp {
             op: BinOp::Add,
-            left: Box::new(TypedExpr::Int64(2)),
-            right: Box::new(TypedExpr::Int64(3)),
-            ty: Type::Int64,
+            left: Box::new(TypedExpr::BigInt(2)),
+            right: Box::new(TypedExpr::BigInt(3)),
+            ty: Type::BigInt,
         };
-        assert_eq!(eval(&expr), Ok(Value::Int64(5)));
+        assert_eq!(eval(&expr), Ok(Value::BigInt(5)));
     }
 
     #[test]
@@ -384,36 +382,36 @@ mod tests {
     }
 
     #[test]
-    fn test_eval_int32_subtraction() {
+    fn test_eval_int_subtraction() {
         let expr = TypedExpr::BinOp {
             op: BinOp::Sub,
-            left: Box::new(TypedExpr::Int32(10)),
-            right: Box::new(TypedExpr::Int32(4)),
-            ty: Type::Int32,
+            left: Box::new(TypedExpr::Int(10)),
+            right: Box::new(TypedExpr::Int(4)),
+            ty: Type::Int,
         };
-        assert_eq!(eval(&expr), Ok(Value::Int32(6)));
+        assert_eq!(eval(&expr), Ok(Value::Int(6)));
     }
 
     #[test]
-    fn test_eval_int32_multiplication() {
+    fn test_eval_int_multiplication() {
         let expr = TypedExpr::BinOp {
             op: BinOp::Mul,
-            left: Box::new(TypedExpr::Int32(3)),
-            right: Box::new(TypedExpr::Int32(7)),
-            ty: Type::Int32,
+            left: Box::new(TypedExpr::Int(3)),
+            right: Box::new(TypedExpr::Int(7)),
+            ty: Type::Int,
         };
-        assert_eq!(eval(&expr), Ok(Value::Int32(21)));
+        assert_eq!(eval(&expr), Ok(Value::Int(21)));
     }
 
     #[test]
-    fn test_eval_int32_division() {
+    fn test_eval_int_division() {
         let expr = TypedExpr::BinOp {
             op: BinOp::Div,
-            left: Box::new(TypedExpr::Int32(20)),
-            right: Box::new(TypedExpr::Int32(4)),
-            ty: Type::Int32,
+            left: Box::new(TypedExpr::Int(20)),
+            right: Box::new(TypedExpr::Int(4)),
+            ty: Type::Int,
         };
-        assert_eq!(eval(&expr), Ok(Value::Int32(5)));
+        assert_eq!(eval(&expr), Ok(Value::Int(5)));
     }
 
     #[test]
@@ -428,12 +426,12 @@ mod tests {
     }
 
     #[test]
-    fn test_eval_int32_division_by_zero() {
+    fn test_eval_int_division_by_zero() {
         let expr = TypedExpr::BinOp {
             op: BinOp::Div,
-            left: Box::new(TypedExpr::Int32(10)),
-            right: Box::new(TypedExpr::Int32(0)),
-            ty: Type::Int32,
+            left: Box::new(TypedExpr::Int(10)),
+            right: Box::new(TypedExpr::Int(0)),
+            ty: Type::Int,
         };
         assert_eq!(eval(&expr), Err(EvalError::DivisionByZero));
     }
@@ -450,35 +448,35 @@ mod tests {
     }
 
     #[test]
-    fn test_eval_complex_int32_expression() {
+    fn test_eval_complex_int_expression() {
         // 2 + 3 * (4 - 1) = 2 + 3 * 3 = 2 + 9 = 11
         let expr = TypedExpr::BinOp {
             op: BinOp::Add,
-            left: Box::new(TypedExpr::Int32(2)),
+            left: Box::new(TypedExpr::Int(2)),
             right: Box::new(TypedExpr::BinOp {
                 op: BinOp::Mul,
-                left: Box::new(TypedExpr::Int32(3)),
+                left: Box::new(TypedExpr::Int(3)),
                 right: Box::new(TypedExpr::BinOp {
                     op: BinOp::Sub,
-                    left: Box::new(TypedExpr::Int32(4)),
-                    right: Box::new(TypedExpr::Int32(1)),
-                    ty: Type::Int32,
+                    left: Box::new(TypedExpr::Int(4)),
+                    right: Box::new(TypedExpr::Int(1)),
+                    ty: Type::Int,
                 }),
-                ty: Type::Int32,
+                ty: Type::Int,
             }),
-            ty: Type::Int32,
+            ty: Type::Int,
         };
-        assert_eq!(eval(&expr), Ok(Value::Int32(11)));
+        assert_eq!(eval(&expr), Ok(Value::Int(11)));
     }
 
     #[test]
-    fn test_eval_unary_negation_int32() {
+    fn test_eval_unary_negation_int() {
         let expr = TypedExpr::UnaryOp {
             op: UnaryOp::Neg,
-            expr: Box::new(TypedExpr::Int32(42)),
-            ty: Type::Int32,
+            expr: Box::new(TypedExpr::Int(42)),
+            ty: Type::Int,
         };
-        assert_eq!(eval(&expr), Ok(Value::Int32(-42)));
+        assert_eq!(eval(&expr), Ok(Value::Int(-42)));
     }
 
     #[test]
@@ -497,12 +495,12 @@ mod tests {
             op: UnaryOp::Neg,
             expr: Box::new(TypedExpr::UnaryOp {
                 op: UnaryOp::Neg,
-                expr: Box::new(TypedExpr::Int32(42)),
-                ty: Type::Int32,
+                expr: Box::new(TypedExpr::Int(42)),
+                ty: Type::Int,
             }),
-            ty: Type::Int32,
+            ty: Type::Int,
         };
-        assert_eq!(eval(&expr), Ok(Value::Int32(42)));
+        assert_eq!(eval(&expr), Ok(Value::Int(42)));
     }
 
     #[test]
@@ -512,29 +510,29 @@ mod tests {
             op: UnaryOp::Neg,
             expr: Box::new(TypedExpr::BinOp {
                 op: BinOp::Add,
-                left: Box::new(TypedExpr::Int32(2)),
-                right: Box::new(TypedExpr::Int32(3)),
-                ty: Type::Int32,
+                left: Box::new(TypedExpr::Int(2)),
+                right: Box::new(TypedExpr::Int(3)),
+                ty: Type::Int,
             }),
-            ty: Type::Int32,
+            ty: Type::Int,
         };
-        assert_eq!(eval(&expr), Ok(Value::Int32(-5)));
+        assert_eq!(eval(&expr), Ok(Value::Int(-5)));
     }
 
     #[test]
-    fn test_eval_negative_int32_result() {
+    fn test_eval_negative_int_result() {
         let expr = TypedExpr::BinOp {
             op: BinOp::Sub,
-            left: Box::new(TypedExpr::Int32(3)),
-            right: Box::new(TypedExpr::Int32(10)),
-            ty: Type::Int32,
+            left: Box::new(TypedExpr::Int(3)),
+            right: Box::new(TypedExpr::Int(10)),
+            ty: Type::Int,
         };
-        assert_eq!(eval(&expr), Ok(Value::Int32(-7)));
+        assert_eq!(eval(&expr), Ok(Value::Int(-7)));
     }
 
     #[test]
-    fn test_eval_int64_large_value() {
-        let expr = TypedExpr::Int64(9_000_000_000);
-        assert_eq!(eval(&expr), Ok(Value::Int64(9_000_000_000)));
+    fn test_eval_bigint_large_value() {
+        let expr = TypedExpr::BigInt(9_000_000_000);
+        assert_eq!(eval(&expr), Ok(Value::BigInt(9_000_000_000)));
     }
 }
