@@ -16,18 +16,19 @@ Source → Lexer → Parser → Type Checker → Typed IR → Codegen → JavaSc
 
 ```
 src/
-├── main.rs      # CLI entry point
-├── lexer.rs     # Tokenizer (logos)
-├── parser.rs    # Parser (chumsky)
-├── ast.rs       # Untyped AST
-├── check.rs     # Type checker (returns TypedExpr)
-├── unify.rs     # Type unification (Union-Find)
-├── ir.rs        # Typed IR (TypedExpr)
-├── types.rs     # Type definitions
-├── codegen.rs   # JavaScript code generation
-├── eval.rs      # JS execution via rquickjs
-├── repl.rs      # Interactive REPL (rustyline)
-└── runner.rs    # File runner
+├── main.rs        # CLI entry point
+├── lexer.rs       # Tokenizer (logos)
+├── parser.rs      # Parser (chumsky)
+├── ast.rs         # Untyped AST
+├── check.rs       # Type checker (returns TypedExpr)
+├── unify.rs       # Type unification (Union-Find)
+├── usefulness.rs  # Pattern exhaustiveness (Maranget's algorithm)
+├── ir.rs          # Typed IR (TypedExpr)
+├── types.rs       # Type definitions
+├── codegen.rs     # JavaScript code generation
+├── eval.rs        # JS execution via rquickjs
+├── repl.rs        # Interactive REPL (rustyline)
+└── runner.rs      # File runner
 ```
 
 ### Current Features
@@ -67,6 +68,9 @@ src/
   - List patterns: `[]`, `[x, ..]`, `[.., x]`, `[a, .., b]`, `[a, b]`
   - Tuple patterns: `(x, y)`, `(a, ..)`, `(.., z)`, `(a, .., z)`
   - Block expressions in arms: `n => { let x = n * 2; x + 1 }`
+  - Exhaustiveness checking (compile error if cases missing)
+  - Unreachable pattern detection (compile error for dead code)
+  - Implementation: Maranget's algorithm (`src/usefulness.rs`)
 - **Method calls:** `expr.method(args)` on built-in types
   - String: `len()`, `is_empty()`, `contains(s)`, `starts_with(s)`, `ends_with(s)`, `to_uppercase()`, `to_lowercase()`, `trim()`
   - Int32: `abs()`, `to_string()`, `to_float()`, `min(n)`, `max(n)`
