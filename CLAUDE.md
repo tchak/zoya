@@ -35,7 +35,8 @@ src/
 
 - **Types:** `Int32`, `Int64`, `Float`, `Bool`, `String`, `List<T>`, tuples `(T, U, ...)`, functions `T -> U`, type variables (`T`, `U`)
 - **Literals:**
-  - Integers: `42`, `1_000`
+  - Integers (Int32): `42`, `1_000`
+  - Integers (Int64): `42n`, `9_000_000_000n` (with `n` suffix)
   - Floats: `3.14`, `0.5`
   - Booleans: `true`, `false`
   - Strings: `"hello"`, `"line\nbreak"`
@@ -61,12 +62,18 @@ src/
   - Multi-param function types: `let f: (Int32, Int32) -> Int32 = |x, y| x + y`
   - Higher-order functions: `fn apply(f: Int32 -> Int32, x: Int32) -> Int32 f(x)`
   - Let polymorphism: `let id = |x| x; id(42); id("hello")` (both work!)
+- **Structs:** product types with named fields
+  - Definition: `struct Point { x: Int32, y: Int32 }`
+  - Generic structs: `struct Pair<T, U> { first: T, second: U }`
+  - Construction: `Point { x: 1, y: 2 }`, shorthand `Point { x, y }` when variable names match
+  - Field access: `point.x`, `pair.first`
 - **Pattern matching:** `match expr { pattern => result ... }`
   - Literal patterns: `0`, `"hello"`, `true`, `3.14`
   - Variable patterns: `n` (binds the matched value)
   - Wildcard pattern: `_` (matches anything, no binding)
   - List patterns: `[]`, `[x, ..]`, `[.., x]`, `[a, .., b]`, `[a, b]`
   - Tuple patterns: `(x, y)`, `(a, ..)`, `(.., z)`, `(a, .., z)`
+  - Struct patterns: `Point { x, y }`, `Point { x: px, .. }` (with shorthand and rest)
   - Block expressions in arms: `n => { let x = n * 2; x + 1 }`
   - Exhaustiveness checking (compile error if cases missing)
   - Unreachable pattern detection (compile error for dead code)
@@ -89,29 +96,25 @@ Planned features in rough implementation order:
    - `enum Result<T, E> { Ok(T), Err(E) }`
    - `enum Message { Quit, Move { x: Int32, y: Int32 }, Write(String) }`
 
-2. **Structs** - Product types with named fields, generic support
-   - `struct Point { x: Int32, y: Int32 }`
-   - `struct Pair<T, U> { first: T, second: U }`
-
-3. **Expanded pattern matching** - Destructuring in more contexts
+2. **Expanded pattern matching** - Destructuring in more contexts
    - Let bindings: `let (x, y) = point`
    - Function params: `fn first((a, _): (Int32, Int32)) -> Int32 a`
    - Lambda params: `|(x, y)| x + y`
    - Requires irrefutability checking (patterns must be exhaustive)
 
-4. **impl blocks** - Methods on user-defined types
+3. **impl blocks** - Methods on user-defined types
    - `impl Point { fn distance(self) -> Float { ... } }`
    - Generic methods: `impl<T> Option<T> { fn unwrap(self) -> T { ... } }`
 
-5. **Traits** - Shared behavior definitions
+4. **Traits** - Shared behavior definitions
    - `trait Display { fn to_string(self) -> String }`
    - `impl Display for Point { ... }`
 
-6. **Trait-based operators** - Operators defined via traits
+5. **Trait-based operators** - Operators defined via traits
    - `+` requires `Add` trait, `==` requires `Eq` trait, etc.
    - Enables operator overloading for user types
 
-7. **Standard library expansion** - Once trait infrastructure exists
+6. **Standard library expansion** - Once trait infrastructure exists
    - `Option<T>`, `Result<T, E>` with full method sets
    - `map`, `filter`, `fold` on List via traits
    - Common traits: `Eq`, `Ord`, `Display`, `Default`
