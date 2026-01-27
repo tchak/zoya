@@ -3,7 +3,7 @@ use std::fmt;
 pub use rquickjs::Context;
 use rquickjs::{BigInt, CatchResultExt, Runtime};
 
-use crate::codegen::codegen;
+use crate::codegen::{codegen, prelude};
 use crate::ir::TypedExpr;
 use crate::types::Type;
 
@@ -318,7 +318,13 @@ pub fn eval(expr: &TypedExpr) -> Result<Value, EvalError> {
     let rt = Runtime::new().map_err(|e| EvalError::RuntimeError(e.to_string()))?;
     let ctx = Context::full(&rt).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
 
-    ctx.with(|ctx| eval_js_in_context(&ctx, js_code, result_type))
+    ctx.with(|ctx| {
+        // Load prelude helpers first
+        ctx.eval::<(), _>(prelude())
+            .catch(&ctx)
+            .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+        eval_js_in_context(&ctx, js_code, result_type)
+    })
 }
 
 #[cfg(test)]

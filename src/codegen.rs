@@ -9,11 +9,31 @@ const DEEP_EQ_FN: &str = "$eq";
 /// Plain object check function name used in generated JS
 const IS_OBJ_FN: &str = "$isObj";
 
+/// Int32 overflow check function name used in generated JS
+const I32_FN: &str = "$i32";
+
+/// BigInt absolute value function name used in generated JS
+const ABS64_FN: &str = "$abs64";
+
+/// BigInt minimum function name used in generated JS
+const MIN64_FN: &str = "$min64";
+
+/// BigInt maximum function name used in generated JS
+const MAX64_FN: &str = "$max64";
+
 /// Prelude containing helper functions for generated JS
 pub fn prelude() -> &'static str {
     r#"function $isObj(x) {
   return typeof x === 'object' && x !== null && !Array.isArray(x);
 }
+function $i32(r) {
+  if (!Number.isFinite(r)) throw new Error("division by zero");
+  if (r > 2147483647 || r < -2147483648) throw new Error("Int32 overflow");
+  return r;
+}
+function $abs64(x) { return x < 0n ? -x : x; }
+function $min64(a, b) { return a < b ? a : b; }
+function $max64(a, b) { return a > b ? a : b; }
 function $eq(a, b) {
   if (Array.isArray(a) && Array.isArray(b)) {
     if (a.length !== b.length) return false;
@@ -472,19 +492,15 @@ pub fn codegen(expr: &TypedExpr) -> String {
 
                 // Numeric methods - Int64 needs special handling (no Math functions for BigInt)
                 "abs" => match receiver_ty {
-                    Type::Int64 => format!("((x) => x < 0n ? -x : x)({})", receiver_code),
+                    Type::Int64 => format!("{}({})", ABS64_FN, receiver_code),
                     _ => format!("Math.abs({})", receiver_code),
                 },
                 "min" => match receiver_ty {
-                    Type::Int64 => {
-                        format!("((a, b) => a < b ? a : b)({}, {})", receiver_code, args_code[0])
-                    }
+                    Type::Int64 => format!("{}({}, {})", MIN64_FN, receiver_code, args_code[0]),
                     _ => format!("Math.min({}, {})", receiver_code, args_code[0]),
                 },
                 "max" => match receiver_ty {
-                    Type::Int64 => {
-                        format!("((a, b) => a > b ? a : b)({}, {})", receiver_code, args_code[0])
-                    }
+                    Type::Int64 => format!("{}({}, {})", MAX64_FN, receiver_code, args_code[0]),
                     _ => format!("Math.max({}, {})", receiver_code, args_code[0]),
                 },
 
@@ -1341,12 +1357,7 @@ fn codegen_enum_tuple_prefix_suffix_bindings(
 
 /// Wrap an Int32 expression with overflow checking
 fn wrap_int32_overflow(expr: &str) -> String {
-    // Check for non-finite (Infinity/NaN from division by zero) first,
-    // then check for overflow
-    format!(
-        "(function(r){{if(!Number.isFinite(r))throw new Error(\"division by zero\");if(r>2147483647||r<-2147483648)throw new Error(\"Int32 overflow\");return r;}})({})",
-        expr
-    )
+    format!("{}({})", I32_FN, expr)
 }
 
 /// Generate JS code for a function definition
@@ -1400,10 +1411,7 @@ mod tests {
     use super::*;
 
     fn int32_wrap(expr: &str) -> String {
-        format!(
-            "(function(r){{if(!Number.isFinite(r))throw new Error(\"division by zero\");if(r>2147483647||r<-2147483648)throw new Error(\"Int32 overflow\");return r;}})({})",
-            expr
-        )
+        format!("$i32({})", expr)
     }
 
     #[test]
