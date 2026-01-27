@@ -72,6 +72,7 @@ src/
   - Int32: `abs()`, `to_string()`, `to_float()`, `min(n)`, `max(n)`
   - Int64: `abs()`, `to_string()`, `min(n)`, `max(n)`
   - Float: `abs()`, `to_string()`, `to_int()`, `floor()`, `ceil()`, `round()`, `sqrt()`, `min(n)`, `max(n)`
+  - List: `len()`, `is_empty()`, `push(x)`, `concat(list)`, `reverse()` (all return new lists, immutable)
 - **Type checking:** operands must match types (no implicit coercion)
 - **REPL:** line editing, history (persisted to `~/.zoya_history`)
 
