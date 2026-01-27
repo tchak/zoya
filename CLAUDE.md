@@ -80,6 +80,42 @@ src/
 - **Type checking:** operands must match types (no implicit coercion)
 - **REPL:** line editing, history (persisted to `~/.zoya_history`)
 
+### Roadmap
+
+Planned features in rough implementation order:
+
+1. **Enums** - Sum types with unit, tuple, and struct variants, generic support
+   - `enum Option<T> { None, Some(T) }`
+   - `enum Result<T, E> { Ok(T), Err(E) }`
+   - `enum Message { Quit, Move { x: Int32, y: Int32 }, Write(String) }`
+
+2. **Structs** - Product types with named fields, generic support
+   - `struct Point { x: Int32, y: Int32 }`
+   - `struct Pair<T, U> { first: T, second: U }`
+
+3. **Expanded pattern matching** - Destructuring in more contexts
+   - Let bindings: `let (x, y) = point`
+   - Function params: `fn first((a, _): (Int32, Int32)) -> Int32 a`
+   - Lambda params: `|(x, y)| x + y`
+   - Requires irrefutability checking (patterns must be exhaustive)
+
+4. **impl blocks** - Methods on user-defined types
+   - `impl Point { fn distance(self) -> Float { ... } }`
+   - Generic methods: `impl<T> Option<T> { fn unwrap(self) -> T { ... } }`
+
+5. **Traits** - Shared behavior definitions
+   - `trait Display { fn to_string(self) -> String }`
+   - `impl Display for Point { ... }`
+
+6. **Trait-based operators** - Operators defined via traits
+   - `+` requires `Add` trait, `==` requires `Eq` trait, etc.
+   - Enables operator overloading for user types
+
+7. **Standard library expansion** - Once trait infrastructure exists
+   - `Option<T>`, `Result<T, E>` with full method sets
+   - `map`, `filter`, `fold` on List via traits
+   - Common traits: `Eq`, `Ord`, `Display`, `Default`
+
 ### CLI Commands
 
 ```bash
