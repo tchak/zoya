@@ -24,6 +24,13 @@ pub enum Type {
         params: Vec<Type>,
         ret: Box<Type>,
     },
+    /// Named struct type with instantiated type parameters
+    Struct {
+        name: String,
+        type_args: Vec<Type>,
+        /// Field names and their instantiated types
+        fields: Vec<(String, Type)>,
+    },
 }
 
 impl fmt::Display for Type {
@@ -51,6 +58,14 @@ impl fmt::Display for Type {
                     write!(f, "({}) -> {}", param_strs.join(", "), ret)
                 }
             }
+            Type::Struct { name, type_args, .. } => {
+                if type_args.is_empty() {
+                    write!(f, "{}", name)
+                } else {
+                    let args: Vec<String> = type_args.iter().map(|t| t.to_string()).collect();
+                    write!(f, "{}<{}>", name, args.join(", "))
+                }
+            }
         }
     }
 }
@@ -66,6 +81,19 @@ pub struct FunctionType {
     pub params: Vec<Type>,
     /// Return type
     pub return_type: Type,
+}
+
+/// Struct type definition (stored in type environment)
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructType {
+    /// Struct name
+    pub name: String,
+    /// Source-level type parameter names (e.g., ["T", "U"])
+    pub type_params: Vec<String>,
+    /// TypeVarIds corresponding to each type parameter
+    pub type_var_ids: Vec<TypeVarId>,
+    /// Fields: name and type (types may contain Var(id) for generics)
+    pub fields: Vec<(String, Type)>,
 }
 
 /// Type scheme for polymorphic values (let polymorphism)

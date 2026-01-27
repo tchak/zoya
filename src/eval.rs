@@ -23,6 +23,7 @@ pub enum Value {
     String(String),
     List(Vec<Value>),
     Tuple(Vec<Value>),
+    Struct { name: String, repr: String },
 }
 
 impl fmt::Display for Value {
@@ -44,6 +45,9 @@ impl fmt::Display for Value {
                 } else {
                     write!(f, "({})", items.join(", "))
                 }
+            }
+            Value::Struct { name, repr } => {
+                write!(f, "{} {}", name, repr)
             }
         }
     }
@@ -159,6 +163,17 @@ pub fn eval_js_in_context(
 
             Ok(Value::Tuple(values))
         }
+        Type::Struct { name, .. } => {
+            // Structs are JS objects - return as string representation for now
+            let result: String = ctx
+                .eval(format!("JSON.stringify({})", js_code))
+                .catch(ctx)
+                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+            Ok(Value::Struct {
+                name: name.clone(),
+                repr: result,
+            })
+        }
         Type::Var(name) => Err(EvalError::RuntimeError(format!(
             "unresolved type variable: {}",
             name
@@ -232,6 +247,19 @@ fn js_array_elem_to_value(
                 values.push(elem_value);
             }
             Ok(Value::Tuple(values))
+        }
+        Type::Struct { name, .. } => {
+            // Get the struct object as a generic JS value
+            let val: rquickjs::Value = array
+                .get(index)
+                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+            // Convert to JSON string for display
+            // Since we can't easily call JSON.stringify, use debug format
+            let repr = format!("{:?}", val);
+            Ok(Value::Struct {
+                name: name.clone(),
+                repr,
+            })
         }
         Type::Var(name) => Err(EvalError::RuntimeError(format!(
             "unresolved type variable in list element: {}",

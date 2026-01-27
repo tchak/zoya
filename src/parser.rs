@@ -2,7 +2,8 @@ use chumsky::prelude::*;
 
 use crate::ast::{
     BinOp, Expr, FunctionDef, Item, LambdaParam, LetBinding, ListPattern, MatchArm, Param, Pattern,
-    Statement, TuplePattern, TypeAnnotation, UnaryOp,
+    Statement, StructDef, StructFieldDef, StructFieldPattern, StructPattern, TuplePattern,
+    TypeAnnotation, UnaryOp,
 };
 use crate::lexer::Token;
 
@@ -188,9 +189,9 @@ fn item_parser<'a>() -> impl Parser<'a, &'a [Token], Item, extra::Err<Rich<'a, T
     ));
 
     // fn name<T>(params) -> ReturnType { body }
-    just(Token::Fn)
+    let function_def = just(Token::Fn)
         .ignore_then(ident())
-        .then(type_params)
+        .then(type_params.clone())
         .then(params)
         .then(return_type)
         .then(body)
@@ -202,7 +203,35 @@ fn item_parser<'a>() -> impl Parser<'a, &'a [Token], Item, extra::Err<Rich<'a, T
                 return_type,
                 body,
             })
-        })
+        });
+
+    // Struct field: name: Type
+    let struct_field = ident()
+        .then_ignore(just(Token::Colon))
+        .then(type_annotation())
+        .map(|(name, typ)| StructFieldDef { name, typ });
+
+    // Struct fields: { field: Type, ... }
+    let struct_fields = struct_field
+        .separated_by(just(Token::Comma))
+        .allow_trailing()
+        .collect::<Vec<_>>()
+        .delimited_by(just(Token::LBrace), just(Token::RBrace));
+
+    // struct Name<T> { field: Type, ... }
+    let struct_def = just(Token::Struct)
+        .ignore_then(ident())
+        .then(type_params)
+        .then(struct_fields)
+        .map(|((name, type_params), fields)| {
+            Item::Struct(StructDef {
+                name,
+                type_params,
+                fields,
+            })
+        });
+
+    choice((function_def, struct_def))
 }
 
 fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, Token>>> {
@@ -399,7 +428,62 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                     }
                 });
 
-            choice((list_pattern, tuple_pattern, simple_pattern))
+            // Struct pattern field: `x` (shorthand for x: x) or `x: pattern`
+            #[derive(Clone)]
+            enum StructPatternField {
+                Field(StructFieldPattern),
+                Rest, // ..
+            }
+
+            let struct_field_pattern = choice((
+                just(Token::DotDot).to(StructPatternField::Rest),
+                // Field with binding: x: pattern
+                ident()
+                    .then(just(Token::Colon).ignore_then(pattern.clone()).or_not())
+                    .map(|(field_name, pat)| {
+                        let binding_pattern = pat.unwrap_or_else(|| Pattern::Var(field_name.clone()));
+                        StructPatternField::Field(StructFieldPattern {
+                            field_name,
+                            pattern: Box::new(binding_pattern),
+                        })
+                    }),
+            ));
+
+            // Struct pattern: Point { x, y }, Point { x: a, .. }
+            let struct_pattern = ident()
+                .then(
+                    struct_field_pattern
+                        .separated_by(just(Token::Comma))
+                        .allow_trailing()
+                        .collect::<Vec<_>>()
+                        .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+                )
+                .try_map(|(name, elements), span| {
+                    // Check for .. (rest marker)
+                    let has_rest = elements.iter().any(|e| matches!(e, StructPatternField::Rest));
+
+                    // Multiple .. not allowed
+                    if elements.iter().filter(|e| matches!(e, StructPatternField::Rest)).count() > 1 {
+                        return Err(Rich::custom(span, "only one .. allowed in struct pattern"));
+                    }
+
+                    // Extract field patterns (exclude ..)
+                    let fields: Vec<StructFieldPattern> = elements
+                        .into_iter()
+                        .filter_map(|e| match e {
+                            StructPatternField::Field(f) => Some(f),
+                            StructPatternField::Rest => None,
+                        })
+                        .collect();
+
+                    if has_rest {
+                        Ok(Pattern::Struct(StructPattern::Partial { name, fields }))
+                    } else {
+                        Ok(Pattern::Struct(StructPattern::Exact { name, fields }))
+                    }
+                });
+
+            choice((list_pattern, tuple_pattern, struct_pattern, simple_pattern))
         });
 
         // Let binding for use in match arm blocks (uses expr from recursive context)
@@ -471,11 +555,39 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
             .collect::<Vec<_>>()
             .delimited_by(just(Token::LParen), just(Token::RParen));
 
-        // Identifier: variable or function call
-        let ident_expr = ident().then(args.or_not()).map(|(name, args)| match args {
-            Some(args) => Expr::Call { func: name, args },
-            None => Expr::Var(name),
-        });
+        // Struct constructor field: `x: expr` or `x` (shorthand for x: x)
+        let struct_field = ident()
+            .then(just(Token::Colon).ignore_then(expr.clone()).or_not())
+            .map(|(name, value)| {
+                let value = value.unwrap_or_else(|| Expr::Var(name.clone()));
+                (name, value)
+            });
+
+        // Struct constructor fields: { x: expr, y: expr }
+        let struct_fields = struct_field
+            .separated_by(just(Token::Comma))
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .delimited_by(just(Token::LBrace), just(Token::RBrace));
+
+        // What can follow an identifier
+        #[derive(Clone)]
+        enum IdentSuffix {
+            Call(Vec<Expr>),
+            Struct(Vec<(String, Expr)>),
+        }
+
+        // Identifier: variable, function call, or struct constructor
+        let ident_expr = ident()
+            .then(choice((
+                args.map(IdentSuffix::Call),
+                struct_fields.map(IdentSuffix::Struct),
+            )).or_not())
+            .map(|(name, suffix)| match suffix {
+                Some(IdentSuffix::Call(args)) => Expr::Call { func: name, args },
+                Some(IdentSuffix::Struct(fields)) => Expr::StructConstruct { name, fields },
+                None => Expr::Var(name),
+            });
 
         // Empty tuple: ()
         let empty_tuple = just(Token::LParen)
@@ -583,7 +695,7 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
             paren_or_tuple,
         ));
 
-        // Method calls: expr.method(args) - highest precedence postfix operator
+        // Method calls and field access: expr.method(args) or expr.field
         let method_args = expr
             .clone()
             .separated_by(just(Token::Comma))
@@ -591,15 +703,33 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
             .collect::<Vec<_>>()
             .delimited_by(just(Token::LParen), just(Token::RParen));
 
+        // What follows .ident: either (args) for method call, or nothing for field access
+        #[derive(Clone)]
+        enum DotSuffix {
+            MethodCall(String, Vec<Expr>),
+            FieldAccess(String),
+        }
+
+        let dot_suffix = just(Token::Dot)
+            .ignore_then(ident())
+            .then(method_args.or_not())
+            .map(|(name, args)| match args {
+                Some(args) => DotSuffix::MethodCall(name, args),
+                None => DotSuffix::FieldAccess(name),
+            });
+
         let postfix = atom.foldl(
-            just(Token::Dot)
-                .ignore_then(ident())
-                .then(method_args)
-                .repeated(),
-            |receiver, (method, args)| Expr::MethodCall {
-                receiver: Box::new(receiver),
-                method,
-                args,
+            dot_suffix.repeated(),
+            |receiver, suffix| match suffix {
+                DotSuffix::MethodCall(method, args) => Expr::MethodCall {
+                    receiver: Box::new(receiver),
+                    method,
+                    args,
+                },
+                DotSuffix::FieldAccess(field) => Expr::FieldAccess {
+                    expr: Box::new(receiver),
+                    field,
+                },
             },
         );
 
@@ -1390,7 +1520,7 @@ mod tests {
     fn test_parse_function_without_let_no_block() {
         // Without let statements, body should be a plain expression, not a block
         let item = parse_item_str("fn foo() { 42 }").unwrap();
-        let Item::Function(FunctionDef { body, .. }) = item;
+        let Item::Function(FunctionDef { body, .. }) = item else { panic!("expected function") };
         assert!(matches!(body, Expr::Int(42)));
     }
 
@@ -1450,7 +1580,7 @@ mod tests {
     fn test_parse_function_no_braces_with_method_call() {
         // Method call expression body without braces
         let item = parse_item_str("fn double(x: Int32) -> Int32 x * 2").unwrap();
-        let Item::Function(FunctionDef { body, .. }) = item;
+        let Item::Function(FunctionDef { body, .. }) = item else { panic!("expected function") };
         assert!(matches!(body, Expr::BinOp { op: BinOp::Mul, .. }));
     }
 
@@ -1521,7 +1651,7 @@ mod tests {
     #[test]
     fn test_parse_match_in_function() {
         let item = parse_item_str("fn f(x: Int32) -> Int32 { match x { 0 => 0, n => n } }").unwrap();
-        let Item::Function(FunctionDef { body, .. }) = item;
+        let Item::Function(FunctionDef { body, .. }) = item else { panic!("expected function") };
         assert!(matches!(body, Expr::Match { .. }));
     }
 
@@ -1788,7 +1918,7 @@ mod tests {
     #[test]
     fn test_parse_function_with_list_param() {
         let item = parse_item_str("fn len(xs: List<Int32>) -> Int32 { 0 }").unwrap();
-        let Item::Function(FunctionDef { params, .. }) = item;
+        let Item::Function(FunctionDef { params, .. }) = item else { panic!("expected function") };
         assert!(matches!(
             &params[0].typ,
             TypeAnnotation::Parameterized(name, args)
@@ -2220,7 +2350,7 @@ mod tests {
     fn test_parse_function_param_with_function_type() {
         // fn apply(f: Int32 -> Int32, x: Int32) -> Int32 f(x)
         let item = parse_item_str("fn apply(f: Int32 -> Int32, x: Int32) -> Int32 f(x)").unwrap();
-        let Item::Function(func) = &item;
+        let Item::Function(func) = &item else { panic!("expected function") };
         assert_eq!(func.name, "apply");
         assert_eq!(func.params.len(), 2);
         assert!(matches!(
@@ -2230,5 +2360,138 @@ mod tests {
                 && matches!(&params[0], TypeAnnotation::Named(n) if n == "Int32")
                 && matches!(ret.as_ref(), TypeAnnotation::Named(n) if n == "Int32")
         ));
+    }
+
+    // Struct tests
+    #[test]
+    fn test_parse_struct_simple() {
+        let item = parse_item_str("struct Point { x: Int32, y: Int32 }").unwrap();
+        let Item::Struct(s) = item else { panic!("expected struct") };
+        assert_eq!(s.name, "Point");
+        assert_eq!(s.type_params, Vec::<String>::new());
+        assert_eq!(s.fields.len(), 2);
+        assert_eq!(s.fields[0].name, "x");
+        assert_eq!(s.fields[1].name, "y");
+    }
+
+    #[test]
+    fn test_parse_struct_empty() {
+        let item = parse_item_str("struct Empty {}").unwrap();
+        let Item::Struct(s) = item else { panic!("expected struct") };
+        assert_eq!(s.name, "Empty");
+        assert_eq!(s.fields.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_struct_generic() {
+        let item = parse_item_str("struct Pair<T, U> { first: T, second: U }").unwrap();
+        let Item::Struct(s) = item else { panic!("expected struct") };
+        assert_eq!(s.name, "Pair");
+        assert_eq!(s.type_params, vec!["T", "U"]);
+        assert_eq!(s.fields.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_struct_construct() {
+        let expr = parse_str("Point { x: 1, y: 2 }").unwrap();
+        assert!(matches!(
+            expr,
+            Expr::StructConstruct { name, fields }
+            if name == "Point" && fields.len() == 2
+        ));
+    }
+
+    #[test]
+    fn test_parse_struct_construct_shorthand() {
+        let expr = parse_str("Point { x, y }").unwrap();
+        if let Expr::StructConstruct { name, fields } = expr {
+            assert_eq!(name, "Point");
+            assert_eq!(fields.len(), 2);
+            // Shorthand: x means x: x
+            assert_eq!(fields[0].0, "x");
+            assert!(matches!(&fields[0].1, Expr::Var(n) if n == "x"));
+        } else {
+            panic!("expected struct construct");
+        }
+    }
+
+    #[test]
+    fn test_parse_struct_construct_empty() {
+        let expr = parse_str("Empty {}").unwrap();
+        assert!(matches!(
+            expr,
+            Expr::StructConstruct { name, fields }
+            if name == "Empty" && fields.is_empty()
+        ));
+    }
+
+    #[test]
+    fn test_parse_field_access() {
+        let expr = parse_str("p.x").unwrap();
+        assert!(matches!(
+            expr,
+            Expr::FieldAccess { field, .. }
+            if field == "x"
+        ));
+    }
+
+    #[test]
+    fn test_parse_chained_field_access() {
+        let expr = parse_str("a.b.c").unwrap();
+        if let Expr::FieldAccess { expr: inner, field } = expr {
+            assert_eq!(field, "c");
+            assert!(matches!(
+                *inner,
+                Expr::FieldAccess { field: f, .. }
+                if f == "b"
+            ));
+        } else {
+            panic!("expected field access");
+        }
+    }
+
+    #[test]
+    fn test_parse_struct_pattern_exact() {
+        let expr = parse_str("match p { Point { x, y } => x + y }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            assert!(matches!(
+                &arms[0].pattern,
+                Pattern::Struct(StructPattern::Exact { name, fields })
+                if name == "Point" && fields.len() == 2
+            ));
+        } else {
+            panic!("expected match");
+        }
+    }
+
+    #[test]
+    fn test_parse_struct_pattern_partial() {
+        let expr = parse_str("match p { Point { x, .. } => x }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            assert!(matches!(
+                &arms[0].pattern,
+                Pattern::Struct(StructPattern::Partial { name, fields })
+                if name == "Point" && fields.len() == 1
+            ));
+        } else {
+            panic!("expected match");
+        }
+    }
+
+    #[test]
+    fn test_parse_struct_pattern_with_binding() {
+        let expr = parse_str("match p { Point { x: a, y: b } => a }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::Struct(StructPattern::Exact { name, fields }) = &arms[0].pattern {
+                assert_eq!(name, "Point");
+                assert_eq!(fields.len(), 2);
+                assert_eq!(fields[0].field_name, "x");
+                assert!(matches!(&*fields[0].pattern, Pattern::Var(n) if n == "a"));
+            } else {
+                panic!("expected exact struct pattern");
+            }
+        } else {
+            panic!("expected match");
+        }
     }
 }

@@ -51,6 +51,9 @@ pub enum Token {
     #[token("match")]
     Match,
 
+    #[token("struct")]
+    Struct,
+
     // String literals with escape sequences
     #[regex(r#""([^"\\]|\\.)*""#, parse_string)]
     String(String),
@@ -535,6 +538,33 @@ mod tests {
                 Token::Arrow,
                 Token::Ident("Int32".to_string()),
                 Token::Ident("x".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_struct_keyword() {
+        let tokens = lex("struct").unwrap();
+        assert_eq!(tokens, vec![Token::Struct]);
+    }
+
+    #[test]
+    fn test_struct_definition_tokens() {
+        let tokens = lex("struct Point { x: Int32, y: Int32 }").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Struct,
+                Token::Ident("Point".to_string()),
+                Token::LBrace,
+                Token::Ident("x".to_string()),
+                Token::Colon,
+                Token::Ident("Int32".to_string()),
+                Token::Comma,
+                Token::Ident("y".to_string()),
+                Token::Colon,
+                Token::Ident("Int32".to_string()),
+                Token::RBrace,
             ]
         );
     }

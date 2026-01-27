@@ -2,10 +2,10 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ast::{
     BinOp, Expr, FunctionDef, Item, LetBinding, ListPattern, MatchArm, Pattern, Statement,
-    TuplePattern, TypeAnnotation, UnaryOp,
+    StructDef, StructPattern, TuplePattern, TypeAnnotation, UnaryOp,
 };
-use crate::ir::{TypedExpr, TypedFunction, TypedLetBinding, TypedMatchArm, TypedPattern};
-use crate::types::{FunctionType, Type, TypeError, TypeScheme, TypeVarId};
+use crate::ir::{CheckedItem, TypedExpr, TypedFunction, TypedLetBinding, TypedMatchArm, TypedPattern};
+use crate::types::{FunctionType, StructType, Type, TypeError, TypeScheme, TypeVarId};
 use crate::unify::UnifyCtx;
 use crate::usefulness;
 
@@ -14,6 +14,8 @@ use crate::usefulness;
 pub struct TypeEnv {
     /// Function signatures
     pub functions: HashMap<String, FunctionType>,
+    /// Struct type definitions
+    pub structs: HashMap<String, StructType>,
     /// Local variable types (parameters in function bodies) - monomorphic
     pub locals: HashMap<String, Type>,
     /// Polymorphic let-bound variables (type schemes for let polymorphism)
@@ -24,6 +26,7 @@ impl TypeEnv {
     pub fn with_locals(&self, locals: HashMap<String, Type>) -> Self {
         TypeEnv {
             functions: self.functions.clone(),
+            structs: self.structs.clone(),
             locals,
             poly_locals: self.poly_locals.clone(),
         }
@@ -47,9 +50,11 @@ impl TypeEnv {
 
 /// Resolve a type annotation to a concrete Type.
 /// `type_param_map` maps source-level type parameter names (like "T") to TypeVarIds.
+/// `env` provides access to struct definitions for struct type resolution.
 fn resolve_type_annotation(
     annotation: &TypeAnnotation,
     type_param_map: &HashMap<String, TypeVarId>,
+    env: &TypeEnv,
 ) -> Result<Type, TypeError> {
     match annotation {
         TypeAnnotation::Named(name) => {
@@ -65,6 +70,23 @@ fn resolve_type_annotation(
                 Ok(Type::String)
             } else if let Some(&id) = type_param_map.get(name) {
                 Ok(Type::Var(id))
+            } else if let Some(struct_def) = env.structs.get(name) {
+                // Non-generic struct reference
+                if !struct_def.type_params.is_empty() {
+                    return Err(TypeError {
+                        message: format!(
+                            "struct {} requires {} type argument(s)",
+                            name,
+                            struct_def.type_params.len()
+                        ),
+                    });
+                }
+                // Non-generic struct: use fields as-is
+                Ok(Type::Struct {
+                    name: name.clone(),
+                    type_args: vec![],
+                    fields: struct_def.fields.clone(),
+                })
             } else {
                 Err(TypeError {
                     message: format!("unknown type: {}", name),
@@ -78,8 +100,39 @@ fn resolve_type_annotation(
                         message: "List requires exactly one type parameter".to_string(),
                     });
                 }
-                let elem_type = resolve_type_annotation(&params[0], type_param_map)?;
+                let elem_type = resolve_type_annotation(&params[0], type_param_map, env)?;
                 Ok(Type::List(Box::new(elem_type)))
+            } else if let Some(struct_def) = env.structs.get(name) {
+                // Generic struct reference
+                if params.len() != struct_def.type_params.len() {
+                    return Err(TypeError {
+                        message: format!(
+                            "struct {} expects {} type argument(s), got {}",
+                            name,
+                            struct_def.type_params.len(),
+                            params.len()
+                        ),
+                    });
+                }
+                let type_args = params
+                    .iter()
+                    .map(|p| resolve_type_annotation(p, type_param_map, env))
+                    .collect::<Result<Vec<_>, _>>()?;
+                // Substitute type args into field types
+                let mut subst = HashMap::new();
+                for (id, arg) in struct_def.type_var_ids.iter().zip(type_args.iter()) {
+                    subst.insert(*id, arg.clone());
+                }
+                let fields = struct_def
+                    .fields
+                    .iter()
+                    .map(|(n, t)| (n.clone(), substitute_type_vars(t, &subst)))
+                    .collect();
+                Ok(Type::Struct {
+                    name: name.clone(),
+                    type_args,
+                    fields,
+                })
             } else {
                 Err(TypeError {
                     message: format!("unknown parameterized type: {}", name),
@@ -89,16 +142,16 @@ fn resolve_type_annotation(
         TypeAnnotation::Tuple(params) => {
             let mut types = Vec::new();
             for param in params {
-                types.push(resolve_type_annotation(param, type_param_map)?);
+                types.push(resolve_type_annotation(param, type_param_map, env)?);
             }
             Ok(Type::Tuple(types))
         }
         TypeAnnotation::Function(params, ret) => {
             let mut param_types = Vec::new();
             for param in params {
-                param_types.push(resolve_type_annotation(param, type_param_map)?);
+                param_types.push(resolve_type_annotation(param, type_param_map, env)?);
             }
-            let ret_type = resolve_type_annotation(ret, type_param_map)?;
+            let ret_type = resolve_type_annotation(ret, type_param_map, env)?;
             Ok(Type::Function {
                 params: param_types,
                 ret: Box::new(ret_type),
@@ -127,7 +180,7 @@ fn check_function(
     let mut param_types = Vec::new();
 
     for param in &func.params {
-        let ty = resolve_type_annotation(&param.typ, &type_param_map)?;
+        let ty = resolve_type_annotation(&param.typ, &type_param_map, env)?;
         locals.insert(param.name.clone(), ty.clone());
         param_types.push(ty);
     }
@@ -141,7 +194,7 @@ fn check_function(
 
     // Determine return type
     let return_type = if let Some(ref annotation) = func.return_type {
-        let declared_return = resolve_type_annotation(annotation, &type_param_map)?;
+        let declared_return = resolve_type_annotation(annotation, &type_param_map, env)?;
         // Unify body type with declared return type
         ctx.unify(&body_type, &declared_return).map_err(|e| TypeError {
             message: format!(
@@ -175,6 +228,7 @@ fn check_function(
 /// Uses a separate UnifyCtx to create fresh type variables for the signature.
 fn function_type_from_def(
     func: &FunctionDef,
+    env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<FunctionType, TypeError> {
     // Create fresh type variables for type parameters
@@ -190,12 +244,12 @@ fn function_type_from_def(
 
     let mut param_types = Vec::new();
     for param in &func.params {
-        let ty = resolve_type_annotation(&param.typ, &type_param_map)?;
+        let ty = resolve_type_annotation(&param.typ, &type_param_map, env)?;
         param_types.push(ty);
     }
 
     let return_type = if let Some(ref annotation) = func.return_type {
-        resolve_type_annotation(annotation, &type_param_map)?
+        resolve_type_annotation(annotation, &type_param_map, env)?
     } else {
         // Create a fresh type variable for inferred return type
         ctx.fresh_var()
@@ -711,7 +765,7 @@ fn check_lambda(
 
     for param in params {
         let param_ty = match &param.typ {
-            Some(annotation) => resolve_type_annotation(annotation, &HashMap::new())?,
+            Some(annotation) => resolve_type_annotation(annotation, &HashMap::new(), env)?,
             None => ctx.fresh_var(),
         };
         lambda_env.locals.insert(param.name.clone(), param_ty.clone());
@@ -724,7 +778,7 @@ fn check_lambda(
 
     // If return type is annotated, unify with body type
     let resolved_return = if let Some(annotation) = return_type {
-        let declared_return = resolve_type_annotation(annotation, &HashMap::new())?;
+        let declared_return = resolve_type_annotation(annotation, &HashMap::new(), env)?;
         ctx.unify(&body_ty, &declared_return).map_err(|e| TypeError {
             message: format!(
                 "lambda body type {} doesn't match declared return type {}: {}",
@@ -753,6 +807,140 @@ fn check_lambda(
         body: Box::new(typed_body),
         ty: lambda_type,
     })
+}
+
+/// Check a struct constructor expression
+fn check_struct_construct(
+    name: &str,
+    fields: &[(String, Expr)],
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
+    // Look up the struct definition
+    let struct_type = env.structs.get(name).ok_or_else(|| TypeError {
+        message: format!("unknown struct: {}", name),
+    })?;
+
+    // Create fresh type variables for generic parameters
+    let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
+    for &old_id in &struct_type.type_var_ids {
+        instantiation.insert(old_id, ctx.fresh_var());
+    }
+
+    // Check that all required fields are present and no extra fields
+    let expected_field_names: HashSet<&str> = struct_type.fields.iter().map(|(n, _)| n.as_str()).collect();
+    let provided_field_names: HashSet<&str> = fields.iter().map(|(n, _)| n.as_str()).collect();
+
+    // Check for missing fields
+    for expected in &expected_field_names {
+        if !provided_field_names.contains(expected) {
+            return Err(TypeError {
+                message: format!("missing field '{}' in struct {}", expected, name),
+            });
+        }
+    }
+
+    // Check for extra fields
+    for provided in &provided_field_names {
+        if !expected_field_names.contains(provided) {
+            return Err(TypeError {
+                message: format!("unknown field '{}' in struct {}", provided, name),
+            });
+        }
+    }
+
+    // Type-check each field value
+    let mut typed_fields = Vec::new();
+    for (field_name, field_expr) in fields {
+        // Find the expected type for this field
+        let (_, field_type) = struct_type
+            .fields
+            .iter()
+            .find(|(n, _)| n == field_name)
+            .ok_or_else(|| TypeError {
+                message: format!("unknown field '{}' in struct {}", field_name, name),
+            })?;
+
+        // Substitute type variables to get the expected type for this instantiation
+        let expected_type = substitute_type_vars(field_type, &instantiation);
+
+        // Type-check the field expression
+        let typed_expr = check_with_env(field_expr, env, ctx)?;
+        let actual_type = typed_expr.ty();
+
+        // Unify with expected type
+        ctx.unify(&actual_type, &expected_type).map_err(|e| TypeError {
+            message: format!(
+                "field '{}' in struct {} expects type {} but got {}: {}",
+                field_name,
+                name,
+                ctx.resolve(&expected_type),
+                ctx.resolve(&actual_type),
+                e.message
+            ),
+        })?;
+
+        typed_fields.push((field_name.clone(), typed_expr));
+    }
+
+    // Build the struct type with resolved type arguments
+    let type_args: Vec<Type> = struct_type
+        .type_var_ids
+        .iter()
+        .map(|id| ctx.resolve(&instantiation[id]))
+        .collect();
+
+    // Build resolved field types for the Type::Struct
+    let resolved_fields: Vec<(String, Type)> = struct_type
+        .fields
+        .iter()
+        .map(|(name, ty)| (name.clone(), ctx.resolve(&substitute_type_vars(ty, &instantiation))))
+        .collect();
+
+    Ok(TypedExpr::StructConstruct {
+        name: name.to_string(),
+        fields: typed_fields,
+        ty: Type::Struct {
+            name: name.to_string(),
+            type_args,
+            fields: resolved_fields,
+        },
+    })
+}
+
+/// Check a field access expression
+fn check_field_access(
+    expr: &Expr,
+    field: &str,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
+    let typed_expr = check_with_env(expr, env, ctx)?;
+    let expr_ty = ctx.resolve(&typed_expr.ty());
+
+    match &expr_ty {
+        Type::Struct { name, fields: struct_fields, .. } => {
+            // Find the field directly in the resolved type
+            let (_, field_type) = struct_fields
+                .iter()
+                .find(|(n, _)| n == field)
+                .ok_or_else(|| TypeError {
+                    message: format!("struct {} has no field '{}'", name, field),
+                })?;
+
+            Ok(TypedExpr::FieldAccess {
+                expr: Box::new(typed_expr),
+                field: field.to_string(),
+                ty: field_type.clone(),
+            })
+        }
+        _ => Err(TypeError {
+            message: format!(
+                "cannot access field '{}' on non-struct type {}",
+                field, expr_ty
+            ),
+        }),
+    }
 }
 
 /// Check an expression with a type environment
@@ -797,6 +985,8 @@ fn check_with_env(
             return_type,
             body,
         } => check_lambda(params, return_type, body, env, ctx),
+        Expr::StructConstruct { name, fields } => check_struct_construct(name, fields, env, ctx),
+        Expr::FieldAccess { expr, field } => check_field_access(expr, field, env, ctx),
     }
 }
 
@@ -811,6 +1001,11 @@ fn substitute_type_vars(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
         Type::Function { params, ret } => Type::Function {
             params: params.iter().map(|t| substitute_type_vars(t, mapping)).collect(),
             ret: Box::new(substitute_type_vars(ret, mapping)),
+        },
+        Type::Struct { name, type_args, fields } => Type::Struct {
+            name: name.clone(),
+            type_args: type_args.iter().map(|t| substitute_type_vars(t, mapping)).collect(),
+            fields: fields.iter().map(|(n, t)| (n.clone(), substitute_type_vars(t, mapping))).collect(),
         },
         // Concrete types don't contain type vars
         Type::Int32 | Type::Int64 | Type::Float | Type::Bool | Type::String => ty.clone(),
@@ -1108,6 +1303,118 @@ fn check_pattern(
                 }
             }
         }
+
+        Pattern::Struct(struct_pattern) => {
+            // Get struct name and fields based on pattern variant
+            let (struct_name, field_patterns, is_partial) = match struct_pattern {
+                StructPattern::Exact { name, fields } => (name, fields, false),
+                StructPattern::Partial { name, fields } => (name, fields, true),
+            };
+
+            // Unify scrutinee with the struct type
+            let struct_type = env.structs.get(struct_name).ok_or_else(|| TypeError {
+                message: format!("unknown struct in pattern: {}", struct_name),
+            })?;
+
+            // Create fresh type variables for generic parameters
+            let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
+            for &old_id in &struct_type.type_var_ids {
+                instantiation.insert(old_id, ctx.fresh_var());
+            }
+
+            // Build the expected struct type and unify with scrutinee
+            let type_args: Vec<Type> = struct_type
+                .type_var_ids
+                .iter()
+                .map(|id| instantiation[id].clone())
+                .collect();
+            let resolved_fields: Vec<(String, Type)> = struct_type
+                .fields
+                .iter()
+                .map(|(n, t)| (n.clone(), substitute_type_vars(t, &instantiation)))
+                .collect();
+            let expected_struct_ty = Type::Struct {
+                name: struct_name.clone(),
+                type_args,
+                fields: resolved_fields,
+            };
+
+            ctx.unify(scrutinee_ty, &expected_struct_ty)
+                .map_err(|e| TypeError {
+                    message: format!(
+                        "struct pattern {} cannot match type {}: {}",
+                        struct_name,
+                        ctx.resolve(scrutinee_ty),
+                        e.message
+                    ),
+                })?;
+
+            // For exact patterns, verify all fields are covered
+            if !is_partial {
+                let expected_field_names: HashSet<&str> = struct_type
+                    .fields
+                    .iter()
+                    .map(|(n, _)| n.as_str())
+                    .collect();
+                let provided_field_names: HashSet<&str> = field_patterns
+                    .iter()
+                    .map(|f| f.field_name.as_str())
+                    .collect();
+
+                for expected in &expected_field_names {
+                    if !provided_field_names.contains(expected) {
+                        return Err(TypeError {
+                            message: format!(
+                                "missing field '{}' in struct pattern {} (use '..' for partial match)",
+                                expected, struct_name
+                            ),
+                        });
+                    }
+                }
+            }
+
+            // Check each field pattern
+            let mut all_bindings = HashMap::new();
+            let mut typed_fields = Vec::new();
+
+            for field_pattern in field_patterns {
+                // Find the field type
+                let (_, field_type) = struct_type
+                    .fields
+                    .iter()
+                    .find(|(n, _)| n == &field_pattern.field_name)
+                    .ok_or_else(|| TypeError {
+                        message: format!(
+                            "struct {} has no field '{}'",
+                            struct_name, field_pattern.field_name
+                        ),
+                    })?;
+
+                // Substitute type variables
+                let resolved_field_type = substitute_type_vars(field_type, &instantiation);
+                let resolved_field_type = ctx.resolve(&resolved_field_type);
+
+                // Recursively check the field pattern
+                let (typed_sub_pattern, sub_bindings) =
+                    check_pattern(&field_pattern.pattern, &resolved_field_type, env, ctx)?;
+                all_bindings.extend(sub_bindings);
+                typed_fields.push((field_pattern.field_name.clone(), typed_sub_pattern));
+            }
+
+            let typed_pattern = if is_partial {
+                TypedPattern::StructPartial {
+                    name: struct_name.clone(),
+                    fields: typed_fields,
+                }
+            } else {
+                TypedPattern::StructExact {
+                    name: struct_name.clone(),
+                    fields: typed_fields,
+                }
+            };
+
+            Ok((typed_pattern, all_bindings))
+        }
     }
 }
 
@@ -1143,7 +1450,7 @@ fn check_let_binding(
 
     // If type annotation exists, unify with inferred type
     let binding_type = if let Some(ref annotation) = binding.type_annotation {
-        let declared_type = resolve_type_annotation(annotation, &HashMap::new())?;
+        let declared_type = resolve_type_annotation(annotation, &HashMap::new(), env)?;
         ctx.unify(&inferred_type, &declared_type).map_err(|e| TypeError {
             message: format!(
                 "let binding '{}' declares type {} but value has type {}: {}",
@@ -1165,33 +1472,106 @@ fn check_let_binding(
     })
 }
 
-/// Check a file's items (functions), returning typed functions
-pub fn check_file(items: &[Item]) -> Result<Vec<TypedFunction>, TypeError> {
+/// Check a file's items (functions and structs), returning checked items
+pub fn check_file(items: &[Item]) -> Result<Vec<CheckedItem>, TypeError> {
     let mut ctx = UnifyCtx::new();
-
-    // Build type environment with all function signatures first
     let mut env = TypeEnv::default();
+
+    // Phase 1a: Register all struct names with placeholder types
+    // This allows structs to reference each other
     for item in items {
-        let Item::Function(func) = item;
-        let func_type = function_type_from_def(func, &mut ctx)?;
-        env.functions.insert(func.name.clone(), func_type);
+        if let Item::Struct(def) = item {
+            // Register with empty fields first - will fill in later
+            let mut type_var_ids = Vec::new();
+            for _ in &def.type_params {
+                let var = ctx.fresh_var();
+                if let Type::Var(id) = var {
+                    type_var_ids.push(id);
+                }
+            }
+            env.structs.insert(
+                def.name.clone(),
+                StructType {
+                    name: def.name.clone(),
+                    type_params: def.type_params.clone(),
+                    type_var_ids,
+                    fields: vec![], // placeholder
+                },
+            );
+        }
     }
 
-    // Type-check all functions
-    let mut typed_functions = Vec::new();
+    // Phase 1b: Now resolve all struct field types
     for item in items {
-        let Item::Function(func) = item;
-        let typed = check_function(func, &env, &mut ctx)?;
-        typed_functions.push(typed);
+        if let Item::Struct(def) = item {
+            let struct_type = struct_type_from_def(def, &env, &mut ctx)?;
+            env.structs.insert(def.name.clone(), struct_type);
+        }
     }
 
-    Ok(typed_functions)
+    // Phase 2: Register all function signatures (now struct types are available)
+    for item in items {
+        if let Item::Function(func) = item {
+            let func_type = function_type_from_def(func, &env, &mut ctx)?;
+            env.functions.insert(func.name.clone(), func_type);
+        }
+    }
+
+    // Phase 3: Type-check all items
+    let mut checked_items = Vec::new();
+    for item in items {
+        match item {
+            Item::Function(func) => {
+                let typed = check_function(func, &env, &mut ctx)?;
+                checked_items.push(CheckedItem::Function(typed));
+            }
+            Item::Struct(def) => {
+                // Structs are just passed through (already registered in env)
+                checked_items.push(CheckedItem::Struct(def.clone()));
+            }
+        }
+    }
+
+    Ok(checked_items)
+}
+
+/// Extract struct type from a struct definition (for adding to env).
+fn struct_type_from_def(
+    def: &StructDef,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<StructType, TypeError> {
+    // Create fresh type variables for type parameters
+    let mut type_param_map = HashMap::new();
+    let mut type_var_ids = Vec::new();
+    for name in &def.type_params {
+        let var = ctx.fresh_var();
+        if let Type::Var(id) = var {
+            type_param_map.insert(name.clone(), id);
+            type_var_ids.push(id);
+        }
+    }
+
+    // Resolve field types
+    let mut fields = Vec::new();
+    for field in &def.fields {
+        let ty = resolve_type_annotation(&field.typ, &type_param_map, env)?;
+        fields.push((field.name.clone(), ty));
+    }
+
+    Ok(StructType {
+        name: def.name.clone(),
+        type_params: def.type_params.clone(),
+        type_var_ids,
+        fields,
+    })
 }
 
 /// Type-checked statement result for REPL
 #[derive(Debug, Clone, PartialEq)]
 pub enum CheckedStatement {
     Function(TypedFunction),
+    Struct(StructDef),
     Expr(TypedExpr),
     Let(TypedLetBinding),
 }
@@ -1199,23 +1579,28 @@ pub enum CheckedStatement {
 /// Check REPL statements with multi-pass type checking for forward references.
 ///
 /// This uses a multi-pass algorithm similar to `check_file`:
-/// 1. Partition statements into functions and non-functions
-/// 2. Register all function signatures first (enables forward references)
-/// 3. Type-check all function bodies (all signatures now available)
-/// 4. Type-check non-function statements in order
-/// 5. Sort results by original index to preserve input order
+/// 1. Partition statements into structs, functions, and others
+/// 2. Register all struct definitions first
+/// 3. Register all function signatures (enables forward references)
+/// 4. Type-check all function bodies (all signatures now available)
+/// 5. Type-check non-item statements in order
+/// 6. Sort results by original index to preserve input order
 pub fn check_repl(
     statements: &[Statement],
     env: &mut TypeEnv,
 ) -> Result<Vec<CheckedStatement>, TypeError> {
     let mut ctx = UnifyCtx::new();
 
-    // Phase 1: Partition statements into functions and non-functions
+    // Phase 1: Partition statements
+    let mut struct_items: Vec<(usize, &StructDef)> = Vec::new();
     let mut function_items: Vec<(usize, &FunctionDef)> = Vec::new();
     let mut other_items: Vec<(usize, &Statement)> = Vec::new();
 
     for (idx, statement) in statements.iter().enumerate() {
         match statement {
+            Statement::Item(Item::Struct(def)) => {
+                struct_items.push((idx, def));
+            }
             Statement::Item(Item::Function(func)) => {
                 function_items.push((idx, func));
             }
@@ -1225,20 +1610,53 @@ pub fn check_repl(
         }
     }
 
-    // Phase 2: Register all function signatures first
+    // Phase 2a: Register all struct names first (for mutual references)
+    for (_, def) in &struct_items {
+        let mut type_var_ids = Vec::new();
+        for _ in &def.type_params {
+            let var = ctx.fresh_var();
+            if let Type::Var(id) = var {
+                type_var_ids.push(id);
+            }
+        }
+        env.structs.insert(
+            def.name.clone(),
+            StructType {
+                name: def.name.clone(),
+                type_params: def.type_params.clone(),
+                type_var_ids,
+                fields: vec![],
+            },
+        );
+    }
+
+    // Phase 2b: Now resolve all struct field types
+    for (_, def) in &struct_items {
+        let struct_type = struct_type_from_def(def, env, &mut ctx)?;
+        env.structs.insert(def.name.clone(), struct_type);
+    }
+
+    // Phase 3: Register all function signatures
     for (_, func) in &function_items {
-        let func_type = function_type_from_def(func, &mut ctx)?;
+        let func_type = function_type_from_def(func, env, &mut ctx)?;
         env.functions.insert(func.name.clone(), func_type);
     }
 
-    // Phase 3: Type-check all function bodies (all signatures now available)
+    // Phase 4: Type-check all items
     let mut results: Vec<(usize, CheckedStatement)> = Vec::new();
+
+    // Add struct results
+    for (idx, def) in &struct_items {
+        results.push((*idx, CheckedStatement::Struct((*def).clone())));
+    }
+
+    // Type-check function bodies
     for (idx, func) in &function_items {
         let typed_func = check_function(func, env, &mut ctx)?;
         results.push((*idx, CheckedStatement::Function(typed_func)));
     }
 
-    // Phase 4: Type-check non-function statements in order
+    // Phase 5: Type-check non-item statements in order
     for (idx, statement) in other_items {
         match statement {
             Statement::Expr(expr) => {
@@ -1260,11 +1678,11 @@ pub fn check_repl(
 
                 results.push((idx, CheckedStatement::Let(typed_binding)));
             }
-            Statement::Item(_) => unreachable!("Functions already handled"),
+            Statement::Item(_) => unreachable!("Items already handled"),
         }
     }
 
-    // Phase 5: Sort by original index to preserve input order
+    // Phase 6: Sort by original index to preserve input order
     results.sort_by_key(|(idx, _)| *idx);
     Ok(results.into_iter().map(|(_, stmt)| stmt).collect())
 }
@@ -1687,7 +2105,8 @@ mod tests {
             body: Expr::Int(0), // body doesn't matter for type extraction
         };
 
-        let ft = function_type_from_def(&func, &mut ctx).unwrap();
+        let env = TypeEnv::default();
+        let ft = function_type_from_def(&func, &env, &mut ctx).unwrap();
         assert_eq!(ft.params, vec![Type::Int32, Type::Int32]);
         assert_eq!(ft.return_type, Type::Int32);
     }
@@ -1706,7 +2125,8 @@ mod tests {
             body: Expr::Int(0),
         };
 
-        let ft = function_type_from_def(&func, &mut ctx).unwrap();
+        let env = TypeEnv::default();
+        let ft = function_type_from_def(&func, &env, &mut ctx).unwrap();
         assert_eq!(ft.type_params, vec!["T".to_string()]);
         assert_eq!(ft.type_var_ids.len(), 1);
         // Params and return type should use the same type variable

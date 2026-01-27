@@ -14,7 +14,9 @@
       "Bash(echo:*)",
       "Bash(jj diff:*)",
       "Bash(printf:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(ls:*)"
     ]
   }
 }

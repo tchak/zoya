@@ -8,7 +8,7 @@ use crate::ir::{TypedExpr, TypedMatchArm, TypedPattern};
 use crate::types::{Type, TypeError};
 
 /// A constructor represents a way to build a value of a given type.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone)]
 pub enum Constructor {
     // Bool constructors
     True,
@@ -31,8 +31,56 @@ pub enum Constructor {
     FloatLiteral(OrderedFloat),
     StringLiteral(String),
 
+    // Struct constructor (single constructor per struct type)
+    // Fields: (struct_name, field_names, field_types)
+    Struct {
+        name: String,
+        field_names: Vec<String>,
+        field_types: Vec<Type>,
+    },
+
     // Represents "all other values" for infinite types
     NonExhaustive,
+}
+
+// Custom PartialEq: Struct constructors compare by name only
+impl PartialEq for Constructor {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Constructor::True, Constructor::True) => true,
+            (Constructor::False, Constructor::False) => true,
+            (Constructor::ListNil, Constructor::ListNil) => true,
+            (Constructor::ListCons, Constructor::ListCons) => true,
+            (Constructor::ListSpecific(a), Constructor::ListSpecific(b)) => a == b,
+            (Constructor::Tuple(a), Constructor::Tuple(b)) => a == b,
+            (Constructor::IntLiteral(a), Constructor::IntLiteral(b)) => a == b,
+            (Constructor::FloatLiteral(a), Constructor::FloatLiteral(b)) => a == b,
+            (Constructor::StringLiteral(a), Constructor::StringLiteral(b)) => a == b,
+            (Constructor::Struct { name: n1, .. }, Constructor::Struct { name: n2, .. }) => n1 == n2,
+            (Constructor::NonExhaustive, Constructor::NonExhaustive) => true,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Constructor {}
+
+impl std::hash::Hash for Constructor {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Discriminant-based hash
+        std::mem::discriminant(self).hash(state);
+        match self {
+            Constructor::True | Constructor::False => {}
+            Constructor::ListNil | Constructor::ListCons => {}
+            Constructor::ListSpecific(id) => id.hash(state),
+            Constructor::Tuple(n) => n.hash(state),
+            Constructor::IntLiteral(n) => n.hash(state),
+            Constructor::FloatLiteral(f) => f.hash(state),
+            Constructor::StringLiteral(s) => s.hash(state),
+            Constructor::Struct { name, .. } => name.hash(state), // Only hash name
+            Constructor::NonExhaustive => {}
+        }
+    }
 }
 
 /// Wrapper for f64 that implements Eq and Hash (for use in HashSet)
@@ -62,6 +110,7 @@ impl Constructor {
             Constructor::ListCons => 2, // (head, tail)
             Constructor::ListSpecific(_) => 0, // opaque, no sub-patterns
             Constructor::Tuple(n) => *n,
+            Constructor::Struct { field_names, .. } => field_names.len(),
             Constructor::IntLiteral(_)
             | Constructor::FloatLiteral(_)
             | Constructor::StringLiteral(_)
@@ -76,6 +125,7 @@ impl Constructor {
                 vec![(**elem).clone(), ty.clone()] // (T, List<T>)
             }
             (Constructor::Tuple(_), Type::Tuple(elems)) => elems.clone(),
+            (Constructor::Struct { field_types, .. }, _) => field_types.clone(),
             _ => vec![],
         }
     }
@@ -117,6 +167,25 @@ impl Constructor {
             Constructor::IntLiteral(n) => n.to_string(),
             Constructor::FloatLiteral(f) => f.0.to_string(),
             Constructor::StringLiteral(s) => format!("\"{}\"", s),
+            Constructor::Struct {
+                name,
+                field_names,
+                field_types,
+            } => {
+                if field_names.is_empty() {
+                    format!("{} {{}}", name)
+                } else {
+                    let field_strs: Vec<String> = field_names
+                        .iter()
+                        .zip(field_types.iter())
+                        .zip(args.iter())
+                        .map(|((field_name, field_ty), pat)| {
+                            format!("{}: {}", field_name, pat.to_pattern_string(field_ty))
+                        })
+                        .collect();
+                    format!("{} {{ {} }}", name, field_strs.join(", "))
+                }
+            }
             Constructor::NonExhaustive => "_".to_string(),
         }
     }
@@ -144,6 +213,15 @@ impl TypeCtors {
             Type::Tuple(elems) => TypeCtors::Finite(vec![Constructor::Tuple(elems.len())]),
             Type::Int32 | Type::Int64 | Type::Float | Type::String => TypeCtors::Infinite,
             Type::Var(_) | Type::Function { .. } => TypeCtors::Infinite, // Conservative
+            Type::Struct { name, fields, .. } => {
+                // Structs have exactly one constructor
+                let (field_names, field_types): (Vec<_>, Vec<_>) = fields.iter().cloned().unzip();
+                TypeCtors::Finite(vec![Constructor::Struct {
+                    name: name.clone(),
+                    field_names,
+                    field_types,
+                }])
+            }
         }
     }
 
@@ -285,6 +363,70 @@ impl Pat {
             } => {
                 // (a, .., z) in a tuple of total_len elements
                 Self::expand_tuple_pattern_both(prefix, suffix, *total_len, ty)
+            }
+
+            TypedPattern::StructExact { name, fields } => {
+                // Get field info from the type
+                let (field_names, field_types) = match ty {
+                    Type::Struct { fields: struct_fields, .. } => {
+                        let names: Vec<String> = struct_fields.iter().map(|(n, _)| n.clone()).collect();
+                        let types: Vec<Type> = struct_fields.iter().map(|(_, t)| t.clone()).collect();
+                        (names, types)
+                    }
+                    _ => (vec![], vec![]),
+                };
+
+                // Build sub-patterns in field order
+                let mut sub_pats = Vec::with_capacity(field_names.len());
+                for (field_name, field_ty) in field_names.iter().zip(field_types.iter()) {
+                    // Find the pattern for this field
+                    if let Some((_, sub_pattern)) = fields.iter().find(|(n, _)| n == field_name) {
+                        sub_pats.push(Pat::from_typed(sub_pattern, field_ty));
+                    } else {
+                        sub_pats.push(Pat::Wild);
+                    }
+                }
+
+                Pat::Ctor(
+                    Constructor::Struct {
+                        name: name.clone(),
+                        field_names,
+                        field_types,
+                    },
+                    sub_pats,
+                )
+            }
+
+            TypedPattern::StructPartial { name, fields } => {
+                // Get field info from the type
+                let (field_names, field_types) = match ty {
+                    Type::Struct { fields: struct_fields, .. } => {
+                        let names: Vec<String> = struct_fields.iter().map(|(n, _)| n.clone()).collect();
+                        let types: Vec<Type> = struct_fields.iter().map(|(_, t)| t.clone()).collect();
+                        (names, types)
+                    }
+                    _ => (vec![], vec![]),
+                };
+
+                // Build sub-patterns in field order
+                // For partial patterns, unmentioned fields become wildcards
+                let mut sub_pats = Vec::with_capacity(field_names.len());
+                for (field_name, field_ty) in field_names.iter().zip(field_types.iter()) {
+                    if let Some((_, sub_pattern)) = fields.iter().find(|(n, _)| n == field_name) {
+                        sub_pats.push(Pat::from_typed(sub_pattern, field_ty));
+                    } else {
+                        sub_pats.push(Pat::Wild);
+                    }
+                }
+
+                Pat::Ctor(
+                    Constructor::Struct {
+                        name: name.clone(),
+                        field_names,
+                        field_types,
+                    },
+                    sub_pats,
+                )
             }
         }
     }

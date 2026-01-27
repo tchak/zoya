@@ -6,14 +6,14 @@ use crate::types::Type;
 /// Deep equality function name used in generated JS
 const DEEP_EQ_FN: &str = "$eq";
 
-/// Deep equality helper function for structural comparison of lists
+/// Deep equality helper function for structural comparison of lists and structs
 pub fn deep_eq_prelude() -> &'static str {
-    "function $eq(a,b){if(Array.isArray(a)&&Array.isArray(b)){if(a.length!==b.length)return false;for(let i=0;i<a.length;i++)if(!$eq(a[i],b[i]))return false;return true}return a===b}"
+    "function $eq(a,b){if(Array.isArray(a)&&Array.isArray(b)){if(a.length!==b.length)return false;for(let i=0;i<a.length;i++)if(!$eq(a[i],b[i]))return false;return true}if(typeof a==='object'&&a!==null&&typeof b==='object'&&b!==null&&!Array.isArray(a)&&!Array.isArray(b)){const ka=Object.keys(a),kb=Object.keys(b);if(ka.length!==kb.length)return false;for(let k of ka)if(!$eq(a[k],b[k]))return false;return true}return a===b}"
 }
 
 /// Check if a type requires deep equality comparison
 fn needs_deep_equality(ty: &Type) -> bool {
-    matches!(ty, Type::List(_))
+    matches!(ty, Type::List(_) | Type::Struct { .. })
 }
 
 pub fn codegen(expr: &TypedExpr) -> String {
@@ -188,6 +188,21 @@ pub fn codegen(expr: &TypedExpr) -> String {
                 format!("(({}) => {})", param_names.join(", "), body_code)
             }
         }
+        TypedExpr::StructConstruct { fields, .. } => {
+            // Generate a plain JS object
+            if fields.is_empty() {
+                "({})".to_string()
+            } else {
+                let field_strs: Vec<String> = fields
+                    .iter()
+                    .map(|(name, expr)| format!("{}: {}", name, codegen(expr)))
+                    .collect();
+                format!("({{ {} }})", field_strs.join(", "))
+            }
+        }
+        TypedExpr::FieldAccess { expr, field, .. } => {
+            format!("({}).{}", codegen(expr), field)
+        }
     }
 }
 
@@ -319,6 +334,21 @@ fn codegen_match(scrutinee: &TypedExpr, arms: &[TypedMatchArm]) -> String {
                     total_len, condition, bindings, result_code
                 ));
             }
+            TypedPattern::StructExact { fields, .. } | TypedPattern::StructPartial { fields, .. } => {
+                let result_code = codegen(&arm.result);
+                let (condition, bindings) = codegen_struct_pattern_bindings(fields);
+                if condition == "true" {
+                    parts.push(format!(
+                        "if (typeof $match === 'object' && $match !== null) {{ {} return {}; }}",
+                        bindings, result_code
+                    ));
+                } else {
+                    parts.push(format!(
+                        "if (typeof $match === 'object' && $match !== null && {}) {{ {} return {}; }}",
+                        condition, bindings, result_code
+                    ));
+                }
+            }
         }
     }
 
@@ -362,7 +392,9 @@ fn codegen_list_pattern_bindings(
             | TypedPattern::TupleExact { .. }
             | TypedPattern::TuplePrefix { .. }
             | TypedPattern::TupleSuffix { .. }
-            | TypedPattern::TuplePrefixSuffix { .. } => {
+            | TypedPattern::TuplePrefixSuffix { .. }
+            | TypedPattern::StructExact { .. }
+            | TypedPattern::StructPartial { .. } => {
                 // Nested patterns not yet supported
             }
         }
@@ -418,7 +450,9 @@ fn codegen_suffix_pattern_bindings(
             | TypedPattern::TupleExact { .. }
             | TypedPattern::TuplePrefix { .. }
             | TypedPattern::TupleSuffix { .. }
-            | TypedPattern::TuplePrefixSuffix { .. } => {
+            | TypedPattern::TuplePrefixSuffix { .. }
+            | TypedPattern::StructExact { .. }
+            | TypedPattern::StructPartial { .. } => {
                 // Nested patterns not yet supported
             }
         }
@@ -466,7 +500,9 @@ fn codegen_prefix_suffix_pattern_bindings(
             | TypedPattern::TupleExact { .. }
             | TypedPattern::TuplePrefix { .. }
             | TypedPattern::TupleSuffix { .. }
-            | TypedPattern::TuplePrefixSuffix { .. } => {}
+            | TypedPattern::TuplePrefixSuffix { .. }
+            | TypedPattern::StructExact { .. }
+            | TypedPattern::StructPartial { .. } => {}
         }
     }
 
@@ -498,7 +534,9 @@ fn codegen_prefix_suffix_pattern_bindings(
             | TypedPattern::TupleExact { .. }
             | TypedPattern::TuplePrefix { .. }
             | TypedPattern::TupleSuffix { .. }
-            | TypedPattern::TuplePrefixSuffix { .. } => {}
+            | TypedPattern::TuplePrefixSuffix { .. }
+            | TypedPattern::StructExact { .. }
+            | TypedPattern::StructPartial { .. } => {}
         }
     }
 
@@ -633,6 +671,50 @@ fn codegen_tuple_prefix_suffix_bindings(
             }
             TypedPattern::Wildcard => {}
             _ => {}
+        }
+    }
+
+    let condition = if conditions.is_empty() {
+        "true".to_string()
+    } else {
+        conditions.join(" && ")
+    };
+
+    (condition, bindings.join(" "))
+}
+
+/// Generate condition checks and bindings for struct patterns
+/// Returns (condition_expr, bindings_code)
+fn codegen_struct_pattern_bindings(
+    fields: &[(String, TypedPattern)],
+) -> (String, String) {
+    let mut conditions = Vec::new();
+    let mut bindings = Vec::new();
+
+    for (field_name, pat) in fields {
+        match pat {
+            TypedPattern::Literal(lit) => {
+                let lit_code = codegen(lit);
+                if needs_deep_equality(&lit.ty()) {
+                    conditions.push(format!(
+                        "{}($match.{}, {})",
+                        DEEP_EQ_FN, field_name, lit_code
+                    ));
+                } else {
+                    conditions.push(format!("$match.{} === {}", field_name, lit_code));
+                }
+            }
+            TypedPattern::Var { name, .. } => {
+                bindings.push(format!("const {} = $match.{};", name, field_name));
+            }
+            TypedPattern::Wildcard => {}
+            // For nested patterns, we would need recursive handling
+            // For now, just bind the field value for complex patterns
+            _ => {
+                // Nested pattern - create a temporary and recursively match
+                // For simplicity in initial implementation, treat as variable binding
+                bindings.push(format!("const _nested_{} = $match.{};", field_name, field_name));
+            }
         }
     }
 

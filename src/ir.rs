@@ -1,5 +1,12 @@
-use crate::ast::{BinOp, UnaryOp};
+use crate::ast::{BinOp, StructDef, UnaryOp};
 use crate::types::Type;
+
+/// A checked item from the type checker
+#[derive(Debug, Clone, PartialEq)]
+pub enum CheckedItem {
+    Function(TypedFunction),
+    Struct(StructDef), // Structs are declarations, passed through as-is
+}
 
 /// Typed function definition
 #[derive(Debug, Clone, PartialEq)]
@@ -41,6 +48,19 @@ pub enum TypedPattern {
         prefix: Vec<TypedPattern>,
         suffix: Vec<TypedPattern>,
         total_len: usize,
+    },
+    /// Struct pattern: `Point { x, y }` or `Point { x: px, .. }`
+    /// Fields are in the order they appear in the struct definition, not the pattern.
+    /// For partial patterns, missing fields are omitted from the vec.
+    StructExact {
+        name: String,
+        /// (field_name, pattern) pairs for all struct fields
+        fields: Vec<(String, TypedPattern)>,
+    },
+    StructPartial {
+        name: String,
+        /// (field_name, pattern) pairs for matched fields only
+        fields: Vec<(String, TypedPattern)>,
     },
 }
 
@@ -107,6 +127,18 @@ pub enum TypedExpr {
         body: Box<TypedExpr>,
         ty: Type,
     },
+    /// Struct constructor: `Point { x: 1, y: 2 }`
+    StructConstruct {
+        name: String,
+        fields: Vec<(String, TypedExpr)>, // field name -> typed value
+        ty: Type,
+    },
+    /// Field access: `point.x`
+    FieldAccess {
+        expr: Box<TypedExpr>,
+        field: String,
+        ty: Type,
+    },
 }
 
 impl TypedExpr {
@@ -127,6 +159,8 @@ impl TypedExpr {
             TypedExpr::Match { ty, .. } => ty.clone(),
             TypedExpr::MethodCall { ty, .. } => ty.clone(),
             TypedExpr::Lambda { ty, .. } => ty.clone(),
+            TypedExpr::StructConstruct { ty, .. } => ty.clone(),
+            TypedExpr::FieldAccess { ty, .. } => ty.clone(),
         }
     }
 }

@@ -2,6 +2,22 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     Function(FunctionDef),
+    Struct(StructDef),
+}
+
+/// Struct definition: `struct Name<T, U> { field: Type, ... }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructDef {
+    pub name: String,
+    pub type_params: Vec<String>,
+    pub fields: Vec<StructFieldDef>,
+}
+
+/// A field in a struct definition
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructFieldDef {
+    pub name: String,
+    pub typ: TypeAnnotation,
 }
 
 /// Function definition
@@ -48,11 +64,34 @@ pub struct LambdaParam {
 /// Pattern in a match arm
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pattern {
-    Literal(Box<Expr>),  // 0, "hello", true
-    Var(String),         // x (binds value)
-    Wildcard,            // _ (matches all)
-    List(ListPattern),   // [], [a, b], [x, ..]
-    Tuple(TuplePattern), // (), (a, b), (x, ..)
+    Literal(Box<Expr>),   // 0, "hello", true
+    Var(String),          // x (binds value)
+    Wildcard,             // _ (matches all)
+    List(ListPattern),    // [], [a, b], [x, ..]
+    Tuple(TuplePattern),  // (), (a, b), (x, ..)
+    Struct(StructPattern), // Point { x, y }, Point { x: px, .. }
+}
+
+/// A field pattern in a struct pattern
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructFieldPattern {
+    pub field_name: String,   // the struct field being matched
+    pub pattern: Box<Pattern>, // the pattern for this field (Var(same_name) for shorthand)
+}
+
+/// Struct pattern variants
+#[derive(Debug, Clone, PartialEq)]
+pub enum StructPattern {
+    /// `Point { x, y }` - exact field match (all fields must be present)
+    Exact {
+        name: String,
+        fields: Vec<StructFieldPattern>,
+    },
+    /// `Point { x, .. }` - partial match with rest (some fields can be omitted)
+    Partial {
+        name: String,
+        fields: Vec<StructFieldPattern>,
+    },
 }
 
 /// List pattern variants
@@ -121,6 +160,16 @@ pub enum Expr {
         params: Vec<LambdaParam>,
         return_type: Option<TypeAnnotation>,
         body: Box<Expr>,
+    },
+    /// Struct constructor: `Point { x: 1, y: 2 }`
+    StructConstruct {
+        name: String,
+        fields: Vec<(String, Expr)>, // field name -> value
+    },
+    /// Field access: `point.x` (distinct from method call)
+    FieldAccess {
+        expr: Box<Expr>,
+        field: String,
     },
 }
 

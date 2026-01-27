@@ -46,6 +46,11 @@ impl UnifyCtx {
                 params: params.iter().map(|p| self.resolve(p)).collect(),
                 ret: Box::new(self.resolve(ret)),
             },
+            Type::Struct { name, type_args, fields } => Type::Struct {
+                name: name.clone(),
+                type_args: type_args.iter().map(|t| self.resolve(t)).collect(),
+                fields: fields.iter().map(|(n, t)| (n.clone(), self.resolve(t))).collect(),
+            },
             _ => ty.clone(),
         }
     }
@@ -60,6 +65,10 @@ impl UnifyCtx {
             Type::Tuple(elems) => elems.iter().any(|e| self.occurs(var_id, e)),
             Type::Function { params, ret } => {
                 params.iter().any(|p| self.occurs(var_id, p)) || self.occurs(var_id, &ret)
+            }
+            Type::Struct { type_args, fields, .. } => {
+                type_args.iter().any(|t| self.occurs(var_id, t))
+                    || fields.iter().any(|(_, t)| self.occurs(var_id, t))
             }
             _ => false,
         }
@@ -150,6 +159,41 @@ impl UnifyCtx {
                 self.unify(ret1, ret2)
             }
 
+            // Struct types - unify if same name and type args unify
+            // Note: fields are derived from name + type_args, so we only unify type_args
+            (
+                Type::Struct {
+                    name: name1,
+                    type_args: args1,
+                    ..
+                },
+                Type::Struct {
+                    name: name2,
+                    type_args: args2,
+                    ..
+                },
+            ) => {
+                if name1 != name2 {
+                    return Err(TypeError {
+                        message: format!("struct type mismatch: {} vs {}", name1, name2),
+                    });
+                }
+                if args1.len() != args2.len() {
+                    return Err(TypeError {
+                        message: format!(
+                            "struct {} type argument count mismatch: {} vs {}",
+                            name1,
+                            args1.len(),
+                            args2.len()
+                        ),
+                    });
+                }
+                for (a1, a2) in args1.iter().zip(args2.iter()) {
+                    self.unify(a1, a2)?;
+                }
+                Ok(())
+            }
+
             // Different concrete types - cannot unify
             _ => Err(TypeError {
                 message: format!("type mismatch: {} vs {}", t1, t2),
@@ -187,6 +231,11 @@ impl UnifyCtx {
                 let mut set: HashSet<TypeVarId> =
                     params.iter().flat_map(|p| self.free_vars(p)).collect();
                 set.extend(self.free_vars(&ret));
+                set
+            }
+            Type::Struct { type_args, fields, .. } => {
+                let mut set: HashSet<TypeVarId> = type_args.iter().flat_map(|t| self.free_vars(t)).collect();
+                set.extend(fields.iter().flat_map(|(_, t)| self.free_vars(t)));
                 set
             }
             _ => HashSet::new(),
@@ -229,6 +278,11 @@ fn substitute_in_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
         Type::Function { params, ret } => Type::Function {
             params: params.iter().map(|p| substitute_in_type(p, mapping)).collect(),
             ret: Box::new(substitute_in_type(ret, mapping)),
+        },
+        Type::Struct { name, type_args, fields } => Type::Struct {
+            name: name.clone(),
+            type_args: type_args.iter().map(|t| substitute_in_type(t, mapping)).collect(),
+            fields: fields.iter().map(|(n, t)| (n.clone(), substitute_in_type(t, mapping))).collect(),
         },
         _ => ty.clone(),
     }

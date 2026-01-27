@@ -3,6 +3,7 @@ use std::path::Path;
 use crate::check::check_file;
 use crate::codegen::{codegen_function, deep_eq_prelude};
 use crate::eval::{self, EvalError, Value};
+use crate::ir::{CheckedItem, TypedFunction};
 use crate::lexer;
 use crate::parser;
 
@@ -23,7 +24,16 @@ fn run_source(source: &str) -> Result<Value, EvalError> {
     let items = parser::parse_file(tokens).map_err(|e| EvalError::RuntimeError(e.message))?;
 
     // Type-check all items
-    let typed_functions = check_file(&items).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+    let checked_items = check_file(&items).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+
+    // Extract functions from checked items
+    let typed_functions: Vec<&TypedFunction> = checked_items
+        .iter()
+        .filter_map(|item| match item {
+            CheckedItem::Function(f) => Some(f),
+            CheckedItem::Struct(_) => None,
+        })
+        .collect();
 
     // Find main function
     let main_func = typed_functions
@@ -41,7 +51,7 @@ fn run_source(source: &str) -> Result<Value, EvalError> {
     // Generate JS code
     let mut js_code = String::new();
 
-    // Add prelude for deep equality (used by list comparison)
+    // Add prelude for deep equality (used by list/struct comparison)
     js_code.push_str(deep_eq_prelude());
     js_code.push('\n');
 
@@ -91,7 +101,16 @@ pub fn build_file_command(path: &Path, output: Option<&Path>) -> Result<(), Stri
     let items = parser::parse_file(tokens).map_err(|e| format!("error: {}", e.message))?;
 
     // Type check
-    let typed_functions = check_file(&items).map_err(|e| format!("error: {}", e))?;
+    let checked_items = check_file(&items).map_err(|e| format!("error: {}", e))?;
+
+    // Extract functions from checked items
+    let typed_functions: Vec<&TypedFunction> = checked_items
+        .iter()
+        .filter_map(|item| match item {
+            CheckedItem::Function(f) => Some(f),
+            CheckedItem::Struct(_) => None,
+        })
+        .collect();
 
     // Generate JS code
     let mut js_code = String::new();
@@ -1490,5 +1509,163 @@ mod tests {
             "error should mention type mismatch: {}",
             err
         );
+    }
+
+    // Struct tests
+    #[test]
+    fn test_run_struct_simple() {
+        let source = r#"
+            struct Point { x: Int32, y: Int32 }
+            fn main() -> Int32 {
+                let p = Point { x: 10, y: 20 };
+                p.x + p.y
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(30));
+    }
+
+    #[test]
+    fn test_run_struct_field_access() {
+        let source = r#"
+            struct Person { name: String, age: Int32 }
+            fn main() -> String {
+                let p = Person { name: "Alice", age: 30 };
+                p.name
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::String("Alice".to_string()));
+    }
+
+    #[test]
+    fn test_run_struct_empty() {
+        let source = r#"
+            struct Empty {}
+            fn main() -> Int32 {
+                let e = Empty {};
+                42
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(42));
+    }
+
+    #[test]
+    fn test_run_struct_generic() {
+        let source = r#"
+            struct Pair<T, U> { first: T, second: U }
+            fn main() -> Int32 {
+                let p = Pair { first: 1, second: 2 };
+                p.first + p.second
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(3));
+    }
+
+    #[test]
+    fn test_run_struct_match_exact() {
+        let source = r#"
+            struct Point { x: Int32, y: Int32 }
+            fn main() -> Int32 {
+                let p = Point { x: 10, y: 20 };
+                match p {
+                    Point { x, y } => x + y,
+                }
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(30));
+    }
+
+    #[test]
+    fn test_run_struct_match_partial() {
+        let source = r#"
+            struct Point { x: Int32, y: Int32 }
+            fn main() -> Int32 {
+                let p = Point { x: 10, y: 20 };
+                match p {
+                    Point { x, .. } => x,
+                }
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(10));
+    }
+
+    #[test]
+    fn test_run_struct_match_with_binding() {
+        let source = r#"
+            struct Point { x: Int32, y: Int32 }
+            fn main() -> Int32 {
+                let p = Point { x: 10, y: 20 };
+                match p {
+                    Point { x: a, y: b } => a * b,
+                }
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(200));
+    }
+
+    #[test]
+    fn test_run_struct_nested() {
+        let source = r#"
+            struct Point { x: Int32, y: Int32 }
+            struct Line { start: Point, end: Point }
+            fn main() -> Int32 {
+                let l = Line {
+                    start: Point { x: 0, y: 0 },
+                    end: Point { x: 10, y: 20 }
+                };
+                l.end.x + l.end.y
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(30));
+    }
+
+    #[test]
+    fn test_run_struct_field_shorthand() {
+        let source = r#"
+            struct Point { x: Int32, y: Int32 }
+            fn main() -> Int32 {
+                let x = 10;
+                let y = 20;
+                let p = Point { x, y };
+                p.x + p.y
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(30));
+    }
+
+    #[test]
+    fn test_run_struct_equality() {
+        let source = r#"
+            struct Point { x: Int32, y: Int32 }
+            fn main() -> Bool {
+                let p1 = Point { x: 10, y: 20 };
+                let p2 = Point { x: 10, y: 20 };
+                p1 == p2
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_struct_inequality() {
+        let source = r#"
+            struct Point { x: Int32, y: Int32 }
+            fn main() -> Bool {
+                let p1 = Point { x: 10, y: 20 };
+                let p2 = Point { x: 10, y: 30 };
+                p1 != p2
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
     }
 }

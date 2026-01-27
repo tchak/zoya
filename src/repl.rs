@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 
-use crate::ast::FunctionDef;
+use crate::ast::{FunctionDef, StructDef};
 use crate::check::{check_repl, CheckedStatement, TypeEnv};
 use crate::codegen::{codegen, codegen_function, codegen_let};
 use crate::eval::{self, Context, Value};
@@ -17,16 +17,20 @@ use crate::types::Type;
 pub enum ReplResult {
     /// Function was defined
     FunctionDefined(String),
+    /// Struct was defined
+    StructDefined(String),
     /// Let binding was created
     LetBinding { name: String, ty: Type },
     /// Expression was evaluated
     Expression(Value),
 }
 
-/// REPL state that accumulates function definitions
+/// REPL state that accumulates function and struct definitions
 pub struct State {
     /// Function definitions (AST level, for re-type-checking on redefinition)
     functions: HashMap<String, FunctionDef>,
+    /// Struct definitions (AST level)
+    structs: HashMap<String, StructDef>,
     /// Type environment
     type_env: TypeEnv,
     /// QuickJS runtime (kept alive for context)
@@ -43,6 +47,7 @@ impl State {
 
         Ok(State {
             functions: HashMap::new(),
+            structs: HashMap::new(),
             type_env: TypeEnv::default(),
             runtime,
             context,
@@ -117,6 +122,13 @@ impl State {
 
                     results.push(ReplResult::LetBinding { name, ty });
                 }
+                CheckedStatement::Struct(struct_def) => {
+                    let name = struct_def.name.clone();
+                    // Structs are type declarations - no JS code needed
+                    // The struct is already registered in the type_env by check_repl
+                    self.structs.insert(name.clone(), struct_def);
+                    results.push(ReplResult::StructDefined(name));
+                }
             }
         }
 
@@ -170,6 +182,9 @@ pub fn run() {
                             match result {
                                 ReplResult::FunctionDefined(name) => {
                                     println!("defined: {}", name);
+                                }
+                                ReplResult::StructDefined(name) => {
+                                    println!("struct: {}", name);
                                 }
                                 ReplResult::Expression(value) => {
                                     println!("{}", value);
@@ -415,5 +430,46 @@ mod tests {
         let mut state = State::new().unwrap();
         let results = state.eval("match 1 { 0 => false, _ => true }").unwrap();
         assert_eq!(results, vec![ReplResult::Expression(Value::Bool(true))]);
+    }
+
+    #[test]
+    fn test_repl_struct_definition() {
+        let mut state = State::new().unwrap();
+        let results = state.eval("struct Point { x: Int32, y: Int32 }").unwrap();
+        assert_eq!(
+            results,
+            vec![ReplResult::StructDefined("Point".to_string())]
+        );
+    }
+
+    #[test]
+    fn test_repl_struct_construction() {
+        let mut state = State::new().unwrap();
+        state.eval("struct Point { x: Int32, y: Int32 }").unwrap();
+        let results = state.eval("Point { x: 10, y: 20 }").unwrap();
+        assert!(matches!(
+            &results[0],
+            ReplResult::Expression(Value::Struct { .. })
+        ));
+    }
+
+    #[test]
+    fn test_repl_struct_field_access() {
+        let mut state = State::new().unwrap();
+        state.eval("struct Point { x: Int32, y: Int32 }").unwrap();
+        state.eval("let p = Point { x: 10, y: 20 }").unwrap();
+        let results = state.eval("p.x").unwrap();
+        assert_eq!(results, vec![ReplResult::Expression(Value::Int32(10))]);
+    }
+
+    #[test]
+    fn test_repl_struct_pattern_match() {
+        let mut state = State::new().unwrap();
+        state.eval("struct Point { x: Int32, y: Int32 }").unwrap();
+        state.eval("let p = Point { x: 10, y: 20 }").unwrap();
+        let results = state
+            .eval("match p { Point { x, y } => x + y }")
+            .unwrap();
+        assert_eq!(results, vec![ReplResult::Expression(Value::Int32(30))]);
     }
 }
