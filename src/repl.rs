@@ -101,8 +101,7 @@ impl State {
                     let result_type = typed_expr.ty();
 
                     let value = self.context.with(|ctx| {
-                        eval::eval_js_in_context(&ctx, js_code, result_type)
-                            .map_err(|e| e.to_string())
+                        eval::eval(&ctx, js_code, result_type).map_err(|e| e.to_string())
                     })?;
 
                     results.push(ReplResult::Expression(value));

@@ -3,8 +3,6 @@ use std::fmt;
 pub use rquickjs::Context;
 use rquickjs::{BigInt, CatchResultExt, Runtime};
 
-use crate::codegen::{codegen, prelude};
-use crate::ir::TypedExpr;
 use crate::types::Type;
 
 /// Create a new QuickJS runtime and context
@@ -134,7 +132,7 @@ impl fmt::Display for EvalError {
 }
 
 /// Evaluate JS code in an existing context and convert to Value
-pub fn eval_js_in_context(
+pub fn eval(
     ctx: &rquickjs::Ctx<'_>,
     js_code: String,
     result_type: Type,
@@ -308,44 +306,46 @@ fn js_value_to_value(
     }
 }
 
-#[allow(dead_code)]
-pub fn eval(expr: &TypedExpr) -> Result<Value, EvalError> {
-    let js_code = codegen(expr);
-    let result_type = expr.ty();
-
-    let rt = Runtime::new().map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-    let ctx = Context::full(&rt).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-
-    ctx.with(|ctx| {
-        // Load prelude helpers first
-        ctx.eval::<(), _>(prelude())
-            .catch(&ctx)
-            .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-        eval_js_in_context(&ctx, js_code, result_type)
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ast::{BinOp, UnaryOp};
+    use crate::codegen::{codegen, prelude};
+    use crate::ir::TypedExpr;
+
+    /// Test helper: compile and evaluate a TypedExpr in a fresh context
+    fn eval_expr(expr: &TypedExpr) -> Result<Value, EvalError> {
+        let js_code = codegen(expr);
+        let result_type = expr.ty();
+
+        let rt = Runtime::new().map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+        let ctx = Context::full(&rt).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+
+        ctx.with(|ctx| {
+            // Load prelude helpers first
+            ctx.eval::<(), _>(prelude())
+                .catch(&ctx)
+                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+            eval(&ctx, js_code, result_type)
+        })
+    }
 
     #[test]
     fn test_eval_int() {
         let expr = TypedExpr::Int(42);
-        assert_eq!(eval(&expr), Ok(Value::Int(42)));
+        assert_eq!(eval_expr(&expr), Ok(Value::Int(42)));
     }
 
     #[test]
     fn test_eval_bigint() {
         let expr = TypedExpr::BigInt(42);
-        assert_eq!(eval(&expr), Ok(Value::BigInt(42)));
+        assert_eq!(eval_expr(&expr), Ok(Value::BigInt(42)));
     }
 
     #[test]
     fn test_eval_float() {
         let expr = TypedExpr::Float(3.14);
-        assert_eq!(eval(&expr), Ok(Value::Float(3.14)));
+        assert_eq!(eval_expr(&expr), Ok(Value::Float(3.14)));
     }
 
     #[test]
@@ -356,7 +356,7 @@ mod tests {
             right: Box::new(TypedExpr::Int(3)),
             ty: Type::Int,
         };
-        assert_eq!(eval(&expr), Ok(Value::Int(5)));
+        assert_eq!(eval_expr(&expr), Ok(Value::Int(5)));
     }
 
     #[test]
@@ -367,7 +367,7 @@ mod tests {
             right: Box::new(TypedExpr::BigInt(3)),
             ty: Type::BigInt,
         };
-        assert_eq!(eval(&expr), Ok(Value::BigInt(5)));
+        assert_eq!(eval_expr(&expr), Ok(Value::BigInt(5)));
     }
 
     #[test]
@@ -378,7 +378,7 @@ mod tests {
             right: Box::new(TypedExpr::Float(2.5)),
             ty: Type::Float,
         };
-        assert_eq!(eval(&expr), Ok(Value::Float(4.0)));
+        assert_eq!(eval_expr(&expr), Ok(Value::Float(4.0)));
     }
 
     #[test]
@@ -389,7 +389,7 @@ mod tests {
             right: Box::new(TypedExpr::Int(4)),
             ty: Type::Int,
         };
-        assert_eq!(eval(&expr), Ok(Value::Int(6)));
+        assert_eq!(eval_expr(&expr), Ok(Value::Int(6)));
     }
 
     #[test]
@@ -400,7 +400,7 @@ mod tests {
             right: Box::new(TypedExpr::Int(7)),
             ty: Type::Int,
         };
-        assert_eq!(eval(&expr), Ok(Value::Int(21)));
+        assert_eq!(eval_expr(&expr), Ok(Value::Int(21)));
     }
 
     #[test]
@@ -411,7 +411,7 @@ mod tests {
             right: Box::new(TypedExpr::Int(4)),
             ty: Type::Int,
         };
-        assert_eq!(eval(&expr), Ok(Value::Int(5)));
+        assert_eq!(eval_expr(&expr), Ok(Value::Int(5)));
     }
 
     #[test]
@@ -422,7 +422,7 @@ mod tests {
             right: Box::new(TypedExpr::Float(2.0)),
             ty: Type::Float,
         };
-        assert_eq!(eval(&expr), Ok(Value::Float(2.5)));
+        assert_eq!(eval_expr(&expr), Ok(Value::Float(2.5)));
     }
 
     #[test]
@@ -433,7 +433,7 @@ mod tests {
             right: Box::new(TypedExpr::Int(0)),
             ty: Type::Int,
         };
-        assert_eq!(eval(&expr), Err(EvalError::DivisionByZero));
+        assert_eq!(eval_expr(&expr), Err(EvalError::DivisionByZero));
     }
 
     #[test]
@@ -444,7 +444,7 @@ mod tests {
             right: Box::new(TypedExpr::Float(0.0)),
             ty: Type::Float,
         };
-        assert_eq!(eval(&expr), Err(EvalError::DivisionByZero));
+        assert_eq!(eval_expr(&expr), Err(EvalError::DivisionByZero));
     }
 
     #[test]
@@ -466,7 +466,7 @@ mod tests {
             }),
             ty: Type::Int,
         };
-        assert_eq!(eval(&expr), Ok(Value::Int(11)));
+        assert_eq!(eval_expr(&expr), Ok(Value::Int(11)));
     }
 
     #[test]
@@ -476,7 +476,7 @@ mod tests {
             expr: Box::new(TypedExpr::Int(42)),
             ty: Type::Int,
         };
-        assert_eq!(eval(&expr), Ok(Value::Int(-42)));
+        assert_eq!(eval_expr(&expr), Ok(Value::Int(-42)));
     }
 
     #[test]
@@ -486,7 +486,7 @@ mod tests {
             expr: Box::new(TypedExpr::Float(3.14)),
             ty: Type::Float,
         };
-        assert_eq!(eval(&expr), Ok(Value::Float(-3.14)));
+        assert_eq!(eval_expr(&expr), Ok(Value::Float(-3.14)));
     }
 
     #[test]
@@ -500,7 +500,7 @@ mod tests {
             }),
             ty: Type::Int,
         };
-        assert_eq!(eval(&expr), Ok(Value::Int(42)));
+        assert_eq!(eval_expr(&expr), Ok(Value::Int(42)));
     }
 
     #[test]
@@ -516,7 +516,7 @@ mod tests {
             }),
             ty: Type::Int,
         };
-        assert_eq!(eval(&expr), Ok(Value::Int(-5)));
+        assert_eq!(eval_expr(&expr), Ok(Value::Int(-5)));
     }
 
     #[test]
@@ -527,12 +527,12 @@ mod tests {
             right: Box::new(TypedExpr::Int(10)),
             ty: Type::Int,
         };
-        assert_eq!(eval(&expr), Ok(Value::Int(-7)));
+        assert_eq!(eval_expr(&expr), Ok(Value::Int(-7)));
     }
 
     #[test]
     fn test_eval_bigint_large_value() {
         let expr = TypedExpr::BigInt(9_000_000_000);
-        assert_eq!(eval(&expr), Ok(Value::BigInt(9_000_000_000)));
+        assert_eq!(eval_expr(&expr), Ok(Value::BigInt(9_000_000_000)));
     }
 }

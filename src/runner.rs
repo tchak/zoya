@@ -54,7 +54,7 @@ pub fn run(source: &str) -> Result<Value, EvalError> {
     let (_runtime, context) =
         eval::create_context().map_err(|e| EvalError::RuntimeError(e.to_string()))?;
 
-    context.with(|ctx| eval::eval_js_in_context(&ctx, js_code, main_func.return_type.clone()))
+    context.with(|ctx| eval::eval(&ctx, js_code, main_func.return_type.clone()))
 }
 
 #[cfg(test)]
