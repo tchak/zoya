@@ -4,7 +4,7 @@ use crate::types::Type;
 /// A checked item from the type checker
 #[derive(Debug, Clone, PartialEq)]
 pub enum CheckedItem {
-    Function(TypedFunction),
+    Function(Box<TypedFunction>),
     Struct(StructDef), // Structs are declarations, passed through as-is
     Enum(EnumDef),     // Enums are declarations, passed through as-is
 }

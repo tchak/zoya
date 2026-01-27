@@ -25,7 +25,7 @@ pub fn execute(path: &Path, output: Option<&Path>) -> Result<(), String> {
     let typed_functions: Vec<&TypedFunction> = checked_items
         .iter()
         .filter_map(|item| match item {
-            CheckedItem::Function(f) => Some(f),
+            CheckedItem::Function(f) => Some(f.as_ref()),
             CheckedItem::Struct(_) => None,
             CheckedItem::Enum(_) => None,
         })

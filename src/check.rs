@@ -2167,7 +2167,7 @@ pub fn check_file(items: &[Item]) -> Result<Vec<CheckedItem>, TypeError> {
         match item {
             Item::Function(func) => {
                 let typed = check_function(func, &env, &mut ctx)?;
-                checked_items.push(CheckedItem::Function(typed));
+                checked_items.push(CheckedItem::Function(Box::new(typed)));
             }
             Item::Struct(def) => {
                 // Structs are just passed through (already registered in env)
