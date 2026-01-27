@@ -7,6 +7,7 @@ use crate::ast::{
 use crate::ir::{TypedExpr, TypedFunction, TypedLetBinding, TypedMatchArm, TypedPattern};
 use crate::types::{FunctionType, Type, TypeError, TypeScheme, TypeVarId};
 use crate::unify::UnifyCtx;
+use crate::usefulness;
 
 /// Type environment for checking expressions
 #[derive(Debug, Clone, Default)]
@@ -561,11 +562,9 @@ fn check_match_expr(
         typed_arms.push(typed_arm);
     }
 
-    // Check exhaustiveness for List types
+    // Check exhaustiveness and usefulness for all types
     let resolved_scrutinee_ty = ctx.resolve(&scrutinee_ty);
-    if let Type::List(_) = resolved_scrutinee_ty {
-        check_list_exhaustiveness(&typed_arms)?;
-    }
+    usefulness::check_patterns(&typed_arms, &resolved_scrutinee_ty)?;
 
     Ok(TypedExpr::Match {
         scrutinee: Box::new(typed_scrutinee),
@@ -1119,79 +1118,6 @@ fn check_match_arm(
         pattern: typed_pattern,
         result: typed_result,
     })
-}
-
-/// Check exhaustiveness of list patterns
-/// For lists, we need to cover both empty and non-empty cases
-fn check_list_exhaustiveness(arms: &[TypedMatchArm]) -> Result<(), TypeError> {
-    let mut has_catch_all = false;
-    let mut empty_covered = false;
-    let mut nonempty_covered = false;
-
-    for arm in arms {
-        match &arm.pattern {
-            // Variable or wildcard covers everything
-            TypedPattern::Var { .. } | TypedPattern::Wildcard => {
-                has_catch_all = true;
-            }
-            // Empty list pattern covers empty case
-            TypedPattern::ListEmpty => {
-                empty_covered = true;
-            }
-            // Prefix pattern covers non-empty (matches any length >= min_len)
-            TypedPattern::ListPrefix { .. } => {
-                nonempty_covered = true;
-            }
-            // Suffix pattern covers non-empty (matches any length >= min_len)
-            TypedPattern::ListSuffix { .. } => {
-                nonempty_covered = true;
-            }
-            // PrefixSuffix pattern covers non-empty (matches any length >= min_len)
-            TypedPattern::ListPrefixSuffix { .. } => {
-                nonempty_covered = true;
-            }
-            // Exact pattern only covers specific length, but combined with others might help
-            TypedPattern::ListExact { .. } => {
-                // ListExact alone doesn't guarantee non-empty coverage
-                // But if we have at least one exact pattern with len > 0, it covers some non-empty
-                // We'll be conservative here - require explicit coverage
-            }
-            // Literal patterns don't cover list cases
-            TypedPattern::Literal(_) => {}
-            // Tuple patterns don't cover list cases
-            TypedPattern::TupleEmpty
-            | TypedPattern::TupleExact { .. }
-            | TypedPattern::TuplePrefix { .. }
-            | TypedPattern::TupleSuffix { .. }
-            | TypedPattern::TuplePrefixSuffix { .. } => {}
-        }
-
-        // If we have a catch-all, we're done
-        if has_catch_all {
-            return Ok(());
-        }
-    }
-
-    // Check if all cases are covered
-    if !empty_covered && !nonempty_covered {
-        return Err(TypeError {
-            message: "non-exhaustive match on list: missing patterns for both empty and non-empty lists".to_string(),
-        });
-    }
-
-    if !empty_covered {
-        return Err(TypeError {
-            message: "non-exhaustive match on list: missing pattern for empty list []".to_string(),
-        });
-    }
-
-    if !nonempty_covered {
-        return Err(TypeError {
-            message: "non-exhaustive match on list: missing pattern for non-empty list (use [_, ..] or similar)".to_string(),
-        });
-    }
-
-    Ok(())
 }
 
 /// Check a let binding and return a typed let binding
@@ -2086,6 +2012,10 @@ mod tests {
                 MatchArm {
                     pattern: Pattern::Literal(Box::new(Expr::Int(1))),
                     result: Expr::String("one".to_string()),
+                },
+                MatchArm {
+                    pattern: Pattern::Wildcard,
+                    result: Expr::String("other".to_string()),
                 },
             ],
         };

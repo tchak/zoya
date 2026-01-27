@@ -1,0 +1,1095 @@
+//! Maranget's algorithm for pattern matching exhaustiveness and usefulness checking.
+//!
+//! Based on "Warnings for pattern matching" (Luc Maranget, JFP 2007).
+
+use std::collections::HashSet;
+
+use crate::ir::{TypedExpr, TypedMatchArm, TypedPattern};
+use crate::types::{Type, TypeError};
+
+/// A constructor represents a way to build a value of a given type.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Constructor {
+    // Bool constructors
+    True,
+    False,
+
+    // List constructors (binary: empty vs cons)
+    ListNil,  // []
+    ListCons, // [head | tail] - arity 2
+
+    // Special constructor for suffix/prefix-suffix patterns with literals
+    // This represents "some specific non-empty lists" that don't overlap
+    // with regular ListCons patterns for usefulness checking
+    ListSpecific(usize), // unique id to make each pattern distinct
+
+    // Tuple constructor (single constructor, arity = tuple length)
+    Tuple(usize),
+
+    // Literals for infinite types
+    IntLiteral(i64),
+    FloatLiteral(OrderedFloat),
+    StringLiteral(String),
+
+    // Represents "all other values" for infinite types
+    NonExhaustive,
+}
+
+/// Wrapper for f64 that implements Eq and Hash (for use in HashSet)
+#[derive(Debug, Clone)]
+pub struct OrderedFloat(pub f64);
+
+impl PartialEq for OrderedFloat {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_bits() == other.0.to_bits()
+    }
+}
+
+impl Eq for OrderedFloat {}
+
+impl std::hash::Hash for OrderedFloat {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.to_bits().hash(state);
+    }
+}
+
+impl Constructor {
+    /// Returns the arity (number of sub-patterns) for this constructor
+    fn arity(&self, _ty: &Type) -> usize {
+        match self {
+            Constructor::True | Constructor::False => 0,
+            Constructor::ListNil => 0,
+            Constructor::ListCons => 2, // (head, tail)
+            Constructor::ListSpecific(_) => 0, // opaque, no sub-patterns
+            Constructor::Tuple(n) => *n,
+            Constructor::IntLiteral(_)
+            | Constructor::FloatLiteral(_)
+            | Constructor::StringLiteral(_)
+            | Constructor::NonExhaustive => 0,
+        }
+    }
+
+    /// Returns sub-types for each argument position
+    fn arg_types(&self, ty: &Type) -> Vec<Type> {
+        match (self, ty) {
+            (Constructor::ListCons, Type::List(elem)) => {
+                vec![(**elem).clone(), ty.clone()] // (T, List<T>)
+            }
+            (Constructor::Tuple(_), Type::Tuple(elems)) => elems.clone(),
+            _ => vec![],
+        }
+    }
+
+    /// Pretty-print constructor for error messages
+    fn to_string_with_args(&self, args: &[Pat], ty: &Type) -> String {
+        match self {
+            Constructor::True => "true".to_string(),
+            Constructor::False => "false".to_string(),
+            Constructor::ListNil => "[]".to_string(),
+            Constructor::ListCons => {
+                // Flatten nested Cons into list syntax
+                flatten_list_pattern(&Pat::Ctor(self.clone(), args.to_vec()), ty)
+            }
+            Constructor::ListSpecific(_) => {
+                // Opaque pattern - display as wildcard
+                "[..]".to_string()
+            }
+            Constructor::Tuple(n) => {
+                if *n == 0 {
+                    "()".to_string()
+                } else {
+                    let elem_types = match ty {
+                        Type::Tuple(ts) => ts.clone(),
+                        _ => vec![Type::Int32; *n], // fallback
+                    };
+                    let arg_strs: Vec<String> = args
+                        .iter()
+                        .zip(elem_types.iter())
+                        .map(|(p, t)| p.to_pattern_string(t))
+                        .collect();
+                    if *n == 1 {
+                        format!("({},)", arg_strs.join(", "))
+                    } else {
+                        format!("({})", arg_strs.join(", "))
+                    }
+                }
+            }
+            Constructor::IntLiteral(n) => n.to_string(),
+            Constructor::FloatLiteral(f) => f.0.to_string(),
+            Constructor::StringLiteral(s) => format!("\"{}\"", s),
+            Constructor::NonExhaustive => "_".to_string(),
+        }
+    }
+}
+
+/// Type signature defines the set of constructors for a type
+#[derive(Debug, Clone)]
+pub enum TypeCtors {
+    /// Finite set of constructors (Bool, Tuple)
+    Finite(Vec<Constructor>),
+    /// Infinite but structured (List = Nil | Cons)
+    Structured { base_ctors: Vec<Constructor> },
+    /// Infinite unstructured (Int, Float, String) - only wildcard covers all
+    Infinite,
+}
+
+impl TypeCtors {
+    /// Get the type signature for a given type
+    pub fn from_type(ty: &Type) -> Self {
+        match ty {
+            Type::Bool => TypeCtors::Finite(vec![Constructor::True, Constructor::False]),
+            Type::List(_) => TypeCtors::Structured {
+                base_ctors: vec![Constructor::ListNil, Constructor::ListCons],
+            },
+            Type::Tuple(elems) => TypeCtors::Finite(vec![Constructor::Tuple(elems.len())]),
+            Type::Int32 | Type::Int64 | Type::Float | Type::String => TypeCtors::Infinite,
+            Type::Var(_) | Type::Function { .. } => TypeCtors::Infinite, // Conservative
+        }
+    }
+
+    /// Check if a set of constructors covers all cases for this type
+    pub fn is_complete(&self, seen: &HashSet<Constructor>) -> bool {
+        match self {
+            TypeCtors::Finite(ctors) => ctors.iter().all(|c| seen.contains(c)),
+            TypeCtors::Structured { base_ctors } => base_ctors.iter().all(|c| seen.contains(c)),
+            TypeCtors::Infinite => false, // Never complete without wildcard
+        }
+    }
+
+    /// Get missing constructors
+    pub fn missing(&self, seen: &HashSet<Constructor>) -> Vec<Constructor> {
+        match self {
+            TypeCtors::Finite(ctors) | TypeCtors::Structured { base_ctors: ctors } => {
+                ctors.iter().filter(|c| !seen.contains(c)).cloned().collect()
+            }
+            TypeCtors::Infinite => vec![Constructor::NonExhaustive],
+        }
+    }
+
+    /// Get all constructors for this type
+    pub fn all_ctors(&self) -> Vec<Constructor> {
+        match self {
+            TypeCtors::Finite(ctors) | TypeCtors::Structured { base_ctors: ctors } => ctors.clone(),
+            TypeCtors::Infinite => vec![], // Cannot enumerate
+        }
+    }
+}
+
+/// Simplified pattern for the usefulness algorithm
+#[derive(Debug, Clone)]
+pub enum Pat {
+    /// Wildcard or variable (matches anything)
+    Wild,
+    /// Constructor with sub-patterns
+    Ctor(Constructor, Vec<Pat>),
+}
+
+impl Pat {
+    /// Convert from TypedPattern to Pat
+    pub fn from_typed(pattern: &TypedPattern, ty: &Type) -> Self {
+        match pattern {
+            TypedPattern::Wildcard | TypedPattern::Var { .. } => Pat::Wild,
+
+            TypedPattern::Literal(lit) => {
+                let ctor = match lit {
+                    TypedExpr::Bool(true) => Constructor::True,
+                    TypedExpr::Bool(false) => Constructor::False,
+                    TypedExpr::Int32(n) => Constructor::IntLiteral(*n as i64),
+                    TypedExpr::Int64(n) => Constructor::IntLiteral(*n),
+                    TypedExpr::Float(f) => Constructor::FloatLiteral(OrderedFloat(*f)),
+                    TypedExpr::String(s) => Constructor::StringLiteral(s.clone()),
+                    _ => return Pat::Wild, // Fallback for complex expressions
+                };
+                Pat::Ctor(ctor, vec![])
+            }
+
+            TypedPattern::ListEmpty => Pat::Ctor(Constructor::ListNil, vec![]),
+
+            TypedPattern::ListExact { patterns, .. } => {
+                // [a, b, c] = Cons(a, Cons(b, Cons(c, Nil)))
+                Self::list_exact_to_cons(patterns, ty)
+            }
+
+            TypedPattern::ListPrefix { patterns, .. } => {
+                // [a, b, ..] = Cons(a, Cons(b, _))
+                Self::list_prefix_to_cons(patterns, ty)
+            }
+
+            TypedPattern::ListSuffix { patterns, min_len } => {
+                // [.., x] matches any list with at least min_len elements
+                // If patterns contain specific literals, use a unique opaque pattern
+                // to avoid incorrectly claiming coverage of all non-empty lists
+                if Self::contains_specific_pattern(patterns) {
+                    // Pattern like [.., 0] only matches lists ending with 0
+                    // Use a unique ID based on pattern address to make it distinct
+                    let id = patterns.as_ptr() as usize;
+                    Pat::Ctor(Constructor::ListSpecific(id), vec![])
+                } else {
+                    // Pattern like [.., x] or [.., _] covers all non-empty lists
+                    Self::list_min_length_pattern(*min_len, ty)
+                }
+            }
+
+            TypedPattern::ListPrefixSuffix {
+                prefix,
+                suffix,
+                min_len,
+            } => {
+                // [a, .., z] matches lists with at least min_len elements
+                // If prefix/suffix contain specific literals, use unique opaque pattern
+                if Self::contains_specific_pattern(prefix)
+                    || Self::contains_specific_pattern(suffix)
+                {
+                    let id = prefix.as_ptr() as usize;
+                    Pat::Ctor(Constructor::ListSpecific(id), vec![])
+                } else {
+                    Self::list_min_length_pattern(*min_len, ty)
+                }
+            }
+
+            TypedPattern::TupleEmpty => Pat::Ctor(Constructor::Tuple(0), vec![]),
+
+            TypedPattern::TupleExact { patterns, len } => {
+                let elem_types = match ty {
+                    Type::Tuple(ts) => ts.clone(),
+                    _ => vec![Type::Int32; *len], // fallback
+                };
+                let sub_pats: Vec<Pat> = patterns
+                    .iter()
+                    .zip(elem_types.iter())
+                    .map(|(p, t)| Pat::from_typed(p, t))
+                    .collect();
+                Pat::Ctor(Constructor::Tuple(*len), sub_pats)
+            }
+
+            TypedPattern::TuplePrefix {
+                patterns,
+                total_len,
+            } => {
+                // (a, b, ..) in a tuple of total_len elements
+                Self::expand_tuple_pattern_prefix(patterns, *total_len, ty)
+            }
+
+            TypedPattern::TupleSuffix {
+                patterns,
+                total_len,
+            } => {
+                // (.., y, z) in a tuple of total_len elements
+                Self::expand_tuple_pattern_suffix(patterns, *total_len, ty)
+            }
+
+            TypedPattern::TuplePrefixSuffix {
+                prefix,
+                suffix,
+                total_len,
+            } => {
+                // (a, .., z) in a tuple of total_len elements
+                Self::expand_tuple_pattern_both(prefix, suffix, *total_len, ty)
+            }
+        }
+    }
+
+    /// Check if any pattern in a list contains specific literals (not wildcards/variables)
+    fn contains_specific_pattern(patterns: &[TypedPattern]) -> bool {
+        patterns.iter().any(|p| matches!(p, TypedPattern::Literal(_)))
+    }
+
+    /// Convert [a, b, c] to nested Cons: Cons(a, Cons(b, Cons(c, Nil)))
+    fn list_exact_to_cons(patterns: &[TypedPattern], ty: &Type) -> Pat {
+        let elem_ty = match ty {
+            Type::List(e) => (**e).clone(),
+            _ => Type::Int32, // Fallback
+        };
+
+        let mut result = Pat::Ctor(Constructor::ListNil, vec![]);
+        for pat in patterns.iter().rev() {
+            let head = Pat::from_typed(pat, &elem_ty);
+            result = Pat::Ctor(Constructor::ListCons, vec![head, result]);
+        }
+        result
+    }
+
+    /// Convert [a, b, ..] to Cons(a, Cons(b, _))
+    fn list_prefix_to_cons(patterns: &[TypedPattern], ty: &Type) -> Pat {
+        let elem_ty = match ty {
+            Type::List(e) => (**e).clone(),
+            _ => Type::Int32,
+        };
+
+        let mut result = Pat::Wild; // Tail is wildcard
+        for pat in patterns.iter().rev() {
+            let head = Pat::from_typed(pat, &elem_ty);
+            result = Pat::Ctor(Constructor::ListCons, vec![head, result]);
+        }
+        result
+    }
+
+    /// Create a pattern that matches lists with at least n elements
+    /// Cons(_, Cons(_, ... Cons(_, _)))
+    fn list_min_length_pattern(min_len: usize, _ty: &Type) -> Pat {
+        let mut result = Pat::Wild;
+        for _ in 0..min_len {
+            result = Pat::Ctor(Constructor::ListCons, vec![Pat::Wild, result]);
+        }
+        result
+    }
+
+    /// Expand (a, b, ..) to (a, b, _, _, ...) for a tuple of total_len
+    fn expand_tuple_pattern_prefix(patterns: &[TypedPattern], total_len: usize, ty: &Type) -> Pat {
+        let elem_types = match ty {
+            Type::Tuple(ts) => ts.clone(),
+            _ => vec![Type::Int32; total_len],
+        };
+
+        let mut sub_pats = Vec::with_capacity(total_len);
+        for (i, elem_ty) in elem_types.iter().enumerate() {
+            if i < patterns.len() {
+                sub_pats.push(Pat::from_typed(&patterns[i], elem_ty));
+            } else {
+                sub_pats.push(Pat::Wild);
+            }
+        }
+        Pat::Ctor(Constructor::Tuple(total_len), sub_pats)
+    }
+
+    /// Expand (.., y, z) to (_, _, ..., y, z) for a tuple of total_len
+    fn expand_tuple_pattern_suffix(patterns: &[TypedPattern], total_len: usize, ty: &Type) -> Pat {
+        let elem_types = match ty {
+            Type::Tuple(ts) => ts.clone(),
+            _ => vec![Type::Int32; total_len],
+        };
+
+        let prefix_wilds = total_len - patterns.len();
+        let mut sub_pats = Vec::with_capacity(total_len);
+
+        for (i, elem_ty) in elem_types.iter().enumerate() {
+            if i < prefix_wilds {
+                sub_pats.push(Pat::Wild);
+            } else {
+                sub_pats.push(Pat::from_typed(&patterns[i - prefix_wilds], elem_ty));
+            }
+        }
+        Pat::Ctor(Constructor::Tuple(total_len), sub_pats)
+    }
+
+    /// Expand (a, .., z) to (a, _, ..., _, z) for a tuple of total_len
+    fn expand_tuple_pattern_both(
+        prefix: &[TypedPattern],
+        suffix: &[TypedPattern],
+        total_len: usize,
+        ty: &Type,
+    ) -> Pat {
+        let elem_types = match ty {
+            Type::Tuple(ts) => ts.clone(),
+            _ => vec![Type::Int32; total_len],
+        };
+
+        let middle_wilds = total_len - prefix.len() - suffix.len();
+        let mut sub_pats = Vec::with_capacity(total_len);
+
+        for (i, elem_ty) in elem_types.iter().enumerate() {
+            if i < prefix.len() {
+                sub_pats.push(Pat::from_typed(&prefix[i], elem_ty));
+            } else if i < prefix.len() + middle_wilds {
+                sub_pats.push(Pat::Wild);
+            } else {
+                let suffix_idx = i - prefix.len() - middle_wilds;
+                sub_pats.push(Pat::from_typed(&suffix[suffix_idx], elem_ty));
+            }
+        }
+        Pat::Ctor(Constructor::Tuple(total_len), sub_pats)
+    }
+
+    /// Pretty-print pattern for error messages
+    pub fn to_pattern_string(&self, ty: &Type) -> String {
+        match self {
+            Pat::Wild => "_".to_string(),
+            Pat::Ctor(c, args) => c.to_string_with_args(args, ty),
+        }
+    }
+}
+
+/// Flatten Cons(a, Cons(b, Nil)) to "[a, b]" or Cons(a, Wild) to "[a, ..]"
+fn flatten_list_pattern(pat: &Pat, ty: &Type) -> String {
+    let elem_ty = match ty {
+        Type::List(e) => (**e).clone(),
+        _ => Type::Int32,
+    };
+
+    let mut elements = vec![];
+    let mut current = pat;
+
+    loop {
+        match current {
+            Pat::Ctor(Constructor::ListCons, args) if args.len() == 2 => {
+                elements.push(args[0].to_pattern_string(&elem_ty));
+                current = &args[1];
+            }
+            Pat::Ctor(Constructor::ListNil, _) => {
+                return format!("[{}]", elements.join(", "));
+            }
+            Pat::Wild => {
+                if elements.is_empty() {
+                    return "[_, ..]".to_string();
+                } else {
+                    return format!("[{}, ..]", elements.join(", "));
+                }
+            }
+            _ => {
+                if elements.is_empty() {
+                    return "[..]".to_string();
+                } else {
+                    return format!("[{}, ..]", elements.join(", "));
+                }
+            }
+        }
+    }
+}
+
+/// A matrix of patterns where each row is a match arm's patterns
+#[derive(Debug, Clone)]
+pub struct PatternMatrix {
+    /// Each row: (patterns for each column, row index for reporting)
+    rows: Vec<(Vec<Pat>, usize)>,
+    /// Types for each column
+    types: Vec<Type>,
+}
+
+impl PatternMatrix {
+    /// Create from a list of match arms
+    pub fn from_arms(arms: &[TypedMatchArm], scrutinee_ty: &Type) -> Self {
+        let rows: Vec<_> = arms
+            .iter()
+            .enumerate()
+            .map(|(idx, arm)| {
+                let pat = Pat::from_typed(&arm.pattern, scrutinee_ty);
+                (vec![pat], idx)
+            })
+            .collect();
+
+        PatternMatrix {
+            rows,
+            types: vec![scrutinee_ty.clone()],
+        }
+    }
+
+    /// Check if matrix is empty (no rows)
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+
+    /// Check if matrix has no columns (zero-width)
+    pub fn has_no_columns(&self) -> bool {
+        self.types.is_empty()
+    }
+
+    /// Get the first column type
+    pub fn first_type(&self) -> Option<&Type> {
+        self.types.first()
+    }
+}
+
+/// Witness: A concrete pattern that demonstrates non-exhaustiveness
+#[derive(Debug, Clone)]
+pub struct Witness(pub Vec<Pat>);
+
+impl Witness {
+    /// Pretty-print the witness as a missing pattern
+    pub fn to_string(&self, types: &[Type]) -> String {
+        if self.0.is_empty() || types.is_empty() {
+            return "_".to_string();
+        }
+        self.0[0].to_pattern_string(&types[0])
+    }
+}
+
+/// Result of usefulness check
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Usefulness {
+    /// Pattern is useful - can match values not covered by earlier patterns
+    Useful,
+    /// Pattern is not useful (unreachable)
+    NotUseful,
+}
+
+/// Result of exhaustiveness check
+#[derive(Debug, Clone)]
+pub enum Exhaustiveness {
+    /// All cases covered
+    Exhaustive,
+    /// Some cases missing, with witness examples
+    NonExhaustive(Vec<Witness>),
+}
+
+/// Check if pattern vector q is useful with respect to matrix P.
+///
+/// Base cases:
+/// - If P has no columns: useful iff P has no rows
+/// - If P has no rows: always useful
+///
+/// Inductive case:
+/// - Look at first column
+/// - If q starts with constructor c: specialize P and q by c, recurse
+/// - If q starts with wildcard: check if default matrix is complete
+fn useful(matrix: &PatternMatrix, q: &[Pat]) -> Usefulness {
+    // Base case: zero columns
+    if matrix.has_no_columns() {
+        return if matrix.is_empty() {
+            Usefulness::Useful
+        } else {
+            Usefulness::NotUseful
+        };
+    }
+
+    // Base case: empty matrix (no rows)
+    if matrix.is_empty() {
+        return Usefulness::Useful;
+    }
+
+    let ty = matrix.first_type().unwrap();
+    let first_pat = &q[0];
+
+    match first_pat {
+        Pat::Ctor(c, args) => {
+            // Specialize by constructor c
+            let specialized = specialize_matrix(matrix, c, ty);
+            let specialized_q = specialize_row(q, c, args, ty);
+            useful(&specialized, &specialized_q)
+        }
+        Pat::Wild => {
+            // Collect all constructors appearing in first column
+            let seen_ctors = collect_head_ctors(matrix);
+            let type_ctors = TypeCtors::from_type(ty);
+
+            if type_ctors.is_complete(&seen_ctors) {
+                // Complete: must check each constructor
+                for c in type_ctors.all_ctors() {
+                    let specialized = specialize_matrix(matrix, &c, ty);
+                    let arity = c.arity(ty);
+                    let wild_args: Vec<Pat> = (0..arity).map(|_| Pat::Wild).collect();
+                    let specialized_q: Vec<Pat> = wild_args
+                        .into_iter()
+                        .chain(q[1..].iter().cloned())
+                        .collect();
+
+                    if useful(&specialized, &specialized_q) == Usefulness::Useful {
+                        return Usefulness::Useful;
+                    }
+                }
+                Usefulness::NotUseful
+            } else {
+                // Not complete: use default matrix
+                let default = default_matrix(matrix);
+                let default_q: Vec<Pat> = q[1..].to_vec();
+                useful(&default, &default_q)
+            }
+        }
+    }
+}
+
+/// Specialize matrix by constructor c.
+/// For each row:
+/// - If head is c(p1,...,pn): replace with [p1,...,pn, rest...]
+/// - If head is wildcard: replace with [_,...,_, rest...] (arity copies)
+/// - Otherwise: drop row
+fn specialize_matrix(matrix: &PatternMatrix, c: &Constructor, ty: &Type) -> PatternMatrix {
+    let arity = c.arity(ty);
+    let arg_types = c.arg_types(ty);
+
+    let new_types: Vec<Type> = arg_types
+        .into_iter()
+        .chain(matrix.types[1..].iter().cloned())
+        .collect();
+
+    let new_rows: Vec<_> = matrix
+        .rows
+        .iter()
+        .filter_map(|(pats, idx)| {
+            let head = &pats[0];
+            match head {
+                Pat::Ctor(head_c, args) if head_c == c => {
+                    let new_pats: Vec<Pat> = args
+                        .iter()
+                        .cloned()
+                        .chain(pats[1..].iter().cloned())
+                        .collect();
+                    Some((new_pats, *idx))
+                }
+                Pat::Wild => {
+                    let wilds: Vec<Pat> = (0..arity).map(|_| Pat::Wild).collect();
+                    let new_pats: Vec<Pat> =
+                        wilds.into_iter().chain(pats[1..].iter().cloned()).collect();
+                    Some((new_pats, *idx))
+                }
+                _ => None, // Different constructor, drop row
+            }
+        })
+        .collect();
+
+    PatternMatrix {
+        rows: new_rows,
+        types: new_types,
+    }
+}
+
+/// Specialize a single row by constructor
+fn specialize_row(q: &[Pat], c: &Constructor, args: &[Pat], ty: &Type) -> Vec<Pat> {
+    let _ = c.arity(ty); // validate
+    args.iter().cloned().chain(q[1..].iter().cloned()).collect()
+}
+
+/// Default matrix: rows whose head is a wildcard, with head removed.
+fn default_matrix(matrix: &PatternMatrix) -> PatternMatrix {
+    let new_types = matrix.types[1..].to_vec();
+
+    let new_rows: Vec<_> = matrix
+        .rows
+        .iter()
+        .filter_map(|(pats, idx)| match &pats[0] {
+            Pat::Wild => Some((pats[1..].to_vec(), *idx)),
+            _ => None,
+        })
+        .collect();
+
+    PatternMatrix {
+        rows: new_rows,
+        types: new_types,
+    }
+}
+
+/// Collect all constructors appearing as heads of first column
+fn collect_head_ctors(matrix: &PatternMatrix) -> HashSet<Constructor> {
+    matrix
+        .rows
+        .iter()
+        .filter_map(|(pats, _)| match &pats[0] {
+            Pat::Ctor(c, _) => Some(c.clone()),
+            Pat::Wild => None,
+        })
+        .collect()
+}
+
+/// Compute witness patterns (missing cases).
+/// Similar to `useful`, but returns example patterns instead of just bool.
+fn compute_witnesses(matrix: &PatternMatrix, q: &[Pat]) -> Vec<Witness> {
+    if matrix.has_no_columns() {
+        return if matrix.is_empty() {
+            vec![Witness(vec![])]
+        } else {
+            vec![]
+        };
+    }
+
+    if matrix.is_empty() {
+        return vec![Witness(q.to_vec())];
+    }
+
+    let ty = matrix.first_type().unwrap();
+    let first_pat = &q[0];
+
+    match first_pat {
+        Pat::Ctor(c, args) => {
+            let specialized = specialize_matrix(matrix, c, ty);
+            let specialized_q = specialize_row(q, c, args, ty);
+            let sub_witnesses = compute_witnesses(&specialized, &specialized_q);
+
+            // Reconstruct witnesses with constructor c
+            sub_witnesses
+                .into_iter()
+                .map(|w| reconstruct_witness(w, c, ty))
+                .collect()
+        }
+        Pat::Wild => {
+            let seen_ctors = collect_head_ctors(matrix);
+            let type_ctors = TypeCtors::from_type(ty);
+
+            if type_ctors.is_complete(&seen_ctors) {
+                // Check each constructor
+                let mut all_witnesses = vec![];
+                for c in type_ctors.all_ctors() {
+                    let specialized = specialize_matrix(matrix, &c, ty);
+                    let arity = c.arity(ty);
+                    let wild_args: Vec<Pat> = (0..arity).map(|_| Pat::Wild).collect();
+                    let specialized_q: Vec<Pat> = wild_args
+                        .into_iter()
+                        .chain(q[1..].iter().cloned())
+                        .collect();
+
+                    let sub_witnesses = compute_witnesses(&specialized, &specialized_q);
+                    for w in sub_witnesses {
+                        all_witnesses.push(reconstruct_witness(w, &c, ty));
+                    }
+                }
+                all_witnesses
+            } else {
+                // Find a missing constructor and use it
+                let missing = type_ctors.missing(&seen_ctors);
+
+                if missing.is_empty() {
+                    // Should use default matrix
+                    let default = default_matrix(matrix);
+                    let default_q: Vec<Pat> = q[1..].to_vec();
+                    let sub_witnesses = compute_witnesses(&default, &default_q);
+
+                    // Prefix with wildcard
+                    sub_witnesses
+                        .into_iter()
+                        .map(|Witness(pats)| {
+                            let mut new_pats = vec![Pat::Wild];
+                            new_pats.extend(pats);
+                            Witness(new_pats)
+                        })
+                        .collect()
+                } else {
+                    // Use first missing constructor
+                    let c = &missing[0];
+                    let arity = c.arity(ty);
+
+                    // Recurse with this constructor
+                    let specialized = specialize_matrix(matrix, c, ty);
+                    let wild_args: Vec<Pat> = (0..arity).map(|_| Pat::Wild).collect();
+                    let specialized_q: Vec<Pat> = wild_args
+                        .into_iter()
+                        .chain(q[1..].iter().cloned())
+                        .collect();
+
+                    let sub_witnesses = compute_witnesses(&specialized, &specialized_q);
+                    sub_witnesses
+                        .into_iter()
+                        .map(|w| reconstruct_witness(w, c, ty))
+                        .collect()
+                }
+            }
+        }
+    }
+}
+
+/// Reconstruct a witness by wrapping sub-patterns in constructor c
+fn reconstruct_witness(Witness(sub_pats): Witness, c: &Constructor, ty: &Type) -> Witness {
+    let arity = c.arity(ty);
+    let (ctor_args, rest) = if sub_pats.len() >= arity {
+        sub_pats.split_at(arity)
+    } else {
+        // Not enough patterns, pad with wildcards
+        let mut padded = sub_pats.clone();
+        while padded.len() < arity {
+            padded.push(Pat::Wild);
+        }
+        return Witness(vec![Pat::Ctor(c.clone(), padded)]);
+    };
+
+    let new_head = Pat::Ctor(c.clone(), ctor_args.to_vec());
+
+    let mut result = vec![new_head];
+    result.extend(rest.iter().cloned());
+    Witness(result)
+}
+
+/// Check if a match expression is exhaustive.
+/// Returns missing patterns if not.
+pub fn check_exhaustiveness(arms: &[TypedMatchArm], scrutinee_ty: &Type) -> Exhaustiveness {
+    let matrix = PatternMatrix::from_arms(arms, scrutinee_ty);
+
+    // Check if wildcard vector is useful (i.e., can any value slip through?)
+    let wild_vec = vec![Pat::Wild];
+
+    let witnesses = compute_witnesses(&matrix, &wild_vec);
+    if witnesses.is_empty() {
+        Exhaustiveness::Exhaustive
+    } else {
+        Exhaustiveness::NonExhaustive(witnesses)
+    }
+}
+
+/// Check each arm for usefulness (reachability).
+/// Returns indices of unreachable arms.
+pub fn check_usefulness(arms: &[TypedMatchArm], scrutinee_ty: &Type) -> Vec<usize> {
+    let mut matrix = PatternMatrix {
+        rows: vec![],
+        types: vec![scrutinee_ty.clone()],
+    };
+
+    let mut unreachable = vec![];
+
+    for (idx, arm) in arms.iter().enumerate() {
+        let pat = Pat::from_typed(&arm.pattern, scrutinee_ty);
+        let q = vec![pat.clone()];
+
+        if useful(&matrix, &q) == Usefulness::NotUseful {
+            unreachable.push(idx);
+        }
+
+        // Add this pattern to the matrix for checking subsequent patterns
+        matrix.rows.push((q, idx));
+    }
+
+    unreachable
+}
+
+/// Combined check: returns error if patterns are non-exhaustive or have unreachable arms
+pub fn check_patterns(arms: &[TypedMatchArm], scrutinee_ty: &Type) -> Result<(), TypeError> {
+    // Check for unreachable patterns first
+    let unreachable_arms = check_usefulness(arms, scrutinee_ty);
+    if !unreachable_arms.is_empty() {
+        let arm_numbers: Vec<String> = unreachable_arms.iter().map(|i| (i + 1).to_string()).collect();
+        return Err(TypeError {
+            message: format!("unreachable pattern(s): arm(s) {}", arm_numbers.join(", ")),
+        });
+    }
+
+    // Check exhaustiveness
+    match check_exhaustiveness(arms, scrutinee_ty) {
+        Exhaustiveness::Exhaustive => Ok(()),
+        Exhaustiveness::NonExhaustive(witnesses) => {
+            let missing_patterns: Vec<String> = witnesses
+                .iter()
+                .take(3) // Limit to first 3 examples
+                .map(|w| w.to_string(std::slice::from_ref(scrutinee_ty)))
+                .collect();
+
+            let more = if witnesses.len() > 3 {
+                format!(" and {} more", witnesses.len() - 3)
+            } else {
+                String::new()
+            };
+
+            Err(TypeError {
+                message: format!(
+                    "non-exhaustive match: missing pattern(s) {}{}",
+                    missing_patterns.join(", "),
+                    more
+                ),
+            })
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_bool_arm(val: bool) -> TypedMatchArm {
+        TypedMatchArm {
+            pattern: TypedPattern::Literal(TypedExpr::Bool(val)),
+            result: TypedExpr::Int32(0),
+        }
+    }
+
+    fn make_wildcard_arm() -> TypedMatchArm {
+        TypedMatchArm {
+            pattern: TypedPattern::Wildcard,
+            result: TypedExpr::Int32(0),
+        }
+    }
+
+    fn make_var_arm(name: &str, ty: Type) -> TypedMatchArm {
+        TypedMatchArm {
+            pattern: TypedPattern::Var {
+                name: name.to_string(),
+                ty,
+            },
+            result: TypedExpr::Int32(0),
+        }
+    }
+
+    fn make_list_empty_arm() -> TypedMatchArm {
+        TypedMatchArm {
+            pattern: TypedPattern::ListEmpty,
+            result: TypedExpr::Int32(0),
+        }
+    }
+
+    fn make_list_prefix_arm(len: usize) -> TypedMatchArm {
+        let patterns: Vec<TypedPattern> = (0..len)
+            .map(|i| TypedPattern::Var {
+                name: format!("x{}", i),
+                ty: Type::Int32,
+            })
+            .collect();
+        TypedMatchArm {
+            pattern: TypedPattern::ListPrefix {
+                patterns,
+                min_len: len,
+            },
+            result: TypedExpr::Int32(0),
+        }
+    }
+
+    // Bool exhaustiveness tests
+    #[test]
+    fn test_bool_exhaustive_both() {
+        let arms = vec![make_bool_arm(true), make_bool_arm(false)];
+        let result = check_exhaustiveness(&arms, &Type::Bool);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_bool_exhaustive_wildcard() {
+        let arms = vec![make_wildcard_arm()];
+        let result = check_exhaustiveness(&arms, &Type::Bool);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_bool_missing_false() {
+        let arms = vec![make_bool_arm(true)];
+        let result = check_exhaustiveness(&arms, &Type::Bool);
+        match result {
+            Exhaustiveness::NonExhaustive(witnesses) => {
+                assert!(!witnesses.is_empty());
+                let missing = witnesses[0].to_string(&[Type::Bool]);
+                assert_eq!(missing, "false");
+            }
+            _ => panic!("expected non-exhaustive"),
+        }
+    }
+
+    #[test]
+    fn test_bool_missing_true() {
+        let arms = vec![make_bool_arm(false)];
+        let result = check_exhaustiveness(&arms, &Type::Bool);
+        match result {
+            Exhaustiveness::NonExhaustive(witnesses) => {
+                assert!(!witnesses.is_empty());
+                let missing = witnesses[0].to_string(&[Type::Bool]);
+                assert_eq!(missing, "true");
+            }
+            _ => panic!("expected non-exhaustive"),
+        }
+    }
+
+    // List exhaustiveness tests
+    #[test]
+    fn test_list_exhaustive_empty_and_nonempty() {
+        let arms = vec![make_list_empty_arm(), make_list_prefix_arm(1)];
+        let result = check_exhaustiveness(&arms, &Type::List(Box::new(Type::Int32)));
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_list_exhaustive_wildcard() {
+        let arms = vec![make_var_arm("xs", Type::List(Box::new(Type::Int32)))];
+        let result = check_exhaustiveness(&arms, &Type::List(Box::new(Type::Int32)));
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_list_missing_empty() {
+        let arms = vec![make_list_prefix_arm(1)];
+        let result = check_exhaustiveness(&arms, &Type::List(Box::new(Type::Int32)));
+        match result {
+            Exhaustiveness::NonExhaustive(witnesses) => {
+                assert!(!witnesses.is_empty());
+                let missing = witnesses[0].to_string(&[Type::List(Box::new(Type::Int32))]);
+                assert_eq!(missing, "[]");
+            }
+            _ => panic!("expected non-exhaustive"),
+        }
+    }
+
+    #[test]
+    fn test_list_missing_nonempty() {
+        let arms = vec![make_list_empty_arm()];
+        let result = check_exhaustiveness(&arms, &Type::List(Box::new(Type::Int32)));
+        match result {
+            Exhaustiveness::NonExhaustive(witnesses) => {
+                assert!(!witnesses.is_empty());
+                let missing = witnesses[0].to_string(&[Type::List(Box::new(Type::Int32))]);
+                assert!(missing.contains("[") && missing.contains("..")); // [_, ..]
+            }
+            _ => panic!("expected non-exhaustive"),
+        }
+    }
+
+    // Usefulness tests
+    #[test]
+    fn test_unreachable_after_wildcard() {
+        let arms = vec![make_wildcard_arm(), make_bool_arm(true)];
+        let unreachable = check_usefulness(&arms, &Type::Bool);
+        assert_eq!(unreachable, vec![1]);
+    }
+
+    #[test]
+    fn test_unreachable_duplicate_literal() {
+        let arms = vec![
+            make_bool_arm(true),
+            make_bool_arm(true), // duplicate
+            make_bool_arm(false),
+        ];
+        let unreachable = check_usefulness(&arms, &Type::Bool);
+        assert_eq!(unreachable, vec![1]);
+    }
+
+    #[test]
+    fn test_no_unreachable_all_distinct() {
+        let arms = vec![make_bool_arm(true), make_bool_arm(false)];
+        let unreachable = check_usefulness(&arms, &Type::Bool);
+        assert!(unreachable.is_empty());
+    }
+
+    // Int exhaustiveness (infinite type)
+    #[test]
+    fn test_int_not_exhaustive_without_wildcard() {
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::Literal(TypedExpr::Int32(0)),
+            result: TypedExpr::Int32(0),
+        }];
+        let result = check_exhaustiveness(&arms, &Type::Int32);
+        assert!(matches!(result, Exhaustiveness::NonExhaustive(_)));
+    }
+
+    #[test]
+    fn test_int_exhaustive_with_wildcard() {
+        let arms = vec![
+            TypedMatchArm {
+                pattern: TypedPattern::Literal(TypedExpr::Int32(0)),
+                result: TypedExpr::Int32(0),
+            },
+            make_wildcard_arm(),
+        ];
+        let result = check_exhaustiveness(&arms, &Type::Int32);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    // Tuple exhaustiveness
+    #[test]
+    fn test_tuple_exhaustive_single_pattern() {
+        let tuple_ty = Type::Tuple(vec![Type::Int32, Type::Bool]);
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::TupleExact {
+                patterns: vec![
+                    TypedPattern::Wildcard,
+                    TypedPattern::Wildcard,
+                ],
+                len: 2,
+            },
+            result: TypedExpr::Int32(0),
+        }];
+        let result = check_exhaustiveness(&arms, &tuple_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_tuple_with_bool_needs_both() {
+        let tuple_ty = Type::Tuple(vec![Type::Int32, Type::Bool]);
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::TupleExact {
+                patterns: vec![
+                    TypedPattern::Wildcard,
+                    TypedPattern::Literal(TypedExpr::Bool(true)),
+                ],
+                len: 2,
+            },
+            result: TypedExpr::Int32(0),
+        }];
+        let result = check_exhaustiveness(&arms, &tuple_ty);
+        match result {
+            Exhaustiveness::NonExhaustive(witnesses) => {
+                assert!(!witnesses.is_empty());
+                let missing = witnesses[0].to_string(&[tuple_ty.clone()]);
+                assert!(missing.contains("false"));
+            }
+            _ => panic!("expected non-exhaustive"),
+        }
+    }
+}
