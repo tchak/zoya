@@ -60,6 +60,9 @@ pub enum Token {
     #[token("struct")]
     Struct,
 
+    #[token("enum")]
+    Enum,
+
     // String literals with escape sequences
     #[regex(r#""([^"\\]|\\.)*""#, parse_string)]
     String(String),
@@ -134,6 +137,9 @@ pub enum Token {
 
     #[token(">")]
     Gt,
+
+    #[token("::")]
+    ColonColon,
 
     #[token(":")]
     Colon,
@@ -601,6 +607,60 @@ mod tests {
                 Token::Ident("y".to_string()),
                 Token::Colon,
                 Token::Ident("Int32".to_string()),
+                Token::RBrace,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_enum_keyword() {
+        let tokens = lex("enum").unwrap();
+        assert_eq!(tokens, vec![Token::Enum]);
+    }
+
+    #[test]
+    fn test_colon_colon() {
+        let tokens = lex("::").unwrap();
+        assert_eq!(tokens, vec![Token::ColonColon]);
+    }
+
+    #[test]
+    fn test_colon_vs_colon_colon() {
+        let tokens = lex(": :: :").unwrap();
+        assert_eq!(tokens, vec![Token::Colon, Token::ColonColon, Token::Colon]);
+    }
+
+    #[test]
+    fn test_qualified_path() {
+        let tokens = lex("Option::Some").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Ident("Option".to_string()),
+                Token::ColonColon,
+                Token::Ident("Some".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_enum_definition_tokens() {
+        let tokens = lex("enum Option<T> { None, Some(T) }").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Enum,
+                Token::Ident("Option".to_string()),
+                Token::Lt,
+                Token::Ident("T".to_string()),
+                Token::Gt,
+                Token::LBrace,
+                Token::Ident("None".to_string()),
+                Token::Comma,
+                Token::Ident("Some".to_string()),
+                Token::LParen,
+                Token::Ident("T".to_string()),
+                Token::RParen,
                 Token::RBrace,
             ]
         );

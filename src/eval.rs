@@ -31,6 +31,18 @@ pub enum Value {
         params: Vec<Type>,
         ret: Box<Type>,
     },
+    Enum {
+        enum_name: String,
+        variant_name: String,
+        fields: EnumValueFields,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EnumValueFields {
+    Unit,
+    Tuple(Vec<Value>),
+    Struct(Vec<(String, Value)>),
 }
 
 impl fmt::Display for Value {
@@ -74,6 +86,34 @@ impl fmt::Display for Value {
                     write!(f, "<fn({}) -> {}>", param_strs.join(", "), ret)
                 }
             }
+            Value::Enum {
+                enum_name,
+                variant_name,
+                fields,
+            } => match fields {
+                EnumValueFields::Unit => write!(f, "{}::{}", enum_name, variant_name),
+                EnumValueFields::Tuple(values) => {
+                    let items: Vec<String> = values.iter().map(|v| v.to_string()).collect();
+                    write!(f, "{}::{}({})", enum_name, variant_name, items.join(", "))
+                }
+                EnumValueFields::Struct(field_values) => {
+                    if field_values.is_empty() {
+                        write!(f, "{}::{} {{}}", enum_name, variant_name)
+                    } else {
+                        let field_strs: Vec<String> = field_values
+                            .iter()
+                            .map(|(k, v)| format!("{}: {}", k, v))
+                            .collect();
+                        write!(
+                            f,
+                            "{}::{} {{ {} }}",
+                            enum_name,
+                            variant_name,
+                            field_strs.join(", ")
+                        )
+                    }
+                }
+            },
         }
     }
 }
@@ -213,6 +253,60 @@ fn js_value_to_value(
             params: params.clone(),
             ret: ret.clone(),
         }),
+        Type::Enum {
+            name: enum_name,
+            variants,
+            ..
+        } => {
+            use crate::types::EnumVariantType;
+            let obj: rquickjs::Object = js_val
+                .get()
+                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+            let tag: String = obj
+                .get("$tag")
+                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+
+            // Find the variant type
+            let variant_type = variants
+                .iter()
+                .find(|(vname, _)| vname == &tag)
+                .map(|(_, vt)| vt)
+                .ok_or_else(|| {
+                    EvalError::RuntimeError(format!("unknown enum variant: {}", tag))
+                })?;
+
+            let fields = match variant_type {
+                EnumVariantType::Unit => EnumValueFields::Unit,
+                EnumVariantType::Tuple(field_types) => {
+                    let mut values = Vec::new();
+                    for (i, field_type) in field_types.iter().enumerate() {
+                        let field_js: rquickjs::Value = obj
+                            .get(format!("${}", i))
+                            .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+                        let field_value = js_value_to_value(ctx, field_js, field_type)?;
+                        values.push(field_value);
+                    }
+                    EnumValueFields::Tuple(values)
+                }
+                EnumVariantType::Struct(field_defs) => {
+                    let mut field_values = Vec::new();
+                    for (field_name, field_type) in field_defs {
+                        let field_js: rquickjs::Value = obj
+                            .get(field_name.as_str())
+                            .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+                        let field_value = js_value_to_value(ctx, field_js, field_type)?;
+                        field_values.push((field_name.clone(), field_value));
+                    }
+                    EnumValueFields::Struct(field_values)
+                }
+            };
+
+            Ok(Value::Enum {
+                enum_name: enum_name.clone(),
+                variant_name: tag,
+                fields,
+            })
+        }
     }
 }
 

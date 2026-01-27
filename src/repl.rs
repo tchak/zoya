@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
-use crate::ast::{FunctionDef, StructDef};
+use crate::ast::{EnumDef, FunctionDef, StructDef};
 use crate::check::{CheckedStatement, TypeEnv, check_repl};
 use crate::codegen::{codegen, codegen_function, codegen_let};
 use crate::eval::{self, Context, Value};
@@ -19,6 +19,8 @@ pub enum ReplResult {
     FunctionDefined(String),
     /// Struct was defined
     StructDefined(String),
+    /// Enum was defined
+    EnumDefined(String),
     /// Let binding was created
     LetBinding { name: String, ty: Type },
     /// Expression was evaluated
@@ -31,6 +33,8 @@ pub struct State {
     functions: HashMap<String, FunctionDef>,
     /// Struct definitions (AST level)
     structs: HashMap<String, StructDef>,
+    /// Enum definitions (AST level)
+    enums: HashMap<String, EnumDef>,
     /// Type environment
     type_env: TypeEnv,
     /// QuickJS runtime (kept alive for context)
@@ -48,6 +52,7 @@ impl State {
         Ok(State {
             functions: HashMap::new(),
             structs: HashMap::new(),
+            enums: HashMap::new(),
             type_env: TypeEnv::default(),
             runtime,
             context,
@@ -129,6 +134,13 @@ impl State {
                     self.structs.insert(name.clone(), struct_def);
                     results.push(ReplResult::StructDefined(name));
                 }
+                CheckedStatement::Enum(enum_def) => {
+                    let name = enum_def.name.clone();
+                    // Enums are type declarations - no JS code needed
+                    // The enum is already registered in the type_env by check_repl
+                    self.enums.insert(name.clone(), enum_def);
+                    results.push(ReplResult::EnumDefined(name));
+                }
             }
         }
 
@@ -191,6 +203,9 @@ pub fn run() {
                                 }
                                 ReplResult::StructDefined(name) => {
                                     println!("struct: {}", name);
+                                }
+                                ReplResult::EnumDefined(name) => {
+                                    println!("enum: {}", name);
                                 }
                                 ReplResult::Expression(value) => {
                                     println!("{}", value);

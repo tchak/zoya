@@ -1,11 +1,15 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::{
-    BinOp, Expr, FunctionDef, Item, LetBinding, ListPattern, MatchArm, Pattern, Statement,
-    StructDef, StructPattern, TuplePattern, TypeAnnotation, UnaryOp,
+    BinOp, EnumConstructFields, EnumDef, EnumPattern, EnumPatternFields, Expr, FunctionDef, Item,
+    LetBinding, ListPattern, MatchArm, Pattern, Statement, StructDef, StructPattern, TuplePattern,
+    TypeAnnotation, UnaryOp,
 };
-use crate::ir::{CheckedItem, TypedExpr, TypedFunction, TypedLetBinding, TypedMatchArm, TypedPattern};
-use crate::types::{FunctionType, StructType, Type, TypeError, TypeScheme, TypeVarId};
+use crate::ir::{
+    CheckedItem, TypedEnumConstructFields, TypedExpr, TypedFunction, TypedLetBinding,
+    TypedMatchArm, TypedPattern,
+};
+use crate::types::{EnumType, EnumVariantType, FunctionType, StructType, Type, TypeError, TypeScheme, TypeVarId};
 use crate::unify::UnifyCtx;
 use crate::usefulness;
 
@@ -16,6 +20,8 @@ pub struct TypeEnv {
     pub functions: HashMap<String, FunctionType>,
     /// Struct type definitions
     pub structs: HashMap<String, StructType>,
+    /// Enum type definitions
+    pub enums: HashMap<String, EnumType>,
     /// Local variable types (parameters in function bodies) - monomorphic
     pub locals: HashMap<String, Type>,
     /// Polymorphic let-bound variables (type schemes for let polymorphism)
@@ -27,6 +33,7 @@ impl TypeEnv {
         TypeEnv {
             functions: self.functions.clone(),
             structs: self.structs.clone(),
+            enums: self.enums.clone(),
             locals,
             poly_locals: self.poly_locals.clone(),
         }
@@ -87,6 +94,23 @@ fn resolve_type_annotation(
                     type_args: vec![],
                     fields: struct_def.fields.clone(),
                 })
+            } else if let Some(enum_def) = env.enums.get(name) {
+                // Non-generic enum reference
+                if !enum_def.type_params.is_empty() {
+                    return Err(TypeError {
+                        message: format!(
+                            "enum {} requires {} type argument(s)",
+                            name,
+                            enum_def.type_params.len()
+                        ),
+                    });
+                }
+                // Non-generic enum: use variants as-is
+                Ok(Type::Enum {
+                    name: name.clone(),
+                    type_args: vec![],
+                    variants: enum_def.variants.clone(),
+                })
             } else {
                 Err(TypeError {
                     message: format!("unknown type: {}", name),
@@ -132,6 +156,37 @@ fn resolve_type_annotation(
                     name: name.clone(),
                     type_args,
                     fields,
+                })
+            } else if let Some(enum_def) = env.enums.get(name) {
+                // Generic enum reference
+                if params.len() != enum_def.type_params.len() {
+                    return Err(TypeError {
+                        message: format!(
+                            "enum {} expects {} type argument(s), got {}",
+                            name,
+                            enum_def.type_params.len(),
+                            params.len()
+                        ),
+                    });
+                }
+                let type_args = params
+                    .iter()
+                    .map(|p| resolve_type_annotation(p, type_param_map, env))
+                    .collect::<Result<Vec<_>, _>>()?;
+                // Substitute type args into variant types
+                let mut subst = HashMap::new();
+                for (id, arg) in enum_def.type_var_ids.iter().zip(type_args.iter()) {
+                    subst.insert(*id, arg.clone());
+                }
+                let variants = enum_def
+                    .variants
+                    .iter()
+                    .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, &subst)))
+                    .collect();
+                Ok(Type::Enum {
+                    name: name.clone(),
+                    type_args,
+                    variants,
                 })
             } else {
                 Err(TypeError {
@@ -908,6 +963,203 @@ fn check_struct_construct(
     })
 }
 
+/// Check an enum constructor expression
+fn check_enum_construct(
+    enum_name: &str,
+    variant_name: &str,
+    fields: &EnumConstructFields,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
+    // Look up the enum definition
+    let enum_type = env.enums.get(enum_name).ok_or_else(|| TypeError {
+        message: format!("unknown enum: {}", enum_name),
+    })?;
+
+    // Find the variant
+    let variant_type = enum_type
+        .variants
+        .iter()
+        .find(|(name, _)| name == variant_name)
+        .map(|(_, vt)| vt)
+        .ok_or_else(|| TypeError {
+            message: format!("enum {} has no variant {}", enum_name, variant_name),
+        })?;
+
+    // Create fresh type variables for generic parameters
+    let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
+    for &old_id in &enum_type.type_var_ids {
+        instantiation.insert(old_id, ctx.fresh_var());
+    }
+
+    // Type check based on variant kind
+    let typed_fields = match (fields, variant_type) {
+        (EnumConstructFields::Unit, EnumVariantType::Unit) => TypedEnumConstructFields::Unit,
+
+        (EnumConstructFields::Tuple(exprs), EnumVariantType::Tuple(expected_types)) => {
+            if exprs.len() != expected_types.len() {
+                return Err(TypeError {
+                    message: format!(
+                        "enum variant {}::{} expects {} argument(s), got {}",
+                        enum_name,
+                        variant_name,
+                        expected_types.len(),
+                        exprs.len()
+                    ),
+                });
+            }
+
+            let mut typed_exprs = Vec::new();
+            for (expr, expected) in exprs.iter().zip(expected_types.iter()) {
+                let expected_type = substitute_type_vars(expected, &instantiation);
+                let typed_expr = check_with_env(expr, env, ctx)?;
+                let actual_type = typed_expr.ty();
+
+                ctx.unify(&actual_type, &expected_type).map_err(|e| TypeError {
+                    message: format!(
+                        "in enum variant {}::{}: expected {} but got {}: {}",
+                        enum_name,
+                        variant_name,
+                        ctx.resolve(&expected_type),
+                        ctx.resolve(&actual_type),
+                        e.message
+                    ),
+                })?;
+
+                typed_exprs.push(typed_expr);
+            }
+            TypedEnumConstructFields::Tuple(typed_exprs)
+        }
+
+        (EnumConstructFields::Struct(provided_fields), EnumVariantType::Struct(expected_fields)) => {
+            // Check for missing and extra fields
+            let expected_names: HashSet<&str> =
+                expected_fields.iter().map(|(n, _)| n.as_str()).collect();
+            let provided_names: HashSet<&str> =
+                provided_fields.iter().map(|(n, _)| n.as_str()).collect();
+
+            for expected in &expected_names {
+                if !provided_names.contains(expected) {
+                    return Err(TypeError {
+                        message: format!(
+                            "missing field '{}' in enum variant {}::{}",
+                            expected, enum_name, variant_name
+                        ),
+                    });
+                }
+            }
+
+            for provided in &provided_names {
+                if !expected_names.contains(provided) {
+                    return Err(TypeError {
+                        message: format!(
+                            "unknown field '{}' in enum variant {}::{}",
+                            provided, enum_name, variant_name
+                        ),
+                    });
+                }
+            }
+
+            let mut typed_fields = Vec::new();
+            for (field_name, field_expr) in provided_fields {
+                let (_, field_type) = expected_fields
+                    .iter()
+                    .find(|(n, _)| n == field_name)
+                    .unwrap();
+
+                let expected_type = substitute_type_vars(field_type, &instantiation);
+                let typed_expr = check_with_env(field_expr, env, ctx)?;
+                let actual_type = typed_expr.ty();
+
+                ctx.unify(&actual_type, &expected_type).map_err(|e| TypeError {
+                    message: format!(
+                        "field '{}' in enum variant {}::{} expects {} but got {}: {}",
+                        field_name,
+                        enum_name,
+                        variant_name,
+                        ctx.resolve(&expected_type),
+                        ctx.resolve(&actual_type),
+                        e.message
+                    ),
+                })?;
+
+                typed_fields.push((field_name.clone(), typed_expr));
+            }
+            TypedEnumConstructFields::Struct(typed_fields)
+        }
+
+        (EnumConstructFields::Unit, _) => {
+            return Err(TypeError {
+                message: format!(
+                    "enum variant {}::{} is not a unit variant",
+                    enum_name, variant_name
+                ),
+            });
+        }
+
+        (EnumConstructFields::Tuple(_), _) => {
+            return Err(TypeError {
+                message: format!(
+                    "enum variant {}::{} is not a tuple variant",
+                    enum_name, variant_name
+                ),
+            });
+        }
+
+        (EnumConstructFields::Struct(_), _) => {
+            return Err(TypeError {
+                message: format!(
+                    "enum variant {}::{} is not a struct variant",
+                    enum_name, variant_name
+                ),
+            });
+        }
+    };
+
+    // Build the enum type with resolved type arguments
+    let type_args: Vec<Type> = enum_type
+        .type_var_ids
+        .iter()
+        .map(|id| ctx.resolve(&instantiation[id]))
+        .collect();
+
+    // Build resolved variant types for the Type::Enum
+    let resolved_variants: Vec<(String, EnumVariantType)> = enum_type
+        .variants
+        .iter()
+        .map(|(name, vt)| {
+            (
+                name.clone(),
+                substitute_variant_type_vars(vt, &instantiation),
+            )
+        })
+        .map(|(name, vt)| {
+            // Also resolve any type vars that got unified
+            let resolved_vt = match vt {
+                EnumVariantType::Unit => EnumVariantType::Unit,
+                EnumVariantType::Tuple(types) => {
+                    EnumVariantType::Tuple(types.iter().map(|t| ctx.resolve(t)).collect())
+                }
+                EnumVariantType::Struct(fields) => EnumVariantType::Struct(
+                    fields.iter().map(|(n, t)| (n.clone(), ctx.resolve(t))).collect(),
+                ),
+            };
+            (name, resolved_vt)
+        })
+        .collect();
+
+    Ok(TypedExpr::EnumConstruct {
+        enum_name: enum_name.to_string(),
+        variant_name: variant_name.to_string(),
+        fields: typed_fields,
+        ty: Type::Enum {
+            name: enum_name.to_string(),
+            type_args,
+            variants: resolved_variants,
+        },
+    })
+}
+
 /// Check a field access expression
 fn check_field_access(
     expr: &Expr,
@@ -988,6 +1240,11 @@ fn check_with_env(
         } => check_lambda(params, return_type, body, env, ctx),
         Expr::StructConstruct { name, fields } => check_struct_construct(name, fields, env, ctx),
         Expr::FieldAccess { expr, field } => check_field_access(expr, field, env, ctx),
+        Expr::EnumConstruct {
+            enum_name,
+            variant_name,
+            fields,
+        } => check_enum_construct(enum_name, variant_name, fields, env, ctx),
     }
 }
 
@@ -1008,8 +1265,38 @@ fn substitute_type_vars(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
             type_args: type_args.iter().map(|t| substitute_type_vars(t, mapping)).collect(),
             fields: fields.iter().map(|(n, t)| (n.clone(), substitute_type_vars(t, mapping))).collect(),
         },
+        Type::Enum { name, type_args, variants } => Type::Enum {
+            name: name.clone(),
+            type_args: type_args
+                .iter()
+                .map(|t| substitute_type_vars(t, mapping))
+                .collect(),
+            variants: variants
+                .iter()
+                .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, mapping)))
+                .collect(),
+        },
         // Concrete types don't contain type vars
         Type::Int32 | Type::Int64 | Type::Float | Type::Bool | Type::String => ty.clone(),
+    }
+}
+
+/// Substitute type variables in an enum variant type
+fn substitute_variant_type_vars(
+    vt: &EnumVariantType,
+    mapping: &HashMap<TypeVarId, Type>,
+) -> EnumVariantType {
+    match vt {
+        EnumVariantType::Unit => EnumVariantType::Unit,
+        EnumVariantType::Tuple(types) => {
+            EnumVariantType::Tuple(types.iter().map(|t| substitute_type_vars(t, mapping)).collect())
+        }
+        EnumVariantType::Struct(fields) => EnumVariantType::Struct(
+            fields
+                .iter()
+                .map(|(n, t)| (n.clone(), substitute_type_vars(t, mapping)))
+                .collect(),
+        ),
     }
 }
 
@@ -1416,7 +1703,349 @@ fn check_pattern(
 
             Ok((typed_pattern, all_bindings))
         }
+
+        Pattern::Enum(enum_pattern) => {
+            check_enum_pattern(enum_pattern, scrutinee_ty, env, ctx)
+        }
     }
+}
+
+/// Check an enum pattern
+fn check_enum_pattern(
+    enum_pattern: &EnumPattern,
+    scrutinee_ty: &Type,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
+    let EnumPattern {
+        enum_name,
+        variant_name,
+        fields,
+    } = enum_pattern;
+
+    // Look up the enum definition
+    let enum_type = env.enums.get(enum_name).ok_or_else(|| TypeError {
+        message: format!("unknown enum in pattern: {}", enum_name),
+    })?;
+
+    // Find the variant
+    let variant_type = enum_type
+        .variants
+        .iter()
+        .find(|(name, _)| name == variant_name)
+        .map(|(_, vt)| vt)
+        .ok_or_else(|| TypeError {
+            message: format!("enum {} has no variant {}", enum_name, variant_name),
+        })?;
+
+    // Create fresh type variables for generic parameters
+    let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
+    for &old_id in &enum_type.type_var_ids {
+        instantiation.insert(old_id, ctx.fresh_var());
+    }
+
+    // Build the expected enum type and unify with scrutinee
+    let type_args: Vec<Type> = enum_type
+        .type_var_ids
+        .iter()
+        .map(|id| instantiation[id].clone())
+        .collect();
+    let resolved_variants: Vec<(String, EnumVariantType)> = enum_type
+        .variants
+        .iter()
+        .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, &instantiation)))
+        .collect();
+    let expected_enum_ty = Type::Enum {
+        name: enum_name.clone(),
+        type_args,
+        variants: resolved_variants,
+    };
+
+    ctx.unify(scrutinee_ty, &expected_enum_ty)
+        .map_err(|e| TypeError {
+            message: format!(
+                "enum pattern {}::{} cannot match type {}: {}",
+                enum_name,
+                variant_name,
+                ctx.resolve(scrutinee_ty),
+                e.message
+            ),
+        })?;
+
+    // Check the pattern fields based on variant kind
+    match (fields, variant_type) {
+        (EnumPatternFields::Unit, EnumVariantType::Unit) => Ok((
+            TypedPattern::EnumUnit {
+                enum_name: enum_name.clone(),
+                variant_name: variant_name.clone(),
+            },
+            HashMap::new(),
+        )),
+
+        (EnumPatternFields::Tuple(tuple_pattern), EnumVariantType::Tuple(expected_types)) => {
+            let resolved_types: Vec<Type> = expected_types
+                .iter()
+                .map(|t| ctx.resolve(&substitute_type_vars(t, &instantiation)))
+                .collect();
+
+            check_enum_tuple_pattern(
+                enum_name,
+                variant_name,
+                tuple_pattern,
+                &resolved_types,
+                env,
+                ctx,
+            )
+        }
+
+        (
+            EnumPatternFields::Struct { fields, is_partial },
+            EnumVariantType::Struct(expected_fields),
+        ) => {
+            let resolved_fields: Vec<(String, Type)> = expected_fields
+                .iter()
+                .map(|(n, t)| (n.clone(), ctx.resolve(&substitute_type_vars(t, &instantiation))))
+                .collect();
+
+            check_enum_struct_pattern(
+                enum_name,
+                variant_name,
+                fields,
+                *is_partial,
+                &resolved_fields,
+                env,
+                ctx,
+            )
+        }
+
+        (EnumPatternFields::Unit, _) => Err(TypeError {
+            message: format!(
+                "enum variant {}::{} is not a unit variant",
+                enum_name, variant_name
+            ),
+        }),
+
+        (EnumPatternFields::Tuple(_), _) => Err(TypeError {
+            message: format!(
+                "enum variant {}::{} is not a tuple variant",
+                enum_name, variant_name
+            ),
+        }),
+
+        (EnumPatternFields::Struct { .. }, _) => Err(TypeError {
+            message: format!(
+                "enum variant {}::{} is not a struct variant",
+                enum_name, variant_name
+            ),
+        }),
+    }
+}
+
+/// Check an enum tuple variant pattern
+fn check_enum_tuple_pattern(
+    enum_name: &str,
+    variant_name: &str,
+    tuple_pattern: &TuplePattern,
+    expected_types: &[Type],
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
+    let total_fields = expected_types.len();
+
+    match tuple_pattern {
+        TuplePattern::Empty => {
+            if total_fields != 0 {
+                return Err(TypeError {
+                    message: format!(
+                        "enum variant {}::{} has {} field(s), empty pattern not allowed",
+                        enum_name, variant_name, total_fields
+                    ),
+                });
+            }
+            Ok((
+                TypedPattern::EnumTupleExact {
+                    enum_name: enum_name.to_string(),
+                    variant_name: variant_name.to_string(),
+                    patterns: vec![],
+                    total_fields: 0,
+                },
+                HashMap::new(),
+            ))
+        }
+
+        TuplePattern::Exact(patterns) => {
+            if patterns.len() != total_fields {
+                return Err(TypeError {
+                    message: format!(
+                        "enum variant {}::{} has {} field(s) but pattern has {}",
+                        enum_name,
+                        variant_name,
+                        total_fields,
+                        patterns.len()
+                    ),
+                });
+            }
+            let (typed_patterns, bindings) =
+                check_patterns_against_types(patterns, expected_types, env, ctx)?;
+            Ok((
+                TypedPattern::EnumTupleExact {
+                    enum_name: enum_name.to_string(),
+                    variant_name: variant_name.to_string(),
+                    patterns: typed_patterns,
+                    total_fields,
+                },
+                bindings,
+            ))
+        }
+
+        TuplePattern::Prefix(patterns) => {
+            if patterns.len() > total_fields {
+                return Err(TypeError {
+                    message: format!(
+                        "enum variant {}::{} has {} field(s) but prefix pattern has {}",
+                        enum_name,
+                        variant_name,
+                        total_fields,
+                        patterns.len()
+                    ),
+                });
+            }
+            let (typed_patterns, bindings) =
+                check_patterns_against_types(patterns, expected_types, env, ctx)?;
+            Ok((
+                TypedPattern::EnumTuplePrefix {
+                    enum_name: enum_name.to_string(),
+                    variant_name: variant_name.to_string(),
+                    patterns: typed_patterns,
+                    total_fields,
+                },
+                bindings,
+            ))
+        }
+
+        TuplePattern::Suffix(patterns) => {
+            if patterns.len() > total_fields {
+                return Err(TypeError {
+                    message: format!(
+                        "enum variant {}::{} has {} field(s) but suffix pattern has {}",
+                        enum_name,
+                        variant_name,
+                        total_fields,
+                        patterns.len()
+                    ),
+                });
+            }
+            let start_idx = total_fields - patterns.len();
+            let (typed_patterns, bindings) =
+                check_patterns_against_types(patterns, &expected_types[start_idx..], env, ctx)?;
+            Ok((
+                TypedPattern::EnumTupleSuffix {
+                    enum_name: enum_name.to_string(),
+                    variant_name: variant_name.to_string(),
+                    patterns: typed_patterns,
+                    total_fields,
+                },
+                bindings,
+            ))
+        }
+
+        TuplePattern::PrefixSuffix(prefix_pats, suffix_pats) => {
+            let total_patterns = prefix_pats.len() + suffix_pats.len();
+            if total_patterns > total_fields {
+                return Err(TypeError {
+                    message: format!(
+                        "enum variant {}::{} has {} field(s) but pattern has {}",
+                        enum_name, variant_name, total_fields, total_patterns
+                    ),
+                });
+            }
+            let (prefix_typed, mut bindings) =
+                check_patterns_against_types(prefix_pats, expected_types, env, ctx)?;
+            let suffix_start = total_fields - suffix_pats.len();
+            let (suffix_typed, suffix_bindings) =
+                check_patterns_against_types(suffix_pats, &expected_types[suffix_start..], env, ctx)?;
+            bindings.extend(suffix_bindings);
+            Ok((
+                TypedPattern::EnumTuplePrefixSuffix {
+                    enum_name: enum_name.to_string(),
+                    variant_name: variant_name.to_string(),
+                    prefix: prefix_typed,
+                    suffix: suffix_typed,
+                    total_fields,
+                },
+                bindings,
+            ))
+        }
+    }
+}
+
+/// Check an enum struct variant pattern
+fn check_enum_struct_pattern(
+    enum_name: &str,
+    variant_name: &str,
+    field_patterns: &[crate::ast::StructFieldPattern],
+    is_partial: bool,
+    expected_fields: &[(String, Type)],
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
+    // For exact patterns, verify all fields are covered
+    if !is_partial {
+        let expected_field_names: HashSet<&str> =
+            expected_fields.iter().map(|(n, _)| n.as_str()).collect();
+        let provided_field_names: HashSet<&str> =
+            field_patterns.iter().map(|f| f.field_name.as_str()).collect();
+
+        for expected in &expected_field_names {
+            if !provided_field_names.contains(expected) {
+                return Err(TypeError {
+                    message: format!(
+                        "missing field '{}' in enum variant pattern {}::{} (use '..' for partial match)",
+                        expected, enum_name, variant_name
+                    ),
+                });
+            }
+        }
+    }
+
+    // Check each field pattern
+    let mut all_bindings = HashMap::new();
+    let mut typed_fields = Vec::new();
+
+    for field_pattern in field_patterns {
+        // Find the field type
+        let (_, field_type) = expected_fields
+            .iter()
+            .find(|(n, _)| n == &field_pattern.field_name)
+            .ok_or_else(|| TypeError {
+                message: format!(
+                    "enum variant {}::{} has no field '{}'",
+                    enum_name, variant_name, field_pattern.field_name
+                ),
+            })?;
+
+        // Recursively check the field pattern
+        let (typed_sub_pattern, sub_bindings) =
+            check_pattern(&field_pattern.pattern, field_type, env, ctx)?;
+        all_bindings.extend(sub_bindings);
+        typed_fields.push((field_pattern.field_name.clone(), typed_sub_pattern));
+    }
+
+    let typed_pattern = if is_partial {
+        TypedPattern::EnumStructPartial {
+            enum_name: enum_name.to_string(),
+            variant_name: variant_name.to_string(),
+            fields: typed_fields,
+        }
+    } else {
+        TypedPattern::EnumStructExact {
+            enum_name: enum_name.to_string(),
+            variant_name: variant_name.to_string(),
+            fields: typed_fields,
+        }
+    };
+
+    Ok((typed_pattern, all_bindings))
 }
 
 /// Check a match arm
@@ -1473,7 +2102,7 @@ fn check_let_binding(
     })
 }
 
-/// Check a file's items (functions and structs), returning checked items
+/// Check a file's items (functions, structs, and enums), returning checked items
 pub fn check_file(items: &[Item]) -> Result<Vec<CheckedItem>, TypeError> {
     let mut ctx = UnifyCtx::new();
     let mut env = TypeEnv::default();
@@ -1500,6 +2129,25 @@ pub fn check_file(items: &[Item]) -> Result<Vec<CheckedItem>, TypeError> {
                 },
             );
         }
+        if let Item::Enum(def) = item {
+            // Register with empty variants first - will fill in later
+            let mut type_var_ids = Vec::new();
+            for _ in &def.type_params {
+                let var = ctx.fresh_var();
+                if let Type::Var(id) = var {
+                    type_var_ids.push(id);
+                }
+            }
+            env.enums.insert(
+                def.name.clone(),
+                EnumType {
+                    name: def.name.clone(),
+                    type_params: def.type_params.clone(),
+                    type_var_ids,
+                    variants: vec![], // placeholder
+                },
+            );
+        }
     }
 
     // Phase 1b: Now resolve all struct field types
@@ -1510,7 +2158,15 @@ pub fn check_file(items: &[Item]) -> Result<Vec<CheckedItem>, TypeError> {
         }
     }
 
-    // Phase 2: Register all function signatures (now struct types are available)
+    // Phase 1c: Now resolve all enum variant types
+    for item in items {
+        if let Item::Enum(def) = item {
+            let enum_type = enum_type_from_def(def, &env, &mut ctx)?;
+            env.enums.insert(def.name.clone(), enum_type);
+        }
+    }
+
+    // Phase 2: Register all function signatures (now struct/enum types are available)
     for item in items {
         if let Item::Function(func) = item {
             let func_type = function_type_from_def(func, &env, &mut ctx)?;
@@ -1529,6 +2185,10 @@ pub fn check_file(items: &[Item]) -> Result<Vec<CheckedItem>, TypeError> {
             Item::Struct(def) => {
                 // Structs are just passed through (already registered in env)
                 checked_items.push(CheckedItem::Struct(def.clone()));
+            }
+            Item::Enum(def) => {
+                // Enums are just passed through (already registered in env)
+                checked_items.push(CheckedItem::Enum(def.clone()));
             }
         }
     }
@@ -1568,11 +2228,63 @@ fn struct_type_from_def(
     })
 }
 
+/// Extract enum type from an enum definition (for adding to env).
+fn enum_type_from_def(
+    def: &EnumDef,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<EnumType, TypeError> {
+    // Create fresh type variables for type parameters
+    let mut type_param_map = HashMap::new();
+    let mut type_var_ids = Vec::new();
+    for name in &def.type_params {
+        let var = ctx.fresh_var();
+        if let Type::Var(id) = var {
+            type_param_map.insert(name.clone(), id);
+            type_var_ids.push(id);
+        }
+    }
+
+    // Resolve variant types
+    let mut variants = Vec::new();
+    for variant in &def.variants {
+        let variant_type = match &variant.kind {
+            crate::ast::EnumVariantKind::Unit => EnumVariantType::Unit,
+            crate::ast::EnumVariantKind::Tuple(types) => {
+                let resolved_types = types
+                    .iter()
+                    .map(|t| resolve_type_annotation(t, &type_param_map, env))
+                    .collect::<Result<Vec<_>, _>>()?;
+                EnumVariantType::Tuple(resolved_types)
+            }
+            crate::ast::EnumVariantKind::Struct(fields) => {
+                let resolved_fields = fields
+                    .iter()
+                    .map(|f| {
+                        let ty = resolve_type_annotation(&f.typ, &type_param_map, env)?;
+                        Ok((f.name.clone(), ty))
+                    })
+                    .collect::<Result<Vec<_>, TypeError>>()?;
+                EnumVariantType::Struct(resolved_fields)
+            }
+        };
+        variants.push((variant.name.clone(), variant_type));
+    }
+
+    Ok(EnumType {
+        name: def.name.clone(),
+        type_params: def.type_params.clone(),
+        type_var_ids,
+        variants,
+    })
+}
+
 /// Type-checked statement result for REPL
 #[derive(Debug, Clone, PartialEq)]
 pub enum CheckedStatement {
     Function(TypedFunction),
     Struct(StructDef),
+    Enum(EnumDef),
     Expr(TypedExpr),
     Let(TypedLetBinding),
 }
@@ -1580,8 +2292,8 @@ pub enum CheckedStatement {
 /// Check REPL statements with multi-pass type checking for forward references.
 ///
 /// This uses a multi-pass algorithm similar to `check_file`:
-/// 1. Partition statements into structs, functions, and others
-/// 2. Register all struct definitions first
+/// 1. Partition statements into structs, enums, functions, and others
+/// 2. Register all struct and enum definitions first
 /// 3. Register all function signatures (enables forward references)
 /// 4. Type-check all function bodies (all signatures now available)
 /// 5. Type-check non-item statements in order
@@ -1594,6 +2306,7 @@ pub fn check_repl(
 
     // Phase 1: Partition statements
     let mut struct_items: Vec<(usize, &StructDef)> = Vec::new();
+    let mut enum_items: Vec<(usize, &EnumDef)> = Vec::new();
     let mut function_items: Vec<(usize, &FunctionDef)> = Vec::new();
     let mut other_items: Vec<(usize, &Statement)> = Vec::new();
 
@@ -1601,6 +2314,9 @@ pub fn check_repl(
         match statement {
             Statement::Item(Item::Struct(def)) => {
                 struct_items.push((idx, def));
+            }
+            Statement::Item(Item::Enum(def)) => {
+                enum_items.push((idx, def));
             }
             Statement::Item(Item::Function(func)) => {
                 function_items.push((idx, func));
@@ -1631,10 +2347,36 @@ pub fn check_repl(
         );
     }
 
+    // Phase 2a': Register all enum names (for mutual references)
+    for (_, def) in &enum_items {
+        let mut type_var_ids = Vec::new();
+        for _ in &def.type_params {
+            let var = ctx.fresh_var();
+            if let Type::Var(id) = var {
+                type_var_ids.push(id);
+            }
+        }
+        env.enums.insert(
+            def.name.clone(),
+            EnumType {
+                name: def.name.clone(),
+                type_params: def.type_params.clone(),
+                type_var_ids,
+                variants: vec![],
+            },
+        );
+    }
+
     // Phase 2b: Now resolve all struct field types
     for (_, def) in &struct_items {
         let struct_type = struct_type_from_def(def, env, &mut ctx)?;
         env.structs.insert(def.name.clone(), struct_type);
+    }
+
+    // Phase 2b': Now resolve all enum variant types
+    for (_, def) in &enum_items {
+        let enum_type = enum_type_from_def(def, env, &mut ctx)?;
+        env.enums.insert(def.name.clone(), enum_type);
     }
 
     // Phase 3: Register all function signatures
@@ -1649,6 +2391,11 @@ pub fn check_repl(
     // Add struct results
     for (idx, def) in &struct_items {
         results.push((*idx, CheckedStatement::Struct((*def).clone())));
+    }
+
+    // Add enum results
+    for (idx, def) in &enum_items {
+        results.push((*idx, CheckedStatement::Enum((*def).clone())));
     }
 
     // Type-check function bodies

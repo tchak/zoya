@@ -31,6 +31,24 @@ pub enum Type {
         /// Field names and their instantiated types
         fields: Vec<(String, Type)>,
     },
+    /// Named enum type with instantiated type parameters
+    Enum {
+        name: String,
+        type_args: Vec<Type>,
+        /// Variant names and their types (for exhaustiveness checking)
+        variants: Vec<(String, EnumVariantType)>,
+    },
+}
+
+/// Type information for an enum variant
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EnumVariantType {
+    /// Unit variant: `None`
+    Unit,
+    /// Tuple variant: `Some(T)` - types are the fields in order
+    Tuple(Vec<Type>),
+    /// Struct variant: `Move { x: Int32, y: Int32 }` - field names and types
+    Struct(Vec<(String, Type)>),
 }
 
 impl fmt::Display for Type {
@@ -66,6 +84,14 @@ impl fmt::Display for Type {
                     write!(f, "{}<{}>", name, args.join(", "))
                 }
             }
+            Type::Enum { name, type_args, .. } => {
+                if type_args.is_empty() {
+                    write!(f, "{}", name)
+                } else {
+                    let args: Vec<String> = type_args.iter().map(|t| t.to_string()).collect();
+                    write!(f, "{}<{}>", name, args.join(", "))
+                }
+            }
         }
     }
 }
@@ -94,6 +120,19 @@ pub struct StructType {
     pub type_var_ids: Vec<TypeVarId>,
     /// Fields: name and type (types may contain Var(id) for generics)
     pub fields: Vec<(String, Type)>,
+}
+
+/// Enum type definition (stored in type environment)
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumType {
+    /// Enum name
+    pub name: String,
+    /// Source-level type parameter names (e.g., ["T", "E"])
+    pub type_params: Vec<String>,
+    /// TypeVarIds corresponding to each type parameter
+    pub type_var_ids: Vec<TypeVarId>,
+    /// Variants: name and type (types may contain Var(id) for generics)
+    pub variants: Vec<(String, EnumVariantType)>,
 }
 
 /// Type scheme for polymorphic values (let polymorphism)

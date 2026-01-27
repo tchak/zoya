@@ -3,6 +3,7 @@
 pub enum Item {
     Function(FunctionDef),
     Struct(StructDef),
+    Enum(EnumDef),
 }
 
 /// Struct definition: `struct Name<T, U> { field: Type, ... }`
@@ -18,6 +19,32 @@ pub struct StructDef {
 pub struct StructFieldDef {
     pub name: String,
     pub typ: TypeAnnotation,
+}
+
+/// Enum definition: `enum Option<T> { None, Some(T), Move { x: Int32, y: Int32 } }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumDef {
+    pub name: String,
+    pub type_params: Vec<String>,
+    pub variants: Vec<EnumVariant>,
+}
+
+/// An enum variant
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumVariant {
+    pub name: String,
+    pub kind: EnumVariantKind,
+}
+
+/// The kind of data an enum variant carries
+#[derive(Debug, Clone, PartialEq)]
+pub enum EnumVariantKind {
+    /// Unit variant: `None`
+    Unit,
+    /// Tuple variant: `Some(T)` or `Pair(T, U)`
+    Tuple(Vec<TypeAnnotation>),
+    /// Struct variant: `Move { x: Int32, y: Int32 }`
+    Struct(Vec<StructFieldDef>),
 }
 
 /// Function definition
@@ -64,12 +91,35 @@ pub struct LambdaParam {
 /// Pattern in a match arm
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pattern {
-    Literal(Box<Expr>),   // 0, "hello", true
-    Var(String),          // x (binds value)
-    Wildcard,             // _ (matches all)
-    List(ListPattern),    // [], [a, b], [x, ..]
-    Tuple(TuplePattern),  // (), (a, b), (x, ..)
+    Literal(Box<Expr>),    // 0, "hello", true
+    Var(String),           // x (binds value)
+    Wildcard,              // _ (matches all)
+    List(ListPattern),     // [], [a, b], [x, ..]
+    Tuple(TuplePattern),   // (), (a, b), (x, ..)
     Struct(StructPattern), // Point { x, y }, Point { x: px, .. }
+    Enum(EnumPattern),     // Option::Some(x), Option::None, Message::Move { x, .. }
+}
+
+/// Enum pattern: `Option::Some(x)`, `Option::None`, `Message::Move { x, .. }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumPattern {
+    pub enum_name: String,
+    pub variant_name: String,
+    pub fields: EnumPatternFields,
+}
+
+/// Fields in an enum pattern
+#[derive(Debug, Clone, PartialEq)]
+pub enum EnumPatternFields {
+    /// Unit variant: `Option::None`
+    Unit,
+    /// Tuple variant: `Option::Some(x)` or `Pair(a, b)`, reusing TuplePattern for rest support
+    Tuple(TuplePattern),
+    /// Struct variant: `Move { x, y }` or `Move { x, .. }`
+    Struct {
+        fields: Vec<StructFieldPattern>,
+        is_partial: bool,
+    },
 }
 
 /// A field pattern in a struct pattern
@@ -172,6 +222,23 @@ pub enum Expr {
         expr: Box<Expr>,
         field: String,
     },
+    /// Enum variant constructor: `Option::Some(42)`, `Option::None`, `Message::Move { x: 1, y: 2 }`
+    EnumConstruct {
+        enum_name: String,
+        variant_name: String,
+        fields: EnumConstructFields,
+    },
+}
+
+/// Fields for enum variant construction
+#[derive(Debug, Clone, PartialEq)]
+pub enum EnumConstructFields {
+    /// Unit variant: `Option::None`
+    Unit,
+    /// Tuple variant: `Option::Some(42)` or `Result::Ok(1, 2)`
+    Tuple(Vec<Expr>),
+    /// Struct variant: `Message::Move { x: 1, y: 2 }`
+    Struct(Vec<(String, Expr)>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

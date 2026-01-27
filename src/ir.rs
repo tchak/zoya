@@ -1,4 +1,4 @@
-use crate::ast::{BinOp, StructDef, UnaryOp};
+use crate::ast::{BinOp, EnumDef, StructDef, UnaryOp};
 use crate::types::Type;
 
 /// A checked item from the type checker
@@ -6,6 +6,7 @@ use crate::types::Type;
 pub enum CheckedItem {
     Function(TypedFunction),
     Struct(StructDef), // Structs are declarations, passed through as-is
+    Enum(EnumDef),     // Enums are declarations, passed through as-is
 }
 
 /// Typed function definition
@@ -81,6 +82,52 @@ pub enum TypedPattern {
     StructPartial {
         name: String,
         /// (field_name, pattern) pairs for matched fields only
+        fields: Vec<(String, TypedPattern)>,
+    },
+    /// Enum unit variant pattern: `Option::None`
+    EnumUnit {
+        enum_name: String,
+        variant_name: String,
+    },
+    /// Enum tuple variant pattern (exact): `Option::Some(x)`
+    EnumTupleExact {
+        enum_name: String,
+        variant_name: String,
+        patterns: Vec<TypedPattern>,
+        total_fields: usize,
+    },
+    /// Enum tuple variant pattern (prefix): `Result::Ok(a, ..)`
+    EnumTuplePrefix {
+        enum_name: String,
+        variant_name: String,
+        patterns: Vec<TypedPattern>,
+        total_fields: usize,
+    },
+    /// Enum tuple variant pattern (suffix): `Result::Err(.., msg)`
+    EnumTupleSuffix {
+        enum_name: String,
+        variant_name: String,
+        patterns: Vec<TypedPattern>,
+        total_fields: usize,
+    },
+    /// Enum tuple variant pattern (prefix+suffix): `Triple::Make(a, .., c)`
+    EnumTuplePrefixSuffix {
+        enum_name: String,
+        variant_name: String,
+        prefix: Vec<TypedPattern>,
+        suffix: Vec<TypedPattern>,
+        total_fields: usize,
+    },
+    /// Enum struct variant pattern (exact): `Message::Move { x, y }`
+    EnumStructExact {
+        enum_name: String,
+        variant_name: String,
+        fields: Vec<(String, TypedPattern)>,
+    },
+    /// Enum struct variant pattern (partial): `Message::Move { x, .. }`
+    EnumStructPartial {
+        enum_name: String,
+        variant_name: String,
         fields: Vec<(String, TypedPattern)>,
     },
 }
@@ -159,6 +206,24 @@ pub enum TypedExpr {
         field: String,
         ty: Type,
     },
+    /// Enum variant constructor: `Option::Some(42)`, `Option::None`, `Message::Move { x: 1 }`
+    EnumConstruct {
+        enum_name: String,
+        variant_name: String,
+        fields: TypedEnumConstructFields,
+        ty: Type,
+    },
+}
+
+/// Typed fields for enum variant construction
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypedEnumConstructFields {
+    /// Unit variant: `Option::None`
+    Unit,
+    /// Tuple variant: `Option::Some(42)` or `Result::Ok(1, 2)`
+    Tuple(Vec<TypedExpr>),
+    /// Struct variant: `Message::Move { x: 1, y: 2 }`
+    Struct(Vec<(String, TypedExpr)>),
 }
 
 impl TypedExpr {
@@ -181,6 +246,7 @@ impl TypedExpr {
             TypedExpr::Lambda { ty, .. } => ty.clone(),
             TypedExpr::StructConstruct { ty, .. } => ty.clone(),
             TypedExpr::FieldAccess { ty, .. } => ty.clone(),
+            TypedExpr::EnumConstruct { ty, .. } => ty.clone(),
         }
     }
 }

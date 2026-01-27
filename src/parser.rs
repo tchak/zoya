@@ -1,9 +1,10 @@
 use chumsky::prelude::*;
 
 use crate::ast::{
-    BinOp, Expr, FunctionDef, Item, LambdaParam, LetBinding, ListPattern, MatchArm, Param, Pattern,
-    Statement, StructDef, StructFieldDef, StructFieldPattern, StructPattern, TuplePattern,
-    TypeAnnotation, UnaryOp,
+    BinOp, EnumConstructFields, EnumDef, EnumPattern, EnumPatternFields, EnumVariant,
+    EnumVariantKind, Expr, FunctionDef, Item, LambdaParam, LetBinding, ListPattern, MatchArm,
+    Param, Pattern, Statement, StructDef, StructFieldDef, StructFieldPattern, StructPattern,
+    TuplePattern, TypeAnnotation, UnaryOp,
 };
 use crate::lexer::Token;
 
@@ -221,8 +222,8 @@ fn item_parser<'a>() -> impl Parser<'a, &'a [Token], Item, extra::Err<Rich<'a, T
     // struct Name<T> { field: Type, ... }
     let struct_def = just(Token::Struct)
         .ignore_then(ident())
-        .then(type_params)
-        .then(struct_fields)
+        .then(type_params.clone())
+        .then(struct_fields.clone())
         .map(|((name, type_params), fields)| {
             Item::Struct(StructDef {
                 name,
@@ -231,7 +232,55 @@ fn item_parser<'a>() -> impl Parser<'a, &'a [Token], Item, extra::Err<Rich<'a, T
             })
         });
 
-    choice((function_def, struct_def))
+    // Enum variant: Unit, Tuple(T, U), or Struct { field: Type }
+    // Try struct variant first (has braces), then tuple (has parens), then unit
+    let enum_variant_struct = ident()
+        .then(struct_fields.clone())
+        .map(|(name, fields)| EnumVariant {
+            name,
+            kind: EnumVariantKind::Struct(fields),
+        });
+
+    let enum_variant_tuple = ident()
+        .then(
+            type_annotation()
+                .separated_by(just(Token::Comma))
+                .allow_trailing()
+                .collect::<Vec<_>>()
+                .delimited_by(just(Token::LParen), just(Token::RParen)),
+        )
+        .map(|(name, types)| EnumVariant {
+            name,
+            kind: EnumVariantKind::Tuple(types),
+        });
+
+    let enum_variant_unit = ident().map(|name| EnumVariant {
+        name,
+        kind: EnumVariantKind::Unit,
+    });
+
+    let enum_variant = choice((enum_variant_struct, enum_variant_tuple, enum_variant_unit));
+
+    let enum_variants = enum_variant
+        .separated_by(just(Token::Comma))
+        .allow_trailing()
+        .collect::<Vec<_>>()
+        .delimited_by(just(Token::LBrace), just(Token::RBrace));
+
+    // enum Name<T> { Variant, Variant(T), Variant { field: Type } }
+    let enum_def = just(Token::Enum)
+        .ignore_then(ident())
+        .then(type_params)
+        .then(enum_variants)
+        .map(|((name, type_params), variants)| {
+            Item::Enum(EnumDef {
+                name,
+                type_params,
+                variants,
+            })
+        });
+
+    choice((function_def, struct_def, enum_def))
 }
 
 fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, Token>>> {
@@ -362,6 +411,7 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
 
             // Tuple pattern: (), (a,), (a, b), (a, ..)
             let tuple_pattern = tuple_element
+                .clone()
                 .separated_by(just(Token::Comma))
                 .allow_trailing()
                 .collect::<Vec<_>>()
@@ -455,6 +505,7 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
             let struct_pattern = ident()
                 .then(
                     struct_field_pattern
+                        .clone()
                         .separated_by(just(Token::Comma))
                         .allow_trailing()
                         .collect::<Vec<_>>()
@@ -485,7 +536,128 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                     }
                 });
 
-            choice((list_pattern, tuple_pattern, struct_pattern, simple_pattern))
+            // Enum pattern: Enum::Variant, Enum::Variant(patterns), Enum::Variant { fields }
+            // Reuses TuplePatternElement and StructPatternField for rest pattern support
+
+            // Tuple variant pattern fields (with rest support)
+            let enum_tuple_pattern_fields = tuple_element.clone()
+                .separated_by(just(Token::Comma))
+                .allow_trailing()
+                .collect::<Vec<_>>()
+                .delimited_by(just(Token::LParen), just(Token::RParen))
+                .try_map(|elements, span| {
+                    let rest_pos = elements
+                        .iter()
+                        .position(|e| matches!(e, TuplePatternElement::Rest));
+
+                    if elements
+                        .iter()
+                        .filter(|e| matches!(e, TuplePatternElement::Rest))
+                        .count()
+                        > 1
+                    {
+                        return Err(Rich::custom(span, "only one .. allowed in enum tuple pattern"));
+                    }
+
+                    match rest_pos {
+                        None => {
+                            let patterns: Vec<Pattern> = elements
+                                .into_iter()
+                                .map(|e| match e {
+                                    TuplePatternElement::Pattern(p) => p,
+                                    TuplePatternElement::Rest => unreachable!(),
+                                })
+                                .collect();
+                            if patterns.is_empty() {
+                                Ok(EnumPatternFields::Tuple(TuplePattern::Empty))
+                            } else {
+                                Ok(EnumPatternFields::Tuple(TuplePattern::Exact(patterns)))
+                            }
+                        }
+                        Some(pos) => {
+                            let before: Vec<Pattern> = elements[..pos]
+                                .iter()
+                                .filter_map(|e| match e {
+                                    TuplePatternElement::Pattern(p) => Some(p.clone()),
+                                    TuplePatternElement::Rest => None,
+                                })
+                                .collect();
+
+                            let after: Vec<Pattern> = elements[pos + 1..]
+                                .iter()
+                                .filter_map(|e| match e {
+                                    TuplePatternElement::Pattern(p) => Some(p.clone()),
+                                    TuplePatternElement::Rest => None,
+                                })
+                                .collect();
+
+                            if after.is_empty() {
+                                Ok(EnumPatternFields::Tuple(TuplePattern::Prefix(before)))
+                            } else if before.is_empty() {
+                                Ok(EnumPatternFields::Tuple(TuplePattern::Suffix(after)))
+                            } else {
+                                Ok(EnumPatternFields::Tuple(TuplePattern::PrefixSuffix(
+                                    before, after,
+                                )))
+                            }
+                        }
+                    }
+                });
+
+            // Struct variant pattern fields (with rest support)
+            let enum_struct_pattern_fields = struct_field_pattern.clone()
+                .separated_by(just(Token::Comma))
+                .allow_trailing()
+                .collect::<Vec<_>>()
+                .delimited_by(just(Token::LBrace), just(Token::RBrace))
+                .try_map(|elements, span| {
+                    let has_rest = elements.iter().any(|e| matches!(e, StructPatternField::Rest));
+
+                    if elements
+                        .iter()
+                        .filter(|e| matches!(e, StructPatternField::Rest))
+                        .count()
+                        > 1
+                    {
+                        return Err(Rich::custom(span, "only one .. allowed in enum struct pattern"));
+                    }
+
+                    let fields: Vec<StructFieldPattern> = elements
+                        .into_iter()
+                        .filter_map(|e| match e {
+                            StructPatternField::Field(f) => Some(f),
+                            StructPatternField::Rest => None,
+                        })
+                        .collect();
+
+                    Ok(EnumPatternFields::Struct {
+                        fields,
+                        is_partial: has_rest,
+                    })
+                });
+
+            // Enum pattern: Enum::Variant, Enum::Variant(x), Enum::Variant { x }
+            let enum_pattern = ident()
+                .then_ignore(just(Token::ColonColon))
+                .then(ident())
+                .then(
+                    choice((
+                        enum_tuple_pattern_fields,
+                        enum_struct_pattern_fields,
+                    ))
+                    .or_not(),
+                )
+                .map(|((enum_name, variant_name), fields)| {
+                    let fields = fields.unwrap_or(EnumPatternFields::Unit);
+                    Pattern::Enum(EnumPattern {
+                        enum_name,
+                        variant_name,
+                        fields,
+                    })
+                });
+
+            // enum_pattern must come before struct_pattern to match :: first
+            choice((list_pattern, tuple_pattern, enum_pattern, struct_pattern, simple_pattern))
         });
 
         // Let binding for use in match arm blocks (uses expr from recursive context)
@@ -581,14 +753,47 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
 
         // Identifier: variable, function call, or struct constructor
         let ident_expr = ident()
-            .then(choice((
-                args.map(IdentSuffix::Call),
-                struct_fields.map(IdentSuffix::Struct),
-            )).or_not())
+            .then(
+                choice((
+                    args.clone().map(IdentSuffix::Call),
+                    struct_fields.clone().map(IdentSuffix::Struct),
+                ))
+                .or_not(),
+            )
             .map(|(name, suffix)| match suffix {
                 Some(IdentSuffix::Call(args)) => Expr::Call { func: name, args },
                 Some(IdentSuffix::Struct(fields)) => Expr::StructConstruct { name, fields },
                 None => Expr::Var(name),
+            });
+
+        // Enum construction: Enum::Variant, Enum::Variant(args), Enum::Variant { fields }
+        #[derive(Clone)]
+        enum EnumSuffix {
+            Tuple(Vec<Expr>),
+            Struct(Vec<(String, Expr)>),
+        }
+
+        let enum_construct = ident()
+            .then_ignore(just(Token::ColonColon))
+            .then(ident())
+            .then(
+                choice((
+                    args.clone().map(EnumSuffix::Tuple),
+                    struct_fields.clone().map(EnumSuffix::Struct),
+                ))
+                .or_not(),
+            )
+            .map(|((enum_name, variant_name), suffix)| {
+                let fields = match suffix {
+                    None => EnumConstructFields::Unit,
+                    Some(EnumSuffix::Tuple(exprs)) => EnumConstructFields::Tuple(exprs),
+                    Some(EnumSuffix::Struct(fields)) => EnumConstructFields::Struct(fields),
+                };
+                Expr::EnumConstruct {
+                    enum_name,
+                    variant_name,
+                    fields,
+                }
             });
 
         // Empty tuple: ()
@@ -692,6 +897,7 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
             literal,
             list_literal,
             match_expr,
+            enum_construct, // Must come before ident_expr to match :: first
             ident_expr,
             empty_tuple,
             paren_or_tuple,

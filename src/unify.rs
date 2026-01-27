@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::types::{Type, TypeError, TypeScheme, TypeVarId};
+use crate::types::{EnumVariantType, Type, TypeError, TypeScheme, TypeVarId};
 
 /// Unification context that tracks type variable bindings.
 #[derive(Debug, Clone, Default)]
@@ -51,7 +51,31 @@ impl UnifyCtx {
                 type_args: type_args.iter().map(|t| self.resolve(t)).collect(),
                 fields: fields.iter().map(|(n, t)| (n.clone(), self.resolve(t))).collect(),
             },
+            Type::Enum { name, type_args, variants } => Type::Enum {
+                name: name.clone(),
+                type_args: type_args.iter().map(|t| self.resolve(t)).collect(),
+                variants: variants
+                    .iter()
+                    .map(|(n, vt)| (n.clone(), self.resolve_variant_type(vt)))
+                    .collect(),
+            },
             _ => ty.clone(),
+        }
+    }
+
+    /// Resolve type variables within an enum variant type.
+    fn resolve_variant_type(&self, vt: &EnumVariantType) -> EnumVariantType {
+        match vt {
+            EnumVariantType::Unit => EnumVariantType::Unit,
+            EnumVariantType::Tuple(types) => {
+                EnumVariantType::Tuple(types.iter().map(|t| self.resolve(t)).collect())
+            }
+            EnumVariantType::Struct(fields) => EnumVariantType::Struct(
+                fields
+                    .iter()
+                    .map(|(n, t)| (n.clone(), self.resolve(t)))
+                    .collect(),
+            ),
         }
     }
 
@@ -70,7 +94,20 @@ impl UnifyCtx {
                 type_args.iter().any(|t| self.occurs(var_id, t))
                     || fields.iter().any(|(_, t)| self.occurs(var_id, t))
             }
+            Type::Enum { type_args, variants, .. } => {
+                type_args.iter().any(|t| self.occurs(var_id, t))
+                    || variants.iter().any(|(_, vt)| self.occurs_in_variant(var_id, vt))
+            }
             _ => false,
+        }
+    }
+
+    /// Check if a type variable occurs in an enum variant type.
+    fn occurs_in_variant(&self, var_id: TypeVarId, vt: &EnumVariantType) -> bool {
+        match vt {
+            EnumVariantType::Unit => false,
+            EnumVariantType::Tuple(types) => types.iter().any(|t| self.occurs(var_id, t)),
+            EnumVariantType::Struct(fields) => fields.iter().any(|(_, t)| self.occurs(var_id, t)),
         }
     }
 
@@ -194,6 +231,41 @@ impl UnifyCtx {
                 Ok(())
             }
 
+            // Enum types - unify if same name and type args unify
+            // Note: variants are derived from name + type_args, so we only unify type_args
+            (
+                Type::Enum {
+                    name: name1,
+                    type_args: args1,
+                    ..
+                },
+                Type::Enum {
+                    name: name2,
+                    type_args: args2,
+                    ..
+                },
+            ) => {
+                if name1 != name2 {
+                    return Err(TypeError {
+                        message: format!("enum type mismatch: {} vs {}", name1, name2),
+                    });
+                }
+                if args1.len() != args2.len() {
+                    return Err(TypeError {
+                        message: format!(
+                            "enum {} type argument count mismatch: {} vs {}",
+                            name1,
+                            args1.len(),
+                            args2.len()
+                        ),
+                    });
+                }
+                for (a1, a2) in args1.iter().zip(args2.iter()) {
+                    self.unify(a1, a2)?;
+                }
+                Ok(())
+            }
+
             // Different concrete types - cannot unify
             _ => Err(TypeError {
                 message: format!("type mismatch: {} vs {}", t1, t2),
@@ -238,7 +310,28 @@ impl UnifyCtx {
                 set.extend(fields.iter().flat_map(|(_, t)| self.free_vars(t)));
                 set
             }
+            Type::Enum { type_args, variants, .. } => {
+                let mut set: HashSet<TypeVarId> =
+                    type_args.iter().flat_map(|t| self.free_vars(t)).collect();
+                for (_, vt) in variants {
+                    set.extend(self.free_vars_in_variant(&vt));
+                }
+                set
+            }
             _ => HashSet::new(),
+        }
+    }
+
+    /// Collect free type variables in an enum variant type.
+    fn free_vars_in_variant(&self, vt: &EnumVariantType) -> HashSet<TypeVarId> {
+        match vt {
+            EnumVariantType::Unit => HashSet::new(),
+            EnumVariantType::Tuple(types) => {
+                types.iter().flat_map(|t| self.free_vars(t)).collect()
+            }
+            EnumVariantType::Struct(fields) => {
+                fields.iter().flat_map(|(_, t)| self.free_vars(t)).collect()
+            }
         }
     }
 
@@ -284,7 +377,37 @@ fn substitute_in_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
             type_args: type_args.iter().map(|t| substitute_in_type(t, mapping)).collect(),
             fields: fields.iter().map(|(n, t)| (n.clone(), substitute_in_type(t, mapping))).collect(),
         },
+        Type::Enum { name, type_args, variants } => Type::Enum {
+            name: name.clone(),
+            type_args: type_args
+                .iter()
+                .map(|t| substitute_in_type(t, mapping))
+                .collect(),
+            variants: variants
+                .iter()
+                .map(|(n, vt)| (n.clone(), substitute_in_variant_type(vt, mapping)))
+                .collect(),
+        },
         _ => ty.clone(),
+    }
+}
+
+/// Substitute type variables in an enum variant type.
+fn substitute_in_variant_type(
+    vt: &EnumVariantType,
+    mapping: &HashMap<TypeVarId, Type>,
+) -> EnumVariantType {
+    match vt {
+        EnumVariantType::Unit => EnumVariantType::Unit,
+        EnumVariantType::Tuple(types) => {
+            EnumVariantType::Tuple(types.iter().map(|t| substitute_in_type(t, mapping)).collect())
+        }
+        EnumVariantType::Struct(fields) => EnumVariantType::Struct(
+            fields
+                .iter()
+                .map(|(n, t)| (n.clone(), substitute_in_type(t, mapping)))
+                .collect(),
+        ),
     }
 }
 

@@ -13,7 +13,7 @@ pub fn deep_eq_prelude() -> &'static str {
 
 /// Check if a type requires deep equality comparison
 fn needs_deep_equality(ty: &Type) -> bool {
-    matches!(ty, Type::List(_) | Type::Struct { .. })
+    matches!(ty, Type::List(_) | Type::Struct { .. } | Type::Enum { .. })
 }
 
 /// Generate conditions and bindings for a pattern at a given access path.
@@ -215,6 +215,119 @@ fn codegen_pattern_at_path(
                 bindings.extend(child_binds);
             }
         }
+
+        // Enum patterns
+        TypedPattern::EnumUnit { variant_name, .. } => {
+            conditions.push(format!(
+                "typeof {} === 'object' && {} !== null && {}.$tag === \"{}\"",
+                access_path, access_path, access_path, variant_name
+            ));
+        }
+
+        TypedPattern::EnumTupleExact {
+            variant_name,
+            patterns,
+            ..
+        } => {
+            conditions.push(format!(
+                "typeof {} === 'object' && {} !== null && {}.$tag === \"{}\"",
+                access_path, access_path, access_path, variant_name
+            ));
+            for (i, pat) in patterns.iter().enumerate() {
+                let child_path = format!("{}.${}",  access_path, i);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
+        }
+
+        TypedPattern::EnumTuplePrefix {
+            variant_name,
+            patterns,
+            ..
+        } => {
+            conditions.push(format!(
+                "typeof {} === 'object' && {} !== null && {}.$tag === \"{}\"",
+                access_path, access_path, access_path, variant_name
+            ));
+            for (i, pat) in patterns.iter().enumerate() {
+                let child_path = format!("{}.${}",  access_path, i);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
+        }
+
+        TypedPattern::EnumTupleSuffix {
+            variant_name,
+            patterns,
+            total_fields,
+            ..
+        } => {
+            conditions.push(format!(
+                "typeof {} === 'object' && {} !== null && {}.$tag === \"{}\"",
+                access_path, access_path, access_path, variant_name
+            ));
+            let start_idx = total_fields - patterns.len();
+            for (i, pat) in patterns.iter().enumerate() {
+                let idx = start_idx + i;
+                let child_path = format!("{}.${}",  access_path, idx);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
+        }
+
+        TypedPattern::EnumTuplePrefixSuffix {
+            variant_name,
+            prefix,
+            suffix,
+            total_fields,
+            ..
+        } => {
+            conditions.push(format!(
+                "typeof {} === 'object' && {} !== null && {}.$tag === \"{}\"",
+                access_path, access_path, access_path, variant_name
+            ));
+            // Prefix patterns
+            for (i, pat) in prefix.iter().enumerate() {
+                let child_path = format!("{}.${}",  access_path, i);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
+            // Suffix patterns
+            let suffix_start = total_fields - suffix.len();
+            for (i, pat) in suffix.iter().enumerate() {
+                let idx = suffix_start + i;
+                let child_path = format!("{}.${}",  access_path, idx);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
+        }
+
+        TypedPattern::EnumStructExact {
+            variant_name,
+            fields,
+            ..
+        }
+        | TypedPattern::EnumStructPartial {
+            variant_name,
+            fields,
+            ..
+        } => {
+            conditions.push(format!(
+                "typeof {} === 'object' && {} !== null && {}.$tag === \"{}\"",
+                access_path, access_path, access_path, variant_name
+            ));
+            for (field_name, pat) in fields {
+                let child_path = format!("{}.{}", access_path, field_name);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
+        }
     }
 
     (conditions, bindings)
@@ -407,6 +520,41 @@ pub fn codegen(expr: &TypedExpr) -> String {
         TypedExpr::FieldAccess { expr, field, .. } => {
             format!("({}).{}", codegen(expr), field)
         }
+        TypedExpr::EnumConstruct {
+            variant_name,
+            fields,
+            ..
+        } => {
+            use crate::ir::TypedEnumConstructFields;
+            match fields {
+                TypedEnumConstructFields::Unit => {
+                    format!("({{ $tag: \"{}\" }})", variant_name)
+                }
+                TypedEnumConstructFields::Tuple(exprs) => {
+                    if exprs.is_empty() {
+                        format!("({{ $tag: \"{}\" }})", variant_name)
+                    } else {
+                        let field_strs: Vec<String> = exprs
+                            .iter()
+                            .enumerate()
+                            .map(|(i, e)| format!("${}: {}", i, codegen(e)))
+                            .collect();
+                        format!("({{ $tag: \"{}\", {} }})", variant_name, field_strs.join(", "))
+                    }
+                }
+                TypedEnumConstructFields::Struct(fields) => {
+                    if fields.is_empty() {
+                        format!("({{ $tag: \"{}\" }})", variant_name)
+                    } else {
+                        let field_strs: Vec<String> = fields
+                            .iter()
+                            .map(|(name, e)| format!("{}: {}", name, codegen(e)))
+                            .collect();
+                        format!("({{ $tag: \"{}\", {} }})", variant_name, field_strs.join(", "))
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -550,6 +698,90 @@ fn codegen_match(scrutinee: &TypedExpr, arms: &[TypedMatchArm]) -> String {
                     parts.push(format!(
                         "if (typeof $match === 'object' && $match !== null && {}) {{ {} return {}; }}",
                         condition, bindings, result_code
+                    ));
+                }
+            }
+            // Enum patterns
+            TypedPattern::EnumUnit { variant_name, .. } => {
+                let result_code = codegen(&arm.result);
+                parts.push(format!(
+                    "if (typeof $match === 'object' && $match !== null && $match.$tag === \"{}\") {{ return {}; }}",
+                    variant_name, result_code
+                ));
+            }
+            TypedPattern::EnumTupleExact { variant_name, patterns, .. } => {
+                let result_code = codegen(&arm.result);
+                let (condition, bindings) = codegen_enum_tuple_pattern_bindings(patterns);
+                if condition == "true" {
+                    parts.push(format!(
+                        "if (typeof $match === 'object' && $match !== null && $match.$tag === \"{}\") {{ {} return {}; }}",
+                        variant_name, bindings, result_code
+                    ));
+                } else {
+                    parts.push(format!(
+                        "if (typeof $match === 'object' && $match !== null && $match.$tag === \"{}\" && {}) {{ {} return {}; }}",
+                        variant_name, condition, bindings, result_code
+                    ));
+                }
+            }
+            TypedPattern::EnumTuplePrefix { variant_name, patterns, .. } => {
+                let result_code = codegen(&arm.result);
+                let (condition, bindings) = codegen_enum_tuple_pattern_bindings(patterns);
+                if condition == "true" {
+                    parts.push(format!(
+                        "if (typeof $match === 'object' && $match !== null && $match.$tag === \"{}\") {{ {} return {}; }}",
+                        variant_name, bindings, result_code
+                    ));
+                } else {
+                    parts.push(format!(
+                        "if (typeof $match === 'object' && $match !== null && $match.$tag === \"{}\" && {}) {{ {} return {}; }}",
+                        variant_name, condition, bindings, result_code
+                    ));
+                }
+            }
+            TypedPattern::EnumTupleSuffix { variant_name, patterns, total_fields, .. } => {
+                let result_code = codegen(&arm.result);
+                let (condition, bindings) = codegen_enum_tuple_suffix_bindings(patterns, *total_fields);
+                if condition == "true" {
+                    parts.push(format!(
+                        "if (typeof $match === 'object' && $match !== null && $match.$tag === \"{}\") {{ {} return {}; }}",
+                        variant_name, bindings, result_code
+                    ));
+                } else {
+                    parts.push(format!(
+                        "if (typeof $match === 'object' && $match !== null && $match.$tag === \"{}\" && {}) {{ {} return {}; }}",
+                        variant_name, condition, bindings, result_code
+                    ));
+                }
+            }
+            TypedPattern::EnumTuplePrefixSuffix { variant_name, prefix, suffix, total_fields, .. } => {
+                let result_code = codegen(&arm.result);
+                let (condition, bindings) = codegen_enum_tuple_prefix_suffix_bindings(prefix, suffix, *total_fields);
+                if condition == "true" {
+                    parts.push(format!(
+                        "if (typeof $match === 'object' && $match !== null && $match.$tag === \"{}\") {{ {} return {}; }}",
+                        variant_name, bindings, result_code
+                    ));
+                } else {
+                    parts.push(format!(
+                        "if (typeof $match === 'object' && $match !== null && $match.$tag === \"{}\" && {}) {{ {} return {}; }}",
+                        variant_name, condition, bindings, result_code
+                    ));
+                }
+            }
+            TypedPattern::EnumStructExact { variant_name, fields, .. }
+            | TypedPattern::EnumStructPartial { variant_name, fields, .. } => {
+                let result_code = codegen(&arm.result);
+                let (condition, bindings) = codegen_struct_pattern_bindings(fields);
+                if condition == "true" {
+                    parts.push(format!(
+                        "if (typeof $match === 'object' && $match !== null && $match.$tag === \"{}\") {{ {} return {}; }}",
+                        variant_name, bindings, result_code
+                    ));
+                } else {
+                    parts.push(format!(
+                        "if (typeof $match === 'object' && $match !== null && $match.$tag === \"{}\" && {}) {{ {} return {}; }}",
+                        variant_name, condition, bindings, result_code
                     ));
                 }
             }
@@ -915,6 +1147,163 @@ fn codegen_struct_pattern_bindings(
             // Nested patterns - use recursive helper
             _ => {
                 let child_path = format!("$match.{}", field_name);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
+        }
+    }
+
+    let condition = if conditions.is_empty() {
+        "true".to_string()
+    } else {
+        conditions.join(" && ")
+    };
+
+    (condition, bindings.join(" "))
+}
+
+/// Generate condition checks and bindings for enum tuple patterns (prefix, including exact)
+/// Returns (condition_expr, bindings_code)
+fn codegen_enum_tuple_pattern_bindings(
+    patterns: &[TypedPattern],
+) -> (String, String) {
+    let mut conditions = Vec::new();
+    let mut bindings = Vec::new();
+
+    for (i, pat) in patterns.iter().enumerate() {
+        match pat {
+            TypedPattern::Literal(lit) => {
+                let lit_code = codegen(lit);
+                if needs_deep_equality(&lit.ty()) {
+                    conditions.push(format!("{}($match.${}, {})", DEEP_EQ_FN, i, lit_code));
+                } else {
+                    conditions.push(format!("$match.${} === {}", i, lit_code));
+                }
+            }
+            TypedPattern::Var { name, .. } => {
+                bindings.push(format!("const {} = $match.${};", name, i));
+            }
+            TypedPattern::Wildcard => {}
+            // Nested patterns - use recursive helper
+            _ => {
+                let child_path = format!("$match.${}", i);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
+        }
+    }
+
+    let condition = if conditions.is_empty() {
+        "true".to_string()
+    } else {
+        conditions.join(" && ")
+    };
+
+    (condition, bindings.join(" "))
+}
+
+/// Generate condition checks and bindings for enum tuple suffix patterns (.., y, z)
+/// Returns (condition_expr, bindings_code)
+fn codegen_enum_tuple_suffix_bindings(
+    patterns: &[TypedPattern],
+    total_fields: usize,
+) -> (String, String) {
+    let mut conditions = Vec::new();
+    let mut bindings = Vec::new();
+
+    // For enum tuples, we know the exact field count, so compute indices directly
+    let start_idx = total_fields - patterns.len();
+    for (i, pat) in patterns.iter().enumerate() {
+        let idx = start_idx + i;
+        match pat {
+            TypedPattern::Literal(lit) => {
+                let lit_code = codegen(lit);
+                if needs_deep_equality(&lit.ty()) {
+                    conditions.push(format!("{}($match.${}, {})", DEEP_EQ_FN, idx, lit_code));
+                } else {
+                    conditions.push(format!("$match.${} === {}", idx, lit_code));
+                }
+            }
+            TypedPattern::Var { name, .. } => {
+                bindings.push(format!("const {} = $match.${};", name, idx));
+            }
+            TypedPattern::Wildcard => {}
+            // Nested patterns - use recursive helper
+            _ => {
+                let child_path = format!("$match.${}", idx);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
+        }
+    }
+
+    let condition = if conditions.is_empty() {
+        "true".to_string()
+    } else {
+        conditions.join(" && ")
+    };
+
+    (condition, bindings.join(" "))
+}
+
+/// Generate condition checks and bindings for enum tuple prefix+suffix patterns (a, .., z)
+/// Returns (condition_expr, bindings_code)
+fn codegen_enum_tuple_prefix_suffix_bindings(
+    prefix: &[TypedPattern],
+    suffix: &[TypedPattern],
+    total_fields: usize,
+) -> (String, String) {
+    let mut conditions = Vec::new();
+    let mut bindings = Vec::new();
+
+    // Prefix patterns: indexed from start
+    for (i, pat) in prefix.iter().enumerate() {
+        match pat {
+            TypedPattern::Literal(lit) => {
+                let lit_code = codegen(lit);
+                if needs_deep_equality(&lit.ty()) {
+                    conditions.push(format!("{}($match.${}, {})", DEEP_EQ_FN, i, lit_code));
+                } else {
+                    conditions.push(format!("$match.${} === {}", i, lit_code));
+                }
+            }
+            TypedPattern::Var { name, .. } => {
+                bindings.push(format!("const {} = $match.${};", name, i));
+            }
+            TypedPattern::Wildcard => {}
+            // Nested patterns - use recursive helper
+            _ => {
+                let child_path = format!("$match.${}", i);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
+        }
+    }
+
+    // Suffix patterns: indexed from end (known position since variant has fixed fields)
+    let suffix_start = total_fields - suffix.len();
+    for (i, pat) in suffix.iter().enumerate() {
+        let idx = suffix_start + i;
+        match pat {
+            TypedPattern::Literal(lit) => {
+                let lit_code = codegen(lit);
+                if needs_deep_equality(&lit.ty()) {
+                    conditions.push(format!("{}($match.${}, {})", DEEP_EQ_FN, idx, lit_code));
+                } else {
+                    conditions.push(format!("$match.${} === {}", idx, lit_code));
+                }
+            }
+            TypedPattern::Var { name, .. } => {
+                bindings.push(format!("const {} = $match.${};", name, idx));
+            }
+            TypedPattern::Wildcard => {}
+            // Nested patterns - use recursive helper
+            _ => {
+                let child_path = format!("$match.${}", idx);
                 let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
                 conditions.extend(child_conds);
                 bindings.extend(child_binds);

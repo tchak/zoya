@@ -32,6 +32,7 @@ fn run_source(source: &str) -> Result<Value, EvalError> {
         .filter_map(|item| match item {
             CheckedItem::Function(f) => Some(f),
             CheckedItem::Struct(_) => None,
+            CheckedItem::Enum(_) => None,
         })
         .collect();
 
@@ -109,6 +110,7 @@ pub fn build_file_command(path: &Path, output: Option<&Path>) -> Result<(), Stri
         .filter_map(|item| match item {
             CheckedItem::Function(f) => Some(f),
             CheckedItem::Struct(_) => None,
+            CheckedItem::Enum(_) => None,
         })
         .collect();
 
@@ -1703,5 +1705,198 @@ mod tests {
         "#;
         let result = run_source(source).unwrap();
         assert_eq!(result, Value::Bool(true));
+    }
+
+    // Enum tests
+
+    #[test]
+    fn test_run_enum_unit_variant() {
+        let source = r#"
+            enum Option<T> { None, Some(T) }
+            fn main() -> Int32 {
+                let x = Option::None;
+                match x {
+                    Option::None => 0,
+                    Option::Some(v) => v
+                }
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(0));
+    }
+
+    #[test]
+    fn test_run_enum_tuple_variant() {
+        let source = r#"
+            enum Option<T> { None, Some(T) }
+            fn main() -> Int32 {
+                let x = Option::Some(42);
+                match x {
+                    Option::None => 0,
+                    Option::Some(v) => v
+                }
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(42));
+    }
+
+    #[test]
+    fn test_run_enum_struct_variant() {
+        let source = r#"
+            enum Message { Quit, Move { x: Int32, y: Int32 }, Write(String) }
+            fn main() -> Int32 {
+                let msg = Message::Move { x: 10, y: 20 };
+                match msg {
+                    Message::Quit => 0,
+                    Message::Move { x, y } => x + y,
+                    Message::Write(s) => s.len()
+                }
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(30));
+    }
+
+    #[test]
+    fn test_run_enum_all_variant_types() {
+        let source = r#"
+            enum Message { Quit, Move { x: Int32, y: Int32 }, Write(String) }
+            fn handle_quit() -> Int32 {
+                let msg = Message::Quit;
+                match msg {
+                    Message::Quit => 1,
+                    Message::Move { x, y } => x + y,
+                    Message::Write(s) => s.len()
+                }
+            }
+            fn handle_write() -> Int32 {
+                let msg = Message::Write("hello");
+                match msg {
+                    Message::Quit => 0,
+                    Message::Move { x, y } => x + y,
+                    Message::Write(s) => s.len()
+                }
+            }
+            fn main() -> Int32 {
+                handle_quit() + handle_write()
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(6)); // 1 + 5
+    }
+
+    #[test]
+    fn test_run_enum_generic_multiple_types() {
+        let source = r#"
+            enum Option<T> { None, Some(T) }
+            fn main() -> Int32 {
+                let x = Option::Some(10);
+                let y = Option::Some("hello");
+                let a = match x {
+                    Option::Some(v) => v,
+                    Option::None => 0
+                };
+                let b = match y {
+                    Option::Some(s) => s.len(),
+                    Option::None => 0
+                };
+                a + b
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(15)); // 10 + 5
+    }
+
+    #[test]
+    fn test_run_enum_nested_pattern() {
+        let source = r#"
+            enum Option<T> { None, Some(T) }
+            fn main() -> Int32 {
+                let x = Option::Some((1, 2));
+                match x {
+                    Option::None => 0,
+                    Option::Some((a, b)) => a + b
+                }
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(3));
+    }
+
+    #[test]
+    fn test_run_enum_partial_struct_pattern() {
+        let source = r#"
+            enum Message { Quit, Move { x: Int32, y: Int32, z: Int32 } }
+            fn main() -> Int32 {
+                let msg = Message::Move { x: 1, y: 2, z: 3 };
+                match msg {
+                    Message::Quit => 0,
+                    Message::Move { x, .. } => x
+                }
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(1));
+    }
+
+    #[test]
+    fn test_run_enum_wildcard_pattern() {
+        let source = r#"
+            enum Message { Quit, Move { x: Int32, y: Int32 }, Write(String) }
+            fn main() -> Int32 {
+                let msg = Message::Write("hello");
+                match msg {
+                    Message::Quit => 0,
+                    _ => 42
+                }
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(42));
+    }
+
+    #[test]
+    fn test_run_enum_equality() {
+        let source = r#"
+            enum Option<T> { None, Some(T) }
+            fn main() -> Bool {
+                let x = Option::Some(42);
+                let y = Option::Some(42);
+                x == y
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_enum_inequality() {
+        let source = r#"
+            enum Option<T> { None, Some(T) }
+            fn main() -> Bool {
+                let x = Option::Some(42);
+                let y = Option::None;
+                x != y
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_enum_multi_field_tuple() {
+        let source = r#"
+            enum Result<T, E> { Ok(T), Err(E) }
+            fn main() -> Int32 {
+                let x = Result::Ok(42);
+                match x {
+                    Result::Ok(v) => v,
+                    Result::Err(e) => e
+                }
+            }
+        "#;
+        let result = run_source(source).unwrap();
+        assert_eq!(result, Value::Int32(42));
     }
 }

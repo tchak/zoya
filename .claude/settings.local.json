@@ -17,6 +17,7 @@
       "Bash(grep:*)",
       "Bash(find:*)",
       "Bash(ls:*)",
+      "Bash(cat:*)",
       "WebFetch(domain:docs.rs)"
     ]
   }
