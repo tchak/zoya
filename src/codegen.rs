@@ -16,6 +16,210 @@ fn needs_deep_equality(ty: &Type) -> bool {
     matches!(ty, Type::List(_) | Type::Struct { .. })
 }
 
+/// Generate conditions and bindings for a pattern at a given access path.
+/// This is the core recursive function for nested pattern support.
+///
+/// # Arguments
+/// * `pattern` - The typed pattern to generate code for
+/// * `access_path` - JS expression to access the value (e.g., "$match", "$match[0]", "$match.x")
+///
+/// # Returns
+/// Tuple of (conditions, bindings) where:
+/// * conditions: Vec of JS boolean expressions that must all be true
+/// * bindings: Vec of JS `const name = expr;` statements
+fn codegen_pattern_at_path(
+    pattern: &TypedPattern,
+    access_path: &str,
+) -> (Vec<String>, Vec<String>) {
+    let mut conditions = Vec::new();
+    let mut bindings = Vec::new();
+
+    match pattern {
+        TypedPattern::Literal(lit) => {
+            let lit_code = codegen(lit);
+            if needs_deep_equality(&lit.ty()) {
+                conditions.push(format!("{}({}, {})", DEEP_EQ_FN, access_path, lit_code));
+            } else {
+                conditions.push(format!("{} === {}", access_path, lit_code));
+            }
+        }
+
+        TypedPattern::Var { name, .. } => {
+            bindings.push(format!("const {} = {};", name, access_path));
+        }
+
+        TypedPattern::Wildcard => {
+            // No conditions or bindings needed
+        }
+
+        TypedPattern::ListEmpty => {
+            conditions.push(format!(
+                "Array.isArray({}) && {}.length === 0",
+                access_path, access_path
+            ));
+        }
+
+        TypedPattern::ListExact { patterns, len } => {
+            conditions.push(format!(
+                "Array.isArray({}) && {}.length === {}",
+                access_path, access_path, len
+            ));
+            for (i, pat) in patterns.iter().enumerate() {
+                let child_path = format!("{}[{}]", access_path, i);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
+        }
+
+        TypedPattern::ListPrefix { patterns, min_len } => {
+            conditions.push(format!(
+                "Array.isArray({}) && {}.length >= {}",
+                access_path, access_path, min_len
+            ));
+            for (i, pat) in patterns.iter().enumerate() {
+                let child_path = format!("{}[{}]", access_path, i);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
+        }
+
+        TypedPattern::ListSuffix { patterns, min_len } => {
+            conditions.push(format!(
+                "Array.isArray({}) && {}.length >= {}",
+                access_path, access_path, min_len
+            ));
+            for (i, pat) in patterns.iter().enumerate() {
+                let offset = min_len - i;
+                let child_path = format!("{}.length - {}", access_path, offset);
+                let indexed_path = format!("{}[{}]", access_path, child_path);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &indexed_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
+        }
+
+        TypedPattern::ListPrefixSuffix {
+            prefix,
+            suffix,
+            min_len,
+        } => {
+            conditions.push(format!(
+                "Array.isArray({}) && {}.length >= {}",
+                access_path, access_path, min_len
+            ));
+            // Prefix patterns: indexed from start
+            for (i, pat) in prefix.iter().enumerate() {
+                let child_path = format!("{}[{}]", access_path, i);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
+            // Suffix patterns: indexed from end
+            let suffix_len = suffix.len();
+            for (i, pat) in suffix.iter().enumerate() {
+                let offset = suffix_len - i;
+                let child_path = format!("{}.length - {}", access_path, offset);
+                let indexed_path = format!("{}[{}]", access_path, child_path);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &indexed_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
+        }
+
+        TypedPattern::TupleEmpty => {
+            conditions.push(format!(
+                "Array.isArray({}) && {}.length === 0",
+                access_path, access_path
+            ));
+        }
+
+        TypedPattern::TupleExact { patterns, len } => {
+            conditions.push(format!(
+                "Array.isArray({}) && {}.length === {}",
+                access_path, access_path, len
+            ));
+            for (i, pat) in patterns.iter().enumerate() {
+                let child_path = format!("{}[{}]", access_path, i);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
+        }
+
+        TypedPattern::TuplePrefix { patterns, total_len } => {
+            conditions.push(format!(
+                "Array.isArray({}) && {}.length === {}",
+                access_path, access_path, total_len
+            ));
+            for (i, pat) in patterns.iter().enumerate() {
+                let child_path = format!("{}[{}]", access_path, i);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
+        }
+
+        TypedPattern::TupleSuffix { patterns, total_len } => {
+            conditions.push(format!(
+                "Array.isArray({}) && {}.length === {}",
+                access_path, access_path, total_len
+            ));
+            let start_idx = total_len - patterns.len();
+            for (i, pat) in patterns.iter().enumerate() {
+                let idx = start_idx + i;
+                let child_path = format!("{}[{}]", access_path, idx);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
+        }
+
+        TypedPattern::TuplePrefixSuffix {
+            prefix,
+            suffix,
+            total_len,
+        } => {
+            conditions.push(format!(
+                "Array.isArray({}) && {}.length === {}",
+                access_path, access_path, total_len
+            ));
+            // Prefix patterns
+            for (i, pat) in prefix.iter().enumerate() {
+                let child_path = format!("{}[{}]", access_path, i);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
+            // Suffix patterns
+            let suffix_start = total_len - suffix.len();
+            for (i, pat) in suffix.iter().enumerate() {
+                let idx = suffix_start + i;
+                let child_path = format!("{}[{}]", access_path, idx);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
+        }
+
+        TypedPattern::StructExact { fields, .. } | TypedPattern::StructPartial { fields, .. } => {
+            conditions.push(format!(
+                "typeof {} === 'object' && {} !== null",
+                access_path, access_path
+            ));
+            for (field_name, pat) in fields {
+                let child_path = format!("{}.{}", access_path, field_name);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
+        }
+    }
+
+    (conditions, bindings)
+}
+
 pub fn codegen(expr: &TypedExpr) -> String {
     match expr {
         TypedExpr::Int32(n) => n.to_string(),
@@ -383,19 +587,12 @@ fn codegen_list_pattern_bindings(
             TypedPattern::Wildcard => {
                 // No binding or condition needed
             }
-            TypedPattern::ListEmpty
-            | TypedPattern::ListExact { .. }
-            | TypedPattern::ListPrefix { .. }
-            | TypedPattern::ListSuffix { .. }
-            | TypedPattern::ListPrefixSuffix { .. }
-            | TypedPattern::TupleEmpty
-            | TypedPattern::TupleExact { .. }
-            | TypedPattern::TuplePrefix { .. }
-            | TypedPattern::TupleSuffix { .. }
-            | TypedPattern::TuplePrefixSuffix { .. }
-            | TypedPattern::StructExact { .. }
-            | TypedPattern::StructPartial { .. } => {
-                // Nested patterns not yet supported
+            // Nested patterns - use recursive helper
+            _ => {
+                let child_path = format!("$match[{}]", i);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
             }
         }
     }
@@ -441,19 +638,12 @@ fn codegen_suffix_pattern_bindings(
             TypedPattern::Wildcard => {
                 // No binding or condition needed
             }
-            TypedPattern::ListEmpty
-            | TypedPattern::ListExact { .. }
-            | TypedPattern::ListPrefix { .. }
-            | TypedPattern::ListSuffix { .. }
-            | TypedPattern::ListPrefixSuffix { .. }
-            | TypedPattern::TupleEmpty
-            | TypedPattern::TupleExact { .. }
-            | TypedPattern::TuplePrefix { .. }
-            | TypedPattern::TupleSuffix { .. }
-            | TypedPattern::TuplePrefixSuffix { .. }
-            | TypedPattern::StructExact { .. }
-            | TypedPattern::StructPartial { .. } => {
-                // Nested patterns not yet supported
+            // Nested patterns - use recursive helper
+            _ => {
+                let child_path = format!("$match[{}]", index_expr);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
             }
         }
     }
@@ -491,18 +681,13 @@ fn codegen_prefix_suffix_pattern_bindings(
                 bindings.push(format!("const {} = $match[{}];", name, i));
             }
             TypedPattern::Wildcard => {}
-            TypedPattern::ListEmpty
-            | TypedPattern::ListExact { .. }
-            | TypedPattern::ListPrefix { .. }
-            | TypedPattern::ListSuffix { .. }
-            | TypedPattern::ListPrefixSuffix { .. }
-            | TypedPattern::TupleEmpty
-            | TypedPattern::TupleExact { .. }
-            | TypedPattern::TuplePrefix { .. }
-            | TypedPattern::TupleSuffix { .. }
-            | TypedPattern::TuplePrefixSuffix { .. }
-            | TypedPattern::StructExact { .. }
-            | TypedPattern::StructPartial { .. } => {}
+            // Nested patterns - use recursive helper
+            _ => {
+                let child_path = format!("$match[{}]", i);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
         }
     }
 
@@ -525,18 +710,13 @@ fn codegen_prefix_suffix_pattern_bindings(
                 bindings.push(format!("const {} = $match[{}];", name, index_expr));
             }
             TypedPattern::Wildcard => {}
-            TypedPattern::ListEmpty
-            | TypedPattern::ListExact { .. }
-            | TypedPattern::ListPrefix { .. }
-            | TypedPattern::ListSuffix { .. }
-            | TypedPattern::ListPrefixSuffix { .. }
-            | TypedPattern::TupleEmpty
-            | TypedPattern::TupleExact { .. }
-            | TypedPattern::TuplePrefix { .. }
-            | TypedPattern::TupleSuffix { .. }
-            | TypedPattern::TuplePrefixSuffix { .. }
-            | TypedPattern::StructExact { .. }
-            | TypedPattern::StructPartial { .. } => {}
+            // Nested patterns - use recursive helper
+            _ => {
+                let child_path = format!("$match[{}]", index_expr);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
         }
     }
 
@@ -572,7 +752,13 @@ fn codegen_tuple_pattern_bindings(
                 bindings.push(format!("const {} = $match[{}];", name, i));
             }
             TypedPattern::Wildcard => {}
-            _ => {} // Nested patterns not yet supported
+            // Nested patterns - use recursive helper
+            _ => {
+                let child_path = format!("$match[{}]", i);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
         }
     }
 
@@ -611,7 +797,13 @@ fn codegen_tuple_suffix_bindings(
                 bindings.push(format!("const {} = $match[{}];", name, idx));
             }
             TypedPattern::Wildcard => {}
-            _ => {} // Nested patterns not yet supported
+            // Nested patterns - use recursive helper
+            _ => {
+                let child_path = format!("$match[{}]", idx);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
         }
     }
 
@@ -649,7 +841,13 @@ fn codegen_tuple_prefix_suffix_bindings(
                 bindings.push(format!("const {} = $match[{}];", name, i));
             }
             TypedPattern::Wildcard => {}
-            _ => {}
+            // Nested patterns - use recursive helper
+            _ => {
+                let child_path = format!("$match[{}]", i);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
         }
     }
 
@@ -670,7 +868,13 @@ fn codegen_tuple_prefix_suffix_bindings(
                 bindings.push(format!("const {} = $match[{}];", name, idx));
             }
             TypedPattern::Wildcard => {}
-            _ => {}
+            // Nested patterns - use recursive helper
+            _ => {
+                let child_path = format!("$match[{}]", idx);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
+            }
         }
     }
 
@@ -708,12 +912,12 @@ fn codegen_struct_pattern_bindings(
                 bindings.push(format!("const {} = $match.{};", name, field_name));
             }
             TypedPattern::Wildcard => {}
-            // For nested patterns, we would need recursive handling
-            // For now, just bind the field value for complex patterns
+            // Nested patterns - use recursive helper
             _ => {
-                // Nested pattern - create a temporary and recursively match
-                // For simplicity in initial implementation, treat as variable binding
-                bindings.push(format!("const _nested_{} = $match.{};", field_name, field_name));
+                let child_path = format!("$match.{}", field_name);
+                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+                conditions.extend(child_conds);
+                bindings.extend(child_binds);
             }
         }
     }
