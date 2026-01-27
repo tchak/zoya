@@ -6,7 +6,7 @@ use rustyline::error::ReadlineError;
 
 use crate::ast::{EnumDef, FunctionDef, StructDef};
 use crate::check::{CheckedStatement, TypeEnv, check_repl};
-use crate::codegen::{codegen, codegen_function, codegen_let};
+use crate::codegen::{codegen, codegen_function, codegen_let, prelude};
 use crate::eval::{self, Context, Value};
 use crate::lexer;
 use crate::parser;
@@ -48,6 +48,12 @@ impl State {
     /// Create a new REPL state
     pub fn new() -> Result<Self, String> {
         let (runtime, context) = eval::create_context()?;
+
+        // Initialize context with prelude (helper functions)
+        context.with(|ctx| {
+            ctx.eval::<(), _>(prelude())
+                .map_err(|e| format!("Failed to initialize prelude: {}", e))
+        })?;
 
         Ok(State {
             functions: HashMap::new(),

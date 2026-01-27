@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::check::check_file;
-use crate::codegen::{codegen_function, deep_eq_prelude};
+use crate::codegen::{codegen_function, prelude};
 use crate::eval::{self, EvalError, Value};
 use crate::ir::{CheckedItem, TypedFunction};
 use crate::lexer;
@@ -53,7 +53,7 @@ fn run_source(source: &str) -> Result<Value, EvalError> {
     let mut js_code = String::new();
 
     // Add prelude for deep equality (used by list/struct comparison)
-    js_code.push_str(deep_eq_prelude());
+    js_code.push_str(prelude());
     js_code.push('\n');
 
     for typed_func in &typed_functions {
@@ -116,7 +116,7 @@ pub fn build_file_command(path: &Path, output: Option<&Path>) -> Result<(), Stri
 
     // Generate JS code
     let mut js_code = String::new();
-    js_code.push_str(deep_eq_prelude());
+    js_code.push_str(prelude());
     js_code.push('\n');
     for typed_func in &typed_functions {
         js_code.push_str(&codegen_function(typed_func));

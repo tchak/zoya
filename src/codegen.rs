@@ -6,11 +6,33 @@ use crate::types::Type;
 /// Deep equality function name used in generated JS
 const DEEP_EQ_FN: &str = "$eq";
 
-/// Deep equality helper function for structural comparison of lists and structs
-pub fn deep_eq_prelude() -> &'static str {
-    "function $eq(a,b){if(Array.isArray(a)&&Array.isArray(b)){if(a.length!==b.length)return false;for(let i=0;i<a.length;i++)if(!$eq(a[i],b[i]))return false;return true}if(typeof a==='object'&&a!==null&&typeof b==='object'&&b!==null&&!Array.isArray(a)&&!Array.isArray(b)){const ka=Object.keys(a),kb=Object.keys(b);if(ka.length!==kb.length)return false;for(let k of ka)if(!$eq(a[k],b[k]))return false;return true}return a===b}"
-}
+/// Plain object check function name used in generated JS
+const IS_OBJ_FN: &str = "$isObj";
 
+/// Prelude containing helper functions for generated JS
+pub fn prelude() -> &'static str {
+    r#"function $isObj(x) {
+  return typeof x === 'object' && x !== null && !Array.isArray(x);
+}
+function $eq(a, b) {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!$eq(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  if ($isObj(a) && $isObj(b)) {
+    const ka = Object.keys(a), kb = Object.keys(b);
+    if (ka.length !== kb.length) return false;
+    for (let k of ka) {
+      if (!$eq(a[k], b[k])) return false;
+    }
+    return true;
+  }
+  return a === b;
+}"#
+}
 /// Check if a type requires deep equality comparison
 fn needs_deep_equality(ty: &Type) -> bool {
     matches!(ty, Type::List(_) | Type::Struct { .. } | Type::Enum { .. })
@@ -204,10 +226,7 @@ fn codegen_pattern_at_path(
         }
 
         TypedPattern::StructExact { fields, .. } | TypedPattern::StructPartial { fields, .. } => {
-            conditions.push(format!(
-                "typeof {} === 'object' && {} !== null",
-                access_path, access_path
-            ));
+            conditions.push(format!("{}({})", IS_OBJ_FN, access_path));
             for (field_name, pat) in fields {
                 let child_path = format!("{}.{}", access_path, field_name);
                 let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
@@ -219,8 +238,8 @@ fn codegen_pattern_at_path(
         // Enum patterns
         TypedPattern::EnumUnit { variant_name, .. } => {
             conditions.push(format!(
-                "typeof {} === 'object' && {} !== null && {}.$tag === \"{}\"",
-                access_path, access_path, access_path, variant_name
+                "{}({}) && {}.$tag === \"{}\"",
+                IS_OBJ_FN, access_path, access_path, variant_name
             ));
         }
 
@@ -230,8 +249,8 @@ fn codegen_pattern_at_path(
             ..
         } => {
             conditions.push(format!(
-                "typeof {} === 'object' && {} !== null && {}.$tag === \"{}\"",
-                access_path, access_path, access_path, variant_name
+                "{}({}) && {}.$tag === \"{}\"",
+                IS_OBJ_FN, access_path, access_path, variant_name
             ));
             for (i, pat) in patterns.iter().enumerate() {
                 let child_path = format!("{}.${}",  access_path, i);
@@ -247,8 +266,8 @@ fn codegen_pattern_at_path(
             ..
         } => {
             conditions.push(format!(
-                "typeof {} === 'object' && {} !== null && {}.$tag === \"{}\"",
-                access_path, access_path, access_path, variant_name
+                "{}({}) && {}.$tag === \"{}\"",
+                IS_OBJ_FN, access_path, access_path, variant_name
             ));
             for (i, pat) in patterns.iter().enumerate() {
                 let child_path = format!("{}.${}",  access_path, i);
@@ -265,8 +284,8 @@ fn codegen_pattern_at_path(
             ..
         } => {
             conditions.push(format!(
-                "typeof {} === 'object' && {} !== null && {}.$tag === \"{}\"",
-                access_path, access_path, access_path, variant_name
+                "{}({}) && {}.$tag === \"{}\"",
+                IS_OBJ_FN, access_path, access_path, variant_name
             ));
             let start_idx = total_fields - patterns.len();
             for (i, pat) in patterns.iter().enumerate() {
@@ -286,8 +305,8 @@ fn codegen_pattern_at_path(
             ..
         } => {
             conditions.push(format!(
-                "typeof {} === 'object' && {} !== null && {}.$tag === \"{}\"",
-                access_path, access_path, access_path, variant_name
+                "{}({}) && {}.$tag === \"{}\"",
+                IS_OBJ_FN, access_path, access_path, variant_name
             ));
             // Prefix patterns
             for (i, pat) in prefix.iter().enumerate() {
@@ -318,8 +337,8 @@ fn codegen_pattern_at_path(
             ..
         } => {
             conditions.push(format!(
-                "typeof {} === 'object' && {} !== null && {}.$tag === \"{}\"",
-                access_path, access_path, access_path, variant_name
+                "{}({}) && {}.$tag === \"{}\"",
+                IS_OBJ_FN, access_path, access_path, variant_name
             ));
             for (field_name, pat) in fields {
                 let child_path = format!("{}.{}", access_path, field_name);
@@ -691,13 +710,13 @@ fn codegen_match(scrutinee: &TypedExpr, arms: &[TypedMatchArm]) -> String {
                 let (condition, bindings) = codegen_struct_pattern_bindings(fields);
                 if condition == "true" {
                     parts.push(format!(
-                        "if (typeof $match === 'object' && $match !== null) {{ {} return {}; }}",
-                        bindings, result_code
+                        "if ({}($match)) {{ {} return {}; }}",
+                        IS_OBJ_FN, bindings, result_code
                     ));
                 } else {
                     parts.push(format!(
-                        "if (typeof $match === 'object' && $match !== null && {}) {{ {} return {}; }}",
-                        condition, bindings, result_code
+                        "if ({}($match) && {}) {{ {} return {}; }}",
+                        IS_OBJ_FN, condition, bindings, result_code
                     ));
                 }
             }
@@ -705,8 +724,8 @@ fn codegen_match(scrutinee: &TypedExpr, arms: &[TypedMatchArm]) -> String {
             TypedPattern::EnumUnit { variant_name, .. } => {
                 let result_code = codegen(&arm.result);
                 parts.push(format!(
-                    "if (typeof $match === 'object' && $match !== null && $match.$tag === \"{}\") {{ return {}; }}",
-                    variant_name, result_code
+                    "if ({}($match) && $match.$tag === \"{}\") {{ return {}; }}",
+                    IS_OBJ_FN, variant_name, result_code
                 ));
             }
             TypedPattern::EnumTupleExact { variant_name, patterns, .. } => {
@@ -714,13 +733,13 @@ fn codegen_match(scrutinee: &TypedExpr, arms: &[TypedMatchArm]) -> String {
                 let (condition, bindings) = codegen_enum_tuple_pattern_bindings(patterns);
                 if condition == "true" {
                     parts.push(format!(
-                        "if (typeof $match === 'object' && $match !== null && $match.$tag === \"{}\") {{ {} return {}; }}",
-                        variant_name, bindings, result_code
+                        "if ({}($match) && $match.$tag === \"{}\") {{ {} return {}; }}",
+                        IS_OBJ_FN, variant_name, bindings, result_code
                     ));
                 } else {
                     parts.push(format!(
-                        "if (typeof $match === 'object' && $match !== null && $match.$tag === \"{}\" && {}) {{ {} return {}; }}",
-                        variant_name, condition, bindings, result_code
+                        "if ({}($match) && $match.$tag === \"{}\" && {}) {{ {} return {}; }}",
+                        IS_OBJ_FN, variant_name, condition, bindings, result_code
                     ));
                 }
             }
@@ -729,13 +748,13 @@ fn codegen_match(scrutinee: &TypedExpr, arms: &[TypedMatchArm]) -> String {
                 let (condition, bindings) = codegen_enum_tuple_pattern_bindings(patterns);
                 if condition == "true" {
                     parts.push(format!(
-                        "if (typeof $match === 'object' && $match !== null && $match.$tag === \"{}\") {{ {} return {}; }}",
-                        variant_name, bindings, result_code
+                        "if ({}($match) && $match.$tag === \"{}\") {{ {} return {}; }}",
+                        IS_OBJ_FN, variant_name, bindings, result_code
                     ));
                 } else {
                     parts.push(format!(
-                        "if (typeof $match === 'object' && $match !== null && $match.$tag === \"{}\" && {}) {{ {} return {}; }}",
-                        variant_name, condition, bindings, result_code
+                        "if ({}($match) && $match.$tag === \"{}\" && {}) {{ {} return {}; }}",
+                        IS_OBJ_FN, variant_name, condition, bindings, result_code
                     ));
                 }
             }
@@ -744,13 +763,13 @@ fn codegen_match(scrutinee: &TypedExpr, arms: &[TypedMatchArm]) -> String {
                 let (condition, bindings) = codegen_enum_tuple_suffix_bindings(patterns, *total_fields);
                 if condition == "true" {
                     parts.push(format!(
-                        "if (typeof $match === 'object' && $match !== null && $match.$tag === \"{}\") {{ {} return {}; }}",
-                        variant_name, bindings, result_code
+                        "if ({}($match) && $match.$tag === \"{}\") {{ {} return {}; }}",
+                        IS_OBJ_FN, variant_name, bindings, result_code
                     ));
                 } else {
                     parts.push(format!(
-                        "if (typeof $match === 'object' && $match !== null && $match.$tag === \"{}\" && {}) {{ {} return {}; }}",
-                        variant_name, condition, bindings, result_code
+                        "if ({}($match) && $match.$tag === \"{}\" && {}) {{ {} return {}; }}",
+                        IS_OBJ_FN, variant_name, condition, bindings, result_code
                     ));
                 }
             }
@@ -759,13 +778,13 @@ fn codegen_match(scrutinee: &TypedExpr, arms: &[TypedMatchArm]) -> String {
                 let (condition, bindings) = codegen_enum_tuple_prefix_suffix_bindings(prefix, suffix, *total_fields);
                 if condition == "true" {
                     parts.push(format!(
-                        "if (typeof $match === 'object' && $match !== null && $match.$tag === \"{}\") {{ {} return {}; }}",
-                        variant_name, bindings, result_code
+                        "if ({}($match) && $match.$tag === \"{}\") {{ {} return {}; }}",
+                        IS_OBJ_FN, variant_name, bindings, result_code
                     ));
                 } else {
                     parts.push(format!(
-                        "if (typeof $match === 'object' && $match !== null && $match.$tag === \"{}\" && {}) {{ {} return {}; }}",
-                        variant_name, condition, bindings, result_code
+                        "if ({}($match) && $match.$tag === \"{}\" && {}) {{ {} return {}; }}",
+                        IS_OBJ_FN, variant_name, condition, bindings, result_code
                     ));
                 }
             }
@@ -775,13 +794,13 @@ fn codegen_match(scrutinee: &TypedExpr, arms: &[TypedMatchArm]) -> String {
                 let (condition, bindings) = codegen_struct_pattern_bindings(fields);
                 if condition == "true" {
                     parts.push(format!(
-                        "if (typeof $match === 'object' && $match !== null && $match.$tag === \"{}\") {{ {} return {}; }}",
-                        variant_name, bindings, result_code
+                        "if ({}($match) && $match.$tag === \"{}\") {{ {} return {}; }}",
+                        IS_OBJ_FN, variant_name, bindings, result_code
                     ));
                 } else {
                     parts.push(format!(
-                        "if (typeof $match === 'object' && $match !== null && $match.$tag === \"{}\" && {}) {{ {} return {}; }}",
-                        variant_name, condition, bindings, result_code
+                        "if ({}($match) && $match.$tag === \"{}\" && {}) {{ {} return {}; }}",
+                        IS_OBJ_FN, variant_name, condition, bindings, result_code
                     ));
                 }
             }
