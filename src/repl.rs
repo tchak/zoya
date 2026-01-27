@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
-use crate::ast::{EnumDef, FunctionDef, StructDef};
+use crate::ast::{EnumDef, StructDef};
 use crate::check::{CheckedStatement, TypeEnv, check_repl};
 use crate::codegen::{codegen, codegen_function, codegen_let, prelude};
 use crate::eval::{self, Context, Value};
@@ -29,8 +29,6 @@ pub enum ReplResult {
 
 /// REPL state that accumulates function and struct definitions
 pub struct State {
-    /// Function definitions (AST level, for re-type-checking on redefinition)
-    functions: HashMap<String, FunctionDef>,
     /// Struct definitions (AST level)
     structs: HashMap<String, StructDef>,
     /// Enum definitions (AST level)
@@ -56,7 +54,6 @@ impl State {
         })?;
 
         Ok(State {
-            functions: HashMap::new(),
             structs: HashMap::new(),
             enums: HashMap::new(),
             type_env: TypeEnv::default(),
@@ -96,16 +93,6 @@ impl State {
                         ctx.eval::<(), _>(js_code)
                             .map_err(|e| format!("JS error: {}", e))
                     })?;
-
-                    // Store AST for potential re-checking later
-                    for stmt in &statements {
-                        if let crate::ast::Statement::Item(crate::ast::Item::Function(func)) = stmt
-                            && func.name == name
-                        {
-                            self.functions.insert(name.clone(), func.clone());
-                            break;
-                        }
-                    }
 
                     results.push(ReplResult::FunctionDefined(name));
                 }
