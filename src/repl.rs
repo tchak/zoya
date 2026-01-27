@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
+use rustyline::error::ReadlineError;
 
 use crate::ast::{FunctionDef, StructDef};
-use crate::check::{check_repl, CheckedStatement, TypeEnv};
+use crate::check::{CheckedStatement, TypeEnv, check_repl};
 use crate::codegen::{codegen, codegen_function, codegen_let};
 use crate::eval::{self, Context, Value};
 use crate::lexer;
@@ -165,9 +165,15 @@ pub fn run() {
         }
     };
 
+    // Track consecutive Ctrl-C presses for exit
+    let mut ctrl_c_pressed = false;
+
     loop {
         match rl.readline("> ") {
             Ok(line) => {
+                // Reset Ctrl-C state on normal input
+                ctrl_c_pressed = false;
+
                 let line = line.trim();
                 if line.is_empty() {
                     continue;
@@ -201,7 +207,12 @@ pub fn run() {
                 }
             }
             Err(ReadlineError::Interrupted) => {
-                // Ctrl-C: clear current line, continue
+                // Ctrl-C: exit on double press
+                if ctrl_c_pressed {
+                    break;
+                }
+                ctrl_c_pressed = true;
+                println!("Press Ctrl-C again to exit, or Ctrl-D");
                 continue;
             }
             Err(ReadlineError::Eof) => {
@@ -267,7 +278,10 @@ mod tests {
         let results = state
             .eval("fn add(x: Int32, y: Int32) -> Int32 { x + y }")
             .unwrap();
-        assert_eq!(results, vec![ReplResult::FunctionDefined("add".to_string())]);
+        assert_eq!(
+            results,
+            vec![ReplResult::FunctionDefined("add".to_string())]
+        );
     }
 
     #[test]
@@ -473,9 +487,7 @@ mod tests {
         let mut state = State::new().unwrap();
         state.eval("struct Point { x: Int32, y: Int32 }").unwrap();
         state.eval("let p = Point { x: 10, y: 20 }").unwrap();
-        let results = state
-            .eval("match p { Point { x, y } => x + y }")
-            .unwrap();
+        let results = state.eval("match p { Point { x, y } => x + y }").unwrap();
         assert_eq!(results, vec![ReplResult::Expression(Value::Int32(30))]);
     }
 }
