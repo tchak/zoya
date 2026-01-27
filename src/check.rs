@@ -22,30 +22,24 @@ pub struct TypeEnv {
     pub structs: HashMap<String, StructType>,
     /// Enum type definitions
     pub enums: HashMap<String, EnumType>,
-    /// Local variable types (parameters in function bodies) - monomorphic
-    pub locals: HashMap<String, Type>,
-    /// Polymorphic let-bound variables (type schemes for let polymorphism)
-    pub poly_locals: HashMap<String, TypeScheme>,
+    /// Local variable types (type schemes for let polymorphism)
+    pub locals: HashMap<String, TypeScheme>,
 }
 
 impl TypeEnv {
-    pub fn with_locals(&self, locals: HashMap<String, Type>) -> Self {
+    pub fn with_locals(&self, locals: HashMap<String, TypeScheme>) -> Self {
         TypeEnv {
             functions: self.functions.clone(),
             structs: self.structs.clone(),
             enums: self.enums.clone(),
             locals,
-            poly_locals: self.poly_locals.clone(),
         }
     }
 
     /// Collect all free type variables in the environment
     pub fn free_vars(&self, ctx: &UnifyCtx) -> HashSet<TypeVarId> {
         let mut set = HashSet::new();
-        for ty in self.locals.values() {
-            set.extend(ctx.free_vars(ty));
-        }
-        for scheme in self.poly_locals.values() {
+        for scheme in self.locals.values() {
             // Free vars in scheme = free vars in type - quantified vars
             let ty_vars = ctx.free_vars(&scheme.ty);
             let quantified: HashSet<_> = scheme.quantified.iter().cloned().collect();
@@ -236,7 +230,7 @@ fn check_function(
 
     for param in &func.params {
         let ty = resolve_type_annotation(&param.typ, &type_param_map, env)?;
-        locals.insert(param.name.clone(), ty.clone());
+        locals.insert(param.name.clone(), TypeScheme::mono(ty.clone()));
         param_types.push(ty);
     }
 
@@ -383,19 +377,11 @@ fn builtin_method(receiver_ty: &Type, method: &str) -> Option<(Vec<Type>, Type)>
 
 /// Check a variable reference
 fn check_var(name: &str, env: &TypeEnv, ctx: &mut UnifyCtx) -> Result<TypedExpr, TypeError> {
-    // First check polymorphic locals (let-bound values with type schemes)
-    if let Some(scheme) = env.poly_locals.get(name) {
+    if let Some(scheme) = env.locals.get(name) {
         let ty = ctx.instantiate(scheme);
         Ok(TypedExpr::Var {
             name: name.to_string(),
             ty: ctx.resolve(&ty),
-        })
-    }
-    // Then check monomorphic locals (function parameters)
-    else if let Some(ty) = env.locals.get(name) {
-        Ok(TypedExpr::Var {
-            name: name.to_string(),
-            ty: ctx.resolve(ty),
         })
     } else {
         Err(TypeError {
@@ -618,17 +604,15 @@ fn check_block(
 
         // Check if we should generalize (let polymorphism)
         // Only generalize syntactic values (lambdas, literals, variables)
-        if is_syntactic_value(&binding.value) {
+        let scheme = if is_syntactic_value(&binding.value) {
             // Collect fixed vars from the environment
             let fixed_vars = block_env.free_vars(ctx);
-            let scheme = ctx.generalize(&typed_binding.ty, &fixed_vars);
-            block_env.poly_locals.insert(binding.name.clone(), scheme);
+            ctx.generalize(&typed_binding.ty, &fixed_vars)
         } else {
             // Monomorphic binding
-            block_env
-                .locals
-                .insert(binding.name.clone(), typed_binding.ty.clone());
-        }
+            TypeScheme::mono(typed_binding.ty.clone())
+        };
+        block_env.locals.insert(binding.name.clone(), scheme);
 
         typed_bindings.push(typed_binding);
     }
@@ -823,7 +807,9 @@ fn check_lambda(
             Some(annotation) => resolve_type_annotation(annotation, &HashMap::new(), env)?,
             None => ctx.fresh_var(),
         };
-        lambda_env.locals.insert(param.name.clone(), param_ty.clone());
+        lambda_env
+            .locals
+            .insert(param.name.clone(), TypeScheme::mono(param_ty.clone()));
         param_types.push(param_ty);
     }
 
@@ -1289,15 +1275,7 @@ fn substitute_variant_type_vars(
 
 /// Get the type of a callable (lambda-bound variable), instantiating if polymorphic
 fn get_callable_type(name: &str, env: &TypeEnv, ctx: &mut UnifyCtx) -> Option<Type> {
-    // Check polymorphic locals first
-    if let Some(scheme) = env.poly_locals.get(name) {
-        return Some(ctx.instantiate(scheme));
-    }
-    // Then check monomorphic locals
-    if let Some(ty) = env.locals.get(name) {
-        return Some(ty.clone());
-    }
-    None
+    env.locals.get(name).map(|scheme| ctx.instantiate(scheme))
 }
 
 /// Check if an expression is a syntactic value (safe to generalize under value restriction)
@@ -2046,7 +2024,9 @@ fn check_match_arm(
 
     // Create arm environment with pattern bindings
     let mut arm_env = env.clone();
-    arm_env.locals.extend(bindings);
+    arm_env
+        .locals
+        .extend(bindings.into_iter().map(|(n, ty)| (n, TypeScheme::mono(ty))));
 
     let typed_result = check_with_env(&arm.result, &arm_env, ctx)?;
 
@@ -2402,14 +2382,13 @@ pub fn check_repl(
                 let typed_binding = check_let_binding(binding, env, &mut ctx)?;
 
                 // Apply let polymorphism (value restriction)
-                if is_syntactic_value(&binding.value) {
+                let scheme = if is_syntactic_value(&binding.value) {
                     let fixed_vars = env.free_vars(&ctx);
-                    let scheme = ctx.generalize(&typed_binding.ty, &fixed_vars);
-                    env.poly_locals.insert(binding.name.clone(), scheme);
+                    ctx.generalize(&typed_binding.ty, &fixed_vars)
                 } else {
-                    env.locals
-                        .insert(binding.name.clone(), typed_binding.ty.clone());
-                }
+                    TypeScheme::mono(typed_binding.ty.clone())
+                };
+                env.locals.insert(binding.name.clone(), scheme);
 
                 results.push((idx, CheckedStatement::Let(typed_binding)));
             }
@@ -2618,7 +2597,7 @@ mod tests {
     #[test]
     fn test_check_variable() {
         let mut env = TypeEnv::default();
-        env.locals.insert("x".to_string(), Type::Int);
+        env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Var("x".to_string());
@@ -2639,8 +2618,8 @@ mod tests {
     #[test]
     fn test_check_variable_in_expression() {
         let mut env = TypeEnv::default();
-        env.locals.insert("x".to_string(), Type::Int);
-        env.locals.insert("y".to_string(), Type::Int);
+        env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
+        env.locals.insert("y".to_string(), TypeScheme::mono(Type::Int));
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::BinOp {
@@ -3088,8 +3067,8 @@ mod tests {
         let result = check_repl(&stmts, &mut env).unwrap();
         assert_eq!(result.len(), 1);
         assert!(matches!(result[0], CheckedStatement::Let(_)));
-        // Variable should be added to env (in poly_locals since it's a syntactic value)
-        let scheme = env.poly_locals.get("x").expect("x should be in poly_locals");
+        // Variable should be added to env (generalized since it's a syntactic value)
+        let scheme = env.locals.get("x").expect("x should be in locals");
         assert_eq!(scheme.ty, Type::Int);
     }
 
@@ -3124,8 +3103,8 @@ mod tests {
         })];
         let result = check_repl(&stmts, &mut env).unwrap();
         assert_eq!(result.len(), 1);
-        // Variable should be in poly_locals since it's a syntactic value
-        let scheme = env.poly_locals.get("x").expect("x should be in poly_locals");
+        // Variable should be generalized since it's a syntactic value
+        let scheme = env.locals.get("x").expect("x should be in locals");
         assert_eq!(scheme.ty, Type::Int);
     }
 
@@ -3194,7 +3173,7 @@ mod tests {
     #[test]
     fn test_check_match_with_literals() {
         let mut env = TypeEnv::default();
-        env.locals.insert("x".to_string(), Type::Int);
+        env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Match {
@@ -3221,7 +3200,7 @@ mod tests {
     #[test]
     fn test_check_match_with_wildcard() {
         let mut env = TypeEnv::default();
-        env.locals.insert("x".to_string(), Type::Int);
+        env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Match {
@@ -3244,7 +3223,7 @@ mod tests {
     #[test]
     fn test_check_match_with_variable_binding() {
         let mut env = TypeEnv::default();
-        env.locals.insert("x".to_string(), Type::Int);
+        env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Match {
@@ -3265,7 +3244,7 @@ mod tests {
     #[test]
     fn test_check_match_pattern_type_mismatch() {
         let mut env = TypeEnv::default();
-        env.locals.insert("x".to_string(), Type::Int);
+        env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Match {
@@ -3283,7 +3262,7 @@ mod tests {
     #[test]
     fn test_check_match_arm_type_mismatch() {
         let mut env = TypeEnv::default();
-        env.locals.insert("x".to_string(), Type::Int);
+        env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Match {

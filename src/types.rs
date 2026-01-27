@@ -145,6 +145,16 @@ pub struct TypeScheme {
     pub ty: Type,
 }
 
+impl TypeScheme {
+    /// Create a monomorphic type scheme (no quantified variables).
+    /// Instantiation will return the type unchanged.
+    pub fn mono(ty: Type) -> Self {
+        TypeScheme {
+            quantified: vec![],
+            ty,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeError {
