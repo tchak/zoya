@@ -255,6 +255,495 @@ fn builtin_method(receiver_ty: &Type, method: &str) -> Option<(Vec<Type>, Type)>
     }
 }
 
+// ============================================================================
+// Expression type checking helper functions
+// ============================================================================
+
+/// Check a variable reference
+fn check_var(name: &str, env: &TypeEnv, ctx: &mut UnifyCtx) -> Result<TypedExpr, TypeError> {
+    // First check polymorphic locals (let-bound values with type schemes)
+    if let Some(scheme) = env.poly_locals.get(name) {
+        let ty = ctx.instantiate(scheme);
+        Ok(TypedExpr::Var {
+            name: name.to_string(),
+            ty: ctx.resolve(&ty),
+        })
+    }
+    // Then check monomorphic locals (function parameters)
+    else if let Some(ty) = env.locals.get(name) {
+        Ok(TypedExpr::Var {
+            name: name.to_string(),
+            ty: ctx.resolve(ty),
+        })
+    } else {
+        Err(TypeError {
+            message: format!("unknown variable: {}", name),
+        })
+    }
+}
+
+/// Check a function call
+fn check_call(
+    func: &str,
+    args: &[Expr],
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
+    // First, try to look up as a named function
+    if let Some(func_type) = env.functions.get(func) {
+        // Check argument count
+        if args.len() != func_type.params.len() {
+            return Err(TypeError {
+                message: format!(
+                    "function '{}' expects {} arguments, got {}",
+                    func,
+                    func_type.params.len(),
+                    args.len()
+                ),
+            });
+        }
+
+        // Create fresh type variables for this call's type parameters
+        let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
+        for &old_id in &func_type.type_var_ids {
+            let new_var = ctx.fresh_var();
+            instantiation.insert(old_id, new_var);
+        }
+
+        // Instantiate parameter types with fresh variables
+        let instantiated_params: Vec<Type> = func_type
+            .params
+            .iter()
+            .map(|t| substitute_type_vars(t, &instantiation))
+            .collect();
+        let instantiated_return = substitute_type_vars(&func_type.return_type, &instantiation);
+
+        // Type check arguments and unify with parameter types
+        let mut typed_args = Vec::new();
+        for (arg, param_type) in args.iter().zip(instantiated_params.iter()) {
+            let typed_arg = check_with_env(arg, env, ctx)?;
+            let arg_type = typed_arg.ty();
+
+            // Unify argument type with parameter type
+            ctx.unify(&arg_type, param_type).map_err(|e| TypeError {
+                message: format!(
+                    "argument type mismatch in call to '{}': expected {}, got {}: {}",
+                    func,
+                    ctx.resolve(param_type),
+                    ctx.resolve(&arg_type),
+                    e.message
+                ),
+            })?;
+
+            typed_args.push(typed_arg);
+        }
+
+        // Resolve the return type after unification
+        let return_type = ctx.resolve(&instantiated_return);
+
+        Ok(TypedExpr::Call {
+            func: func.to_string(),
+            args: typed_args,
+            ty: return_type,
+        })
+    }
+    // Try to look up as a lambda-bound variable
+    else if let Some(func_ty) = get_callable_type(func, env, ctx) {
+        // Must be a function type
+        let resolved = ctx.resolve(&func_ty);
+        if let Type::Function { params, ret } = resolved {
+            // Check argument count
+            if args.len() != params.len() {
+                return Err(TypeError {
+                    message: format!(
+                        "'{}' expects {} arguments, got {}",
+                        func,
+                        params.len(),
+                        args.len()
+                    ),
+                });
+            }
+
+            // Type check arguments and unify with parameter types
+            let mut typed_args = Vec::new();
+            for (arg, param_type) in args.iter().zip(params.iter()) {
+                let typed_arg = check_with_env(arg, env, ctx)?;
+                let arg_type = typed_arg.ty();
+
+                ctx.unify(&arg_type, param_type).map_err(|e| TypeError {
+                    message: format!(
+                        "argument type mismatch in call to '{}': expected {}, got {}: {}",
+                        func,
+                        ctx.resolve(param_type),
+                        ctx.resolve(&arg_type),
+                        e.message
+                    ),
+                })?;
+
+                typed_args.push(typed_arg);
+            }
+
+            let return_type = ctx.resolve(&ret);
+
+            Ok(TypedExpr::Call {
+                func: func.to_string(),
+                args: typed_args,
+                ty: return_type,
+            })
+        } else {
+            Err(TypeError {
+                message: format!("'{}' is not a function, has type {}", func, resolved),
+            })
+        }
+    } else {
+        Err(TypeError {
+            message: format!("unknown function: {}", func),
+        })
+    }
+}
+
+/// Check a unary operation
+fn check_unary_op(
+    op: UnaryOp,
+    expr: &Expr,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
+    let typed_expr = check_with_env(expr, env, ctx)?;
+    let ty = typed_expr.ty();
+    match op {
+        UnaryOp::Neg => {
+            // Negation only works on numeric types
+            let resolved = ctx.resolve(&ty);
+            match resolved {
+                Type::Int32 | Type::Int64 | Type::Float => Ok(TypedExpr::UnaryOp {
+                    op,
+                    expr: Box::new(typed_expr),
+                    ty,
+                }),
+                _ => Err(TypeError {
+                    message: format!(
+                        "negation operator only works on numeric types, not {}",
+                        resolved
+                    ),
+                }),
+            }
+        }
+    }
+}
+
+/// Check a binary operation
+fn check_bin_op(
+    op: BinOp,
+    left: &Expr,
+    right: &Expr,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
+    let typed_left = check_with_env(left, env, ctx)?;
+    let typed_right = check_with_env(right, env, ctx)?;
+    let left_ty = typed_left.ty();
+    let right_ty = typed_right.ty();
+
+    // Unify left and right types
+    ctx.unify(&left_ty, &right_ty)?;
+
+    let resolved_ty = ctx.resolve(&left_ty);
+
+    // Determine result type based on operator
+    let result_ty = match op {
+        // Arithmetic operators: result has same type as operands
+        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => resolved_ty,
+
+        // Equality operators: work on any type, result is Bool
+        BinOp::Eq | BinOp::Ne => Type::Bool,
+
+        // Ordering operators: only work on numeric types, result is Bool
+        BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
+            if !is_numeric_type(&resolved_ty) {
+                return Err(TypeError {
+                    message: format!(
+                        "ordering operators only work on numeric types, not {}",
+                        resolved_ty
+                    ),
+                });
+            }
+            Type::Bool
+        }
+    };
+
+    Ok(TypedExpr::BinOp {
+        op,
+        left: Box::new(typed_left),
+        right: Box::new(typed_right),
+        ty: result_ty,
+    })
+}
+
+/// Check a block expression with let bindings
+fn check_block(
+    bindings: &[LetBinding],
+    result: &Expr,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
+    // Create new environment for block scope
+    let mut block_env = env.clone();
+    let mut typed_bindings = Vec::new();
+
+    for binding in bindings {
+        let typed_binding = check_let_binding(binding, &block_env, ctx)?;
+
+        // Check if we should generalize (let polymorphism)
+        // Only generalize syntactic values (lambdas, literals, variables)
+        if is_syntactic_value(&binding.value) {
+            // Collect fixed vars from the environment
+            let fixed_vars = block_env.free_vars(ctx);
+            let scheme = ctx.generalize(&typed_binding.ty, &fixed_vars);
+            block_env.poly_locals.insert(binding.name.clone(), scheme);
+        } else {
+            // Monomorphic binding
+            block_env
+                .locals
+                .insert(binding.name.clone(), typed_binding.ty.clone());
+        }
+
+        typed_bindings.push(typed_binding);
+    }
+
+    // Type-check the result expression with all bindings in scope
+    let typed_result = check_with_env(result, &block_env, ctx)?;
+
+    Ok(TypedExpr::Block {
+        bindings: typed_bindings,
+        result: Box::new(typed_result),
+    })
+}
+
+/// Check a match expression
+fn check_match_expr(
+    scrutinee: &Expr,
+    arms: &[MatchArm],
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
+    let typed_scrutinee = check_with_env(scrutinee, env, ctx)?;
+    let scrutinee_ty = typed_scrutinee.ty();
+
+    if arms.is_empty() {
+        return Err(TypeError {
+            message: "match expression must have at least one arm".to_string(),
+        });
+    }
+
+    let mut typed_arms = Vec::new();
+    let mut result_ty: Option<Type> = None;
+
+    for arm in arms {
+        let typed_arm = check_match_arm(arm, &scrutinee_ty, env, ctx)?;
+        let arm_ty = typed_arm.result.ty();
+
+        // Unify all arm result types
+        match &result_ty {
+            None => result_ty = Some(arm_ty),
+            Some(ty) => {
+                ctx.unify(ty, &arm_ty).map_err(|e| TypeError {
+                    message: format!(
+                        "match arms have different types: {} vs {}: {}",
+                        ctx.resolve(ty),
+                        ctx.resolve(&arm_ty),
+                        e.message
+                    ),
+                })?;
+            }
+        }
+
+        typed_arms.push(typed_arm);
+    }
+
+    // Check exhaustiveness for List types
+    let resolved_scrutinee_ty = ctx.resolve(&scrutinee_ty);
+    if let Type::List(_) = resolved_scrutinee_ty {
+        check_list_exhaustiveness(&typed_arms)?;
+    }
+
+    Ok(TypedExpr::Match {
+        scrutinee: Box::new(typed_scrutinee),
+        arms: typed_arms,
+        ty: ctx.resolve(&result_ty.unwrap()),
+    })
+}
+
+/// Check a method call expression
+fn check_method_call(
+    receiver: &Expr,
+    method: &str,
+    args: &[Expr],
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
+    let typed_receiver = check_with_env(receiver, env, ctx)?;
+    let receiver_ty = ctx.resolve(&typed_receiver.ty());
+
+    // Look up the method signature
+    let (param_types, return_type) =
+        builtin_method(&receiver_ty, method).ok_or_else(|| TypeError {
+            message: format!("no method '{}' on type {}", method, receiver_ty),
+        })?;
+
+    // Check argument count
+    if args.len() != param_types.len() {
+        return Err(TypeError {
+            message: format!(
+                "method '{}' expects {} argument(s), got {}",
+                method,
+                param_types.len(),
+                args.len()
+            ),
+        });
+    }
+
+    // Type check arguments
+    let mut typed_args = Vec::new();
+    for (arg, param_ty) in args.iter().zip(param_types.iter()) {
+        let typed_arg = check_with_env(arg, env, ctx)?;
+        let arg_ty = typed_arg.ty();
+
+        ctx.unify(&arg_ty, param_ty).map_err(|e| TypeError {
+            message: format!(
+                "argument type mismatch in method '{}': expected {}, got {}: {}",
+                method,
+                ctx.resolve(param_ty),
+                ctx.resolve(&arg_ty),
+                e.message
+            ),
+        })?;
+
+        typed_args.push(typed_arg);
+    }
+
+    Ok(TypedExpr::MethodCall {
+        receiver: Box::new(typed_receiver),
+        method: method.to_string(),
+        args: typed_args,
+        ty: return_type,
+    })
+}
+
+/// Check a list literal expression
+fn check_list_expr(
+    elements: &[Expr],
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
+    if elements.is_empty() {
+        // Empty list: create fresh type variable for element type
+        let elem_ty = ctx.fresh_var();
+        Ok(TypedExpr::List {
+            elements: vec![],
+            ty: Type::List(Box::new(elem_ty)),
+        })
+    } else {
+        // Non-empty list: infer element type from first element
+        let first_typed = check_with_env(&elements[0], env, ctx)?;
+        let elem_ty = first_typed.ty();
+        let mut typed_elements = vec![first_typed];
+
+        // Check remaining elements unify with first element's type
+        for elem in &elements[1..] {
+            let typed = check_with_env(elem, env, ctx)?;
+            ctx.unify(&typed.ty(), &elem_ty).map_err(|e| TypeError {
+                message: format!("list element type mismatch: {}", e.message),
+            })?;
+            typed_elements.push(typed);
+        }
+
+        Ok(TypedExpr::List {
+            elements: typed_elements,
+            ty: Type::List(Box::new(ctx.resolve(&elem_ty))),
+        })
+    }
+}
+
+/// Check a tuple literal expression
+fn check_tuple_expr(
+    elements: &[Expr],
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
+    let mut typed_elements = Vec::new();
+    let mut element_types = Vec::new();
+
+    for elem in elements {
+        let typed = check_with_env(elem, env, ctx)?;
+        element_types.push(typed.ty());
+        typed_elements.push(typed);
+    }
+
+    Ok(TypedExpr::Tuple {
+        elements: typed_elements,
+        ty: Type::Tuple(element_types),
+    })
+}
+
+/// Check a lambda expression
+fn check_lambda(
+    params: &[crate::ast::LambdaParam],
+    return_type: &Option<TypeAnnotation>,
+    body: &Expr,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
+    // Create fresh type variables for unannotated parameters
+    let mut param_types = Vec::new();
+    let mut lambda_env = env.clone();
+
+    for param in params {
+        let param_ty = match &param.typ {
+            Some(annotation) => resolve_type_annotation(annotation, &HashMap::new())?,
+            None => ctx.fresh_var(),
+        };
+        lambda_env.locals.insert(param.name.clone(), param_ty.clone());
+        param_types.push(param_ty);
+    }
+
+    // Check the body in the extended environment
+    let typed_body = check_with_env(body, &lambda_env, ctx)?;
+    let body_ty = typed_body.ty();
+
+    // If return type is annotated, unify with body type
+    let resolved_return = if let Some(annotation) = return_type {
+        let declared_return = resolve_type_annotation(annotation, &HashMap::new())?;
+        ctx.unify(&body_ty, &declared_return).map_err(|e| TypeError {
+            message: format!(
+                "lambda body type {} doesn't match declared return type {}: {}",
+                ctx.resolve(&body_ty),
+                ctx.resolve(&declared_return),
+                e.message
+            ),
+        })?;
+        ctx.resolve(&declared_return)
+    } else {
+        ctx.resolve(&body_ty)
+    };
+
+    // Construct the function type
+    let lambda_type = Type::Function {
+        params: param_types.iter().map(|t| ctx.resolve(t)).collect(),
+        ret: Box::new(resolved_return.clone()),
+    };
+
+    Ok(TypedExpr::Lambda {
+        params: params
+            .iter()
+            .zip(param_types.iter())
+            .map(|(p, ty)| (p.name.clone(), ctx.resolve(ty)))
+            .collect(),
+        body: Box::new(typed_body),
+        ty: lambda_type,
+    })
+}
+
 /// Check an expression with a type environment
 fn check_with_env(
     expr: &Expr,
@@ -279,452 +768,41 @@ fn check_with_env(
         Expr::Float(n) => Ok(TypedExpr::Float(*n)),
         Expr::Bool(b) => Ok(TypedExpr::Bool(*b)),
         Expr::String(s) => Ok(TypedExpr::String(s.clone())),
-
-        Expr::Var(name) => {
-            // First check polymorphic locals (let-bound values with type schemes)
-            if let Some(scheme) = env.poly_locals.get(name) {
-                let ty = ctx.instantiate(scheme);
-                Ok(TypedExpr::Var {
-                    name: name.clone(),
-                    ty: ctx.resolve(&ty),
-                })
-            }
-            // Then check monomorphic locals (function parameters)
-            else if let Some(ty) = env.locals.get(name) {
-                Ok(TypedExpr::Var {
-                    name: name.clone(),
-                    ty: ctx.resolve(ty),
-                })
-            } else {
-                Err(TypeError {
-                    message: format!("unknown variable: {}", name),
-                })
-            }
-        }
-
-        Expr::Call { func, args } => {
-            // First, try to look up as a named function
-            if let Some(func_type) = env.functions.get(func) {
-                // Check argument count
-                if args.len() != func_type.params.len() {
-                    return Err(TypeError {
-                        message: format!(
-                            "function '{}' expects {} arguments, got {}",
-                            func,
-                            func_type.params.len(),
-                            args.len()
-                        ),
-                    });
-                }
-
-                // Create fresh type variables for this call's type parameters
-                let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
-                for &old_id in &func_type.type_var_ids {
-                    let new_var = ctx.fresh_var();
-                    instantiation.insert(old_id, new_var);
-                }
-
-                // Instantiate parameter types with fresh variables
-                let instantiated_params: Vec<Type> = func_type
-                    .params
-                    .iter()
-                    .map(|t| substitute_type_vars(t, &instantiation))
-                    .collect();
-                let instantiated_return =
-                    substitute_type_vars(&func_type.return_type, &instantiation);
-
-                // Type check arguments and unify with parameter types
-                let mut typed_args = Vec::new();
-                for (arg, param_type) in args.iter().zip(instantiated_params.iter()) {
-                    let typed_arg = check_with_env(arg, env, ctx)?;
-                    let arg_type = typed_arg.ty();
-
-                    // Unify argument type with parameter type
-                    ctx.unify(&arg_type, param_type).map_err(|e| TypeError {
-                        message: format!(
-                            "argument type mismatch in call to '{}': expected {}, got {}: {}",
-                            func,
-                            ctx.resolve(param_type),
-                            ctx.resolve(&arg_type),
-                            e.message
-                        ),
-                    })?;
-
-                    typed_args.push(typed_arg);
-                }
-
-                // Resolve the return type after unification
-                let return_type = ctx.resolve(&instantiated_return);
-
-                Ok(TypedExpr::Call {
-                    func: func.clone(),
-                    args: typed_args,
-                    ty: return_type,
-                })
-            }
-            // Try to look up as a lambda-bound variable
-            else if let Some(func_ty) = get_callable_type(func, env, ctx) {
-                // Must be a function type
-                let resolved = ctx.resolve(&func_ty);
-                if let Type::Function { params, ret } = resolved {
-                    // Check argument count
-                    if args.len() != params.len() {
-                        return Err(TypeError {
-                            message: format!(
-                                "'{}' expects {} arguments, got {}",
-                                func,
-                                params.len(),
-                                args.len()
-                            ),
-                        });
-                    }
-
-                    // Type check arguments and unify with parameter types
-                    let mut typed_args = Vec::new();
-                    for (arg, param_type) in args.iter().zip(params.iter()) {
-                        let typed_arg = check_with_env(arg, env, ctx)?;
-                        let arg_type = typed_arg.ty();
-
-                        ctx.unify(&arg_type, param_type).map_err(|e| TypeError {
-                            message: format!(
-                                "argument type mismatch in call to '{}': expected {}, got {}: {}",
-                                func,
-                                ctx.resolve(param_type),
-                                ctx.resolve(&arg_type),
-                                e.message
-                            ),
-                        })?;
-
-                        typed_args.push(typed_arg);
-                    }
-
-                    let return_type = ctx.resolve(&ret);
-
-                    Ok(TypedExpr::Call {
-                        func: func.clone(),
-                        args: typed_args,
-                        ty: return_type,
-                    })
-                } else {
-                    Err(TypeError {
-                        message: format!("'{}' is not a function, has type {}", func, resolved),
-                    })
-                }
-            } else {
-                Err(TypeError {
-                    message: format!("unknown function: {}", func),
-                })
-            }
-        }
-
-        Expr::UnaryOp { op, expr } => {
-            let typed_expr = check_with_env(expr, env, ctx)?;
-            let ty = typed_expr.ty();
-            match op {
-                UnaryOp::Neg => {
-                    // Negation only works on numeric types
-                    let resolved = ctx.resolve(&ty);
-                    match resolved {
-                        Type::Int32 | Type::Int64 | Type::Float => Ok(TypedExpr::UnaryOp {
-                            op: *op,
-                            expr: Box::new(typed_expr),
-                            ty,
-                        }),
-                        _ => Err(TypeError {
-                            message: format!(
-                                "negation operator only works on numeric types, not {}",
-                                resolved
-                            ),
-                        }),
-                    }
-                }
-            }
-        }
-
-        Expr::BinOp { op, left, right } => {
-            let typed_left = check_with_env(left, env, ctx)?;
-            let typed_right = check_with_env(right, env, ctx)?;
-            let left_ty = typed_left.ty();
-            let right_ty = typed_right.ty();
-
-            // Unify left and right types
-            ctx.unify(&left_ty, &right_ty)?;
-
-            let resolved_ty = ctx.resolve(&left_ty);
-
-            // Determine result type based on operator
-            let result_ty = match op {
-                // Arithmetic operators: result has same type as operands
-                BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => resolved_ty,
-
-                // Equality operators: work on any type, result is Bool
-                BinOp::Eq | BinOp::Ne => Type::Bool,
-
-                // Ordering operators: only work on numeric types, result is Bool
-                BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
-                    if !is_numeric_type(&resolved_ty) {
-                        return Err(TypeError {
-                            message: format!(
-                                "ordering operators only work on numeric types, not {}",
-                                resolved_ty
-                            ),
-                        });
-                    }
-                    Type::Bool
-                }
-            };
-
-            Ok(TypedExpr::BinOp {
-                op: *op,
-                left: Box::new(typed_left),
-                right: Box::new(typed_right),
-                ty: result_ty,
-            })
-        }
-
-        Expr::Block { bindings, result } => {
-            // Create new environment for block scope
-            let mut block_env = env.clone();
-            let mut typed_bindings = Vec::new();
-
-            for binding in bindings {
-                let typed_binding = check_let_binding(binding, &block_env, ctx)?;
-
-                // Check if we should generalize (let polymorphism)
-                // Only generalize syntactic values (lambdas, literals, variables)
-                if is_syntactic_value(&binding.value) {
-                    // Collect fixed vars from the environment
-                    let fixed_vars = block_env.free_vars(ctx);
-                    let scheme = ctx.generalize(&typed_binding.ty, &fixed_vars);
-                    block_env.poly_locals.insert(binding.name.clone(), scheme);
-                } else {
-                    // Monomorphic binding
-                    block_env
-                        .locals
-                        .insert(binding.name.clone(), typed_binding.ty.clone());
-                }
-
-                typed_bindings.push(typed_binding);
-            }
-
-            // Type-check the result expression with all bindings in scope
-            let typed_result = check_with_env(result, &block_env, ctx)?;
-
-            Ok(TypedExpr::Block {
-                bindings: typed_bindings,
-                result: Box::new(typed_result),
-            })
-        }
-
-        Expr::Match { scrutinee, arms } => {
-            let typed_scrutinee = check_with_env(scrutinee, env, ctx)?;
-            let scrutinee_ty = typed_scrutinee.ty();
-
-            if arms.is_empty() {
-                return Err(TypeError {
-                    message: "match expression must have at least one arm".to_string(),
-                });
-            }
-
-            let mut typed_arms = Vec::new();
-            let mut result_ty: Option<Type> = None;
-
-            for arm in arms {
-                let typed_arm = check_match_arm(arm, &scrutinee_ty, env, ctx)?;
-                let arm_ty = typed_arm.result.ty();
-
-                // Unify all arm result types
-                match &result_ty {
-                    None => result_ty = Some(arm_ty),
-                    Some(ty) => {
-                        ctx.unify(ty, &arm_ty).map_err(|e| TypeError {
-                            message: format!(
-                                "match arms have different types: {} vs {}: {}",
-                                ctx.resolve(ty),
-                                ctx.resolve(&arm_ty),
-                                e.message
-                            ),
-                        })?;
-                    }
-                }
-
-                typed_arms.push(typed_arm);
-            }
-
-            // Check exhaustiveness for List types
-            let resolved_scrutinee_ty = ctx.resolve(&scrutinee_ty);
-            if let Type::List(_) = resolved_scrutinee_ty {
-                check_list_exhaustiveness(&typed_arms)?;
-            }
-
-            Ok(TypedExpr::Match {
-                scrutinee: Box::new(typed_scrutinee),
-                arms: typed_arms,
-                ty: ctx.resolve(&result_ty.unwrap()),
-            })
-        }
-
+        Expr::Var(name) => check_var(name, env, ctx),
+        Expr::Call { func, args } => check_call(func, args, env, ctx),
+        Expr::UnaryOp { op, expr } => check_unary_op(*op, expr, env, ctx),
+        Expr::BinOp { op, left, right } => check_bin_op(*op, left, right, env, ctx),
+        Expr::Block { bindings, result } => check_block(bindings, result, env, ctx),
+        Expr::Match { scrutinee, arms } => check_match_expr(scrutinee, arms, env, ctx),
         Expr::MethodCall {
             receiver,
             method,
             args,
-        } => {
-            let typed_receiver = check_with_env(receiver, env, ctx)?;
-            let receiver_ty = ctx.resolve(&typed_receiver.ty());
-
-            // Look up the method signature
-            let (param_types, return_type) =
-                builtin_method(&receiver_ty, method).ok_or_else(|| TypeError {
-                    message: format!("no method '{}' on type {}", method, receiver_ty),
-                })?;
-
-            // Check argument count
-            if args.len() != param_types.len() {
-                return Err(TypeError {
-                    message: format!(
-                        "method '{}' expects {} argument(s), got {}",
-                        method,
-                        param_types.len(),
-                        args.len()
-                    ),
-                });
-            }
-
-            // Type check arguments
-            let mut typed_args = Vec::new();
-            for (arg, param_ty) in args.iter().zip(param_types.iter()) {
-                let typed_arg = check_with_env(arg, env, ctx)?;
-                let arg_ty = typed_arg.ty();
-
-                ctx.unify(&arg_ty, param_ty).map_err(|e| TypeError {
-                    message: format!(
-                        "argument type mismatch in method '{}': expected {}, got {}: {}",
-                        method,
-                        ctx.resolve(param_ty),
-                        ctx.resolve(&arg_ty),
-                        e.message
-                    ),
-                })?;
-
-                typed_args.push(typed_arg);
-            }
-
-            Ok(TypedExpr::MethodCall {
-                receiver: Box::new(typed_receiver),
-                method: method.clone(),
-                args: typed_args,
-                ty: return_type,
-            })
-        }
-
-        Expr::List(elements) => {
-            if elements.is_empty() {
-                // Empty list: create fresh type variable for element type
-                let elem_ty = ctx.fresh_var();
-                Ok(TypedExpr::List {
-                    elements: vec![],
-                    ty: Type::List(Box::new(elem_ty)),
-                })
-            } else {
-                // Non-empty list: infer element type from first element
-                let first_typed = check_with_env(&elements[0], env, ctx)?;
-                let elem_ty = first_typed.ty();
-                let mut typed_elements = vec![first_typed];
-
-                // Check remaining elements unify with first element's type
-                for elem in &elements[1..] {
-                    let typed = check_with_env(elem, env, ctx)?;
-                    ctx.unify(&typed.ty(), &elem_ty).map_err(|e| TypeError {
-                        message: format!("list element type mismatch: {}", e.message),
-                    })?;
-                    typed_elements.push(typed);
-                }
-
-                Ok(TypedExpr::List {
-                    elements: typed_elements,
-                    ty: Type::List(Box::new(ctx.resolve(&elem_ty))),
-                })
-            }
-        }
-
-        Expr::Tuple(elements) => {
-            let mut typed_elements = Vec::new();
-            let mut element_types = Vec::new();
-
-            for elem in elements {
-                let typed = check_with_env(elem, env, ctx)?;
-                element_types.push(typed.ty());
-                typed_elements.push(typed);
-            }
-
-            Ok(TypedExpr::Tuple {
-                elements: typed_elements,
-                ty: Type::Tuple(element_types),
-            })
-        }
-
+        } => check_method_call(receiver, method, args, env, ctx),
+        Expr::List(elements) => check_list_expr(elements, env, ctx),
+        Expr::Tuple(elements) => check_tuple_expr(elements, env, ctx),
         Expr::Lambda {
             params,
             return_type,
             body,
-        } => {
-            // Create fresh type variables for unannotated parameters
-            let mut param_types = Vec::new();
-            let mut lambda_env = env.clone();
-
-            for param in params {
-                let param_ty = match &param.typ {
-                    Some(annotation) => resolve_type_annotation(annotation, &HashMap::new())?,
-                    None => ctx.fresh_var(),
-                };
-                lambda_env.locals.insert(param.name.clone(), param_ty.clone());
-                param_types.push(param_ty);
-            }
-
-            // Check the body in the extended environment
-            let typed_body = check_with_env(body, &lambda_env, ctx)?;
-            let body_ty = typed_body.ty();
-
-            // If return type is annotated, unify with body type
-            let resolved_return = if let Some(annotation) = return_type {
-                let declared_return = resolve_type_annotation(annotation, &HashMap::new())?;
-                ctx.unify(&body_ty, &declared_return).map_err(|e| TypeError {
-                    message: format!(
-                        "lambda body type {} doesn't match declared return type {}: {}",
-                        ctx.resolve(&body_ty),
-                        ctx.resolve(&declared_return),
-                        e.message
-                    ),
-                })?;
-                ctx.resolve(&declared_return)
-            } else {
-                ctx.resolve(&body_ty)
-            };
-
-            // Construct the function type
-            let lambda_type = Type::Function {
-                params: param_types.iter().map(|t| ctx.resolve(t)).collect(),
-                ret: Box::new(resolved_return.clone()),
-            };
-
-            Ok(TypedExpr::Lambda {
-                params: params
-                    .iter()
-                    .zip(param_types.iter())
-                    .map(|(p, ty)| (p.name.clone(), ctx.resolve(ty)))
-                    .collect(),
-                body: Box::new(typed_body),
-                ty: lambda_type,
-            })
-        }
+        } => check_lambda(params, return_type, body, env, ctx),
     }
 }
 
-/// Substitute type variables in a type using a mapping
+/// Substitute type variables in a type using a mapping (recursive)
 fn substitute_type_vars(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
     match ty {
         Type::Var(id) => mapping.get(id).cloned().unwrap_or_else(|| ty.clone()),
-        _ => ty.clone(),
+        Type::List(elem) => Type::List(Box::new(substitute_type_vars(elem, mapping))),
+        Type::Tuple(elems) => {
+            Type::Tuple(elems.iter().map(|t| substitute_type_vars(t, mapping)).collect())
+        }
+        Type::Function { params, ret } => Type::Function {
+            params: params.iter().map(|t| substitute_type_vars(t, mapping)).collect(),
+            ret: Box::new(substitute_type_vars(ret, mapping)),
+        },
+        // Concrete types don't contain type vars
+        Type::Int32 | Type::Int64 | Type::Float | Type::Bool | Type::String => ty.clone(),
     }
 }
 
@@ -751,6 +829,40 @@ fn is_syntactic_value(expr: &Expr) -> bool {
         Expr::Var(_) => true,
         _ => false,
     }
+}
+
+/// Check a list of patterns against a single element type (for list patterns)
+fn check_patterns_against_elem(
+    patterns: &[Pattern],
+    elem_ty: &Type,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<(Vec<TypedPattern>, HashMap<String, Type>), TypeError> {
+    let mut typed_patterns = Vec::new();
+    let mut all_bindings = HashMap::new();
+    for pat in patterns {
+        let (typed_pat, bindings) = check_pattern(pat, elem_ty, env, ctx)?;
+        typed_patterns.push(typed_pat);
+        all_bindings.extend(bindings);
+    }
+    Ok((typed_patterns, all_bindings))
+}
+
+/// Check a list of patterns against corresponding types (for tuple patterns)
+fn check_patterns_against_types(
+    patterns: &[Pattern],
+    types: &[Type],
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<(Vec<TypedPattern>, HashMap<String, Type>), TypeError> {
+    let mut typed_patterns = Vec::new();
+    let mut all_bindings = HashMap::new();
+    for (pat, ty) in patterns.iter().zip(types.iter()) {
+        let (typed_pat, bindings) = check_pattern(pat, ty, env, ctx)?;
+        typed_patterns.push(typed_pat);
+        all_bindings.extend(bindings);
+    }
+    Ok((typed_patterns, all_bindings))
 }
 
 /// Check a pattern and return typed pattern with any bindings it introduces
@@ -807,91 +919,54 @@ fn check_pattern(
                 ListPattern::Empty => Ok((TypedPattern::ListEmpty, HashMap::new())),
 
                 ListPattern::Exact(patterns) => {
-                    let mut typed_patterns = Vec::new();
-                    let mut all_bindings = HashMap::new();
-
-                    for pat in patterns {
-                        let (typed_pat, bindings) =
-                            check_pattern(pat, &resolved_elem, env, ctx)?;
-                        typed_patterns.push(typed_pat);
-                        all_bindings.extend(bindings);
-                    }
-
+                    let (typed_patterns, bindings) =
+                        check_patterns_against_elem(patterns, &resolved_elem, env, ctx)?;
                     Ok((
                         TypedPattern::ListExact {
                             patterns: typed_patterns,
                             len: patterns.len(),
                         },
-                        all_bindings,
+                        bindings,
                     ))
                 }
 
                 ListPattern::Prefix(patterns) => {
-                    let mut typed_patterns = Vec::new();
-                    let mut all_bindings = HashMap::new();
-
-                    for pat in patterns {
-                        let (typed_pat, bindings) =
-                            check_pattern(pat, &resolved_elem, env, ctx)?;
-                        typed_patterns.push(typed_pat);
-                        all_bindings.extend(bindings);
-                    }
-
+                    let (typed_patterns, bindings) =
+                        check_patterns_against_elem(patterns, &resolved_elem, env, ctx)?;
                     Ok((
                         TypedPattern::ListPrefix {
                             patterns: typed_patterns,
                             min_len: patterns.len(),
                         },
-                        all_bindings,
+                        bindings,
                     ))
                 }
 
                 ListPattern::Suffix(patterns) => {
-                    let mut typed_patterns = Vec::new();
-                    let mut all_bindings = HashMap::new();
-
-                    for pat in patterns {
-                        let (typed_pat, bindings) =
-                            check_pattern(pat, &resolved_elem, env, ctx)?;
-                        typed_patterns.push(typed_pat);
-                        all_bindings.extend(bindings);
-                    }
-
+                    let (typed_patterns, bindings) =
+                        check_patterns_against_elem(patterns, &resolved_elem, env, ctx)?;
                     Ok((
                         TypedPattern::ListSuffix {
                             patterns: typed_patterns,
                             min_len: patterns.len(),
                         },
-                        all_bindings,
+                        bindings,
                     ))
                 }
 
                 ListPattern::PrefixSuffix(prefix_pats, suffix_pats) => {
-                    let mut prefix_typed = Vec::new();
-                    let mut suffix_typed = Vec::new();
-                    let mut all_bindings = HashMap::new();
-
-                    for pat in prefix_pats {
-                        let (typed_pat, bindings) =
-                            check_pattern(pat, &resolved_elem, env, ctx)?;
-                        prefix_typed.push(typed_pat);
-                        all_bindings.extend(bindings);
-                    }
-
-                    for pat in suffix_pats {
-                        let (typed_pat, bindings) =
-                            check_pattern(pat, &resolved_elem, env, ctx)?;
-                        suffix_typed.push(typed_pat);
-                        all_bindings.extend(bindings);
-                    }
-
+                    let (prefix_typed, mut bindings) =
+                        check_patterns_against_elem(prefix_pats, &resolved_elem, env, ctx)?;
+                    let (suffix_typed, suffix_bindings) =
+                        check_patterns_against_elem(suffix_pats, &resolved_elem, env, ctx)?;
+                    bindings.extend(suffix_bindings);
                     Ok((
                         TypedPattern::ListPrefixSuffix {
                             prefix: prefix_typed,
                             suffix: suffix_typed,
                             min_len: prefix_pats.len() + suffix_pats.len(),
                         },
-                        all_bindings,
+                        bindings,
                     ))
                 }
             }
@@ -932,21 +1007,14 @@ fn check_pattern(
                         });
                     }
 
-                    let mut typed_patterns = Vec::new();
-                    let mut all_bindings = HashMap::new();
-
-                    for (pat, ty) in patterns.iter().zip(tuple_types.iter()) {
-                        let (typed_pat, bindings) = check_pattern(pat, ty, env, ctx)?;
-                        typed_patterns.push(typed_pat);
-                        all_bindings.extend(bindings);
-                    }
-
+                    let (typed_patterns, bindings) =
+                        check_patterns_against_types(patterns, &tuple_types, env, ctx)?;
                     Ok((
                         TypedPattern::TupleExact {
                             patterns: typed_patterns,
                             len: patterns.len(),
                         },
-                        all_bindings,
+                        bindings,
                     ))
                 }
 
@@ -961,21 +1029,14 @@ fn check_pattern(
                         });
                     }
 
-                    let mut typed_patterns = Vec::new();
-                    let mut all_bindings = HashMap::new();
-
-                    for (pat, ty) in patterns.iter().zip(tuple_types.iter()) {
-                        let (typed_pat, bindings) = check_pattern(pat, ty, env, ctx)?;
-                        typed_patterns.push(typed_pat);
-                        all_bindings.extend(bindings);
-                    }
-
+                    let (typed_patterns, bindings) =
+                        check_patterns_against_types(patterns, &tuple_types, env, ctx)?;
                     Ok((
                         TypedPattern::TuplePrefix {
                             patterns: typed_patterns,
                             total_len: tuple_types.len(),
                         },
-                        all_bindings,
+                        bindings,
                     ))
                 }
 
@@ -990,23 +1051,16 @@ fn check_pattern(
                         });
                     }
 
-                    let mut typed_patterns = Vec::new();
-                    let mut all_bindings = HashMap::new();
-
                     // Suffix patterns match from the end
                     let start_idx = tuple_types.len() - patterns.len();
-                    for (pat, ty) in patterns.iter().zip(tuple_types[start_idx..].iter()) {
-                        let (typed_pat, bindings) = check_pattern(pat, ty, env, ctx)?;
-                        typed_patterns.push(typed_pat);
-                        all_bindings.extend(bindings);
-                    }
-
+                    let (typed_patterns, bindings) =
+                        check_patterns_against_types(patterns, &tuple_types[start_idx..], env, ctx)?;
                     Ok((
                         TypedPattern::TupleSuffix {
                             patterns: typed_patterns,
                             total_len: tuple_types.len(),
                         },
-                        all_bindings,
+                        bindings,
                     ))
                 }
 
@@ -1022,24 +1076,15 @@ fn check_pattern(
                         });
                     }
 
-                    let mut prefix_typed = Vec::new();
-                    let mut suffix_typed = Vec::new();
-                    let mut all_bindings = HashMap::new();
-
                     // Prefix patterns match from the start
-                    for (pat, ty) in prefix_pats.iter().zip(tuple_types.iter()) {
-                        let (typed_pat, bindings) = check_pattern(pat, ty, env, ctx)?;
-                        prefix_typed.push(typed_pat);
-                        all_bindings.extend(bindings);
-                    }
+                    let (prefix_typed, mut bindings) =
+                        check_patterns_against_types(prefix_pats, &tuple_types, env, ctx)?;
 
                     // Suffix patterns match from the end
                     let suffix_start = tuple_types.len() - suffix_pats.len();
-                    for (pat, ty) in suffix_pats.iter().zip(tuple_types[suffix_start..].iter()) {
-                        let (typed_pat, bindings) = check_pattern(pat, ty, env, ctx)?;
-                        suffix_typed.push(typed_pat);
-                        all_bindings.extend(bindings);
-                    }
+                    let (suffix_typed, suffix_bindings) =
+                        check_patterns_against_types(suffix_pats, &tuple_types[suffix_start..], env, ctx)?;
+                    bindings.extend(suffix_bindings);
 
                     Ok((
                         TypedPattern::TuplePrefixSuffix {
@@ -1047,7 +1092,7 @@ fn check_pattern(
                             suffix: suffix_typed,
                             total_len: tuple_types.len(),
                         },
-                        all_bindings,
+                        bindings,
                     ))
                 }
             }
@@ -2475,5 +2520,74 @@ mod tests {
         }))];
         let result = check_repl(&stmts, &mut env);
         assert!(result.is_ok(), "Self-recursion should succeed: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_substitute_type_vars_in_list() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+        let Type::Var(id) = var else { panic!("expected type var") };
+
+        let mut mapping = HashMap::new();
+        mapping.insert(id, Type::Int32);
+
+        let ty = Type::List(Box::new(Type::Var(id)));
+        let result = substitute_type_vars(&ty, &mapping);
+        assert_eq!(result, Type::List(Box::new(Type::Int32)));
+    }
+
+    #[test]
+    fn test_substitute_type_vars_in_tuple() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+        let Type::Var(id) = var else { panic!("expected type var") };
+
+        let mut mapping = HashMap::new();
+        mapping.insert(id, Type::String);
+
+        let ty = Type::Tuple(vec![Type::Var(id), Type::Int32]);
+        let result = substitute_type_vars(&ty, &mapping);
+        assert_eq!(result, Type::Tuple(vec![Type::String, Type::Int32]));
+    }
+
+    #[test]
+    fn test_substitute_type_vars_in_function() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+        let Type::Var(id) = var else { panic!("expected type var") };
+
+        let mut mapping = HashMap::new();
+        mapping.insert(id, Type::Bool);
+
+        let ty = Type::Function {
+            params: vec![Type::Var(id)],
+            ret: Box::new(Type::Var(id)),
+        };
+        let result = substitute_type_vars(&ty, &mapping);
+        assert_eq!(
+            result,
+            Type::Function {
+                params: vec![Type::Bool],
+                ret: Box::new(Type::Bool),
+            }
+        );
+    }
+
+    #[test]
+    fn test_substitute_type_vars_nested() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+        let Type::Var(id) = var else { panic!("expected type var") };
+
+        let mut mapping = HashMap::new();
+        mapping.insert(id, Type::Float);
+
+        // List<(T, T)> -> List<(Float, Float)>
+        let ty = Type::List(Box::new(Type::Tuple(vec![Type::Var(id), Type::Var(id)])));
+        let result = substitute_type_vars(&ty, &mapping);
+        assert_eq!(
+            result,
+            Type::List(Box::new(Type::Tuple(vec![Type::Float, Type::Float])))
+        );
     }
 }
