@@ -1,4 +1,4 @@
-use crate::ast::{BinOp, EnumDef, StructDef, UnaryOp};
+use crate::ast::{BinOp, EnumDef, Path, StructDef, UnaryOp};
 use crate::types::Type;
 
 /// A checked item from the type checker
@@ -85,49 +85,40 @@ pub enum TypedPattern {
         fields: Vec<(String, TypedPattern)>,
     },
     /// Enum unit variant pattern: `Option::None`
-    EnumUnit {
-        enum_name: String,
-        variant_name: String,
-    },
+    EnumUnit { path: Path },
     /// Enum tuple variant pattern (exact): `Option::Some(x)`
     EnumTupleExact {
-        enum_name: String,
-        variant_name: String,
+        path: Path,
         patterns: Vec<TypedPattern>,
         total_fields: usize,
     },
     /// Enum tuple variant pattern (prefix): `Result::Ok(a, ..)`
     EnumTuplePrefix {
-        enum_name: String,
-        variant_name: String,
+        path: Path,
         patterns: Vec<TypedPattern>,
         total_fields: usize,
     },
     /// Enum tuple variant pattern (suffix): `Result::Err(.., msg)`
     EnumTupleSuffix {
-        enum_name: String,
-        variant_name: String,
+        path: Path,
         patterns: Vec<TypedPattern>,
         total_fields: usize,
     },
     /// Enum tuple variant pattern (prefix+suffix): `Triple::Make(a, .., c)`
     EnumTuplePrefixSuffix {
-        enum_name: String,
-        variant_name: String,
+        path: Path,
         prefix: Vec<TypedPattern>,
         suffix: Vec<TypedPattern>,
         total_fields: usize,
     },
     /// Enum struct variant pattern (exact): `Message::Move { x, y }`
     EnumStructExact {
-        enum_name: String,
-        variant_name: String,
+        path: Path,
         fields: Vec<(String, TypedPattern)>,
     },
     /// Enum struct variant pattern (partial): `Message::Move { x, .. }`
     EnumStructPartial {
-        enum_name: String,
-        variant_name: String,
+        path: Path,
         fields: Vec<(String, TypedPattern)>,
     },
 }
@@ -208,8 +199,7 @@ pub enum TypedExpr {
     },
     /// Enum variant constructor: `Option::Some(42)`, `Option::None`, `Message::Move { x: 1 }`
     EnumConstruct {
-        enum_name: String,
-        variant_name: String,
+        path: Path,
         fields: TypedEnumConstructFields,
         ty: Type,
     },

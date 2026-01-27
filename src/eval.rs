@@ -3,6 +3,7 @@ use std::fmt;
 pub use rquickjs::Context;
 use rquickjs::{BigInt, CatchResultExt, Runtime};
 
+use crate::ast::Path;
 use crate::types::Type;
 
 /// Create a new QuickJS runtime and context
@@ -30,8 +31,7 @@ pub enum Value {
         ret: Box<Type>,
     },
     Enum {
-        enum_name: String,
-        variant_name: String,
+        path: Path,
         fields: EnumValueFields,
     },
 }
@@ -84,31 +84,21 @@ impl fmt::Display for Value {
                     write!(f, "<fn({}) -> {}>", param_strs.join(", "), ret)
                 }
             }
-            Value::Enum {
-                enum_name,
-                variant_name,
-                fields,
-            } => match fields {
-                EnumValueFields::Unit => write!(f, "{}::{}", enum_name, variant_name),
+            Value::Enum { path, fields } => match fields {
+                EnumValueFields::Unit => write!(f, "{}", path),
                 EnumValueFields::Tuple(values) => {
                     let items: Vec<String> = values.iter().map(|v| v.to_string()).collect();
-                    write!(f, "{}::{}({})", enum_name, variant_name, items.join(", "))
+                    write!(f, "{}({})", path, items.join(", "))
                 }
                 EnumValueFields::Struct(field_values) => {
                     if field_values.is_empty() {
-                        write!(f, "{}::{} {{}}", enum_name, variant_name)
+                        write!(f, "{} {{}}", path)
                     } else {
                         let field_strs: Vec<String> = field_values
                             .iter()
                             .map(|(k, v)| format!("{}: {}", k, v))
                             .collect();
-                        write!(
-                            f,
-                            "{}::{} {{ {} }}",
-                            enum_name,
-                            variant_name,
-                            field_strs.join(", ")
-                        )
+                        write!(f, "{} {{ {} }}", path, field_strs.join(", "))
                     }
                 }
             },
@@ -298,8 +288,9 @@ fn js_value_to_value(
             };
 
             Ok(Value::Enum {
-                enum_name: enum_name.clone(),
-                variant_name: tag,
+                path: Path {
+                    segments: vec![enum_name.clone(), tag],
+                },
                 fields,
             })
         }

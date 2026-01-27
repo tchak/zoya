@@ -255,21 +255,21 @@ fn codegen_pattern_at_path(
         }
 
         // Enum patterns
-        TypedPattern::EnumUnit { variant_name, .. } => {
+        TypedPattern::EnumUnit { path } => {
             conditions.push(format!(
                 "{}({}) && {}.$tag === \"{}\"",
-                IS_OBJ_FN, access_path, access_path, variant_name
+                IS_OBJ_FN, access_path, access_path, path.last()
             ));
         }
 
         TypedPattern::EnumTupleExact {
-            variant_name,
+            path,
             patterns,
             ..
         } => {
             conditions.push(format!(
                 "{}({}) && {}.$tag === \"{}\"",
-                IS_OBJ_FN, access_path, access_path, variant_name
+                IS_OBJ_FN, access_path, access_path, path.last()
             ));
             for (i, pat) in patterns.iter().enumerate() {
                 let child_path = format!("{}.${}",  access_path, i);
@@ -280,13 +280,13 @@ fn codegen_pattern_at_path(
         }
 
         TypedPattern::EnumTuplePrefix {
-            variant_name,
+            path,
             patterns,
             ..
         } => {
             conditions.push(format!(
                 "{}({}) && {}.$tag === \"{}\"",
-                IS_OBJ_FN, access_path, access_path, variant_name
+                IS_OBJ_FN, access_path, access_path, path.last()
             ));
             for (i, pat) in patterns.iter().enumerate() {
                 let child_path = format!("{}.${}",  access_path, i);
@@ -297,14 +297,14 @@ fn codegen_pattern_at_path(
         }
 
         TypedPattern::EnumTupleSuffix {
-            variant_name,
+            path,
             patterns,
             total_fields,
             ..
         } => {
             conditions.push(format!(
                 "{}({}) && {}.$tag === \"{}\"",
-                IS_OBJ_FN, access_path, access_path, variant_name
+                IS_OBJ_FN, access_path, access_path, path.last()
             ));
             let start_idx = total_fields - patterns.len();
             for (i, pat) in patterns.iter().enumerate() {
@@ -317,7 +317,7 @@ fn codegen_pattern_at_path(
         }
 
         TypedPattern::EnumTuplePrefixSuffix {
-            variant_name,
+            path,
             prefix,
             suffix,
             total_fields,
@@ -325,7 +325,7 @@ fn codegen_pattern_at_path(
         } => {
             conditions.push(format!(
                 "{}({}) && {}.$tag === \"{}\"",
-                IS_OBJ_FN, access_path, access_path, variant_name
+                IS_OBJ_FN, access_path, access_path, path.last()
             ));
             // Prefix patterns
             for (i, pat) in prefix.iter().enumerate() {
@@ -345,19 +345,11 @@ fn codegen_pattern_at_path(
             }
         }
 
-        TypedPattern::EnumStructExact {
-            variant_name,
-            fields,
-            ..
-        }
-        | TypedPattern::EnumStructPartial {
-            variant_name,
-            fields,
-            ..
-        } => {
+        TypedPattern::EnumStructExact { path, fields }
+        | TypedPattern::EnumStructPartial { path, fields } => {
             conditions.push(format!(
                 "{}({}) && {}.$tag === \"{}\"",
-                IS_OBJ_FN, access_path, access_path, variant_name
+                IS_OBJ_FN, access_path, access_path, path.last()
             ));
             for (field_name, pat) in fields {
                 let child_path = format!("{}.{}", access_path, field_name);
@@ -529,12 +521,9 @@ pub fn codegen(expr: &TypedExpr) -> String {
         TypedExpr::FieldAccess { expr, field, .. } => {
             format!("({}).{}", codegen(expr), field)
         }
-        TypedExpr::EnumConstruct {
-            variant_name,
-            fields,
-            ..
-        } => {
+        TypedExpr::EnumConstruct { path, fields, .. } => {
             use crate::ir::TypedEnumConstructFields;
+            let variant_name = path.last();
             match fields {
                 TypedEnumConstructFields::Unit => {
                     format!("({{ $tag: \"{}\" }})", variant_name)

@@ -4,6 +4,7 @@
 
 use std::collections::HashSet;
 
+use crate::ast::Path;
 use crate::ir::{TypedExpr, TypedMatchArm, TypedPattern};
 use crate::types::{EnumVariantType, Type, TypeError};
 
@@ -41,8 +42,7 @@ pub enum Constructor {
 
     // Enum variant constructor
     EnumVariant {
-        enum_name: String,
-        variant_name: String,
+        path: Path,
         kind: EnumVariantConstructorKind,
     },
 
@@ -73,17 +73,9 @@ impl PartialEq for Constructor {
             (Constructor::StringLiteral(a), Constructor::StringLiteral(b)) => a == b,
             (Constructor::Struct { name: n1, .. }, Constructor::Struct { name: n2, .. }) => n1 == n2,
             (
-                Constructor::EnumVariant {
-                    enum_name: e1,
-                    variant_name: v1,
-                    ..
-                },
-                Constructor::EnumVariant {
-                    enum_name: e2,
-                    variant_name: v2,
-                    ..
-                },
-            ) => e1 == e2 && v1 == v2,
+                Constructor::EnumVariant { path: p1, .. },
+                Constructor::EnumVariant { path: p2, .. },
+            ) => p1 == p2,
             (Constructor::NonExhaustive, Constructor::NonExhaustive) => true,
             _ => false,
         }
@@ -105,13 +97,8 @@ impl std::hash::Hash for Constructor {
             Constructor::FloatLiteral(f) => f.hash(state),
             Constructor::StringLiteral(s) => s.hash(state),
             Constructor::Struct { name, .. } => name.hash(state), // Only hash name
-            Constructor::EnumVariant {
-                enum_name,
-                variant_name,
-                ..
-            } => {
-                enum_name.hash(state);
-                variant_name.hash(state);
+            Constructor::EnumVariant { path, .. } => {
+                path.segments.hash(state);
             }
             Constructor::NonExhaustive => {}
         }
@@ -231,24 +218,18 @@ impl Constructor {
                     format!("{} {{ {} }}", name, field_strs.join(", "))
                 }
             }
-            Constructor::EnumVariant {
-                enum_name,
-                variant_name,
-                kind,
-            } => match kind {
-                EnumVariantConstructorKind::Unit => {
-                    format!("{}::{}", enum_name, variant_name)
-                }
+            Constructor::EnumVariant { path, kind } => match kind {
+                EnumVariantConstructorKind::Unit => path.to_string(),
                 EnumVariantConstructorKind::Tuple { field_types, .. } => {
                     if args.is_empty() {
-                        format!("{}::{}", enum_name, variant_name)
+                        path.to_string()
                     } else {
                         let arg_strs: Vec<String> = args
                             .iter()
                             .zip(field_types.iter())
                             .map(|(p, t)| p.to_pattern_string(t))
                             .collect();
-                        format!("{}::{}({})", enum_name, variant_name, arg_strs.join(", "))
+                        format!("{}({})", path, arg_strs.join(", "))
                     }
                 }
                 EnumVariantConstructorKind::Struct {
@@ -256,7 +237,7 @@ impl Constructor {
                     field_types,
                 } => {
                     if field_names.is_empty() {
-                        format!("{}::{} {{}}", enum_name, variant_name)
+                        format!("{} {{}}", path)
                     } else {
                         let field_strs: Vec<String> = field_names
                             .iter()
@@ -266,12 +247,7 @@ impl Constructor {
                                 format!("{}: {}", fname, pat.to_pattern_string(fty))
                             })
                             .collect();
-                        format!(
-                            "{}::{} {{ {} }}",
-                            enum_name,
-                            variant_name,
-                            field_strs.join(", ")
-                        )
+                        format!("{} {{ {} }}", path, field_strs.join(", "))
                     }
                 }
             },
@@ -338,8 +314,9 @@ impl TypeCtors {
                             }
                         };
                         Constructor::EnumVariant {
-                            enum_name: enum_name.clone(),
-                            variant_name: variant_name.clone(),
+                            path: Path {
+                                segments: vec![enum_name.clone(), variant_name.clone()],
+                            },
                             kind,
                         }
                     })
@@ -554,32 +531,18 @@ impl Pat {
             }
 
             // Enum patterns
-            TypedPattern::EnumUnit {
-                enum_name,
-                variant_name,
-            } => Pat::Ctor(
+            TypedPattern::EnumUnit { path } => Pat::Ctor(
                 Constructor::EnumVariant {
-                    enum_name: enum_name.clone(),
-                    variant_name: variant_name.clone(),
+                    path: path.clone(),
                     kind: EnumVariantConstructorKind::Unit,
                 },
                 vec![],
             ),
 
-            TypedPattern::EnumTupleExact {
-                enum_name,
-                variant_name,
-                patterns,
-                ..
-            }
-            | TypedPattern::EnumTuplePrefix {
-                enum_name,
-                variant_name,
-                patterns,
-                ..
-            } => {
+            TypedPattern::EnumTupleExact { path, patterns, .. }
+            | TypedPattern::EnumTuplePrefix { path, patterns, .. } => {
                 // Get field types from the type
-                let field_types = Self::get_enum_tuple_variant_types(ty, variant_name);
+                let field_types = Self::get_enum_tuple_variant_types(ty, path.last());
                 let sub_pats: Vec<Pat> = patterns
                     .iter()
                     .zip(field_types.iter())
@@ -592,8 +555,7 @@ impl Pat {
                 }
                 Pat::Ctor(
                     Constructor::EnumVariant {
-                        enum_name: enum_name.clone(),
-                        variant_name: variant_name.clone(),
+                        path: path.clone(),
                         kind: EnumVariantConstructorKind::Tuple {
                             arity: field_types.len(),
                             field_types,
@@ -604,12 +566,11 @@ impl Pat {
             }
 
             TypedPattern::EnumTupleSuffix {
-                enum_name,
-                variant_name,
+                path,
                 patterns,
                 total_fields,
             } => {
-                let field_types = Self::get_enum_tuple_variant_types(ty, variant_name);
+                let field_types = Self::get_enum_tuple_variant_types(ty, path.last());
                 let start_idx = total_fields - patterns.len();
                 let mut sub_pats = vec![Pat::Wild; start_idx];
                 for (p, t) in patterns.iter().zip(field_types.iter().skip(start_idx)) {
@@ -617,8 +578,7 @@ impl Pat {
                 }
                 Pat::Ctor(
                     Constructor::EnumVariant {
-                        enum_name: enum_name.clone(),
-                        variant_name: variant_name.clone(),
+                        path: path.clone(),
                         kind: EnumVariantConstructorKind::Tuple {
                             arity: *total_fields,
                             field_types,
@@ -629,13 +589,12 @@ impl Pat {
             }
 
             TypedPattern::EnumTuplePrefixSuffix {
-                enum_name,
-                variant_name,
+                path,
                 prefix,
                 suffix,
                 total_fields,
             } => {
-                let field_types = Self::get_enum_tuple_variant_types(ty, variant_name);
+                let field_types = Self::get_enum_tuple_variant_types(ty, path.last());
                 let mut sub_pats = Vec::with_capacity(*total_fields);
                 // Add prefix patterns
                 for (p, t) in prefix.iter().zip(field_types.iter()) {
@@ -653,8 +612,7 @@ impl Pat {
                 }
                 Pat::Ctor(
                     Constructor::EnumVariant {
-                        enum_name: enum_name.clone(),
-                        variant_name: variant_name.clone(),
+                        path: path.clone(),
                         kind: EnumVariantConstructorKind::Tuple {
                             arity: *total_fields,
                             field_types,
@@ -664,19 +622,11 @@ impl Pat {
                 )
             }
 
-            TypedPattern::EnumStructExact {
-                enum_name,
-                variant_name,
-                fields,
-            }
-            | TypedPattern::EnumStructPartial {
-                enum_name,
-                variant_name,
-                fields,
-            } => {
+            TypedPattern::EnumStructExact { path, fields }
+            | TypedPattern::EnumStructPartial { path, fields } => {
                 // Get field info from the type
                 let (field_names, field_types) =
-                    Self::get_enum_struct_variant_info(ty, variant_name);
+                    Self::get_enum_struct_variant_info(ty, path.last());
 
                 // Build sub-patterns in field order
                 let mut sub_pats = Vec::with_capacity(field_names.len());
@@ -690,8 +640,7 @@ impl Pat {
 
                 Pat::Ctor(
                     Constructor::EnumVariant {
-                        enum_name: enum_name.clone(),
-                        variant_name: variant_name.clone(),
+                        path: path.clone(),
                         kind: EnumVariantConstructorKind::Struct {
                             field_names,
                             field_types,
