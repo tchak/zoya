@@ -49,6 +49,8 @@ src/
   - Unary: `-` (negation)
 - **Functions:** definitions with `fn`, generic type parameters, type annotations, calls
   - Simple bodies can omit braces: `fn square(x: Int) -> Int x * x`
+  - Pattern destructuring in params: `fn swap((a, b): (Int, Int)) -> (Int, Int) (b, a)`
+  - Struct destructuring in params: `fn get_x(Point { x, .. }: Point) -> Int x`
 - **Let bindings:** `let pattern = expr` or `let x: Type = expr`
   - Simple: `let x = 42`
   - Tuple destructuring: `let (a, b) = (1, 2)`, `let (first, ..) = tuple`
@@ -68,6 +70,7 @@ src/
   - Type annotations: `|x: Int| x * 2`
   - Return type: `|x| -> Int x + 1`
   - Block body: `|x| { let y = x * 2; y + 1 }`
+  - Pattern destructuring: `|(a, b)| a + b`, `|Point { x, y }| x + y`
   - Function type annotations: `let f: Int -> Int = |x| x + 1`
   - Multi-param function types: `let f: (Int, Int) -> Int = |x, y| x + y`
   - Higher-order functions: `fn apply(f: Int -> Int, x: Int) -> Int f(x)`
