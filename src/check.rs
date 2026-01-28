@@ -6,8 +6,8 @@ use crate::ast::{
     TypeAnnotation, UnaryOp,
 };
 use crate::ir::{
-    CheckedItem, TypedEnumConstructFields, TypedExpr, TypedFunction, TypedLetBinding,
-    TypedMatchArm, TypedPattern,
+    CheckedItem, QualifiedPath, TypedEnumConstructFields, TypedExpr, TypedFunction,
+    TypedLetBinding, TypedMatchArm, TypedPattern,
 };
 use crate::types::{EnumType, EnumVariantType, FunctionType, StructType, Type, TypeError, TypeScheme, TypeVarId};
 use crate::unify::UnifyCtx;
@@ -497,10 +497,10 @@ fn check_path_expr(path: &Path, env: &TypeEnv, ctx: &mut UnifyCtx) -> Result<Typ
                 .collect();
 
             Ok(TypedExpr::EnumConstruct {
-                path: Path {
-                    segments: vec![enum_name.to_string(), variant_name.to_string()],
-                    type_args: None,
-                },
+                path: QualifiedPath::new(vec![
+                    enum_name.to_string(),
+                    variant_name.to_string(),
+                ]),
                 fields: TypedEnumConstructFields::Unit,
                 ty: Type::Enum {
                     name: enum_name.to_string(),
@@ -828,10 +828,7 @@ fn check_enum_tuple_construct(
         .collect();
 
     Ok(TypedExpr::EnumConstruct {
-        path: Path {
-            segments: vec![enum_name.to_string(), variant_name.to_string()],
-            type_args: None,
-        },
+        path: QualifiedPath::new(vec![enum_name.to_string(), variant_name.to_string()]),
         fields: TypedEnumConstructFields::Tuple(typed_exprs),
         ty: Type::Enum {
             name: enum_name.to_string(),
@@ -1442,10 +1439,7 @@ fn check_enum_struct_construct(
         .collect();
 
     Ok(TypedExpr::EnumConstruct {
-        path: Path {
-            segments: vec![enum_name.to_string(), variant_name.to_string()],
-            type_args: None,
-        },
+        path: QualifiedPath::new(vec![enum_name.to_string(), variant_name.to_string()]),
         fields: TypedEnumConstructFields::Struct(typed_fields),
         ty: Type::Enum {
             name: enum_name.to_string(),
@@ -2056,10 +2050,10 @@ fn check_enum_pattern(
     match (fields, variant_type) {
         (EnumPatternFields::Unit, EnumVariantType::Unit) => Ok((
             TypedPattern::EnumUnit {
-                path: Path {
-                    segments: vec![enum_name.to_string(), variant_name.to_string()],
-                    type_args: None,
-                },
+                path: QualifiedPath::new(vec![
+                    enum_name.to_string(),
+                    variant_name.to_string(),
+                ]),
             },
             HashMap::new(),
         )),
@@ -2146,10 +2140,10 @@ fn check_enum_tuple_pattern(
             }
             Ok((
                 TypedPattern::EnumTupleExact {
-                    path: Path {
-                        segments: vec![enum_name.to_string(), variant_name.to_string()],
-                        type_args: None,
-                    },
+                    path: QualifiedPath::new(vec![
+                        enum_name.to_string(),
+                        variant_name.to_string(),
+                    ]),
                     patterns: vec![],
                     total_fields: 0,
                 },
@@ -2173,10 +2167,10 @@ fn check_enum_tuple_pattern(
                 check_patterns_against_types(patterns, expected_types, env, ctx)?;
             Ok((
                 TypedPattern::EnumTupleExact {
-                    path: Path {
-                        segments: vec![enum_name.to_string(), variant_name.to_string()],
-                        type_args: None,
-                    },
+                    path: QualifiedPath::new(vec![
+                        enum_name.to_string(),
+                        variant_name.to_string(),
+                    ]),
                     patterns: typed_patterns,
                     total_fields,
                 },
@@ -2200,10 +2194,10 @@ fn check_enum_tuple_pattern(
                 check_patterns_against_types(patterns, expected_types, env, ctx)?;
             Ok((
                 TypedPattern::EnumTuplePrefix {
-                    path: Path {
-                        segments: vec![enum_name.to_string(), variant_name.to_string()],
-                        type_args: None,
-                    },
+                    path: QualifiedPath::new(vec![
+                        enum_name.to_string(),
+                        variant_name.to_string(),
+                    ]),
                     patterns: typed_patterns,
                     total_fields,
                 },
@@ -2228,10 +2222,10 @@ fn check_enum_tuple_pattern(
                 check_patterns_against_types(patterns, &expected_types[start_idx..], env, ctx)?;
             Ok((
                 TypedPattern::EnumTupleSuffix {
-                    path: Path {
-                        segments: vec![enum_name.to_string(), variant_name.to_string()],
-                        type_args: None,
-                    },
+                    path: QualifiedPath::new(vec![
+                        enum_name.to_string(),
+                        variant_name.to_string(),
+                    ]),
                     patterns: typed_patterns,
                     total_fields,
                 },
@@ -2257,10 +2251,10 @@ fn check_enum_tuple_pattern(
             bindings.extend(suffix_bindings);
             Ok((
                 TypedPattern::EnumTuplePrefixSuffix {
-                    path: Path {
-                        segments: vec![enum_name.to_string(), variant_name.to_string()],
-                        type_args: None,
-                    },
+                    path: QualifiedPath::new(vec![
+                        enum_name.to_string(),
+                        variant_name.to_string(),
+                    ]),
                     prefix: prefix_typed,
                     suffix: suffix_typed,
                     total_fields,
@@ -2325,18 +2319,12 @@ fn check_enum_struct_pattern(
 
     let typed_pattern = if is_partial {
         TypedPattern::EnumStructPartial {
-            path: Path {
-                segments: vec![enum_name.to_string(), variant_name.to_string()],
-                type_args: None,
-            },
+            path: QualifiedPath::new(vec![enum_name.to_string(), variant_name.to_string()]),
             fields: typed_fields,
         }
     } else {
         TypedPattern::EnumStructExact {
-            path: Path {
-                segments: vec![enum_name.to_string(), variant_name.to_string()],
-                type_args: None,
-            },
+            path: QualifiedPath::new(vec![enum_name.to_string(), variant_name.to_string()]),
             fields: typed_fields,
         }
     };

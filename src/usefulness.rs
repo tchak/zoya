@@ -4,8 +4,7 @@
 
 use std::collections::HashSet;
 
-use crate::ast::Path;
-use crate::ir::{TypedExpr, TypedMatchArm, TypedPattern};
+use crate::ir::{QualifiedPath, TypedExpr, TypedMatchArm, TypedPattern};
 use crate::types::{EnumVariantType, Type, TypeError};
 
 /// A constructor represents a way to build a value of a given type.
@@ -42,7 +41,7 @@ pub enum Constructor {
 
     // Enum variant constructor
     EnumVariant {
-        path: Path,
+        path: QualifiedPath,
         kind: EnumVariantConstructorKind,
     },
 
@@ -314,10 +313,10 @@ impl TypeCtors {
                             }
                         };
                         Constructor::EnumVariant {
-                            path: Path {
-                                segments: vec![enum_name.clone(), variant_name.clone()],
-                                type_args: None,
-                            },
+                            path: QualifiedPath::new(vec![
+                                enum_name.clone(),
+                                variant_name.clone(),
+                            ]),
                             kind,
                         }
                     })

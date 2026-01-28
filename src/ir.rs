@@ -1,5 +1,29 @@
-use crate::ast::{BinOp, EnumDef, Path, StructDef, UnaryOp};
+use crate::ast::{BinOp, EnumDef, StructDef, UnaryOp};
 use crate::types::Type;
+
+/// A resolved qualified path (e.g., `Option::Some`, `Color::Red`)
+/// Unlike ast::Path, this has no type_args - type information
+/// is stored in the TypedExpr::ty field after type checking.
+#[derive(Debug, Clone, PartialEq)]
+pub struct QualifiedPath {
+    pub segments: Vec<String>,
+}
+
+impl QualifiedPath {
+    pub fn new(segments: Vec<String>) -> Self {
+        Self { segments }
+    }
+
+    pub fn last(&self) -> &str {
+        self.segments.last().expect("path cannot be empty")
+    }
+}
+
+impl std::fmt::Display for QualifiedPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.segments.join("::"))
+    }
+}
 
 /// A checked item from the type checker
 #[derive(Debug, Clone, PartialEq)]
@@ -85,40 +109,40 @@ pub enum TypedPattern {
         fields: Vec<(String, TypedPattern)>,
     },
     /// Enum unit variant pattern: `Option::None`
-    EnumUnit { path: Path },
+    EnumUnit { path: QualifiedPath },
     /// Enum tuple variant pattern (exact): `Option::Some(x)`
     EnumTupleExact {
-        path: Path,
+        path: QualifiedPath,
         patterns: Vec<TypedPattern>,
         total_fields: usize,
     },
     /// Enum tuple variant pattern (prefix): `Result::Ok(a, ..)`
     EnumTuplePrefix {
-        path: Path,
+        path: QualifiedPath,
         patterns: Vec<TypedPattern>,
         total_fields: usize,
     },
     /// Enum tuple variant pattern (suffix): `Result::Err(.., msg)`
     EnumTupleSuffix {
-        path: Path,
+        path: QualifiedPath,
         patterns: Vec<TypedPattern>,
         total_fields: usize,
     },
     /// Enum tuple variant pattern (prefix+suffix): `Triple::Make(a, .., c)`
     EnumTuplePrefixSuffix {
-        path: Path,
+        path: QualifiedPath,
         prefix: Vec<TypedPattern>,
         suffix: Vec<TypedPattern>,
         total_fields: usize,
     },
     /// Enum struct variant pattern (exact): `Message::Move { x, y }`
     EnumStructExact {
-        path: Path,
+        path: QualifiedPath,
         fields: Vec<(String, TypedPattern)>,
     },
     /// Enum struct variant pattern (partial): `Message::Move { x, .. }`
     EnumStructPartial {
-        path: Path,
+        path: QualifiedPath,
         fields: Vec<(String, TypedPattern)>,
     },
 }
@@ -199,7 +223,7 @@ pub enum TypedExpr {
     },
     /// Enum variant constructor: `Option::Some(42)`, `Option::None`, `Message::Move { x: 1 }`
     EnumConstruct {
-        path: Path,
+        path: QualifiedPath,
         fields: TypedEnumConstructFields,
         ty: Type,
     },

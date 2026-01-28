@@ -3,7 +3,7 @@ use std::fmt;
 pub use rquickjs::Context;
 use rquickjs::{BigInt, CatchResultExt, Runtime};
 
-use crate::ast::Path;
+use crate::ir::QualifiedPath;
 use crate::types::Type;
 
 /// Create a new QuickJS runtime and context
@@ -31,7 +31,7 @@ pub enum Value {
         ret: Box<Type>,
     },
     Enum {
-        path: Path,
+        path: QualifiedPath,
         fields: EnumValueFields,
     },
 }
@@ -288,10 +288,7 @@ fn js_value_to_value(
             };
 
             Ok(Value::Enum {
-                path: Path {
-                    segments: vec![enum_name.clone(), tag],
-                    type_args: None,
-                },
+                path: QualifiedPath::new(vec![enum_name.clone(), tag]),
                 fields,
             })
         }

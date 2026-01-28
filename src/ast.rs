@@ -31,13 +31,6 @@ impl Path {
             None
         }
     }
-
-    /// Get the last segment (useful for display and some lookups)
-    pub fn last(&self) -> &str {
-        self.segments
-            .last()
-            .expect("Path must have at least one segment")
-    }
 }
 
 impl std::fmt::Display for Path {
