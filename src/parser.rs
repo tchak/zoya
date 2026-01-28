@@ -63,8 +63,8 @@ fn type_annotation<'a>() -> impl Parser<'a, &'a [Token], TypeAnnotation, extra::
         let named_type = ident()
             .then(type_params.or_not())
             .map(|(name, params)| match params {
-                Some(params) => TypeAnnotation::Parameterized(name, params),
-                None => TypeAnnotation::Named(name),
+                Some(params) => TypeAnnotation::Parameterized(Path::simple(name), params),
+                None => TypeAnnotation::Named(Path::simple(name)),
             });
 
         // Empty tuple type: ()
@@ -1402,7 +1402,7 @@ mod tests {
                 name: "foo".to_string(),
                 type_params: vec![],
                 params: vec![],
-                return_type: Some(TypeAnnotation::Named("Int".to_string())),
+                return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
                 body: Expr::Int(42),
             })
         );
@@ -1419,14 +1419,14 @@ mod tests {
                 params: vec![
                     Param {
                         name: "x".to_string(),
-                        typ: TypeAnnotation::Named("Int".to_string()),
+                        typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                     },
                     Param {
                         name: "y".to_string(),
-                        typ: TypeAnnotation::Named("Int".to_string()),
+                        typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                     },
                 ],
-                return_type: Some(TypeAnnotation::Named("Int".to_string())),
+                return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
                 body: Expr::BinOp {
                     op: BinOp::Add,
                     left: Box::new(Expr::Path(Path::simple("x".to_string()))),
@@ -1446,9 +1446,9 @@ mod tests {
                 type_params: vec!["T".to_string()],
                 params: vec![Param {
                     name: "x".to_string(),
-                    typ: TypeAnnotation::Named("T".to_string()),
+                    typ: TypeAnnotation::Named(Path::simple("T".to_string())),
                 }],
-                return_type: Some(TypeAnnotation::Named("T".to_string())),
+                return_type: Some(TypeAnnotation::Named(Path::simple("T".to_string()))),
                 body: Expr::Path(Path::simple("x".to_string())),
             })
         );
@@ -1465,11 +1465,11 @@ mod tests {
                 params: vec![
                     Param {
                         name: "a".to_string(),
-                        typ: TypeAnnotation::Named("A".to_string()),
+                        typ: TypeAnnotation::Named(Path::simple("A".to_string())),
                     },
                     Param {
                         name: "b".to_string(),
-                        typ: TypeAnnotation::Named("B".to_string()),
+                        typ: TypeAnnotation::Named(Path::simple("B".to_string())),
                     },
                 ],
                 return_type: None,
@@ -1488,9 +1488,9 @@ mod tests {
                 type_params: vec![],
                 params: vec![Param {
                     name: "x".to_string(),
-                    typ: TypeAnnotation::Named("Int".to_string()),
+                    typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                 }],
-                return_type: Some(TypeAnnotation::Named("Int".to_string())),
+                return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
                 body: Expr::Call {
                     path: Path::simple("add".to_string()),
                     args: vec![Expr::Path(Path::simple("x".to_string())), Expr::Path(Path::simple("x".to_string())),],
@@ -1706,7 +1706,7 @@ mod tests {
                 name,
                 type_annotation: Some(TypeAnnotation::Named(ty)),
                 value,
-            }) if name == "x" && ty == "Int" && **value == Expr::Int(42)
+            }) if name == "x" && ty.as_simple() == Some("Int") && **value == Expr::Int(42)
         ));
     }
 
@@ -1771,7 +1771,7 @@ mod tests {
                 name: "foo".to_string(),
                 type_params: vec![],
                 params: vec![],
-                return_type: Some(TypeAnnotation::Named("Int".to_string())),
+                return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
                 body: Expr::Int(42),
             })
         );
@@ -1789,14 +1789,14 @@ mod tests {
                 params: vec![
                     Param {
                         name: "x".to_string(),
-                        typ: TypeAnnotation::Named("Int".to_string()),
+                        typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                     },
                     Param {
                         name: "y".to_string(),
-                        typ: TypeAnnotation::Named("Int".to_string()),
+                        typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                     },
                 ],
-                return_type: Some(TypeAnnotation::Named("Int".to_string())),
+                return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
                 body: Expr::BinOp {
                     op: BinOp::Add,
                     left: Box::new(Expr::Path(Path::simple("x".to_string()))),
@@ -2152,7 +2152,7 @@ mod tests {
         assert!(matches!(
             &params[0].typ,
             TypeAnnotation::Parameterized(name, args)
-                if name == "List" && args.len() == 1
+                if name.as_simple() == Some("List") && args.len() == 1
         ));
     }
 
@@ -2410,7 +2410,7 @@ mod tests {
             assert_eq!(params[0].name, "x");
             assert!(matches!(
                 &params[0].typ,
-                Some(TypeAnnotation::Named(s)) if s == "Int"
+                Some(TypeAnnotation::Named(s)) if s.as_simple() == Some("Int")
             ));
         } else {
             panic!("expected lambda");
@@ -2427,7 +2427,7 @@ mod tests {
             assert_eq!(params.len(), 1);
             assert!(matches!(
                 return_type,
-                Some(TypeAnnotation::Named(s)) if s == "Int"
+                Some(TypeAnnotation::Named(s)) if s.as_simple() == Some("Int")
             ));
         } else {
             panic!("expected lambda");
@@ -2446,11 +2446,11 @@ mod tests {
             assert_eq!(params.len(), 1);
             assert!(matches!(
                 &params[0].typ,
-                Some(TypeAnnotation::Named(s)) if s == "Int"
+                Some(TypeAnnotation::Named(s)) if s.as_simple() == Some("Int")
             ));
             assert!(matches!(
                 return_type,
-                Some(TypeAnnotation::Named(s)) if s == "Int"
+                Some(TypeAnnotation::Named(s)) if s.as_simple() == Some("Int")
             ));
         } else {
             panic!("expected lambda");
@@ -2509,8 +2509,8 @@ mod tests {
                 &binding.type_annotation,
                 Some(TypeAnnotation::Function(params, ret))
                 if params.len() == 1
-                    && matches!(&params[0], TypeAnnotation::Named(n) if n == "Int")
-                    && matches!(ret.as_ref(), TypeAnnotation::Named(n) if n == "Int")
+                    && matches!(&params[0], TypeAnnotation::Named(n) if n.as_simple() == Some("Int"))
+                    && matches!(ret.as_ref(), TypeAnnotation::Named(n) if n.as_simple() == Some("Int"))
             ));
         } else {
             panic!("expected let statement");
@@ -2524,9 +2524,9 @@ mod tests {
         if let Statement::Let(binding) = &stmts[0] {
             if let Some(TypeAnnotation::Function(params, ret)) = &binding.type_annotation {
                 assert_eq!(params.len(), 2);
-                assert!(matches!(&params[0], TypeAnnotation::Named(n) if n == "Int"));
-                assert!(matches!(&params[1], TypeAnnotation::Named(n) if n == "String"));
-                assert!(matches!(ret.as_ref(), TypeAnnotation::Named(n) if n == "Bool"));
+                assert!(matches!(&params[0], TypeAnnotation::Named(n) if n.as_simple() == Some("Int")));
+                assert!(matches!(&params[1], TypeAnnotation::Named(n) if n.as_simple() == Some("String")));
+                assert!(matches!(ret.as_ref(), TypeAnnotation::Named(n) if n.as_simple() == Some("Bool")));
             } else {
                 panic!("expected function type annotation");
             }
@@ -2542,7 +2542,7 @@ mod tests {
         if let Statement::Let(binding) = &stmts[0] {
             if let Some(TypeAnnotation::Function(params, ret)) = &binding.type_annotation {
                 assert!(params.is_empty());
-                assert!(matches!(ret.as_ref(), TypeAnnotation::Named(n) if n == "Int"));
+                assert!(matches!(ret.as_ref(), TypeAnnotation::Named(n) if n.as_simple() == Some("Int")));
             } else {
                 panic!("expected function type annotation");
             }
@@ -2559,12 +2559,12 @@ mod tests {
         if let Statement::Let(binding) = &stmts[0] {
             if let Some(TypeAnnotation::Function(params, ret)) = &binding.type_annotation {
                 assert_eq!(params.len(), 1);
-                assert!(matches!(&params[0], TypeAnnotation::Named(n) if n == "Int"));
+                assert!(matches!(&params[0], TypeAnnotation::Named(n) if n.as_simple() == Some("Int")));
                 // ret should be Int -> Int
                 if let TypeAnnotation::Function(inner_params, inner_ret) = ret.as_ref() {
                     assert_eq!(inner_params.len(), 1);
-                    assert!(matches!(&inner_params[0], TypeAnnotation::Named(n) if n == "Int"));
-                    assert!(matches!(inner_ret.as_ref(), TypeAnnotation::Named(n) if n == "Int"));
+                    assert!(matches!(&inner_params[0], TypeAnnotation::Named(n) if n.as_simple() == Some("Int")));
+                    assert!(matches!(inner_ret.as_ref(), TypeAnnotation::Named(n) if n.as_simple() == Some("Int")));
                 } else {
                     panic!("expected nested function type");
                 }
@@ -2587,8 +2587,8 @@ mod tests {
             &func.params[0].typ,
             TypeAnnotation::Function(params, ret)
             if params.len() == 1
-                && matches!(&params[0], TypeAnnotation::Named(n) if n == "Int")
-                && matches!(ret.as_ref(), TypeAnnotation::Named(n) if n == "Int")
+                && matches!(&params[0], TypeAnnotation::Named(n) if n.as_simple() == Some("Int"))
+                && matches!(ret.as_ref(), TypeAnnotation::Named(n) if n.as_simple() == Some("Int"))
         ));
     }
 

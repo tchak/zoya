@@ -119,18 +119,18 @@ pub struct Param {
 /// Type annotation in source code
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeAnnotation {
-    Named(String),                                      // Int32, Float, T, etc.
-    Parameterized(String, Vec<TypeAnnotation>),         // List<Int32>, Map<K, V>, etc.
-    Tuple(Vec<TypeAnnotation>),                         // (Int32, String, Bool)
-    Function(Vec<TypeAnnotation>, Box<TypeAnnotation>), // (Int32, String) -> Bool
+    Named(Path),                                      // Int, T, module::MyType
+    Parameterized(Path, Vec<TypeAnnotation>),         // List<Int>, module::Map<K, V>
+    Tuple(Vec<TypeAnnotation>),                       // (Int, String, Bool)
+    Function(Vec<TypeAnnotation>, Box<TypeAnnotation>), // (Int, String) -> Bool
 }
 
 impl std::fmt::Display for TypeAnnotation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TypeAnnotation::Named(name) => write!(f, "{}", name),
-            TypeAnnotation::Parameterized(name, params) => {
-                write!(f, "{}<", name)?;
+            TypeAnnotation::Named(path) => write!(f, "{}", path),
+            TypeAnnotation::Parameterized(path, params) => {
+                write!(f, "{}<", path)?;
                 for (i, p) in params.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;

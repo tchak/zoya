@@ -66,7 +66,11 @@ fn resolve_type_annotation(
     env: &TypeEnv,
 ) -> Result<Type, TypeError> {
     match annotation {
-        TypeAnnotation::Named(name) => {
+        TypeAnnotation::Named(path) => {
+            // For now, only support simple (single-segment) type names
+            let name = path.as_simple().ok_or_else(|| TypeError {
+                message: format!("qualified type paths not yet supported: {}", path),
+            })?;
             if name == "Int" {
                 Ok(Type::Int)
             } else if name == "BigInt" {
@@ -92,7 +96,7 @@ fn resolve_type_annotation(
                 }
                 // Non-generic struct: use fields as-is
                 Ok(Type::Struct {
-                    name: name.clone(),
+                    name: name.to_string(),
                     type_args: vec![],
                     fields: struct_def.fields.clone(),
                 })
@@ -109,7 +113,7 @@ fn resolve_type_annotation(
                 }
                 // Non-generic enum: use variants as-is
                 Ok(Type::Enum {
-                    name: name.clone(),
+                    name: name.to_string(),
                     type_args: vec![],
                     variants: enum_def.variants.clone(),
                 })
@@ -119,7 +123,11 @@ fn resolve_type_annotation(
                 })
             }
         }
-        TypeAnnotation::Parameterized(name, params) => {
+        TypeAnnotation::Parameterized(path, params) => {
+            // For now, only support simple (single-segment) type names
+            let name = path.as_simple().ok_or_else(|| TypeError {
+                message: format!("qualified type paths not yet supported: {}", path),
+            })?;
             if name == "List" {
                 if params.len() != 1 {
                     return Err(TypeError {
@@ -155,7 +163,7 @@ fn resolve_type_annotation(
                     .map(|(n, t)| (n.clone(), substitute_type_vars(t, &subst)))
                     .collect();
                 Ok(Type::Struct {
-                    name: name.clone(),
+                    name: name.to_string(),
                     type_args,
                     fields,
                 })
@@ -186,7 +194,7 @@ fn resolve_type_annotation(
                     .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, &subst)))
                     .collect();
                 Ok(Type::Enum {
-                    name: name.clone(),
+                    name: name.to_string(),
                     type_args,
                     variants,
                 })
@@ -3131,9 +3139,9 @@ mod tests {
             type_params: vec![],
             params: vec![Param {
                 name: "x".to_string(),
-                typ: TypeAnnotation::Named("Int".to_string()),
+                typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
             }],
-            return_type: Some(TypeAnnotation::Named("Int".to_string())),
+            return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
             body: Expr::BinOp {
                 op: BinOp::Add,
                 left: Box::new(Expr::Path(Path::simple("x".to_string()))),
@@ -3155,9 +3163,9 @@ mod tests {
             type_params: vec![],
             params: vec![Param {
                 name: "x".to_string(),
-                typ: TypeAnnotation::Named("Int".to_string()),
+                typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
             }],
-            return_type: Some(TypeAnnotation::Named("Float".to_string())),
+            return_type: Some(TypeAnnotation::Named(Path::simple("Float".to_string()))),
             body: Expr::Path(Path::simple("x".to_string())), // Returns Int, not Float
         };
 
@@ -3185,9 +3193,9 @@ mod tests {
             type_params: vec![],
             params: vec![Param {
                 name: "x".to_string(),
-                typ: TypeAnnotation::Named("Int".to_string()),
+                typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
             }],
-            return_type: Some(TypeAnnotation::Named("Int".to_string())),
+            return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
             body: Expr::Call {
                 path: Path::simple("add".to_string()),
                 args: vec![Expr::Path(Path::simple("x".to_string())), Expr::Path(Path::simple("x".to_string()))],
@@ -3207,14 +3215,14 @@ mod tests {
             params: vec![
                 Param {
                     name: "x".to_string(),
-                    typ: TypeAnnotation::Named("Int".to_string()),
+                    typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                 },
                 Param {
                     name: "y".to_string(),
-                    typ: TypeAnnotation::Named("Int".to_string()),
+                    typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                 },
             ],
-            return_type: Some(TypeAnnotation::Named("Int".to_string())),
+            return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
             body: Expr::Int(0), // body doesn't matter for type extraction
         };
 
@@ -3232,9 +3240,9 @@ mod tests {
             type_params: vec!["T".to_string()],
             params: vec![Param {
                 name: "x".to_string(),
-                typ: TypeAnnotation::Named("T".to_string()),
+                typ: TypeAnnotation::Named(Path::simple("T".to_string())),
             }],
-            return_type: Some(TypeAnnotation::Named("T".to_string())),
+            return_type: Some(TypeAnnotation::Named(Path::simple("T".to_string()))),
             body: Expr::Int(0),
         };
 
@@ -3388,7 +3396,7 @@ mod tests {
             name: "foo".to_string(),
             type_params: vec![],
             params: vec![],
-            return_type: Some(TypeAnnotation::Named("Int".to_string())),
+            return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
             body: Expr::Int(42),
         }))];
         let result = check_repl(&stmts, &mut env).unwrap();
@@ -3407,9 +3415,9 @@ mod tests {
                 type_params: vec![],
                 params: vec![Param {
                     name: "x".to_string(),
-                    typ: TypeAnnotation::Named("Int".to_string()),
+                    typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                 }],
-                return_type: Some(TypeAnnotation::Named("Int".to_string())),
+                return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
                 body: Expr::BinOp {
                     op: BinOp::Add,
                     left: Box::new(Expr::Path(Path::simple("x".to_string()))),
@@ -3469,7 +3477,7 @@ mod tests {
         let mut env = TypeEnv::default();
         let stmts = vec![Statement::Let(LetBinding {
             name: "x".to_string(),
-            type_annotation: Some(TypeAnnotation::Named("Int".to_string())),
+            type_annotation: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
             value: Box::new(Expr::Int(42)),
         })];
         let result = check_repl(&stmts, &mut env).unwrap();
@@ -3484,7 +3492,7 @@ mod tests {
         let mut env = TypeEnv::default();
         let stmts = vec![Statement::Let(LetBinding {
             name: "x".to_string(),
-            type_annotation: Some(TypeAnnotation::Named("Float".to_string())),
+            type_annotation: Some(TypeAnnotation::Named(Path::simple("Float".to_string()))),
             value: Box::new(Expr::Int(42)),
         })];
         let result = check_repl(&stmts, &mut env);
@@ -3882,7 +3890,7 @@ mod tests {
                 name: "caller".to_string(),
                 type_params: vec![],
                 params: vec![],
-                return_type: Some(TypeAnnotation::Named("Int".to_string())),
+                return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
                 body: Expr::Call {
                     path: Path::simple("callee".to_string()),
                     args: vec![],
@@ -3892,7 +3900,7 @@ mod tests {
                 name: "callee".to_string(),
                 type_params: vec![],
                 params: vec![],
-                return_type: Some(TypeAnnotation::Named("Int".to_string())),
+                return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
                 body: Expr::Int(42),
             })),
         ];
@@ -3917,9 +3925,9 @@ mod tests {
                 type_params: vec![],
                 params: vec![Param {
                     name: "n".to_string(),
-                    typ: TypeAnnotation::Named("Int".to_string()),
+                    typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                 }],
-                return_type: Some(TypeAnnotation::Named("Bool".to_string())),
+                return_type: Some(TypeAnnotation::Named(Path::simple("Bool".to_string()))),
                 body: Expr::Match {
                     scrutinee: Box::new(Expr::Path(Path::simple("n".to_string()))),
                     arms: vec![
@@ -3946,9 +3954,9 @@ mod tests {
                 type_params: vec![],
                 params: vec![Param {
                     name: "n".to_string(),
-                    typ: TypeAnnotation::Named("Int".to_string()),
+                    typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                 }],
-                return_type: Some(TypeAnnotation::Named("Bool".to_string())),
+                return_type: Some(TypeAnnotation::Named(Path::simple("Bool".to_string()))),
                 body: Expr::Match {
                     scrutinee: Box::new(Expr::Path(Path::simple("n".to_string()))),
                     arms: vec![
@@ -3993,7 +4001,7 @@ mod tests {
                 name: "f2".to_string(),
                 type_params: vec![],
                 params: vec![],
-                return_type: Some(TypeAnnotation::Named("Int".to_string())),
+                return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
                 body: Expr::Call {
                     path: Path::simple("f1".to_string()),
                     args: vec![],
@@ -4008,7 +4016,7 @@ mod tests {
                 name: "f1".to_string(),
                 type_params: vec![],
                 params: vec![],
-                return_type: Some(TypeAnnotation::Named("Int".to_string())),
+                return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
                 body: Expr::Int(42),
             })),
         ];
@@ -4039,7 +4047,7 @@ mod tests {
                 name: "bad".to_string(),
                 type_params: vec![],
                 params: vec![],
-                return_type: Some(TypeAnnotation::Named("Int".to_string())),
+                return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
                 body: Expr::Path(Path::simple("x".to_string())),
             })),
         ];
@@ -4062,9 +4070,9 @@ mod tests {
             type_params: vec![],
             params: vec![Param {
                 name: "n".to_string(),
-                typ: TypeAnnotation::Named("Int".to_string()),
+                typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
             }],
-            return_type: Some(TypeAnnotation::Named("Int".to_string())),
+            return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
             body: Expr::Match {
                 scrutinee: Box::new(Expr::Path(Path::simple("n".to_string()))),
                 arms: vec![
