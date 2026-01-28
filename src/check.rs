@@ -13,6 +13,62 @@ use crate::types::{EnumType, EnumVariantType, FunctionType, StructType, Type, Ty
 use crate::unify::UnifyCtx;
 use crate::usefulness;
 
+/// Check if name is PascalCase (starts with uppercase, no underscores)
+fn is_pascal_case(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_uppercase() => {
+            name.chars().all(|c| c.is_ascii_alphanumeric())
+        }
+        _ => false,
+    }
+}
+
+/// Check if name is snake_case (lowercase with underscores, can start with underscore)
+fn is_snake_case(name: &str) -> bool {
+    let mut chars = name.chars().peekable();
+    match chars.peek() {
+        Some(c) if c.is_ascii_lowercase() || *c == '_' => {
+            name.chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        }
+        _ => false,
+    }
+}
+
+/// Convert a name to snake_case for error message suggestions
+fn to_snake_case(name: &str) -> String {
+    let mut result = String::new();
+    for (i, c) in name.chars().enumerate() {
+        if c.is_ascii_uppercase() {
+            if i > 0 {
+                result.push('_');
+            }
+            result.push(c.to_ascii_lowercase());
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
+/// Convert a name to PascalCase for error message suggestions
+fn to_pascal_case(name: &str) -> String {
+    let mut result = String::new();
+    let mut capitalize_next = true;
+    for c in name.chars() {
+        if c == '_' {
+            capitalize_next = true;
+        } else if capitalize_next {
+            result.push(c.to_ascii_uppercase());
+            capitalize_next = false;
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
 /// Type environment for checking expressions
 #[derive(Debug, Clone, Default)]
 pub struct TypeEnv {
@@ -231,9 +287,30 @@ fn check_function(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedFunction, TypeError> {
+    // Check function name is snake_case
+    if !is_snake_case(&func.name) {
+        return Err(TypeError {
+            message: format!(
+                "function name '{}' should be snake_case (e.g., '{}')",
+                func.name,
+                to_snake_case(&func.name)
+            ),
+        });
+    }
+
     // Create fresh type variables for type parameters
     let mut type_param_map = HashMap::new();
     for name in &func.type_params {
+        // Check type parameter name is PascalCase
+        if !is_pascal_case(name) {
+            return Err(TypeError {
+                message: format!(
+                    "type parameter '{}' should be PascalCase (e.g., '{}')",
+                    name,
+                    to_pascal_case(name)
+                ),
+            });
+        }
         let var = ctx.fresh_var();
         if let Type::Var(id) = var {
             type_param_map.insert(name.clone(), id);
@@ -245,6 +322,16 @@ fn check_function(
     let mut param_types = Vec::new();
 
     for param in &func.params {
+        // Check parameter name is snake_case
+        if !is_snake_case(&param.name) {
+            return Err(TypeError {
+                message: format!(
+                    "parameter '{}' should be snake_case (e.g., '{}')",
+                    param.name,
+                    to_snake_case(&param.name)
+                ),
+            });
+        }
         let ty = resolve_type_annotation(&param.typ, &type_param_map, env)?;
         locals.insert(param.name.clone(), TypeScheme::mono(ty.clone()));
         param_types.push(ty);
@@ -1655,6 +1742,16 @@ fn check_pattern(
             Ok((TypedPattern::Literal(typed), HashMap::new()))
         }
         Pattern::Var(name) => {
+            // Check variable name is snake_case
+            if !is_snake_case(name) {
+                return Err(TypeError {
+                    message: format!(
+                        "variable '{}' should be snake_case (e.g., '{}')",
+                        name,
+                        to_snake_case(name)
+                    ),
+                });
+            }
             let mut bindings = HashMap::new();
             bindings.insert(name.clone(), ctx.resolve(scrutinee_ty));
             Ok((
@@ -2369,6 +2466,17 @@ fn check_let_binding(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedLetBinding, TypeError> {
+    // Check variable name is snake_case
+    if !is_snake_case(&binding.name) {
+        return Err(TypeError {
+            message: format!(
+                "variable '{}' should be snake_case (e.g., '{}')",
+                binding.name,
+                to_snake_case(&binding.name)
+            ),
+        });
+    }
+
     let typed_value = check_with_env(&binding.value, env, ctx)?;
     let inferred_type = typed_value.ty();
 
@@ -2496,10 +2604,31 @@ fn struct_type_from_def(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<StructType, TypeError> {
+    // Check struct name is PascalCase
+    if !is_pascal_case(&def.name) {
+        return Err(TypeError {
+            message: format!(
+                "struct name '{}' should be PascalCase (e.g., '{}')",
+                def.name,
+                to_pascal_case(&def.name)
+            ),
+        });
+    }
+
     // Create fresh type variables for type parameters
     let mut type_param_map = HashMap::new();
     let mut type_var_ids = Vec::new();
     for name in &def.type_params {
+        // Check type parameter name is PascalCase
+        if !is_pascal_case(name) {
+            return Err(TypeError {
+                message: format!(
+                    "type parameter '{}' should be PascalCase (e.g., '{}')",
+                    name,
+                    to_pascal_case(name)
+                ),
+            });
+        }
         let var = ctx.fresh_var();
         if let Type::Var(id) = var {
             type_param_map.insert(name.clone(), id);
@@ -2528,10 +2657,31 @@ fn enum_type_from_def(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<EnumType, TypeError> {
+    // Check enum name is PascalCase
+    if !is_pascal_case(&def.name) {
+        return Err(TypeError {
+            message: format!(
+                "enum name '{}' should be PascalCase (e.g., '{}')",
+                def.name,
+                to_pascal_case(&def.name)
+            ),
+        });
+    }
+
     // Create fresh type variables for type parameters
     let mut type_param_map = HashMap::new();
     let mut type_var_ids = Vec::new();
     for name in &def.type_params {
+        // Check type parameter name is PascalCase
+        if !is_pascal_case(name) {
+            return Err(TypeError {
+                message: format!(
+                    "type parameter '{}' should be PascalCase (e.g., '{}')",
+                    name,
+                    to_pascal_case(name)
+                ),
+            });
+        }
         let var = ctx.fresh_var();
         if let Type::Var(id) = var {
             type_param_map.insert(name.clone(), id);
@@ -2542,6 +2692,16 @@ fn enum_type_from_def(
     // Resolve variant types
     let mut variants = Vec::new();
     for variant in &def.variants {
+        // Check variant name is PascalCase
+        if !is_pascal_case(&variant.name) {
+            return Err(TypeError {
+                message: format!(
+                    "enum variant '{}' should be PascalCase (e.g., '{}')",
+                    variant.name,
+                    to_pascal_case(&variant.name)
+                ),
+            });
+        }
         let variant_type = match &variant.kind {
             crate::ast::EnumVariantKind::Unit => EnumVariantType::Unit,
             crate::ast::EnumVariantKind::Tuple(types) => {
