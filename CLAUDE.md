@@ -34,6 +34,7 @@ src/
 ### Current Features
 
 - **Types:** `Int`, `BigInt`, `Float`, `Bool`, `String`, `List<T>`, tuples `(T, U, ...)`, functions `T -> U`, type variables (`T`, `U`)
+- **Built-in types:** `Option<T>` (`Some(T)`, `None`) and `Result<T, E>` (`Ok(T)`, `Err(E)`)
 - **Literals:**
   - Integers (Int): `42`, `1_000`
   - BigInts: `42n`, `9_000_000_000n` (with `n` suffix)
@@ -73,6 +74,7 @@ src/
   - Tuple variants: `enum Result<T, E> { Ok(T), Err(E) }`
   - Struct variants: `enum Message { Quit, Move { x: Int, y: Int }, Write(String) }`
   - Construction: `Option::Some(42)`, `Color::Red`, `Message::Move { x: 1, y: 2 }`
+  - Turbofish syntax for explicit type arguments: `Option::None::<Int>`, `identity::<String>("hello")`
   - Pattern matching with all variant types
 - **Pattern matching:** `match expr { pattern => result ... }`
   - Literal patterns: `0`, `"hello"`, `true`, `3.14`
@@ -93,6 +95,9 @@ src/
   - Float: `abs()`, `to_string()`, `to_int()`, `floor()`, `ceil()`, `round()`, `sqrt()`, `min(n)`, `max(n)`
   - List: `len()`, `is_empty()`, `push(x)`, `concat(list)`, `reverse()` (all return new lists, immutable)
 - **Type checking:** operands must match types (no implicit coercion)
+- **Naming conventions:** enforced at compile time (errors, not warnings)
+  - PascalCase required: struct names, enum names, enum variant names, type parameters
+  - snake_case required: function names, variable names (let bindings, parameters, pattern bindings)
 - **REPL:** line editing, history (persisted to `~/.zoya_history`)
 
 ### Roadmap
