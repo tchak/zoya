@@ -633,10 +633,10 @@ fn item_parser<'a>() -> impl Parser<'a, &'a [Token], Item, extra::Err<Rich<'a, T
         .map(|opt| opt.unwrap_or_default());
 
     // Parameter: name: Type
-    let param = ident()
+    let param = pattern_parser()
         .then_ignore(just(Token::Colon))
         .then(type_annotation())
-        .map(|(name, typ)| Param { name, typ });
+        .map(|(pattern, typ)| Param { pattern, typ });
 
     // Parameters: (x: Int, y: Int)
     let params = param
@@ -956,9 +956,9 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
             });
 
         // Lambda parameter: name or name: Type
-        let lambda_param = ident()
+        let lambda_param = pattern_parser()
             .then(just(Token::Colon).ignore_then(type_annotation()).or_not())
-            .map(|(name, typ)| LambdaParam { name, typ });
+            .map(|(pattern, typ)| LambdaParam { pattern, typ });
 
         // Lambda parameters: |x| or |x, y| or |x: Int|
         let lambda_params = lambda_param
@@ -1556,11 +1556,11 @@ mod tests {
                 type_params: vec![],
                 params: vec![
                     Param {
-                        name: "x".to_string(),
+                        pattern: Pattern::Var("x".to_string()),
                         typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                     },
                     Param {
-                        name: "y".to_string(),
+                        pattern: Pattern::Var("y".to_string()),
                         typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                     },
                 ],
@@ -1583,7 +1583,7 @@ mod tests {
                 name: "identity".to_string(),
                 type_params: vec!["T".to_string()],
                 params: vec![Param {
-                    name: "x".to_string(),
+                    pattern: Pattern::Var("x".to_string()),
                     typ: TypeAnnotation::Named(Path::simple("T".to_string())),
                 }],
                 return_type: Some(TypeAnnotation::Named(Path::simple("T".to_string()))),
@@ -1602,11 +1602,11 @@ mod tests {
                 type_params: vec!["A".to_string(), "B".to_string()],
                 params: vec![
                     Param {
-                        name: "a".to_string(),
+                        pattern: Pattern::Var("a".to_string()),
                         typ: TypeAnnotation::Named(Path::simple("A".to_string())),
                     },
                     Param {
-                        name: "b".to_string(),
+                        pattern: Pattern::Var("b".to_string()),
                         typ: TypeAnnotation::Named(Path::simple("B".to_string())),
                     },
                 ],
@@ -1625,7 +1625,7 @@ mod tests {
                 name: "double".to_string(),
                 type_params: vec![],
                 params: vec![Param {
-                    name: "x".to_string(),
+                    pattern: Pattern::Var("x".to_string()),
                     typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                 }],
                 return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
@@ -1635,6 +1635,37 @@ mod tests {
                 },
             })
         );
+    }
+
+    #[test]
+    fn test_parse_function_tuple_param() {
+        let item = parse_item_str("fn swap((a, b): (Int, Int)) -> (Int, Int) (b, a)").unwrap();
+        if let Item::Function(func) = item {
+            assert_eq!(func.name, "swap");
+            assert_eq!(func.params.len(), 1);
+            assert!(matches!(
+                &func.params[0].pattern,
+                Pattern::Tuple(TuplePattern::Exact(patterns))
+                if patterns.len() == 2
+            ));
+        } else {
+            panic!("expected function");
+        }
+    }
+
+    #[test]
+    fn test_parse_lambda_tuple_param() {
+        let expr = parse_str("|(a, b)| a + b").unwrap();
+        if let Expr::Lambda { params, .. } = expr {
+            assert_eq!(params.len(), 1);
+            assert!(matches!(
+                &params[0].pattern,
+                Pattern::Tuple(TuplePattern::Exact(patterns))
+                if patterns.len() == 2
+            ));
+        } else {
+            panic!("expected lambda");
+        }
     }
 
     #[test]
@@ -1926,11 +1957,11 @@ mod tests {
                 type_params: vec![],
                 params: vec![
                     Param {
-                        name: "x".to_string(),
+                        pattern: Pattern::Var("x".to_string()),
                         typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                     },
                     Param {
-                        name: "y".to_string(),
+                        pattern: Pattern::Var("y".to_string()),
                         typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                     },
                 ],
@@ -2619,7 +2650,7 @@ mod tests {
         } = expr
         {
             assert_eq!(params.len(), 1);
-            assert_eq!(params[0].name, "x");
+            assert_eq!(params[0].pattern, Pattern::Var("x".to_string()));
             assert!(params[0].typ.is_none());
             assert!(return_type.is_none());
             assert!(matches!(*body, Expr::BinOp { op: BinOp::Add, .. }));
@@ -2633,8 +2664,8 @@ mod tests {
         let expr = parse_str("|x, y| x + y").unwrap();
         if let Expr::Lambda { params, .. } = expr {
             assert_eq!(params.len(), 2);
-            assert_eq!(params[0].name, "x");
-            assert_eq!(params[1].name, "y");
+            assert_eq!(params[0].pattern, Pattern::Var("x".to_string()));
+            assert_eq!(params[1].pattern, Pattern::Var("y".to_string()));
         } else {
             panic!("expected lambda");
         }
@@ -2645,7 +2676,7 @@ mod tests {
         let expr = parse_str("|x: Int| x * 2").unwrap();
         if let Expr::Lambda { params, .. } = expr {
             assert_eq!(params.len(), 1);
-            assert_eq!(params[0].name, "x");
+            assert_eq!(params[0].pattern, Pattern::Var("x".to_string()));
             assert!(matches!(
                 &params[0].typ,
                 Some(TypeAnnotation::Named(s)) if s.as_simple() == Some("Int")

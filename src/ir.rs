@@ -41,7 +41,7 @@ pub enum CheckedItem {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedFunction {
     pub name: String,
-    pub params: Vec<(String, Type)>,
+    pub params: Vec<(TypedPattern, Type)>,
     pub body: TypedExpr,
     pub return_type: Type,
 }
@@ -224,7 +224,7 @@ pub enum TypedExpr {
         ty: Type,
     },
     Lambda {
-        params: Vec<(String, Type)>,
+        params: Vec<(TypedPattern, Type)>,
         body: Box<TypedExpr>,
         ty: Type,
     },

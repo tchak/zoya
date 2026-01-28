@@ -319,22 +319,25 @@ fn check_function(
 
     // Build local environment with parameters
     let mut locals = HashMap::new();
-    let mut param_types = Vec::new();
+    let mut typed_params = Vec::new();
 
     for param in &func.params {
-        // Check parameter name is snake_case
-        if !is_snake_case(&param.name) {
-            return Err(TypeError {
-                message: format!(
-                    "parameter '{}' should be snake_case (e.g., '{}')",
-                    param.name,
-                    to_snake_case(&param.name)
-                ),
-            });
-        }
+        // Check pattern is irrefutable
+        check_irrefutable(&param.pattern).map_err(|msg| TypeError {
+            message: format!("refutable pattern in function parameter: {}", msg),
+        })?;
+
         let ty = resolve_type_annotation(&param.typ, &type_param_map, env)?;
-        locals.insert(param.name.clone(), TypeScheme::mono(ty.clone()));
-        param_types.push(ty);
+
+        // Type-check the pattern against the parameter type
+        let (typed_pattern, bindings) = check_pattern(&param.pattern, &ty, env, ctx)?;
+
+        // Add all pattern bindings to locals
+        for (name, var_ty) in bindings {
+            locals.insert(name, TypeScheme::mono(var_ty));
+        }
+
+        typed_params.push((typed_pattern, ctx.resolve(&ty)));
     }
 
     // Create environment with locals for checking body
@@ -365,12 +368,7 @@ fn check_function(
 
     Ok(TypedFunction {
         name: func.name.clone(),
-        params: func
-            .params
-            .iter()
-            .zip(param_types.iter())
-            .map(|(p, t)| (p.name.clone(), ctx.resolve(t)))
-            .collect(),
+        params: typed_params,
         body: typed_body,
         return_type: ctx.resolve(&return_type),
     })
@@ -1226,18 +1224,30 @@ fn check_lambda(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    // Create fresh type variables for unannotated parameters
+    let mut typed_params = Vec::new();
     let mut param_types = Vec::new();
     let mut lambda_env = env.clone();
 
     for param in params {
+        // Check pattern is irrefutable
+        check_irrefutable(&param.pattern).map_err(|msg| TypeError {
+            message: format!("refutable pattern in lambda parameter: {}", msg),
+        })?;
+
         let param_ty = match &param.typ {
             Some(annotation) => resolve_type_annotation(annotation, &HashMap::new(), env)?,
             None => ctx.fresh_var(),
         };
-        lambda_env
-            .locals
-            .insert(param.name.clone(), TypeScheme::mono(param_ty.clone()));
+
+        // Type-check the pattern against the parameter type
+        let (typed_pattern, bindings) = check_pattern(&param.pattern, &param_ty, env, ctx)?;
+
+        // Add all pattern bindings to the lambda environment
+        for (name, var_ty) in bindings {
+            lambda_env.locals.insert(name, TypeScheme::mono(var_ty));
+        }
+
+        typed_params.push((typed_pattern, ctx.resolve(&param_ty)));
         param_types.push(param_ty);
     }
 
@@ -1268,11 +1278,7 @@ fn check_lambda(
     };
 
     Ok(TypedExpr::Lambda {
-        params: params
-            .iter()
-            .zip(param_types.iter())
-            .map(|(p, ty)| (p.name.clone(), ctx.resolve(ty)))
-            .collect(),
+        params: typed_params,
         body: Box::new(typed_body),
         ty: lambda_type,
     })
@@ -1901,9 +1907,50 @@ fn check_pattern(
         }
 
         Pattern::Tuple(tuple_pattern) => {
-            // Get the tuple element types from scrutinee
-            let tuple_types = match ctx.resolve(scrutinee_ty) {
-                Type::Tuple(types) => types,
+            // Get the tuple element types from scrutinee, or infer from pattern
+            let resolved = ctx.resolve(scrutinee_ty);
+            let tuple_types = match &resolved {
+                Type::Tuple(types) => types.clone(),
+                Type::Var(_) => {
+                    // Type inference: infer tuple type from pattern
+                    match tuple_pattern {
+                        TuplePattern::Empty => {
+                            // Unify with empty tuple
+                            ctx.unify(scrutinee_ty, &Type::Tuple(vec![]))
+                                .map_err(|e| TypeError {
+                                    message: format!(
+                                        "tuple pattern cannot match type {}: {}",
+                                        ctx.resolve(scrutinee_ty),
+                                        e.message
+                                    ),
+                                })?;
+                            vec![]
+                        }
+                        TuplePattern::Exact(patterns) => {
+                            // Create fresh type vars for each element and unify
+                            let elem_types: Vec<Type> =
+                                (0..patterns.len()).map(|_| ctx.fresh_var()).collect();
+                            ctx.unify(scrutinee_ty, &Type::Tuple(elem_types.clone()))
+                                .map_err(|e| TypeError {
+                                    message: format!(
+                                        "tuple pattern cannot match type {}: {}",
+                                        ctx.resolve(scrutinee_ty),
+                                        e.message
+                                    ),
+                                })?;
+                            elem_types
+                        }
+                        TuplePattern::Prefix { .. }
+                        | TuplePattern::Suffix { .. }
+                        | TuplePattern::PrefixSuffix { .. } => {
+                            // Can't infer tuple size from rest patterns
+                            return Err(TypeError {
+                                message:
+                                    "cannot infer tuple type for pattern with '..' - add a type annotation".to_string(),
+                            });
+                        }
+                    }
+                }
                 other => {
                     return Err(TypeError {
                         message: format!("tuple pattern cannot match type {}", other),
@@ -3568,7 +3615,7 @@ mod tests {
             name: "double".to_string(),
             type_params: vec![],
             params: vec![Param {
-                name: "x".to_string(),
+                pattern: Pattern::Var("x".to_string()),
                 typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
             }],
             return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
@@ -3592,7 +3639,7 @@ mod tests {
             name: "wrong".to_string(),
             type_params: vec![],
             params: vec![Param {
-                name: "x".to_string(),
+                pattern: Pattern::Var("x".to_string()),
                 typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
             }],
             return_type: Some(TypeAnnotation::Named(Path::simple("Float".to_string()))),
@@ -3622,7 +3669,7 @@ mod tests {
             name: "double".to_string(),
             type_params: vec![],
             params: vec![Param {
-                name: "x".to_string(),
+                pattern: Pattern::Var("x".to_string()),
                 typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
             }],
             return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
@@ -3644,11 +3691,11 @@ mod tests {
             type_params: vec![],
             params: vec![
                 Param {
-                    name: "x".to_string(),
+                    pattern: Pattern::Var("x".to_string()),
                     typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                 },
                 Param {
-                    name: "y".to_string(),
+                    pattern: Pattern::Var("y".to_string()),
                     typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                 },
             ],
@@ -3669,7 +3716,7 @@ mod tests {
             name: "identity".to_string(),
             type_params: vec!["T".to_string()],
             params: vec![Param {
-                name: "x".to_string(),
+                pattern: Pattern::Var("x".to_string()),
                 typ: TypeAnnotation::Named(Path::simple("T".to_string())),
             }],
             return_type: Some(TypeAnnotation::Named(Path::simple("T".to_string()))),
@@ -3844,7 +3891,7 @@ mod tests {
                 name: "double".to_string(),
                 type_params: vec![],
                 params: vec![Param {
-                    name: "x".to_string(),
+                    pattern: Pattern::Var("x".to_string()),
                     typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                 }],
                 return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
@@ -4354,7 +4401,7 @@ mod tests {
                 name: "is_even".to_string(),
                 type_params: vec![],
                 params: vec![Param {
-                    name: "n".to_string(),
+                    pattern: Pattern::Var("n".to_string()),
                     typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                 }],
                 return_type: Some(TypeAnnotation::Named(Path::simple("Bool".to_string()))),
@@ -4383,7 +4430,7 @@ mod tests {
                 name: "is_odd".to_string(),
                 type_params: vec![],
                 params: vec![Param {
-                    name: "n".to_string(),
+                    pattern: Pattern::Var("n".to_string()),
                     typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                 }],
                 return_type: Some(TypeAnnotation::Named(Path::simple("Bool".to_string()))),
@@ -4499,7 +4546,7 @@ mod tests {
             name: "factorial".to_string(),
             type_params: vec![],
             params: vec![Param {
-                name: "n".to_string(),
+                pattern: Pattern::Var("n".to_string()),
                 typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
             }],
             return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),

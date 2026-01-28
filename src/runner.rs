@@ -2055,4 +2055,85 @@ mod tests {
         let result = run(source).unwrap();
         assert_eq!(result, Value::Int(42));
     }
+
+    #[test]
+    fn test_function_tuple_param_destructuring() {
+        let source = r#"
+            fn swap((a, b): (Int, Int)) -> (Int, Int) (b, a)
+            fn main() -> Int {
+                let (x, y) = swap((1, 2));
+                x * 10 + y
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(21)); // x=2, y=1, so 2*10+1=21
+    }
+
+    #[test]
+    fn test_function_nested_tuple_param() {
+        let source = r#"
+            fn nested(((a, b), c): ((Int, Int), Int)) -> Int a + b + c
+            fn main() -> Int { nested(((1, 2), 3)) }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(6));
+    }
+
+    #[test]
+    fn test_function_struct_param_destructuring() {
+        let source = r#"
+            struct Point { x: Int, y: Int }
+            fn get_x(Point { x, .. }: Point) -> Int x
+            fn main() -> Int { get_x(Point { x: 42, y: 0 }) }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(42));
+    }
+
+    #[test]
+    fn test_lambda_tuple_param_destructuring() {
+        let source = r#"
+            fn main() -> Int {
+                let add = |(a, b): (Int, Int)| a + b;
+                add((3, 4))
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(7));
+    }
+
+    #[test]
+    fn test_lambda_tuple_param_type_inference() {
+        let source = r#"
+            fn main() -> Int {
+                let add = |(a, b)| a + b;
+                add((3, 4))
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(7));
+    }
+
+    #[test]
+    fn test_function_wildcard_param() {
+        let source = r#"
+            fn first((a, _): (Int, Int)) -> Int a
+            fn main() -> Int { first((5, 10)) }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(5));
+    }
+
+    #[test]
+    fn test_function_as_pattern_param() {
+        let source = r#"
+            fn with_as(pair @ (a, b): (Int, Int)) -> Int {
+                let (x, y) = pair;
+                a + b + x + y
+            }
+            fn main() -> Int { with_as((1, 2)) }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(6)); // 1+2+1+2=6
+    }
 }

@@ -109,10 +109,10 @@ pub struct FunctionDef {
     pub body: Expr,
 }
 
-/// Function parameter
+/// Function parameter: `pattern: Type`
 #[derive(Debug, Clone, PartialEq)]
 pub struct Param {
-    pub name: String,
+    pub pattern: Pattern,
     pub typ: TypeAnnotation,
 }
 
@@ -176,10 +176,10 @@ pub struct LetBinding {
     pub value: Box<Expr>,
 }
 
-/// Lambda parameter: `x` or `x: Type`
+/// Lambda parameter: `pattern` or `pattern: Type`
 #[derive(Debug, Clone, PartialEq)]
 pub struct LambdaParam {
-    pub name: String,
+    pub pattern: Pattern,
     pub typ: Option<TypeAnnotation>,
 }
 

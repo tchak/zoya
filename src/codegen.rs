@@ -591,12 +591,39 @@ pub fn codegen(expr: &TypedExpr) -> String {
         }
 
         TypedExpr::Lambda { params, body, .. } => {
-            let param_names: Vec<String> = params.iter().map(|(name, _)| format_name(name)).collect();
+            let mut param_names = Vec::new();
+            let mut prologue = Vec::new();
+            let mut param_counter = 0;
+
+            for (pattern, _) in params {
+                match pattern {
+                    TypedPattern::Var { name, .. } => {
+                        param_names.push(format_name(name));
+                    }
+                    _ => {
+                        let synthetic_name = format!("$$param{}", param_counter);
+                        param_counter += 1;
+                        param_names.push(synthetic_name.clone());
+                        let (_, bindings) = codegen_pattern_at_path(pattern, &synthetic_name);
+                        prologue.extend(bindings);
+                    }
+                }
+            }
+
             let body_code = codegen(body);
+
             if params.is_empty() {
                 format!("(() => {})", body_code)
-            } else {
+            } else if prologue.is_empty() {
                 format!("(({}) => {})", param_names.join(", "), body_code)
+            } else {
+                // Need block body for destructuring
+                format!(
+                    "(({}) => {{ {} return {}; }})",
+                    param_names.join(", "),
+                    prologue.join(" "),
+                    body_code
+                )
             }
         }
         TypedExpr::StructConstruct { fields, .. } => {
@@ -700,14 +727,43 @@ fn codegen_match(scrutinee: &TypedExpr, arms: &[TypedMatchArm]) -> String {
 
 /// Generate JS code for a function definition
 pub fn codegen_function(func: &TypedFunction) -> String {
-    let params: Vec<String> = func.params.iter().map(|(name, _)| format_name(name)).collect();
+    let mut param_names = Vec::new();
+    let mut prologue = Vec::new();
+    let mut param_counter = 0;
+
+    for (pattern, _) in &func.params {
+        match pattern {
+            TypedPattern::Var { name, .. } => {
+                param_names.push(format_name(name));
+            }
+            _ => {
+                let synthetic_name = format!("$$param{}", param_counter);
+                param_counter += 1;
+                param_names.push(synthetic_name.clone());
+                let (_, bindings) = codegen_pattern_at_path(pattern, &synthetic_name);
+                prologue.extend(bindings);
+            }
+        }
+    }
+
     let body = codegen(&func.body);
-    format!(
-        "function {}({}) {{ return {}; }}",
-        format_name(&func.name),
-        params.join(", "),
-        body
-    )
+
+    if prologue.is_empty() {
+        format!(
+            "function {}({}) {{ return {}; }}",
+            format_name(&func.name),
+            param_names.join(", "),
+            body
+        )
+    } else {
+        format!(
+            "function {}({}) {{ {} return {}; }}",
+            format_name(&func.name),
+            param_names.join(", "),
+            prologue.join(" "),
+            body
+        )
+    }
 }
 
 /// Generate JS code for a REPL let binding
@@ -983,7 +1039,7 @@ mod tests {
     fn test_codegen_function() {
         let func = TypedFunction {
             name: "square".to_string(),
-            params: vec![("x".to_string(), Type::Int)],
+            params: vec![(TypedPattern::Var { name: "x".to_string(), ty: Type::Int }, Type::Int)],
             body: TypedExpr::BinOp {
                 op: BinOp::Mul,
                 left: Box::new(TypedExpr::Var {
@@ -1009,8 +1065,8 @@ mod tests {
         let func = TypedFunction {
             name: "add".to_string(),
             params: vec![
-                ("x".to_string(), Type::Int),
-                ("y".to_string(), Type::Int),
+                (TypedPattern::Var { name: "x".to_string(), ty: Type::Int }, Type::Int),
+                (TypedPattern::Var { name: "y".to_string(), ty: Type::Int }, Type::Int),
             ],
             body: TypedExpr::BinOp {
                 op: BinOp::Add,
@@ -1050,7 +1106,7 @@ mod tests {
     fn test_codegen_bigint_function() {
         let func = TypedFunction {
             name: "big".to_string(),
-            params: vec![("x".to_string(), Type::BigInt)],
+            params: vec![(TypedPattern::Var { name: "x".to_string(), ty: Type::BigInt }, Type::BigInt)],
             body: TypedExpr::BinOp {
                 op: BinOp::Add,
                 left: Box::new(TypedExpr::Var {
