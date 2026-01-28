@@ -511,9 +511,19 @@ pub fn codegen(expr: &TypedExpr) -> String {
             let mut parts = Vec::new();
             parts.push("(function() {".to_string());
 
-            for binding in bindings {
+            for (i, binding) in bindings.iter().enumerate() {
                 let value_code = codegen(&binding.value);
-                parts.push(format!("const {} = {};", format_name(&binding.name), value_code));
+
+                // For simple Var patterns, use direct assignment
+                if let TypedPattern::Var { name, .. } = &binding.pattern {
+                    parts.push(format!("const {} = {};", format_name(name), value_code));
+                } else {
+                    // For complex patterns, store in temp and destructure
+                    let temp_name = format!("$$let{}", i);
+                    parts.push(format!("const {} = {};", temp_name, value_code));
+                    let (_, binding_stmts) = codegen_pattern_at_path(&binding.pattern, &temp_name);
+                    parts.extend(binding_stmts);
+                }
             }
 
             let result_code = codegen(result);
@@ -703,8 +713,26 @@ pub fn codegen_function(func: &TypedFunction) -> String {
 /// Generate JS code for a REPL let binding
 pub fn codegen_let(binding: &TypedLetBinding) -> String {
     let value_code = codegen(&binding.value);
-    // Use var for REPL to allow redefinition and global scope
-    format!("var {} = {};", format_name(&binding.name), value_code)
+
+    // For simple Var patterns, use direct assignment
+    if let TypedPattern::Var { name, .. } = &binding.pattern {
+        // Use var for REPL to allow redefinition and global scope
+        return format!("var {} = {};", format_name(name), value_code);
+    }
+
+    // For complex patterns, store in temp and destructure
+    let mut parts = Vec::new();
+    let temp_name = "$$let_tmp";
+    parts.push(format!("var {} = {};", temp_name, value_code));
+
+    let (_, binding_stmts) = codegen_pattern_at_path(&binding.pattern, temp_name);
+    // Convert const to var for REPL global scope
+    for stmt in binding_stmts {
+        let var_stmt = stmt.replace("const ", "var ");
+        parts.push(var_stmt);
+    }
+
+    parts.join(" ")
 }
 
 fn format_float(n: f64) -> String {

@@ -124,17 +124,502 @@ fn type_annotation<'a>() -> impl Parser<'a, &'a [Token], TypeAnnotation, extra::
     })
 }
 
+/// Pattern parser for match arms and let bindings
+fn pattern_parser<'a>() -> impl Parser<'a, &'a [Token], Pattern, extra::Err<Rich<'a, Token>>> + Clone
+{
+    recursive(|pattern| {
+        // Simple patterns (non-list, non-tuple)
+        let simple_pattern = choice((
+            // Wildcard: _ (must check before ident)
+            select! { Token::Ident(s) if s == "_" => Pattern::Wildcard },
+            // Literals
+            select! {
+                Token::Int(n) => Pattern::Literal(Box::new(Expr::Int(n))),
+                Token::BigInt(n) => Pattern::Literal(Box::new(Expr::BigInt(n))),
+                Token::Float(n) => Pattern::Literal(Box::new(Expr::Float(n))),
+                Token::True => Pattern::Literal(Box::new(Expr::Bool(true))),
+                Token::False => Pattern::Literal(Box::new(Expr::Bool(false))),
+                Token::String(s) => Pattern::Literal(Box::new(Expr::String(s))),
+            },
+            // Variable (must be last among simple patterns)
+            ident().map(Pattern::Var),
+        ));
+
+        // List pattern element: pattern or .. (rest marker with optional binding)
+        #[derive(Clone)]
+        enum ListPatternElement {
+            Pattern(Pattern),
+            Rest(Option<String>), // .. or name @ ..
+        }
+
+        let list_element = choice((
+            // name @ .. (rest with binding)
+            ident()
+                .then_ignore(just(Token::At))
+                .then_ignore(just(Token::DotDot))
+                .map(|name| ListPatternElement::Rest(Some(name))),
+            // bare ..
+            just(Token::DotDot).to(ListPatternElement::Rest(None)),
+            pattern.clone().map(ListPatternElement::Pattern),
+        ));
+
+        // List pattern: [], [a, b], [a, ..], [a, rest @ ..]
+        let list_pattern = list_element
+            .separated_by(just(Token::Comma))
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .delimited_by(just(Token::LBracket), just(Token::RBracket))
+            .try_map(|elements, span| {
+                // Check for .. and convert to appropriate ListPattern
+                let rest_pos = elements
+                    .iter()
+                    .position(|e| matches!(e, ListPatternElement::Rest(_)));
+
+                match rest_pos {
+                    None => {
+                        // No .., this is an exact pattern
+                        let patterns: Vec<Pattern> = elements
+                            .into_iter()
+                            .map(|e| match e {
+                                ListPatternElement::Pattern(p) => p,
+                                ListPatternElement::Rest(_) => unreachable!(),
+                            })
+                            .collect();
+                        if patterns.is_empty() {
+                            Ok(Pattern::List(ListPattern::Empty))
+                        } else {
+                            Ok(Pattern::List(ListPattern::Exact(patterns)))
+                        }
+                    }
+                    Some(pos) => {
+                        // Multiple .. not allowed
+                        if elements
+                            .iter()
+                            .filter(|e| matches!(e, ListPatternElement::Rest(_)))
+                            .count()
+                            > 1
+                        {
+                            return Err(Rich::custom(span, "only one .. allowed in list pattern"));
+                        }
+
+                        // Extract rest binding name
+                        let rest_binding = match &elements[pos] {
+                            ListPatternElement::Rest(name) => name.clone(),
+                            _ => unreachable!(),
+                        };
+
+                        // Split into before and after ..
+                        let before: Vec<Pattern> = elements[..pos]
+                            .iter()
+                            .filter_map(|e| match e {
+                                ListPatternElement::Pattern(p) => Some(p.clone()),
+                                ListPatternElement::Rest(_) => None,
+                            })
+                            .collect();
+
+                        let after: Vec<Pattern> = elements[pos + 1..]
+                            .iter()
+                            .filter_map(|e| match e {
+                                ListPatternElement::Pattern(p) => Some(p.clone()),
+                                ListPatternElement::Rest(_) => None,
+                            })
+                            .collect();
+
+                        if after.is_empty() {
+                            // [a, b, ..] or [a, b, rest @ ..] - prefix only
+                            Ok(Pattern::List(ListPattern::Prefix {
+                                patterns: before,
+                                rest_binding,
+                            }))
+                        } else if before.is_empty() {
+                            // [.., x, y] or [rest @ .., x, y] - suffix only
+                            Ok(Pattern::List(ListPattern::Suffix {
+                                patterns: after,
+                                rest_binding,
+                            }))
+                        } else {
+                            // [a, .., z] or [a, rest @ .., z] - prefix and suffix
+                            Ok(Pattern::List(ListPattern::PrefixSuffix {
+                                prefix: before,
+                                suffix: after,
+                                rest_binding,
+                            }))
+                        }
+                    }
+                }
+            });
+
+        // Tuple pattern element: pattern or .. (rest marker with optional binding)
+        #[derive(Clone)]
+        enum TuplePatternElement {
+            Pattern(Pattern),
+            Rest(Option<String>), // .. or name @ ..
+        }
+
+        let tuple_element = choice((
+            // name @ .. (rest with binding)
+            ident()
+                .then_ignore(just(Token::At))
+                .then_ignore(just(Token::DotDot))
+                .map(|name| TuplePatternElement::Rest(Some(name))),
+            // bare ..
+            just(Token::DotDot).to(TuplePatternElement::Rest(None)),
+            pattern.clone().map(TuplePatternElement::Pattern),
+        ));
+
+        // Tuple pattern: (), (a,), (a, b), (a, ..), (a, rest @ ..)
+        let tuple_pattern = tuple_element
+            .clone()
+            .separated_by(just(Token::Comma))
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .delimited_by(just(Token::LParen), just(Token::RParen))
+            .try_map(|elements, span| {
+                // Check for .. and convert to appropriate TuplePattern
+                let rest_pos = elements
+                    .iter()
+                    .position(|e| matches!(e, TuplePatternElement::Rest(_)));
+
+                // Check for multiple .. markers
+                if elements
+                    .iter()
+                    .filter(|e| matches!(e, TuplePatternElement::Rest(_)))
+                    .count()
+                    > 1
+                {
+                    return Err(Rich::custom(span, "only one .. allowed in tuple pattern"));
+                }
+
+                match rest_pos {
+                    None => {
+                        // No .., this is an exact pattern
+                        let patterns: Vec<Pattern> = elements
+                            .into_iter()
+                            .map(|e| match e {
+                                TuplePatternElement::Pattern(p) => p,
+                                TuplePatternElement::Rest(_) => unreachable!(),
+                            })
+                            .collect();
+                        if patterns.is_empty() {
+                            Ok(Pattern::Tuple(TuplePattern::Empty))
+                        } else {
+                            Ok(Pattern::Tuple(TuplePattern::Exact(patterns)))
+                        }
+                    }
+                    Some(pos) => {
+                        // Extract rest binding name
+                        let rest_binding = match &elements[pos] {
+                            TuplePatternElement::Rest(name) => name.clone(),
+                            _ => unreachable!(),
+                        };
+
+                        // Split into before and after ..
+                        let before: Vec<Pattern> = elements[..pos]
+                            .iter()
+                            .filter_map(|e| match e {
+                                TuplePatternElement::Pattern(p) => Some(p.clone()),
+                                TuplePatternElement::Rest(_) => None,
+                            })
+                            .collect();
+
+                        let after: Vec<Pattern> = elements[pos + 1..]
+                            .iter()
+                            .filter_map(|e| match e {
+                                TuplePatternElement::Pattern(p) => Some(p.clone()),
+                                TuplePatternElement::Rest(_) => None,
+                            })
+                            .collect();
+
+                        if after.is_empty() {
+                            // (a, b, ..) or (a, b, rest @ ..) - prefix only
+                            Ok(Pattern::Tuple(TuplePattern::Prefix {
+                                patterns: before,
+                                rest_binding,
+                            }))
+                        } else if before.is_empty() {
+                            // (.., x, y) or (rest @ .., x, y) - suffix only
+                            Ok(Pattern::Tuple(TuplePattern::Suffix {
+                                patterns: after,
+                                rest_binding,
+                            }))
+                        } else {
+                            // (a, .., z) or (a, rest @ .., z) - prefix and suffix
+                            Ok(Pattern::Tuple(TuplePattern::PrefixSuffix {
+                                prefix: before,
+                                suffix: after,
+                                rest_binding,
+                            }))
+                        }
+                    }
+                }
+            });
+
+        // Struct pattern field: `x` (shorthand for x: x) or `x: pattern`
+        #[derive(Clone)]
+        enum StructPatternField {
+            Field(StructFieldPattern),
+            Rest, // ..
+        }
+
+        let struct_field_pattern = choice((
+            // Error on name @ .. in struct patterns (not allowed)
+            ident()
+                .then_ignore(just(Token::At))
+                .then_ignore(just(Token::DotDot))
+                .try_map(|_, span| {
+                    Err(Rich::custom(
+                        span,
+                        "@ binding not allowed on struct rest pattern (..)",
+                    ))
+                }),
+            just(Token::DotDot).to(StructPatternField::Rest),
+            // Field with binding: x: pattern
+            ident()
+                .then(just(Token::Colon).ignore_then(pattern.clone()).or_not())
+                .map(|(field_name, pat)| {
+                    let binding_pattern = pat.unwrap_or_else(|| Pattern::Var(field_name.clone()));
+                    StructPatternField::Field(StructFieldPattern {
+                        field_name,
+                        pattern: Box::new(binding_pattern),
+                    })
+                }),
+        ));
+
+        // Struct pattern: Point { x, y }, Point { x: a, .. }
+        let struct_pattern = ident()
+            .then(
+                struct_field_pattern
+                    .clone()
+                    .separated_by(just(Token::Comma))
+                    .allow_trailing()
+                    .collect::<Vec<_>>()
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+            )
+            .try_map(|(name, elements), span| {
+                // Check for .. (rest marker)
+                let has_rest = elements.iter().any(|e| matches!(e, StructPatternField::Rest));
+
+                // Multiple .. not allowed
+                if elements
+                    .iter()
+                    .filter(|e| matches!(e, StructPatternField::Rest))
+                    .count()
+                    > 1
+                {
+                    return Err(Rich::custom(span, "only one .. allowed in struct pattern"));
+                }
+
+                // Extract field patterns (exclude ..)
+                let fields: Vec<StructFieldPattern> = elements
+                    .into_iter()
+                    .filter_map(|e| match e {
+                        StructPatternField::Field(f) => Some(f),
+                        StructPatternField::Rest => None,
+                    })
+                    .collect();
+
+                let path = Path::simple(name);
+                if has_rest {
+                    Ok(Pattern::Struct(StructPattern::Partial { path, fields }))
+                } else {
+                    Ok(Pattern::Struct(StructPattern::Exact { path, fields }))
+                }
+            });
+
+        // Enum pattern: Enum::Variant, Enum::Variant(patterns), Enum::Variant { fields }
+        // Reuses TuplePatternElement and StructPatternField for rest pattern support
+
+        // Tuple variant pattern fields (with rest support)
+        let enum_tuple_pattern_fields = tuple_element
+            .clone()
+            .separated_by(just(Token::Comma))
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .delimited_by(just(Token::LParen), just(Token::RParen))
+            .try_map(|elements, span| {
+                let rest_pos = elements
+                    .iter()
+                    .position(|e| matches!(e, TuplePatternElement::Rest(_)));
+
+                if elements
+                    .iter()
+                    .filter(|e| matches!(e, TuplePatternElement::Rest(_)))
+                    .count()
+                    > 1
+                {
+                    return Err(Rich::custom(span, "only one .. allowed in enum tuple pattern"));
+                }
+
+                match rest_pos {
+                    None => {
+                        let patterns: Vec<Pattern> = elements
+                            .into_iter()
+                            .map(|e| match e {
+                                TuplePatternElement::Pattern(p) => p,
+                                TuplePatternElement::Rest(_) => unreachable!(),
+                            })
+                            .collect();
+                        if patterns.is_empty() {
+                            Ok(EnumPatternFields::Tuple(TuplePattern::Empty))
+                        } else {
+                            Ok(EnumPatternFields::Tuple(TuplePattern::Exact(patterns)))
+                        }
+                    }
+                    Some(pos) => {
+                        // Extract rest binding name
+                        let rest_binding = match &elements[pos] {
+                            TuplePatternElement::Rest(name) => name.clone(),
+                            _ => unreachable!(),
+                        };
+
+                        let before: Vec<Pattern> = elements[..pos]
+                            .iter()
+                            .filter_map(|e| match e {
+                                TuplePatternElement::Pattern(p) => Some(p.clone()),
+                                TuplePatternElement::Rest(_) => None,
+                            })
+                            .collect();
+
+                        let after: Vec<Pattern> = elements[pos + 1..]
+                            .iter()
+                            .filter_map(|e| match e {
+                                TuplePatternElement::Pattern(p) => Some(p.clone()),
+                                TuplePatternElement::Rest(_) => None,
+                            })
+                            .collect();
+
+                        if after.is_empty() {
+                            Ok(EnumPatternFields::Tuple(TuplePattern::Prefix {
+                                patterns: before,
+                                rest_binding,
+                            }))
+                        } else if before.is_empty() {
+                            Ok(EnumPatternFields::Tuple(TuplePattern::Suffix {
+                                patterns: after,
+                                rest_binding,
+                            }))
+                        } else {
+                            Ok(EnumPatternFields::Tuple(TuplePattern::PrefixSuffix {
+                                prefix: before,
+                                suffix: after,
+                                rest_binding,
+                            }))
+                        }
+                    }
+                }
+            });
+
+        // Struct variant pattern fields (with rest support)
+        let enum_struct_pattern_fields = struct_field_pattern
+            .clone()
+            .separated_by(just(Token::Comma))
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .delimited_by(just(Token::LBrace), just(Token::RBrace))
+            .try_map(|elements, span| {
+                let has_rest = elements.iter().any(|e| matches!(e, StructPatternField::Rest));
+
+                if elements
+                    .iter()
+                    .filter(|e| matches!(e, StructPatternField::Rest))
+                    .count()
+                    > 1
+                {
+                    return Err(Rich::custom(
+                        span,
+                        "only one .. allowed in enum struct pattern",
+                    ));
+                }
+
+                let fields: Vec<StructFieldPattern> = elements
+                    .into_iter()
+                    .filter_map(|e| match e {
+                        StructPatternField::Field(f) => Some(f),
+                        StructPatternField::Rest => None,
+                    })
+                    .collect();
+
+                Ok(EnumPatternFields::Struct {
+                    fields,
+                    is_partial: has_rest,
+                })
+            });
+
+        // Turbofish type arguments in patterns: ::<Int, String>
+        let pattern_turbofish = just(Token::ColonColon).ignore_then(
+            type_annotation()
+                .separated_by(just(Token::Comma))
+                .at_least(1)
+                .collect::<Vec<_>>()
+                .delimited_by(just(Token::Lt), just(Token::Gt)),
+        );
+
+        // Enum pattern: Enum::Variant, Enum::Variant::<T>, Enum::Variant(x), Enum::Variant { x }
+        let enum_pattern = ident()
+            .then_ignore(just(Token::ColonColon))
+            .then(ident())
+            .then(pattern_turbofish.or_not())
+            .then(
+                choice((enum_tuple_pattern_fields, enum_struct_pattern_fields)).or_not(),
+            )
+            .map(|(((enum_name, variant_name), type_args), fields)| {
+                let fields = fields.unwrap_or(EnumPatternFields::Unit);
+                let path = Path {
+                    segments: vec![enum_name, variant_name],
+                    type_args,
+                };
+                Pattern::Enum(EnumPattern { path, fields })
+            });
+
+        // As pattern: name @ pattern (binds entire matched value to name)
+        // Note: name @ .. is handled separately in list/tuple element parsing
+        let as_pattern = ident()
+            .then_ignore(just(Token::At))
+            .then(choice((
+                list_pattern.clone(),
+                tuple_pattern.clone(),
+                enum_pattern.clone(),
+                struct_pattern.clone(),
+                simple_pattern.clone(),
+            )))
+            .map(|(name, inner)| Pattern::As {
+                name,
+                pattern: Box::new(inner),
+            });
+
+        // enum_pattern must come before struct_pattern to match :: first
+        // as_pattern must come before simple_pattern to capture name @ ...
+        choice((
+            list_pattern,
+            tuple_pattern,
+            enum_pattern,
+            struct_pattern,
+            as_pattern,
+            simple_pattern,
+        ))
+    })
+}
+
 fn let_binding_parser<'a>(
 ) -> impl Parser<'a, &'a [Token], LetBinding, extra::Err<Rich<'a, Token>>> {
     just(Token::Let)
-        .ignore_then(ident())
+        .ignore_then(pattern_parser())
         .then(just(Token::Colon).ignore_then(type_annotation()).or_not())
         .then_ignore(just(Token::Eq))
         .then(expr_parser())
-        .map(|((name, type_annotation), value)| LetBinding {
-            name,
-            type_annotation,
-            value: Box::new(value),
+        .try_map(|((pattern, type_annotation), value), span| {
+            // Type annotation only allowed on simple variable patterns
+            if type_annotation.is_some() && !matches!(pattern, Pattern::Var(_)) {
+                return Err(Rich::custom(
+                    span,
+                    "type annotations are only allowed on simple variable patterns",
+                ));
+            }
+            Ok(LetBinding {
+                pattern,
+                type_annotation,
+                value: Box::new(value),
+            })
         })
 }
 
@@ -303,484 +788,28 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
             .delimited_by(just(Token::LBracket), just(Token::RBracket))
             .map(Expr::List);
 
-        // Pattern for match arms (recursive for nested list patterns)
-        let pattern = recursive(|pattern| {
-            // Simple patterns (non-list)
-            let simple_pattern = choice((
-                // Wildcard: _ (must check before ident)
-                select! { Token::Ident(s) if s == "_" => Pattern::Wildcard },
-                // Literals
-                select! {
-                    Token::Int(n) => Pattern::Literal(Box::new(Expr::Int(n))),
-                    Token::BigInt(n) => Pattern::Literal(Box::new(Expr::BigInt(n))),
-                    Token::Float(n) => Pattern::Literal(Box::new(Expr::Float(n))),
-                    Token::True => Pattern::Literal(Box::new(Expr::Bool(true))),
-                    Token::False => Pattern::Literal(Box::new(Expr::Bool(false))),
-                    Token::String(s) => Pattern::Literal(Box::new(Expr::String(s))),
-                },
-                // Variable (must be last among simple patterns)
-                ident().map(Pattern::Var),
-            ));
-
-            // List pattern element: pattern or .. (rest marker with optional binding)
-            #[derive(Clone)]
-            enum ListPatternElement {
-                Pattern(Pattern),
-                Rest(Option<String>), // .. or name @ ..
-            }
-
-            let list_element = choice((
-                // name @ .. (rest with binding)
-                ident()
-                    .then_ignore(just(Token::At))
-                    .then_ignore(just(Token::DotDot))
-                    .map(|name| ListPatternElement::Rest(Some(name))),
-                // bare ..
-                just(Token::DotDot).to(ListPatternElement::Rest(None)),
-                pattern.clone().map(ListPatternElement::Pattern),
-            ));
-
-            // List pattern: [], [a, b], [a, ..], [a, rest @ ..]
-            let list_pattern = list_element
-                .separated_by(just(Token::Comma))
-                .allow_trailing()
-                .collect::<Vec<_>>()
-                .delimited_by(just(Token::LBracket), just(Token::RBracket))
-                .try_map(|elements, span| {
-                    // Check for .. and convert to appropriate ListPattern
-                    let rest_pos = elements
-                        .iter()
-                        .position(|e| matches!(e, ListPatternElement::Rest(_)));
-
-                    match rest_pos {
-                        None => {
-                            // No .., this is an exact pattern
-                            let patterns: Vec<Pattern> = elements
-                                .into_iter()
-                                .map(|e| match e {
-                                    ListPatternElement::Pattern(p) => p,
-                                    ListPatternElement::Rest(_) => unreachable!(),
-                                })
-                                .collect();
-                            if patterns.is_empty() {
-                                Ok(Pattern::List(ListPattern::Empty))
-                            } else {
-                                Ok(Pattern::List(ListPattern::Exact(patterns)))
-                            }
-                        }
-                        Some(pos) => {
-                            // Multiple .. not allowed
-                            if elements
-                                .iter()
-                                .filter(|e| matches!(e, ListPatternElement::Rest(_)))
-                                .count()
-                                > 1
-                            {
-                                return Err(Rich::custom(span, "only one .. allowed in list pattern"));
-                            }
-
-                            // Extract rest binding name
-                            let rest_binding = match &elements[pos] {
-                                ListPatternElement::Rest(name) => name.clone(),
-                                _ => unreachable!(),
-                            };
-
-                            // Split into before and after ..
-                            let before: Vec<Pattern> = elements[..pos]
-                                .iter()
-                                .filter_map(|e| match e {
-                                    ListPatternElement::Pattern(p) => Some(p.clone()),
-                                    ListPatternElement::Rest(_) => None,
-                                })
-                                .collect();
-
-                            let after: Vec<Pattern> = elements[pos + 1..]
-                                .iter()
-                                .filter_map(|e| match e {
-                                    ListPatternElement::Pattern(p) => Some(p.clone()),
-                                    ListPatternElement::Rest(_) => None,
-                                })
-                                .collect();
-
-                            if after.is_empty() {
-                                // [a, b, ..] or [a, b, rest @ ..] - prefix only
-                                Ok(Pattern::List(ListPattern::Prefix {
-                                    patterns: before,
-                                    rest_binding,
-                                }))
-                            } else if before.is_empty() {
-                                // [.., x, y] or [rest @ .., x, y] - suffix only
-                                Ok(Pattern::List(ListPattern::Suffix {
-                                    patterns: after,
-                                    rest_binding,
-                                }))
-                            } else {
-                                // [a, .., z] or [a, rest @ .., z] - prefix and suffix
-                                Ok(Pattern::List(ListPattern::PrefixSuffix {
-                                    prefix: before,
-                                    suffix: after,
-                                    rest_binding,
-                                }))
-                            }
-                        }
-                    }
-                });
-
-            // Tuple pattern element: pattern or .. (rest marker with optional binding)
-            #[derive(Clone)]
-            enum TuplePatternElement {
-                Pattern(Pattern),
-                Rest(Option<String>), // .. or name @ ..
-            }
-
-            let tuple_element = choice((
-                // name @ .. (rest with binding)
-                ident()
-                    .then_ignore(just(Token::At))
-                    .then_ignore(just(Token::DotDot))
-                    .map(|name| TuplePatternElement::Rest(Some(name))),
-                // bare ..
-                just(Token::DotDot).to(TuplePatternElement::Rest(None)),
-                pattern.clone().map(TuplePatternElement::Pattern),
-            ));
-
-            // Tuple pattern: (), (a,), (a, b), (a, ..), (a, rest @ ..)
-            let tuple_pattern = tuple_element
-                .clone()
-                .separated_by(just(Token::Comma))
-                .allow_trailing()
-                .collect::<Vec<_>>()
-                .delimited_by(just(Token::LParen), just(Token::RParen))
-                .try_map(|elements, span| {
-                    // Check for .. and convert to appropriate TuplePattern
-                    let rest_pos = elements
-                        .iter()
-                        .position(|e| matches!(e, TuplePatternElement::Rest(_)));
-
-                    // Check for multiple .. markers
-                    if elements
-                        .iter()
-                        .filter(|e| matches!(e, TuplePatternElement::Rest(_)))
-                        .count()
-                        > 1
-                    {
-                        return Err(Rich::custom(span, "only one .. allowed in tuple pattern"));
-                    }
-
-                    match rest_pos {
-                        None => {
-                            // No .., this is an exact pattern
-                            let patterns: Vec<Pattern> = elements
-                                .into_iter()
-                                .map(|e| match e {
-                                    TuplePatternElement::Pattern(p) => p,
-                                    TuplePatternElement::Rest(_) => unreachable!(),
-                                })
-                                .collect();
-                            if patterns.is_empty() {
-                                Ok(Pattern::Tuple(TuplePattern::Empty))
-                            } else {
-                                Ok(Pattern::Tuple(TuplePattern::Exact(patterns)))
-                            }
-                        }
-                        Some(pos) => {
-                            // Extract rest binding name
-                            let rest_binding = match &elements[pos] {
-                                TuplePatternElement::Rest(name) => name.clone(),
-                                _ => unreachable!(),
-                            };
-
-                            // Split into before and after ..
-                            let before: Vec<Pattern> = elements[..pos]
-                                .iter()
-                                .filter_map(|e| match e {
-                                    TuplePatternElement::Pattern(p) => Some(p.clone()),
-                                    TuplePatternElement::Rest(_) => None,
-                                })
-                                .collect();
-
-                            let after: Vec<Pattern> = elements[pos + 1..]
-                                .iter()
-                                .filter_map(|e| match e {
-                                    TuplePatternElement::Pattern(p) => Some(p.clone()),
-                                    TuplePatternElement::Rest(_) => None,
-                                })
-                                .collect();
-
-                            if after.is_empty() {
-                                // (a, b, ..) or (a, b, rest @ ..) - prefix only
-                                Ok(Pattern::Tuple(TuplePattern::Prefix {
-                                    patterns: before,
-                                    rest_binding,
-                                }))
-                            } else if before.is_empty() {
-                                // (.., x, y) or (rest @ .., x, y) - suffix only
-                                Ok(Pattern::Tuple(TuplePattern::Suffix {
-                                    patterns: after,
-                                    rest_binding,
-                                }))
-                            } else {
-                                // (a, .., z) or (a, rest @ .., z) - prefix and suffix
-                                Ok(Pattern::Tuple(TuplePattern::PrefixSuffix {
-                                    prefix: before,
-                                    suffix: after,
-                                    rest_binding,
-                                }))
-                            }
-                        }
-                    }
-                });
-
-            // Struct pattern field: `x` (shorthand for x: x) or `x: pattern`
-            #[derive(Clone)]
-            enum StructPatternField {
-                Field(StructFieldPattern),
-                Rest, // ..
-            }
-
-            let struct_field_pattern = choice((
-                // Error on name @ .. in struct patterns (not allowed)
-                ident()
-                    .then_ignore(just(Token::At))
-                    .then_ignore(just(Token::DotDot))
-                    .try_map(|_, span| {
-                        Err(Rich::custom(
-                            span,
-                            "@ binding not allowed on struct rest pattern (..)",
-                        ))
-                    }),
-                just(Token::DotDot).to(StructPatternField::Rest),
-                // Field with binding: x: pattern
-                ident()
-                    .then(just(Token::Colon).ignore_then(pattern.clone()).or_not())
-                    .map(|(field_name, pat)| {
-                        let binding_pattern = pat.unwrap_or_else(|| Pattern::Var(field_name.clone()));
-                        StructPatternField::Field(StructFieldPattern {
-                            field_name,
-                            pattern: Box::new(binding_pattern),
-                        })
-                    }),
-            ));
-
-            // Struct pattern: Point { x, y }, Point { x: a, .. }
-            let struct_pattern = ident()
-                .then(
-                    struct_field_pattern
-                        .clone()
-                        .separated_by(just(Token::Comma))
-                        .allow_trailing()
-                        .collect::<Vec<_>>()
-                        .delimited_by(just(Token::LBrace), just(Token::RBrace)),
-                )
-                .try_map(|(name, elements), span| {
-                    // Check for .. (rest marker)
-                    let has_rest = elements.iter().any(|e| matches!(e, StructPatternField::Rest));
-
-                    // Multiple .. not allowed
-                    if elements.iter().filter(|e| matches!(e, StructPatternField::Rest)).count() > 1 {
-                        return Err(Rich::custom(span, "only one .. allowed in struct pattern"));
-                    }
-
-                    // Extract field patterns (exclude ..)
-                    let fields: Vec<StructFieldPattern> = elements
-                        .into_iter()
-                        .filter_map(|e| match e {
-                            StructPatternField::Field(f) => Some(f),
-                            StructPatternField::Rest => None,
-                        })
-                        .collect();
-
-                    let path = Path::simple(name);
-                    if has_rest {
-                        Ok(Pattern::Struct(StructPattern::Partial { path, fields }))
-                    } else {
-                        Ok(Pattern::Struct(StructPattern::Exact { path, fields }))
-                    }
-                });
-
-            // Enum pattern: Enum::Variant, Enum::Variant(patterns), Enum::Variant { fields }
-            // Reuses TuplePatternElement and StructPatternField for rest pattern support
-
-            // Tuple variant pattern fields (with rest support)
-            let enum_tuple_pattern_fields = tuple_element
-                .clone()
-                .separated_by(just(Token::Comma))
-                .allow_trailing()
-                .collect::<Vec<_>>()
-                .delimited_by(just(Token::LParen), just(Token::RParen))
-                .try_map(|elements, span| {
-                    let rest_pos = elements
-                        .iter()
-                        .position(|e| matches!(e, TuplePatternElement::Rest(_)));
-
-                    if elements
-                        .iter()
-                        .filter(|e| matches!(e, TuplePatternElement::Rest(_)))
-                        .count()
-                        > 1
-                    {
-                        return Err(Rich::custom(span, "only one .. allowed in enum tuple pattern"));
-                    }
-
-                    match rest_pos {
-                        None => {
-                            let patterns: Vec<Pattern> = elements
-                                .into_iter()
-                                .map(|e| match e {
-                                    TuplePatternElement::Pattern(p) => p,
-                                    TuplePatternElement::Rest(_) => unreachable!(),
-                                })
-                                .collect();
-                            if patterns.is_empty() {
-                                Ok(EnumPatternFields::Tuple(TuplePattern::Empty))
-                            } else {
-                                Ok(EnumPatternFields::Tuple(TuplePattern::Exact(patterns)))
-                            }
-                        }
-                        Some(pos) => {
-                            // Extract rest binding name
-                            let rest_binding = match &elements[pos] {
-                                TuplePatternElement::Rest(name) => name.clone(),
-                                _ => unreachable!(),
-                            };
-
-                            let before: Vec<Pattern> = elements[..pos]
-                                .iter()
-                                .filter_map(|e| match e {
-                                    TuplePatternElement::Pattern(p) => Some(p.clone()),
-                                    TuplePatternElement::Rest(_) => None,
-                                })
-                                .collect();
-
-                            let after: Vec<Pattern> = elements[pos + 1..]
-                                .iter()
-                                .filter_map(|e| match e {
-                                    TuplePatternElement::Pattern(p) => Some(p.clone()),
-                                    TuplePatternElement::Rest(_) => None,
-                                })
-                                .collect();
-
-                            if after.is_empty() {
-                                Ok(EnumPatternFields::Tuple(TuplePattern::Prefix {
-                                    patterns: before,
-                                    rest_binding,
-                                }))
-                            } else if before.is_empty() {
-                                Ok(EnumPatternFields::Tuple(TuplePattern::Suffix {
-                                    patterns: after,
-                                    rest_binding,
-                                }))
-                            } else {
-                                Ok(EnumPatternFields::Tuple(TuplePattern::PrefixSuffix {
-                                    prefix: before,
-                                    suffix: after,
-                                    rest_binding,
-                                }))
-                            }
-                        }
-                    }
-                });
-
-            // Struct variant pattern fields (with rest support)
-            let enum_struct_pattern_fields = struct_field_pattern.clone()
-                .separated_by(just(Token::Comma))
-                .allow_trailing()
-                .collect::<Vec<_>>()
-                .delimited_by(just(Token::LBrace), just(Token::RBrace))
-                .try_map(|elements, span| {
-                    let has_rest = elements.iter().any(|e| matches!(e, StructPatternField::Rest));
-
-                    if elements
-                        .iter()
-                        .filter(|e| matches!(e, StructPatternField::Rest))
-                        .count()
-                        > 1
-                    {
-                        return Err(Rich::custom(span, "only one .. allowed in enum struct pattern"));
-                    }
-
-                    let fields: Vec<StructFieldPattern> = elements
-                        .into_iter()
-                        .filter_map(|e| match e {
-                            StructPatternField::Field(f) => Some(f),
-                            StructPatternField::Rest => None,
-                        })
-                        .collect();
-
-                    Ok(EnumPatternFields::Struct {
-                        fields,
-                        is_partial: has_rest,
-                    })
-                });
-
-            // Turbofish type arguments in patterns: ::<Int, String>
-            let pattern_turbofish = just(Token::ColonColon).ignore_then(
-                type_annotation()
-                    .separated_by(just(Token::Comma))
-                    .at_least(1)
-                    .collect::<Vec<_>>()
-                    .delimited_by(just(Token::Lt), just(Token::Gt)),
-            );
-
-            // Enum pattern: Enum::Variant, Enum::Variant::<T>, Enum::Variant(x), Enum::Variant { x }
-            let enum_pattern = ident()
-                .then_ignore(just(Token::ColonColon))
-                .then(ident())
-                .then(pattern_turbofish.or_not())
-                .then(
-                    choice((
-                        enum_tuple_pattern_fields,
-                        enum_struct_pattern_fields,
-                    ))
-                    .or_not(),
-                )
-                .map(|(((enum_name, variant_name), type_args), fields)| {
-                    let fields = fields.unwrap_or(EnumPatternFields::Unit);
-                    let path = Path {
-                        segments: vec![enum_name, variant_name],
-                        type_args,
-                    };
-                    Pattern::Enum(EnumPattern { path, fields })
-                });
-
-            // As pattern: name @ pattern (binds entire matched value to name)
-            // Note: name @ .. is handled separately in list/tuple element parsing
-            let as_pattern = ident()
-                .then_ignore(just(Token::At))
-                .then(choice((
-                    list_pattern.clone(),
-                    tuple_pattern.clone(),
-                    enum_pattern.clone(),
-                    struct_pattern.clone(),
-                    simple_pattern.clone(),
-                )))
-                .map(|(name, inner)| Pattern::As {
-                    name,
-                    pattern: Box::new(inner),
-                });
-
-            // enum_pattern must come before struct_pattern to match :: first
-            // as_pattern must come before simple_pattern to capture name @ ...
-            choice((
-                list_pattern,
-                tuple_pattern,
-                enum_pattern,
-                struct_pattern,
-                as_pattern,
-                simple_pattern,
-            ))
-        });
+        // Use the shared pattern parser for match arms
+        let pattern = pattern_parser();
 
         // Let binding for use in match arm blocks (uses expr from recursive context)
         let let_in_arm = just(Token::Let)
-            .ignore_then(ident())
+            .ignore_then(pattern_parser())
             .then(just(Token::Colon).ignore_then(type_annotation()).or_not())
             .then_ignore(just(Token::Eq))
             .then(expr.clone())
-            .map(|((name, type_annotation), value)| LetBinding {
-                name,
-                type_annotation,
-                value: Box::new(value),
+            .try_map(|((pattern, type_annotation), value), span| {
+                // Type annotation only allowed on simple variable patterns
+                if type_annotation.is_some() && !matches!(pattern, Pattern::Var(_)) {
+                    return Err(Rich::custom(
+                        span,
+                        "type annotations are only allowed on simple variable patterns",
+                    ));
+                }
+                Ok(LetBinding {
+                    pattern,
+                    type_annotation,
+                    value: Box::new(value),
+                })
             });
 
         // Arm body: { [let x = e;]* expr } OR expr
@@ -945,14 +974,23 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
         // Note: we need to define let_in_lambda fresh here because let_in_arm
         // was already moved when defining arm_body
         let let_in_lambda = just(Token::Let)
-            .ignore_then(ident())
+            .ignore_then(pattern_parser())
             .then(just(Token::Colon).ignore_then(type_annotation()).or_not())
             .then_ignore(just(Token::Eq))
             .then(expr.clone())
-            .map(|((name, type_annotation), value)| LetBinding {
-                name,
-                type_annotation,
-                value: Box::new(value),
+            .try_map(|((pattern, type_annotation), value), span| {
+                // Type annotation only allowed on simple variable patterns
+                if type_annotation.is_some() && !matches!(pattern, Pattern::Var(_)) {
+                    return Err(Rich::custom(
+                        span,
+                        "type annotations are only allowed on simple variable patterns",
+                    ));
+                }
+                Ok(LetBinding {
+                    pattern,
+                    type_annotation,
+                    value: Box::new(value),
+                })
             });
 
         let lambda_body = choice((
@@ -1789,7 +1827,7 @@ mod tests {
         assert!(matches!(
             &stmts[0],
             Statement::Let(LetBinding {
-                name,
+                pattern: Pattern::Var(name),
                 type_annotation: None,
                 value,
             }) if name == "x" && **value == Expr::Int(42)
@@ -1803,7 +1841,7 @@ mod tests {
         assert!(matches!(
             &stmts[0],
             Statement::Let(LetBinding {
-                name,
+                pattern: Pattern::Var(name),
                 type_annotation: Some(TypeAnnotation::Named(ty)),
                 value,
             }) if name == "x" && ty.as_simple() == Some("Int") && **value == Expr::Int(42)
@@ -1838,8 +1876,8 @@ mod tests {
         }) = item
         {
             assert_eq!(bindings.len(), 2);
-            assert_eq!(bindings[0].name, "x");
-            assert_eq!(bindings[1].name, "y");
+            assert!(matches!(&bindings[0].pattern, Pattern::Var(n) if n == "x"));
+            assert!(matches!(&bindings[1].pattern, Pattern::Var(n) if n == "y"));
             assert!(matches!(*result, Expr::BinOp { .. }));
         } else {
             panic!("expected function with block body");
@@ -2505,7 +2543,7 @@ mod tests {
             assert_eq!(arms.len(), 2);
             if let Expr::Block { bindings, result } = &arms[0].result {
                 assert_eq!(bindings.len(), 1);
-                assert_eq!(bindings[0].name, "y");
+                assert!(matches!(&bindings[0].pattern, Pattern::Var(n) if n == "y"));
                 assert!(matches!(**result, Expr::BinOp { .. }));
             } else {
                 panic!("expected block expression in first arm");
@@ -2536,8 +2574,8 @@ mod tests {
         if let Expr::Match { arms, .. } = expr {
             if let Expr::Block { bindings, .. } = &arms[0].result {
                 assert_eq!(bindings.len(), 2);
-                assert_eq!(bindings[0].name, "a");
-                assert_eq!(bindings[1].name, "b");
+                assert!(matches!(&bindings[0].pattern, Pattern::Var(n) if n == "a"));
+                assert!(matches!(&bindings[1].pattern, Pattern::Var(n) if n == "b"));
             } else {
                 panic!("expected block expression");
             }
@@ -2553,7 +2591,7 @@ mod tests {
         if let Expr::Match { arms, .. } = expr {
             if let Expr::Block { bindings, result } = &arms[0].result {
                 assert_eq!(bindings.len(), 1);
-                assert_eq!(bindings[0].name, "doubled");
+                assert!(matches!(&bindings[0].pattern, Pattern::Var(n) if n == "doubled"));
                 // The binding value should reference 'n' from the pattern
                 if let Expr::BinOp { left, .. } = &*bindings[0].value {
                     assert!(matches!(**left, Expr::Path(ref p) if p.as_simple() == Some("n")));
@@ -2683,7 +2721,7 @@ mod tests {
         // Lambda as function argument (conceptually - requires let binding to use)
         let stmts = parse_repl_str("let f = |x| x + 1").unwrap();
         if let Statement::Let(binding) = &stmts[0] {
-            assert_eq!(binding.name, "f");
+            assert!(matches!(&binding.pattern, Pattern::Var(n) if n == "f"));
             assert!(matches!(*binding.value, Expr::Lambda { .. }));
         } else {
             panic!("expected let statement");
@@ -2923,5 +2961,84 @@ mod tests {
         } else {
             panic!("expected match");
         }
+    }
+
+    // ===== Let Pattern Destructuring Parser Tests =====
+
+    #[test]
+    fn test_parse_let_tuple_pattern() {
+        let stmts = parse_repl_str("let (a, b) = x").unwrap();
+        assert!(matches!(
+            &stmts[0],
+            Statement::Let(LetBinding {
+                pattern: Pattern::Tuple(TuplePattern::Exact(patterns)),
+                ..
+            }) if patterns.len() == 2
+        ));
+    }
+
+    #[test]
+    fn test_parse_let_struct_pattern() {
+        let stmts = parse_repl_str("let Point { x, y } = p").unwrap();
+        if let Statement::Let(LetBinding {
+            pattern: Pattern::Struct(StructPattern::Exact { fields, .. }),
+            ..
+        }) = &stmts[0]
+        {
+            assert_eq!(fields.len(), 2);
+        } else {
+            panic!("expected struct pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_let_wildcard_pattern() {
+        let stmts = parse_repl_str("let _ = expr").unwrap();
+        assert!(matches!(
+            &stmts[0],
+            Statement::Let(LetBinding {
+                pattern: Pattern::Wildcard,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn test_parse_let_nested_pattern() {
+        let stmts = parse_repl_str("let (a, (b, c)) = x").unwrap();
+        if let Statement::Let(LetBinding {
+            pattern: Pattern::Tuple(TuplePattern::Exact(outer)),
+            ..
+        }) = &stmts[0]
+        {
+            assert_eq!(outer.len(), 2);
+            assert!(matches!(&outer[0], Pattern::Var(_)));
+            assert!(matches!(&outer[1], Pattern::Tuple(_)));
+        } else {
+            panic!("expected nested tuple pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_let_tuple_rest_pattern() {
+        let stmts = parse_repl_str("let (first, ..) = tuple").unwrap();
+        assert!(matches!(
+            &stmts[0],
+            Statement::Let(LetBinding {
+                pattern: Pattern::Tuple(TuplePattern::Prefix { .. }),
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn test_parse_let_type_annotation_on_var_only() {
+        // Type annotation on simple var pattern - should succeed
+        let result = parse_repl_str("let x: Int = 42");
+        assert!(result.is_ok());
+
+        // Type annotation on tuple pattern - should fail
+        let result = parse_repl_str("let (a, b): (Int, Int) = x");
+        assert!(result.is_err());
     }
 }

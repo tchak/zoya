@@ -1023,19 +1023,24 @@ fn check_block(
     let mut typed_bindings = Vec::new();
 
     for binding in bindings {
-        let typed_binding = check_let_binding(binding, &block_env, ctx)?;
+        let (typed_binding, pattern_bindings) = check_let_binding(binding, &block_env, ctx)?;
 
         // Check if we should generalize (let polymorphism)
         // Only generalize syntactic values (lambdas, literals, variables)
-        let scheme = if is_syntactic_value(&binding.value) {
-            // Collect fixed vars from the environment
-            let fixed_vars = block_env.free_vars(ctx);
-            ctx.generalize(&typed_binding.ty, &fixed_vars)
-        } else {
-            // Monomorphic binding
-            TypeScheme::mono(typed_binding.ty.clone())
-        };
-        block_env.locals.insert(binding.name.clone(), scheme);
+        let should_generalize = is_syntactic_value(&binding.value);
+
+        // Add each bound variable from the pattern to the environment
+        for (name, ty) in pattern_bindings {
+            let scheme = if should_generalize {
+                // Collect fixed vars from the environment
+                let fixed_vars = block_env.free_vars(ctx);
+                ctx.generalize(&ty, &fixed_vars)
+            } else {
+                // Monomorphic binding
+                TypeScheme::mono(ty)
+            };
+            block_env.locals.insert(name, scheme);
+        }
 
         typed_bindings.push(typed_binding);
     }
@@ -2677,33 +2682,72 @@ fn check_match_arm(
     })
 }
 
-/// Check a let binding and return a typed let binding
+/// Check if a pattern is irrefutable (always matches).
+/// Returns Ok(()) if irrefutable, Err with message if refutable.
+fn check_irrefutable(pattern: &Pattern) -> Result<(), String> {
+    match pattern {
+        Pattern::Wildcard => Ok(()),
+        Pattern::Var(_) => Ok(()),
+
+        Pattern::Tuple(tuple_pattern) => {
+            let patterns = match tuple_pattern {
+                TuplePattern::Empty => return Ok(()),
+                TuplePattern::Exact(patterns) => patterns.iter().collect::<Vec<_>>(),
+                TuplePattern::Prefix { patterns, .. } => patterns.iter().collect(),
+                TuplePattern::Suffix { patterns, .. } => patterns.iter().collect(),
+                TuplePattern::PrefixSuffix { prefix, suffix, .. } => {
+                    prefix.iter().chain(suffix.iter()).collect()
+                }
+            };
+            for p in patterns {
+                check_irrefutable(p)?;
+            }
+            Ok(())
+        }
+
+        Pattern::Struct(struct_pattern) => {
+            let fields = match struct_pattern {
+                StructPattern::Exact { fields, .. } => fields,
+                StructPattern::Partial { fields, .. } => fields,
+            };
+            for field in fields {
+                check_irrefutable(&field.pattern)?;
+            }
+            Ok(())
+        }
+
+        Pattern::As { pattern, .. } => check_irrefutable(pattern),
+
+        // Refutable patterns
+        Pattern::Literal(_) => Err("literal patterns may not match".to_string()),
+        Pattern::List(_) => {
+            Err("list patterns may not match (lists have dynamic length)".to_string())
+        }
+        Pattern::Enum(_) => Err("enum patterns may not match all variants".to_string()),
+    }
+}
+
+/// Check a let binding and return a typed let binding plus the bindings it introduces.
 fn check_let_binding(
     binding: &LetBinding,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
-) -> Result<TypedLetBinding, TypeError> {
-    // Check variable name is snake_case
-    if !is_snake_case(&binding.name) {
-        return Err(TypeError {
-            message: format!(
-                "variable '{}' should be snake_case (e.g., '{}')",
-                binding.name,
-                to_snake_case(&binding.name)
-            ),
-        });
-    }
+) -> Result<(TypedLetBinding, HashMap<String, Type>), TypeError> {
+    // Check pattern is irrefutable
+    check_irrefutable(&binding.pattern).map_err(|msg| TypeError {
+        message: format!("refutable pattern in let binding: {}", msg),
+    })?;
 
+    // Type check the value
     let typed_value = check_with_env(&binding.value, env, ctx)?;
     let inferred_type = typed_value.ty();
 
-    // If type annotation exists, unify with inferred type
+    // If type annotation exists (only allowed on simple Var patterns), unify with inferred type
     let binding_type = if let Some(ref annotation) = binding.type_annotation {
         let declared_type = resolve_type_annotation(annotation, &HashMap::new(), env)?;
         ctx.unify(&inferred_type, &declared_type).map_err(|e| TypeError {
             message: format!(
-                "let binding '{}' declares type {} but value has type {}: {}",
-                binding.name,
+                "let binding declares type {} but value has type {}: {}",
                 declared_type,
                 ctx.resolve(&inferred_type),
                 e.message
@@ -2714,11 +2758,17 @@ fn check_let_binding(
         ctx.resolve(&inferred_type)
     };
 
-    Ok(TypedLetBinding {
-        name: binding.name.clone(),
-        value: typed_value,
-        ty: binding_type,
-    })
+    // Type check the pattern against the value type
+    let (typed_pattern, bindings) = check_pattern(&binding.pattern, &binding_type, env, ctx)?;
+
+    Ok((
+        TypedLetBinding {
+            pattern: typed_pattern,
+            value: typed_value,
+            ty: binding_type,
+        },
+        bindings,
+    ))
 }
 
 /// Check a file's items (functions, structs, and enums), returning checked items
@@ -3083,16 +3133,19 @@ pub fn check_repl(
                 results.push((idx, CheckedStatement::Expr(typed_expr)));
             }
             Statement::Let(binding) => {
-                let typed_binding = check_let_binding(binding, env, &mut ctx)?;
+                let (typed_binding, pattern_bindings) = check_let_binding(binding, env, &mut ctx)?;
 
-                // Apply let polymorphism (value restriction)
-                let scheme = if is_syntactic_value(&binding.value) {
-                    let fixed_vars = env.free_vars(&ctx);
-                    ctx.generalize(&typed_binding.ty, &fixed_vars)
-                } else {
-                    TypeScheme::mono(typed_binding.ty.clone())
-                };
-                env.locals.insert(binding.name.clone(), scheme);
+                // Apply let polymorphism (value restriction) to each bound variable
+                let should_generalize = is_syntactic_value(&binding.value);
+                for (name, ty) in pattern_bindings {
+                    let scheme = if should_generalize {
+                        let fixed_vars = env.free_vars(&ctx);
+                        ctx.generalize(&ty, &fixed_vars)
+                    } else {
+                        TypeScheme::mono(ty)
+                    };
+                    env.locals.insert(name, scheme);
+                }
 
                 results.push((idx, CheckedStatement::Let(typed_binding)));
             }
@@ -3816,7 +3869,7 @@ mod tests {
     fn test_check_repl_let_binding() {
         let mut env = TypeEnv::default();
         let stmts = vec![Statement::Let(LetBinding {
-            name: "x".to_string(),
+            pattern: Pattern::Var("x".to_string()),
             type_annotation: None,
             value: Box::new(Expr::Int(42)),
         })];
@@ -3833,7 +3886,7 @@ mod tests {
         let mut env = TypeEnv::default();
         let stmts = vec![
             Statement::Let(LetBinding {
-                name: "x".to_string(),
+                pattern: Pattern::Var("x".to_string()),
                 type_annotation: None,
                 value: Box::new(Expr::Int(42)),
             }),
@@ -3853,7 +3906,7 @@ mod tests {
     fn test_check_let_with_type_annotation() {
         let mut env = TypeEnv::default();
         let stmts = vec![Statement::Let(LetBinding {
-            name: "x".to_string(),
+            pattern: Pattern::Var("x".to_string()),
             type_annotation: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
             value: Box::new(Expr::Int(42)),
         })];
@@ -3868,7 +3921,7 @@ mod tests {
     fn test_check_let_type_mismatch() {
         let mut env = TypeEnv::default();
         let stmts = vec![Statement::Let(LetBinding {
-            name: "x".to_string(),
+            pattern: Pattern::Var("x".to_string()),
             type_annotation: Some(TypeAnnotation::Named(Path::simple("Float".to_string()))),
             value: Box::new(Expr::Int(42)),
         })];
@@ -3881,7 +3934,7 @@ mod tests {
     fn test_check_block_expression() {
         let expr = Expr::Block {
             bindings: vec![LetBinding {
-                name: "x".to_string(),
+                pattern: Pattern::Var("x".to_string()),
                 type_annotation: None,
                 value: Box::new(Expr::Int(1)),
             }],
@@ -3900,12 +3953,12 @@ mod tests {
         let expr = Expr::Block {
             bindings: vec![
                 LetBinding {
-                    name: "x".to_string(),
+                    pattern: Pattern::Var("x".to_string()),
                     type_annotation: None,
                     value: Box::new(Expr::Int(1)),
                 },
                 LetBinding {
-                    name: "y".to_string(),
+                    pattern: Pattern::Var("y".to_string()),
                     type_annotation: None,
                     value: Box::new(Expr::BinOp {
                         op: BinOp::Add,
@@ -4370,7 +4423,7 @@ mod tests {
         let mut env = TypeEnv::default();
         let stmts = vec![
             Statement::Let(LetBinding {
-                name: "x".to_string(),
+                pattern: Pattern::Var("x".to_string()),
                 type_annotation: None,
                 value: Box::new(Expr::Int(1)),
             }),
@@ -4416,7 +4469,7 @@ mod tests {
         let mut env = TypeEnv::default();
         let stmts = vec![
             Statement::Let(LetBinding {
-                name: "x".to_string(),
+                pattern: Pattern::Var("x".to_string()),
                 type_annotation: None,
                 value: Box::new(Expr::Int(42)),
             }),
@@ -4546,5 +4599,76 @@ mod tests {
             result,
             Type::List(Box::new(Type::Tuple(vec![Type::Float, Type::Float])))
         );
+    }
+
+    // ===== Let Pattern Irrefutability Tests =====
+
+    #[test]
+    fn test_let_literal_pattern_rejected() {
+        let mut env = TypeEnv::default();
+        let stmts = vec![Statement::Let(LetBinding {
+            pattern: Pattern::Literal(Box::new(Expr::Int(42))),
+            type_annotation: None,
+            value: Box::new(Expr::Int(42)),
+        })];
+        let result = check_repl(&stmts, &mut env);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("refutable"));
+    }
+
+    #[test]
+    fn test_let_list_pattern_rejected() {
+        use crate::ast::ListPattern;
+        let mut env = TypeEnv::default();
+        let stmts = vec![Statement::Let(LetBinding {
+            pattern: Pattern::List(ListPattern::Exact(vec![Pattern::Var("x".to_string())])),
+            type_annotation: None,
+            value: Box::new(Expr::List(vec![Expr::Int(1)])),
+        })];
+        let result = check_repl(&stmts, &mut env);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("refutable"));
+    }
+
+    #[test]
+    fn test_let_enum_pattern_rejected() {
+        use crate::ast::EnumPattern;
+        use crate::ast::EnumPatternFields;
+        let mut env = TypeEnv::default();
+        // Don't need to set up actual enum type - irrefutability check happens before type checking
+        let stmts = vec![Statement::Let(LetBinding {
+            pattern: Pattern::Enum(EnumPattern {
+                path: Path {
+                    segments: vec!["Option".to_string(), "Some".to_string()],
+                    type_args: None,
+                },
+                fields: EnumPatternFields::Tuple(TuplePattern::Exact(vec![Pattern::Var(
+                    "x".to_string(),
+                )])),
+            }),
+            type_annotation: None,
+            value: Box::new(Expr::Int(42)), // Doesn't matter, will fail at irrefutability check first
+        })];
+        let result = check_repl(&stmts, &mut env);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("refutable"));
+    }
+
+    #[test]
+    fn test_let_tuple_pattern_irrefutable() {
+        let mut env = TypeEnv::default();
+        let stmts = vec![Statement::Let(LetBinding {
+            pattern: Pattern::Tuple(TuplePattern::Exact(vec![
+                Pattern::Var("a".to_string()),
+                Pattern::Var("b".to_string()),
+            ])),
+            type_annotation: None,
+            value: Box::new(Expr::Tuple(vec![Expr::Int(1), Expr::Int(2)])),
+        })];
+        let result = check_repl(&stmts, &mut env);
+        assert!(result.is_ok());
+        // Both a and b should be in the environment
+        assert!(env.locals.contains_key("a"));
+        assert!(env.locals.contains_key("b"));
     }
 }

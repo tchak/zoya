@@ -8,9 +8,111 @@ use crate::ast::{EnumDef, StructDef};
 use crate::check::{CheckedStatement, TypeEnv, check_repl};
 use crate::codegen::{codegen, codegen_function, codegen_let, prelude};
 use crate::eval::{self, Context, Value};
+use crate::ir::TypedPattern;
 use crate::lexer;
 use crate::parser;
 use crate::types::Type;
+
+/// Extract all variable bindings from a typed pattern.
+/// Returns a list of (name, type) pairs for each bound variable.
+fn extract_bindings(pattern: &TypedPattern) -> Vec<(String, Type)> {
+    let mut bindings = Vec::new();
+    extract_bindings_impl(pattern, &mut bindings);
+    bindings
+}
+
+fn extract_bindings_impl(pattern: &TypedPattern, bindings: &mut Vec<(String, Type)>) {
+    match pattern {
+        TypedPattern::Var { name, ty } => {
+            bindings.push((name.clone(), ty.clone()));
+        }
+        TypedPattern::As { name, ty, pattern } => {
+            bindings.push((name.clone(), ty.clone()));
+            extract_bindings_impl(pattern, bindings);
+        }
+        TypedPattern::Wildcard | TypedPattern::Literal(_) => {}
+        TypedPattern::ListEmpty | TypedPattern::TupleEmpty | TypedPattern::EnumUnit { .. } => {}
+        TypedPattern::ListExact { patterns, .. }
+        | TypedPattern::TupleExact { patterns, .. }
+        | TypedPattern::EnumTupleExact { patterns, .. } => {
+            for p in patterns {
+                extract_bindings_impl(p, bindings);
+            }
+        }
+        TypedPattern::ListPrefix {
+            patterns,
+            rest_binding,
+            ..
+        }
+        | TypedPattern::ListSuffix {
+            patterns,
+            rest_binding,
+            ..
+        }
+        | TypedPattern::TuplePrefix {
+            patterns,
+            rest_binding,
+            ..
+        }
+        | TypedPattern::TupleSuffix {
+            patterns,
+            rest_binding,
+            ..
+        }
+        | TypedPattern::EnumTuplePrefix {
+            patterns,
+            rest_binding,
+            ..
+        }
+        | TypedPattern::EnumTupleSuffix {
+            patterns,
+            rest_binding,
+            ..
+        } => {
+            for p in patterns {
+                extract_bindings_impl(p, bindings);
+            }
+            // Note: rest bindings in TypedPattern don't include type info here,
+            // they would need to be resolved from context. For REPL display,
+            // we skip them for now as they're not commonly used.
+            let _ = rest_binding;
+        }
+        TypedPattern::ListPrefixSuffix {
+            prefix,
+            suffix,
+            rest_binding,
+            ..
+        }
+        | TypedPattern::TuplePrefixSuffix {
+            prefix,
+            suffix,
+            rest_binding,
+            ..
+        }
+        | TypedPattern::EnumTuplePrefixSuffix {
+            prefix,
+            suffix,
+            rest_binding,
+            ..
+        } => {
+            for p in prefix {
+                extract_bindings_impl(p, bindings);
+            }
+            for p in suffix {
+                extract_bindings_impl(p, bindings);
+            }
+            let _ = rest_binding;
+        }
+        TypedPattern::StructExact { fields, .. }
+        | TypedPattern::StructPartial { fields, .. }
+        | TypedPattern::EnumStructExact { fields, .. }
+        | TypedPattern::EnumStructPartial { fields, .. } => {
+            for (_, p) in fields {
+                extract_bindings_impl(p, bindings);
+            }
+        }
+    }
+}
 
 /// Result of processing a single REPL statement
 #[derive(Debug, Clone, PartialEq)]
@@ -21,8 +123,8 @@ pub enum ReplResult {
     StructDefined(String),
     /// Enum was defined
     EnumDefined(String),
-    /// Let binding was created
-    LetBinding { name: String, ty: Type },
+    /// Let binding was created (may bind multiple names from pattern)
+    LetBinding { bindings: Vec<(String, Type)> },
     /// Expression was evaluated
     Expression(Value),
 }
@@ -107,8 +209,7 @@ impl State {
                     results.push(ReplResult::Expression(value));
                 }
                 CheckedStatement::Let(typed_binding) => {
-                    let name = typed_binding.name.clone();
-                    let ty = typed_binding.ty.clone();
+                    let bindings = extract_bindings(&typed_binding.pattern);
                     let js_code = codegen_let(&typed_binding);
 
                     // Define variable in QuickJS context
@@ -117,7 +218,7 @@ impl State {
                             .map_err(|e| format!("JS error: {}", e))
                     })?;
 
-                    results.push(ReplResult::LetBinding { name, ty });
+                    results.push(ReplResult::LetBinding { bindings });
                 }
                 CheckedStatement::Struct(struct_def) => {
                     let name = struct_def.name.clone();
@@ -202,8 +303,10 @@ pub fn run() {
                                 ReplResult::Expression(value) => {
                                     println!("{}", value);
                                 }
-                                ReplResult::LetBinding { name, ty } => {
-                                    println!("let {}: {}", name, ty);
+                                ReplResult::LetBinding { bindings } => {
+                                    for (name, ty) in bindings {
+                                        println!("let {}: {}", name, ty);
+                                    }
                                 }
                             }
                         }
@@ -298,7 +401,7 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert!(matches!(
             &results[0],
-            ReplResult::LetBinding { name, ty } if name == "x" && *ty == Type::Int
+            ReplResult::LetBinding { bindings } if bindings.len() == 1 && bindings[0].0 == "x" && bindings[0].1 == Type::Int
         ));
     }
 
@@ -380,8 +483,8 @@ mod tests {
         let mut state = State::new().unwrap();
         let results = state.eval("let a = 1\nlet b = 2\na + b").unwrap();
         assert_eq!(results.len(), 3);
-        assert!(matches!(&results[0], ReplResult::LetBinding { name, .. } if name == "a"));
-        assert!(matches!(&results[1], ReplResult::LetBinding { name, .. } if name == "b"));
+        assert!(matches!(&results[0], ReplResult::LetBinding { bindings } if bindings.len() == 1 && bindings[0].0 == "a"));
+        assert!(matches!(&results[1], ReplResult::LetBinding { bindings } if bindings.len() == 1 && bindings[0].0 == "b"));
         assert_eq!(results[2], ReplResult::Expression(Value::Int(3)));
     }
 

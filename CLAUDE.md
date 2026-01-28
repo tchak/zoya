@@ -49,7 +49,16 @@ src/
   - Unary: `-` (negation)
 - **Functions:** definitions with `fn`, generic type parameters, type annotations, calls
   - Simple bodies can omit braces: `fn square(x: Int) -> Int x * x`
-- **Let bindings:** `let x = expr` or `let x: Type = expr`
+- **Let bindings:** `let pattern = expr` or `let x: Type = expr`
+  - Simple: `let x = 42`
+  - Tuple destructuring: `let (a, b) = (1, 2)`, `let (first, ..) = tuple`
+  - Struct destructuring: `let Point { x, y } = point`, `let Point { x, .. } = point`
+  - Nested patterns: `let (a, (b, c)) = (1, (2, 3))`
+  - Wildcard: `let _ = expr` (discards value)
+  - As patterns: `let pair @ (a, b) = (1, 2)` (binds both `pair` and `a`, `b`)
+  - Type annotations only on simple variables: `let x: Int = 42`
+  - Only irrefutable patterns allowed (patterns that always match)
+  - Refutable patterns rejected: literals, list patterns, enum patterns
   - In function bodies (semicolons required): `fn foo() { let x = 1; let y = 2; x + y }`
   - In REPL (persists across inputs)
 - **Lambdas (anonymous functions):** Rust-inspired syntax with let polymorphism

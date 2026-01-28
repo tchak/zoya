@@ -167,10 +167,11 @@ impl std::fmt::Display for TypeAnnotation {
     }
 }
 
-/// Let binding: `let x = expr` or `let x: Type = expr`
+/// Let binding: `let pattern = expr` or `let x: Type = expr`
+/// Type annotations are only allowed on simple variable patterns.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LetBinding {
-    pub name: String,
+    pub pattern: Pattern,
     pub type_annotation: Option<TypeAnnotation>,
     pub value: Box<Expr>,
 }

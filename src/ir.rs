@@ -49,7 +49,7 @@ pub struct TypedFunction {
 /// Typed let binding
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedLetBinding {
-    pub name: String,
+    pub pattern: TypedPattern,
     pub value: TypedExpr,
     pub ty: Type,
 }

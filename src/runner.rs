@@ -1939,4 +1939,120 @@ mod tests {
         let result = run(source).unwrap();
         assert_eq!(result, Value::Int(2));
     }
+
+    // ===== Let Pattern Destructuring Tests =====
+
+    #[test]
+    fn test_let_tuple_destructuring() {
+        let source = r#"
+            fn main() -> Int {
+                let (a, b) = (1, 2);
+                a + b
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(3));
+    }
+
+    #[test]
+    fn test_let_tuple_nested_destructuring() {
+        let source = r#"
+            fn main() -> Int {
+                let (a, (b, c)) = (1, (2, 3));
+                a + b + c
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(6));
+    }
+
+    #[test]
+    fn test_let_struct_destructuring() {
+        let source = r#"
+            struct Point { x: Int, y: Int }
+            fn main() -> Int {
+                let p = Point { x: 10, y: 20 };
+                let Point { x, y } = p;
+                x + y
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(30));
+    }
+
+    #[test]
+    fn test_let_struct_partial_destructuring() {
+        let source = r#"
+            struct Point { x: Int, y: Int, z: Int }
+            fn main() -> Int {
+                let p = Point { x: 1, y: 2, z: 3 };
+                let Point { x, .. } = p;
+                x
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(1));
+    }
+
+    #[test]
+    fn test_let_tuple_rest_prefix() {
+        let source = r#"
+            fn main() -> Int {
+                let (first, ..) = (1, 2, 3, 4);
+                first
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(1));
+    }
+
+    #[test]
+    fn test_let_tuple_rest_suffix() {
+        let source = r#"
+            fn main() -> Int {
+                let (.., last) = (1, 2, 3, 4);
+                last
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(4));
+    }
+
+    #[test]
+    fn test_let_wildcard() {
+        let source = r#"
+            fn main() -> Int {
+                let _ = 42;
+                0
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(0));
+    }
+
+    #[test]
+    fn test_let_as_pattern() {
+        let source = r#"
+            fn main() -> Int {
+                let pair @ (a, b) = (1, 2);
+                match pair {
+                    (x, y) => a + b + x + y,
+                }
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(6));
+    }
+
+    #[test]
+    fn test_let_empty_tuple() {
+        let source = r#"
+            fn main() -> Int {
+                let () = ();
+                42
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(42));
+    }
 }
