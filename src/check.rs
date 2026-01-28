@@ -3,13 +3,13 @@ use std::collections::{HashMap, HashSet};
 use crate::ast::{
     BinOp, EnumDef, EnumPattern, EnumPatternFields, Expr, FunctionDef, Item, LetBinding,
     ListPattern, MatchArm, Path, Pattern, Statement, StructDef, StructPattern, TuplePattern,
-    TypeAnnotation, UnaryOp,
+    TypeAliasDef, TypeAnnotation, UnaryOp,
 };
 use crate::ir::{
     CheckedItem, QualifiedPath, TypedEnumConstructFields, TypedExpr, TypedFunction,
     TypedLetBinding, TypedMatchArm, TypedPattern,
 };
-use crate::types::{EnumType, EnumVariantType, FunctionType, StructType, Type, TypeError, TypeScheme, TypeVarId};
+use crate::types::{EnumType, EnumVariantType, FunctionType, StructType, Type, TypeAliasType, TypeError, TypeScheme, TypeVarId};
 use crate::unify::UnifyCtx;
 use crate::usefulness;
 
@@ -78,6 +78,8 @@ pub struct TypeEnv {
     pub structs: HashMap<String, StructType>,
     /// Enum type definitions
     pub enums: HashMap<String, EnumType>,
+    /// Type alias definitions
+    pub type_aliases: HashMap<String, TypeAliasType>,
     /// Local variable types (type schemes for let polymorphism)
     pub locals: HashMap<String, TypeScheme>,
 }
@@ -96,6 +98,7 @@ impl TypeEnv {
             functions: self.functions.clone(),
             structs: self.structs.clone(),
             enums: self.enums.clone(),
+            type_aliases: self.type_aliases.clone(),
             locals,
         }
     }
@@ -173,6 +176,19 @@ fn resolve_type_annotation(
                     type_args: vec![],
                     variants: enum_def.variants.clone(),
                 })
+            } else if let Some(alias_def) = env.type_aliases.get(name) {
+                // Non-generic type alias reference
+                if !alias_def.type_params.is_empty() {
+                    return Err(TypeError {
+                        message: format!(
+                            "type alias {} requires {} type argument(s)",
+                            name,
+                            alias_def.type_params.len()
+                        ),
+                    });
+                }
+                // Non-generic alias: return the underlying type as-is
+                Ok(alias_def.typ.clone())
             } else {
                 Err(TypeError {
                     message: format!("unknown type: {}", name),
@@ -254,6 +270,28 @@ fn resolve_type_annotation(
                     type_args,
                     variants,
                 })
+            } else if let Some(alias_def) = env.type_aliases.get(name) {
+                // Generic type alias reference
+                if params.len() != alias_def.type_params.len() {
+                    return Err(TypeError {
+                        message: format!(
+                            "type alias {} expects {} type argument(s), got {}",
+                            name,
+                            alias_def.type_params.len(),
+                            params.len()
+                        ),
+                    });
+                }
+                let type_args = params
+                    .iter()
+                    .map(|p| resolve_type_annotation(p, type_param_map, env))
+                    .collect::<Result<Vec<_>, _>>()?;
+                // Substitute type args into the underlying type
+                let mut subst = HashMap::new();
+                for (id, arg) in alias_def.type_var_ids.iter().zip(type_args.iter()) {
+                    subst.insert(*id, arg.clone());
+                }
+                Ok(substitute_type_vars(&alias_def.typ, &subst))
             } else {
                 Err(TypeError {
                     message: format!("unknown parameterized type: {}", name),
@@ -2882,7 +2920,15 @@ pub fn check_file(items: &[Item]) -> Result<Vec<CheckedItem>, TypeError> {
         }
     }
 
-    // Phase 2: Register all function signatures (now struct/enum types are available)
+    // Phase 1d: Register all type aliases (now struct/enum types are available)
+    for item in items {
+        if let Item::TypeAlias(def) = item {
+            let alias_type = type_alias_from_def(def, &env, &mut ctx)?;
+            env.type_aliases.insert(def.name.clone(), alias_type);
+        }
+    }
+
+    // Phase 2: Register all function signatures (now struct/enum/alias types are available)
     for item in items {
         if let Item::Function(func) = item {
             let func_type = function_type_from_def(func, &env, &mut ctx)?;
@@ -2905,6 +2951,10 @@ pub fn check_file(items: &[Item]) -> Result<Vec<CheckedItem>, TypeError> {
             Item::Enum(def) => {
                 // Enums are just passed through (already registered in env)
                 checked_items.push(CheckedItem::Enum(def.clone()));
+            }
+            Item::TypeAlias(def) => {
+                // Type aliases are just passed through (already registered in env)
+                checked_items.push(CheckedItem::TypeAlias(def.clone()));
             }
         }
     }
@@ -3047,12 +3097,62 @@ fn enum_type_from_def(
     })
 }
 
+/// Extract type alias from a type alias definition (for adding to env).
+fn type_alias_from_def(
+    def: &TypeAliasDef,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypeAliasType, TypeError> {
+    // Check type alias name is PascalCase
+    if !is_pascal_case(&def.name) {
+        return Err(TypeError {
+            message: format!(
+                "type alias name '{}' should be PascalCase (e.g., '{}')",
+                def.name,
+                to_pascal_case(&def.name)
+            ),
+        });
+    }
+
+    // Create fresh type variables for type parameters
+    let mut type_param_map = HashMap::new();
+    let mut type_var_ids = Vec::new();
+    for name in &def.type_params {
+        // Check type parameter name is PascalCase
+        if !is_pascal_case(name) {
+            return Err(TypeError {
+                message: format!(
+                    "type parameter '{}' should be PascalCase (e.g., '{}')",
+                    name,
+                    to_pascal_case(name)
+                ),
+            });
+        }
+        let var = ctx.fresh_var();
+        if let Type::Var(id) = var {
+            type_param_map.insert(name.clone(), id);
+            type_var_ids.push(id);
+        }
+    }
+
+    // Resolve the underlying type
+    let typ = resolve_type_annotation(&def.typ, &type_param_map, env)?;
+
+    Ok(TypeAliasType {
+        name: def.name.clone(),
+        type_params: def.type_params.clone(),
+        type_var_ids,
+        typ,
+    })
+}
+
 /// Type-checked statement result for REPL
 #[derive(Debug, Clone, PartialEq)]
 pub enum CheckedStatement {
     Function(TypedFunction),
     Struct(StructDef),
     Enum(EnumDef),
+    TypeAlias(TypeAliasDef),
     Expr(TypedExpr),
     Let(TypedLetBinding),
 }
@@ -3075,6 +3175,7 @@ pub fn check_repl(
     // Phase 1: Partition statements
     let mut struct_items: Vec<(usize, &StructDef)> = Vec::new();
     let mut enum_items: Vec<(usize, &EnumDef)> = Vec::new();
+    let mut type_alias_items: Vec<(usize, &TypeAliasDef)> = Vec::new();
     let mut function_items: Vec<(usize, &FunctionDef)> = Vec::new();
     let mut other_items: Vec<(usize, &Statement)> = Vec::new();
 
@@ -3085,6 +3186,9 @@ pub fn check_repl(
             }
             Statement::Item(Item::Enum(def)) => {
                 enum_items.push((idx, def));
+            }
+            Statement::Item(Item::TypeAlias(def)) => {
+                type_alias_items.push((idx, def));
             }
             Statement::Item(Item::Function(func)) => {
                 function_items.push((idx, func));
@@ -3147,6 +3251,12 @@ pub fn check_repl(
         env.enums.insert(def.name.clone(), enum_type);
     }
 
+    // Phase 2c: Register all type aliases
+    for (_, def) in &type_alias_items {
+        let alias_type = type_alias_from_def(def, env, &mut ctx)?;
+        env.type_aliases.insert(def.name.clone(), alias_type);
+    }
+
     // Phase 3: Register all function signatures
     for (_, func) in &function_items {
         let func_type = function_type_from_def(func, env, &mut ctx)?;
@@ -3164,6 +3274,11 @@ pub fn check_repl(
     // Add enum results
     for (idx, def) in &enum_items {
         results.push((*idx, CheckedStatement::Enum((*def).clone())));
+    }
+
+    // Add type alias results
+    for (idx, def) in &type_alias_items {
+        results.push((*idx, CheckedStatement::TypeAlias((*def).clone())));
     }
 
     // Type-check function bodies
@@ -4717,5 +4832,100 @@ mod tests {
         // Both a and b should be in the environment
         assert!(env.locals.contains_key("a"));
         assert!(env.locals.contains_key("b"));
+    }
+
+    #[test]
+    fn test_type_alias_simple() {
+        // type UserId = Int
+        // fn get_id() -> UserId { 42 }
+        let items = vec![
+            Item::TypeAlias(TypeAliasDef {
+                name: "UserId".to_string(),
+                type_params: vec![],
+                typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
+            }),
+            Item::Function(FunctionDef {
+                name: "get_id".to_string(),
+                type_params: vec![],
+                params: vec![],
+                return_type: Some(TypeAnnotation::Named(Path::simple("UserId".to_string()))),
+                body: Expr::Int(42),
+            }),
+        ];
+        let result = check_file(&items);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_type_alias_generic() {
+        // type Pair<A, B> = (A, B)
+        // fn make_pair() -> Pair<Int, Bool> { (1, true) }
+        let items = vec![
+            Item::TypeAlias(TypeAliasDef {
+                name: "Pair".to_string(),
+                type_params: vec!["A".to_string(), "B".to_string()],
+                typ: TypeAnnotation::Tuple(vec![
+                    TypeAnnotation::Named(Path::simple("A".to_string())),
+                    TypeAnnotation::Named(Path::simple("B".to_string())),
+                ]),
+            }),
+            Item::Function(FunctionDef {
+                name: "make_pair".to_string(),
+                type_params: vec![],
+                params: vec![],
+                return_type: Some(TypeAnnotation::Parameterized(
+                    Path::simple("Pair".to_string()),
+                    vec![
+                        TypeAnnotation::Named(Path::simple("Int".to_string())),
+                        TypeAnnotation::Named(Path::simple("Bool".to_string())),
+                    ],
+                )),
+                body: Expr::Tuple(vec![Expr::Int(1), Expr::Bool(true)]),
+            }),
+        ];
+        let result = check_file(&items);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_type_alias_non_pascal_case_error() {
+        // type userId = Int  -- should fail
+        let items = vec![Item::TypeAlias(TypeAliasDef {
+            name: "userId".to_string(),
+            type_params: vec![],
+            typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
+        })];
+        let result = check_file(&items);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("PascalCase"));
+    }
+
+    #[test]
+    fn test_type_alias_wrong_arity_error() {
+        // type Pair<A, B> = (A, B)
+        // fn bad() -> Pair<Int> { ... }  -- should fail, needs 2 args
+        let items = vec![
+            Item::TypeAlias(TypeAliasDef {
+                name: "Pair".to_string(),
+                type_params: vec!["A".to_string(), "B".to_string()],
+                typ: TypeAnnotation::Tuple(vec![
+                    TypeAnnotation::Named(Path::simple("A".to_string())),
+                    TypeAnnotation::Named(Path::simple("B".to_string())),
+                ]),
+            }),
+            Item::Function(FunctionDef {
+                name: "bad".to_string(),
+                type_params: vec![],
+                params: vec![],
+                return_type: Some(TypeAnnotation::Parameterized(
+                    Path::simple("Pair".to_string()),
+                    vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
+                )),
+                body: Expr::Tuple(vec![Expr::Int(1), Expr::Int(2)]),
+            }),
+        ];
+        let result = check_file(&items);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("type argument"));
     }
 }

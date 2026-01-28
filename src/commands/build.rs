@@ -28,6 +28,7 @@ pub fn execute(path: &Path, output: Option<&Path>) -> Result<(), String> {
             CheckedItem::Function(f) => Some(f.as_ref()),
             CheckedItem::Struct(_) => None,
             CheckedItem::Enum(_) => None,
+            CheckedItem::TypeAlias(_) => None,
         })
         .collect();
 

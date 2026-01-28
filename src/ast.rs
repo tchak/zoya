@@ -50,12 +50,13 @@ impl std::fmt::Display for Path {
     }
 }
 
-/// Top-level item (function, enum, struct, etc.)
+/// Top-level item (function, enum, struct, type alias, etc.)
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     Function(FunctionDef),
     Struct(StructDef),
     Enum(EnumDef),
+    TypeAlias(TypeAliasDef),
 }
 
 /// Struct definition: `struct Name<T, U> { field: Type, ... }`
@@ -97,6 +98,14 @@ pub enum EnumVariantKind {
     Tuple(Vec<TypeAnnotation>),
     /// Struct variant: `Move { x: Int, y: Int }`
     Struct(Vec<StructFieldDef>),
+}
+
+/// Type alias definition: `type Name<T, U> = TypeAnnotation`
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeAliasDef {
+    pub name: String,
+    pub type_params: Vec<String>,
+    pub typ: TypeAnnotation,
 }
 
 /// Function definition

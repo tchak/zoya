@@ -123,6 +123,8 @@ pub enum ReplResult {
     StructDefined(String),
     /// Enum was defined
     EnumDefined(String),
+    /// Type alias was defined
+    TypeAliasDefined(String),
     /// Let binding was created (may bind multiple names from pattern)
     LetBinding { bindings: Vec<(String, Type)> },
     /// Expression was evaluated
@@ -234,6 +236,12 @@ impl State {
                     self.enums.insert(name.clone(), enum_def);
                     results.push(ReplResult::EnumDefined(name));
                 }
+                CheckedStatement::TypeAlias(alias_def) => {
+                    let name = alias_def.name.clone();
+                    // Type aliases are transparent - no JS code needed
+                    // The alias is already registered in the type_env by check_repl
+                    results.push(ReplResult::TypeAliasDefined(name));
+                }
             }
         }
 
@@ -299,6 +307,9 @@ pub fn run() {
                                 }
                                 ReplResult::EnumDefined(name) => {
                                     println!("enum: {}", name);
+                                }
+                                ReplResult::TypeAliasDefined(name) => {
+                                    println!("type: {}", name);
                                 }
                                 ReplResult::Expression(value) => {
                                     println!("{}", value);

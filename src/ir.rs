@@ -1,4 +1,4 @@
-use crate::ast::{BinOp, EnumDef, StructDef, UnaryOp};
+use crate::ast::{BinOp, EnumDef, StructDef, TypeAliasDef, UnaryOp};
 use crate::types::Type;
 
 /// A resolved qualified path (e.g., `Option::Some`, `Color::Red`)
@@ -33,8 +33,9 @@ impl std::fmt::Display for QualifiedPath {
 #[derive(Debug, Clone, PartialEq)]
 pub enum CheckedItem {
     Function(Box<TypedFunction>),
-    Struct(StructDef), // Structs are declarations, passed through as-is
-    Enum(EnumDef),     // Enums are declarations, passed through as-is
+    Struct(StructDef),       // Structs are declarations, passed through as-is
+    Enum(EnumDef),           // Enums are declarations, passed through as-is
+    TypeAlias(TypeAliasDef), // Type aliases are transparent, passed through as-is
 }
 
 /// Typed function definition

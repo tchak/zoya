@@ -4,7 +4,7 @@ use crate::ast::{
     BinOp, EnumDef, EnumPattern, EnumPatternFields, EnumVariant, EnumVariantKind, Expr,
     FunctionDef, Item, LambdaParam, LetBinding, ListPattern, MatchArm, Param, Path, Pattern,
     Statement, StructDef, StructFieldDef, StructFieldPattern, StructPattern, TuplePattern,
-    TypeAnnotation, UnaryOp,
+    TypeAliasDef, TypeAnnotation, UnaryOp,
 };
 use crate::lexer::Token;
 
@@ -755,7 +755,7 @@ fn item_parser<'a>() -> impl Parser<'a, &'a [Token], Item, extra::Err<Rich<'a, T
     // enum Name<T> { Variant, Variant(T), Variant { field: Type } }
     let enum_def = just(Token::Enum)
         .ignore_then(ident())
-        .then(type_params)
+        .then(type_params.clone())
         .then(enum_variants)
         .map(|((name, type_params), variants)| {
             Item::Enum(EnumDef {
@@ -765,7 +765,21 @@ fn item_parser<'a>() -> impl Parser<'a, &'a [Token], Item, extra::Err<Rich<'a, T
             })
         });
 
-    choice((function_def, struct_def, enum_def))
+    // type Name<T> = TypeAnnotation
+    let type_alias_def = just(Token::Type)
+        .ignore_then(ident())
+        .then(type_params)
+        .then_ignore(just(Token::Eq))
+        .then(type_annotation())
+        .map(|((name, type_params), typ)| {
+            Item::TypeAlias(TypeAliasDef {
+                name,
+                type_params,
+                typ,
+            })
+        });
+
+    choice((function_def, struct_def, enum_def, type_alias_def))
 }
 
 fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, Token>>> {
@@ -3071,5 +3085,65 @@ mod tests {
         // Type annotation on tuple pattern - should fail
         let result = parse_repl_str("let (a, b): (Int, Int) = x");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_type_alias_simple() {
+        let tokens = lex("type UserId = Int").unwrap();
+        let item = parse_item(tokens).unwrap();
+        assert!(matches!(
+            item,
+            Item::TypeAlias(TypeAliasDef {
+                name,
+                type_params,
+                typ: TypeAnnotation::Named(_),
+            }) if name == "UserId" && type_params.is_empty()
+        ));
+    }
+
+    #[test]
+    fn test_parse_type_alias_generic() {
+        let tokens = lex("type Pair<A, B> = (A, B)").unwrap();
+        let item = parse_item(tokens).unwrap();
+        if let Item::TypeAlias(TypeAliasDef {
+            name,
+            type_params,
+            typ: TypeAnnotation::Tuple(elems),
+        }) = item
+        {
+            assert_eq!(name, "Pair");
+            assert_eq!(type_params, vec!["A".to_string(), "B".to_string()]);
+            assert_eq!(elems.len(), 2);
+        } else {
+            panic!("expected generic type alias with tuple");
+        }
+    }
+
+    #[test]
+    fn test_parse_type_alias_parameterized() {
+        let tokens = lex("type StringList = List<String>").unwrap();
+        let item = parse_item(tokens).unwrap();
+        assert!(matches!(
+            item,
+            Item::TypeAlias(TypeAliasDef {
+                name,
+                type_params,
+                typ: TypeAnnotation::Parameterized(_, _),
+            }) if name == "StringList" && type_params.is_empty()
+        ));
+    }
+
+    #[test]
+    fn test_parse_type_alias_function() {
+        let tokens = lex("type Callback = (Int) -> Bool").unwrap();
+        let item = parse_item(tokens).unwrap();
+        assert!(matches!(
+            item,
+            Item::TypeAlias(TypeAliasDef {
+                name,
+                type_params,
+                typ: TypeAnnotation::Function(_, _),
+            }) if name == "Callback" && type_params.is_empty()
+        ));
     }
 }

@@ -135,6 +135,20 @@ pub struct EnumType {
     pub variants: Vec<(String, EnumVariantType)>,
 }
 
+/// Type alias definition (stored in type environment)
+/// Type aliases are transparent - they resolve to their underlying type
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeAliasType {
+    /// Alias name
+    pub name: String,
+    /// Source-level type parameter names (e.g., ["T", "U"])
+    pub type_params: Vec<String>,
+    /// TypeVarIds corresponding to each type parameter
+    pub type_var_ids: Vec<TypeVarId>,
+    /// The underlying type this alias resolves to
+    pub typ: Type,
+}
+
 /// Type scheme for polymorphic values (let polymorphism)
 /// Represents: forall a1..an. T
 #[derive(Debug, Clone, PartialEq)]

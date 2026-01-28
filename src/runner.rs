@@ -21,6 +21,7 @@ pub fn run(source: &str) -> Result<Value, EvalError> {
             CheckedItem::Function(f) => Some(f.as_ref()),
             CheckedItem::Struct(_) => None,
             CheckedItem::Enum(_) => None,
+            CheckedItem::TypeAlias(_) => None,
         })
         .collect();
 
@@ -2135,5 +2136,58 @@ mod tests {
         "#;
         let result = run(source).unwrap();
         assert_eq!(result, Value::Int(6)); // 1+2+1+2=6
+    }
+
+    #[test]
+    fn test_type_alias_simple() {
+        let source = r#"
+            type UserId = Int
+            fn get_id() -> UserId { 42 }
+            fn main() -> Int { get_id() }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(42));
+    }
+
+    #[test]
+    fn test_type_alias_generic() {
+        let source = r#"
+            type Pair<A, B> = (A, B)
+            fn make_pair() -> Pair<Int, Bool> { (1, true) }
+            fn main() -> Int {
+                let (x, _) = make_pair();
+                x
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(1));
+    }
+
+    #[test]
+    fn test_type_alias_function_type() {
+        // Test that type alias works for function types as parameter types
+        let source = r#"
+            type IntOp = (Int) -> Int
+            fn apply(f: IntOp, x: Int) -> Int { f(x) }
+            fn main() -> Int { apply(|x| x * 2, 21) }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(42));
+    }
+
+    #[test]
+    fn test_type_alias_to_list() {
+        let source = r#"
+            type Numbers = List<Int>
+            fn sum(ns: Numbers) -> Int {
+                match ns {
+                    [] => 0,
+                    [x, rest @ ..] => x + sum(rest),
+                }
+            }
+            fn main() -> Int { sum([1, 2, 3, 4]) }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(10));
     }
 }

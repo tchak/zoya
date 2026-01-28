@@ -63,6 +63,9 @@ pub enum Token {
     #[token("enum")]
     Enum,
 
+    #[token("type")]
+    Type,
+
     // String literals with escape sequences
     #[regex(r#""([^"\\]|\\.)*""#, parse_string)]
     String(String),
@@ -643,6 +646,26 @@ mod tests {
     fn test_enum_keyword() {
         let tokens = lex("enum").unwrap();
         assert_eq!(tokens, vec![Token::Enum]);
+    }
+
+    #[test]
+    fn test_type_keyword() {
+        let tokens = lex("type").unwrap();
+        assert_eq!(tokens, vec![Token::Type]);
+    }
+
+    #[test]
+    fn test_type_alias_tokens() {
+        let tokens = lex("type UserId = Int").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Type,
+                Token::Ident("UserId".to_string()),
+                Token::Eq,
+                Token::Ident("Int".to_string()),
+            ]
+        );
     }
 
     #[test]
