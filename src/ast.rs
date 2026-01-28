@@ -1,8 +1,11 @@
-/// A path representing a potentially qualified name
-/// Examples: `foo`, `Foo::Bar`, `mod::Type::variant`
+/// A path representing a potentially qualified name with optional type arguments
+/// Examples: `foo`, `Foo::Bar`, `Option::None::<Int>`
 #[derive(Debug, Clone, PartialEq)]
 pub struct Path {
     pub segments: Vec<String>,
+    /// Optional explicit type arguments (turbofish syntax)
+    /// e.g., `Option::None::<Int>` has type_args = Some([Named("Int")])
+    pub type_args: Option<Vec<TypeAnnotation>>,
 }
 
 impl Path {
@@ -10,10 +13,12 @@ impl Path {
     pub fn simple(name: String) -> Self {
         Path {
             segments: vec![name],
+            type_args: None,
         }
     }
 
     /// Check if this is a simple (single-segment) path
+    #[allow(dead_code)]
     pub fn is_simple(&self) -> bool {
         self.segments.len() == 1
     }
@@ -33,16 +38,22 @@ impl Path {
             .last()
             .expect("Path must have at least one segment")
     }
-
-    /// Format path as string with :: separators
-    pub fn to_string(&self) -> String {
-        self.segments.join("::")
-    }
 }
 
 impl std::fmt::Display for Path {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.segments.join("::"))
+        write!(f, "{}", self.segments.join("::"))?;
+        if let Some(ref args) = self.type_args {
+            write!(f, "::<")?;
+            for (i, arg) in args.iter().enumerate() {
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{}", arg)?;
+            }
+            write!(f, ">")?;
+        }
+        Ok(())
     }
 }
 
@@ -119,6 +130,48 @@ pub enum TypeAnnotation {
     Parameterized(String, Vec<TypeAnnotation>),         // List<Int32>, Map<K, V>, etc.
     Tuple(Vec<TypeAnnotation>),                         // (Int32, String, Bool)
     Function(Vec<TypeAnnotation>, Box<TypeAnnotation>), // (Int32, String) -> Bool
+}
+
+impl std::fmt::Display for TypeAnnotation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TypeAnnotation::Named(name) => write!(f, "{}", name),
+            TypeAnnotation::Parameterized(name, params) => {
+                write!(f, "{}<", name)?;
+                for (i, p) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", p)?;
+                }
+                write!(f, ">")
+            }
+            TypeAnnotation::Tuple(elems) => {
+                write!(f, "(")?;
+                for (i, e) in elems.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", e)?;
+                }
+                write!(f, ")")
+            }
+            TypeAnnotation::Function(params, ret) => {
+                if params.len() == 1 {
+                    write!(f, "{} -> {}", params[0], ret)
+                } else {
+                    write!(f, "(")?;
+                    for (i, p) in params.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}", p)?;
+                    }
+                    write!(f, ") -> {}", ret)
+                }
+            }
+        }
+    }
 }
 
 /// Let binding: `let x = expr` or `let x: Type = expr`

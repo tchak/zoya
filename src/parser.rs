@@ -637,10 +637,20 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                     })
                 });
 
-            // Enum pattern: Enum::Variant, Enum::Variant(x), Enum::Variant { x }
+            // Turbofish type arguments in patterns: ::<Int, String>
+            let pattern_turbofish = just(Token::ColonColon).ignore_then(
+                type_annotation()
+                    .separated_by(just(Token::Comma))
+                    .at_least(1)
+                    .collect::<Vec<_>>()
+                    .delimited_by(just(Token::Lt), just(Token::Gt)),
+            );
+
+            // Enum pattern: Enum::Variant, Enum::Variant::<T>, Enum::Variant(x), Enum::Variant { x }
             let enum_pattern = ident()
                 .then_ignore(just(Token::ColonColon))
                 .then(ident())
+                .then(pattern_turbofish.or_not())
                 .then(
                     choice((
                         enum_tuple_pattern_fields,
@@ -648,10 +658,11 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                     ))
                     .or_not(),
                 )
-                .map(|((enum_name, variant_name), fields)| {
+                .map(|(((enum_name, variant_name), type_args), fields)| {
                     let fields = fields.unwrap_or(EnumPatternFields::Unit);
                     let path = Path {
                         segments: vec![enum_name, variant_name],
+                        type_args,
                     };
                     Pattern::Enum(EnumPattern { path, fields })
                 });
@@ -744,12 +755,22 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
             .collect::<Vec<_>>()
             .delimited_by(just(Token::LBrace), just(Token::RBrace));
 
-        // Path parser: `foo` or `Foo::Bar` or `Mod::Type::variant`
+        // Turbofish type arguments: ::<Int, String>
+        let turbofish = just(Token::ColonColon).ignore_then(
+            type_annotation()
+                .separated_by(just(Token::Comma))
+                .at_least(1)
+                .collect::<Vec<_>>()
+                .delimited_by(just(Token::Lt), just(Token::Gt)),
+        );
+
+        // Path parser: `foo` or `Foo::Bar` or `Option::None::<Int>`
         let path = ident()
             .separated_by(just(Token::ColonColon))
             .at_least(1)
             .collect::<Vec<_>>()
-            .map(|segments| Path { segments });
+            .then(turbofish.or_not())
+            .map(|(segments, type_args)| Path { segments, type_args });
 
         // What can follow a path
         #[derive(Clone)]

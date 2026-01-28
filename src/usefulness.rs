@@ -316,6 +316,7 @@ impl TypeCtors {
                         Constructor::EnumVariant {
                             path: Path {
                                 segments: vec![enum_name.clone(), variant_name.clone()],
+                                type_args: None,
                             },
                             kind,
                         }

@@ -389,6 +389,12 @@ fn check_path_expr(path: &Path, env: &TypeEnv, ctx: &mut UnifyCtx) -> Result<Typ
     match path.segments.as_slice() {
         // Single segment: must be a variable
         [name] => {
+            // Variables cannot have turbofish
+            if path.type_args.is_some() {
+                return Err(TypeError {
+                    message: format!("cannot use turbofish on variable '{}'", name),
+                });
+            }
             if let Some(scheme) = env.locals.get(name) {
                 let ty = ctx.instantiate(scheme);
                 Ok(TypedExpr::Var {
@@ -426,11 +432,40 @@ fn check_path_expr(path: &Path, env: &TypeEnv, ctx: &mut UnifyCtx) -> Result<Typ
                 });
             }
 
-            // Create fresh type variables for generic parameters
-            let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
-            for &old_id in &enum_type.type_var_ids {
-                instantiation.insert(old_id, ctx.fresh_var());
-            }
+            // Handle explicit type arguments (turbofish) or create fresh type variables
+            let instantiation: HashMap<TypeVarId, Type> = if let Some(ref type_args) = path.type_args
+            {
+                // Validate count matches type parameters
+                if type_args.len() != enum_type.type_params.len() {
+                    return Err(TypeError {
+                        message: format!(
+                            "enum {} expects {} type argument(s), got {}",
+                            enum_name,
+                            enum_type.type_params.len(),
+                            type_args.len()
+                        ),
+                    });
+                }
+                // Resolve type annotations to Types
+                let resolved: Vec<Type> = type_args
+                    .iter()
+                    .map(|ann| resolve_type_annotation(ann, &HashMap::new(), env))
+                    .collect::<Result<_, _>>()?;
+                // Build substitution map from explicit types
+                enum_type
+                    .type_var_ids
+                    .iter()
+                    .zip(resolved)
+                    .map(|(&id, ty)| (id, ty))
+                    .collect()
+            } else {
+                // No turbofish: create fresh type variables
+                enum_type
+                    .type_var_ids
+                    .iter()
+                    .map(|&id| (id, ctx.fresh_var()))
+                    .collect()
+            };
 
             let type_args: Vec<Type> = enum_type
                 .type_var_ids
@@ -464,6 +499,7 @@ fn check_path_expr(path: &Path, env: &TypeEnv, ctx: &mut UnifyCtx) -> Result<Typ
             Ok(TypedExpr::EnumConstruct {
                 path: Path {
                     segments: vec![enum_name.to_string(), variant_name.to_string()],
+                    type_args: None,
                 },
                 fields: TypedEnumConstructFields::Unit,
                 ty: Type::Enum {
@@ -488,10 +524,10 @@ fn check_path_call(
 ) -> Result<TypedExpr, TypeError> {
     match path.segments.as_slice() {
         // Single segment: function or lambda call
-        [func] => check_simple_call(func, args, env, ctx),
+        [func] => check_simple_call(func, &path.type_args, args, env, ctx),
         // Two segments: Enum::Variant(args)
         [enum_name, variant_name] => {
-            check_enum_tuple_construct(enum_name, variant_name, args, env, ctx)
+            check_enum_tuple_construct(enum_name, variant_name, &path.type_args, args, env, ctx)
         }
         _ => Err(TypeError {
             message: format!("unknown path: {}", path),
@@ -502,6 +538,7 @@ fn check_path_call(
 /// Check a simple (single-name) function call
 fn check_simple_call(
     func: &str,
+    explicit_type_args: &Option<Vec<TypeAnnotation>>,
     args: &[Expr],
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
@@ -520,12 +557,39 @@ fn check_simple_call(
             });
         }
 
-        // Create fresh type variables for this call's type parameters
-        let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
-        for &old_id in &func_type.type_var_ids {
-            let new_var = ctx.fresh_var();
-            instantiation.insert(old_id, new_var);
-        }
+        // Handle explicit type arguments (turbofish) or create fresh type variables
+        let instantiation: HashMap<TypeVarId, Type> = if let Some(type_args) = explicit_type_args {
+            // Validate count matches type parameters
+            if type_args.len() != func_type.type_params.len() {
+                return Err(TypeError {
+                    message: format!(
+                        "function '{}' expects {} type argument(s), got {}",
+                        func,
+                        func_type.type_params.len(),
+                        type_args.len()
+                    ),
+                });
+            }
+            // Resolve type annotations to Types
+            let resolved: Vec<Type> = type_args
+                .iter()
+                .map(|ann| resolve_type_annotation(ann, &HashMap::new(), env))
+                .collect::<Result<_, _>>()?;
+            // Build substitution map from explicit types
+            func_type
+                .type_var_ids
+                .iter()
+                .zip(resolved)
+                .map(|(&id, ty)| (id, ty))
+                .collect()
+        } else {
+            // No turbofish: create fresh type variables
+            func_type
+                .type_var_ids
+                .iter()
+                .map(|&id| (id, ctx.fresh_var()))
+                .collect()
+        };
 
         // Instantiate parameter types with fresh variables
         let instantiated_params: Vec<Type> = func_type
@@ -566,6 +630,12 @@ fn check_simple_call(
     }
     // Try to look up as a lambda-bound variable
     else if let Some(func_ty) = get_callable_type(func, env, ctx) {
+        // Lambda calls cannot have turbofish
+        if explicit_type_args.is_some() {
+            return Err(TypeError {
+                message: format!("cannot use turbofish on lambda call '{}'", func),
+            });
+        }
         // Must be a function type
         let resolved = ctx.resolve(&func_ty);
         if let Type::Function { params, ret } = resolved {
@@ -623,6 +693,7 @@ fn check_simple_call(
 fn check_enum_tuple_construct(
     enum_name: &str,
     variant_name: &str,
+    explicit_type_args: &Option<Vec<TypeAnnotation>>,
     args: &[Expr],
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
@@ -673,11 +744,39 @@ fn check_enum_tuple_construct(
         });
     }
 
-    // Create fresh type variables for generic parameters
-    let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
-    for &old_id in &enum_type.type_var_ids {
-        instantiation.insert(old_id, ctx.fresh_var());
-    }
+    // Handle explicit type arguments (turbofish) or create fresh type variables
+    let instantiation: HashMap<TypeVarId, Type> = if let Some(type_args) = explicit_type_args {
+        // Validate count matches type parameters
+        if type_args.len() != enum_type.type_params.len() {
+            return Err(TypeError {
+                message: format!(
+                    "enum {} expects {} type argument(s), got {}",
+                    enum_name,
+                    enum_type.type_params.len(),
+                    type_args.len()
+                ),
+            });
+        }
+        // Resolve type annotations to Types
+        let resolved: Vec<Type> = type_args
+            .iter()
+            .map(|ann| resolve_type_annotation(ann, &HashMap::new(), env))
+            .collect::<Result<_, _>>()?;
+        // Build substitution map from explicit types
+        enum_type
+            .type_var_ids
+            .iter()
+            .zip(resolved)
+            .map(|(&id, ty)| (id, ty))
+            .collect()
+    } else {
+        // No turbofish: create fresh type variables
+        enum_type
+            .type_var_ids
+            .iter()
+            .map(|&id| (id, ctx.fresh_var()))
+            .collect()
+    };
 
     let mut typed_exprs = Vec::new();
     for (expr, expected) in args.iter().zip(expected_types.iter()) {
@@ -731,6 +830,7 @@ fn check_enum_tuple_construct(
     Ok(TypedExpr::EnumConstruct {
         path: Path {
             segments: vec![enum_name.to_string(), variant_name.to_string()],
+            type_args: None,
         },
         fields: TypedEnumConstructFields::Tuple(typed_exprs),
         ty: Type::Enum {
@@ -1344,6 +1444,7 @@ fn check_enum_struct_construct(
     Ok(TypedExpr::EnumConstruct {
         path: Path {
             segments: vec![enum_name.to_string(), variant_name.to_string()],
+            type_args: None,
         },
         fields: TypedEnumConstructFields::Struct(typed_fields),
         ty: Type::Enum {
@@ -1957,6 +2058,7 @@ fn check_enum_pattern(
             TypedPattern::EnumUnit {
                 path: Path {
                     segments: vec![enum_name.to_string(), variant_name.to_string()],
+                    type_args: None,
                 },
             },
             HashMap::new(),
@@ -2046,6 +2148,7 @@ fn check_enum_tuple_pattern(
                 TypedPattern::EnumTupleExact {
                     path: Path {
                         segments: vec![enum_name.to_string(), variant_name.to_string()],
+                        type_args: None,
                     },
                     patterns: vec![],
                     total_fields: 0,
@@ -2072,6 +2175,7 @@ fn check_enum_tuple_pattern(
                 TypedPattern::EnumTupleExact {
                     path: Path {
                         segments: vec![enum_name.to_string(), variant_name.to_string()],
+                        type_args: None,
                     },
                     patterns: typed_patterns,
                     total_fields,
@@ -2098,6 +2202,7 @@ fn check_enum_tuple_pattern(
                 TypedPattern::EnumTuplePrefix {
                     path: Path {
                         segments: vec![enum_name.to_string(), variant_name.to_string()],
+                        type_args: None,
                     },
                     patterns: typed_patterns,
                     total_fields,
@@ -2125,6 +2230,7 @@ fn check_enum_tuple_pattern(
                 TypedPattern::EnumTupleSuffix {
                     path: Path {
                         segments: vec![enum_name.to_string(), variant_name.to_string()],
+                        type_args: None,
                     },
                     patterns: typed_patterns,
                     total_fields,
@@ -2153,6 +2259,7 @@ fn check_enum_tuple_pattern(
                 TypedPattern::EnumTuplePrefixSuffix {
                     path: Path {
                         segments: vec![enum_name.to_string(), variant_name.to_string()],
+                        type_args: None,
                     },
                     prefix: prefix_typed,
                     suffix: suffix_typed,
@@ -2220,6 +2327,7 @@ fn check_enum_struct_pattern(
         TypedPattern::EnumStructPartial {
             path: Path {
                 segments: vec![enum_name.to_string(), variant_name.to_string()],
+                type_args: None,
             },
             fields: typed_fields,
         }
@@ -2227,6 +2335,7 @@ fn check_enum_struct_pattern(
         TypedPattern::EnumStructExact {
             path: Path {
                 segments: vec![enum_name.to_string(), variant_name.to_string()],
+                type_args: None,
             },
             fields: typed_fields,
         }

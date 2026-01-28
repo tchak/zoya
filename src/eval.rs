@@ -290,6 +290,7 @@ fn js_value_to_value(
             Ok(Value::Enum {
                 path: Path {
                     segments: vec![enum_name.clone(), tag],
+                    type_args: None,
                 },
                 fields,
             })

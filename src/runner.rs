@@ -1751,4 +1751,63 @@ mod tests {
         let result = run(source).unwrap();
         assert_eq!(result, Value::Int(42));
     }
+
+    // Turbofish syntax tests
+
+    #[test]
+    fn test_turbofish_unit_variant() {
+        let source = r#"
+            fn main() -> Int {
+                let x = Option::None::<Int>;
+                match x {
+                    Option::None => 0,
+                    Option::Some(v) => v
+                }
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(0));
+    }
+
+    #[test]
+    fn test_turbofish_tuple_variant() {
+        let source = r#"
+            fn main() -> Int {
+                let x = Option::Some::<Int>(42);
+                match x {
+                    Option::None => 0,
+                    Option::Some(v) => v
+                }
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(42));
+    }
+
+    #[test]
+    fn test_turbofish_function_call() {
+        let source = r#"
+            fn identity<T>(x: T) -> T x
+            fn main() -> Int {
+                identity::<Int>(42)
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(42));
+    }
+
+    #[test]
+    fn test_turbofish_multiple_type_args() {
+        let source = r#"
+            fn main() -> Int {
+                let x = Result::Ok::<Int, String>(42);
+                match x {
+                    Result::Ok(v) => v,
+                    Result::Err(_) => 0
+                }
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(42));
+    }
 }
