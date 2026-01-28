@@ -1,241 +1,79 @@
-# Zoya Language
+# Zoya Development Guide
 
-A strongly-typed functional programming language that compiles to JavaScript.
+Strongly-typed functional language compiling to JavaScript. See [README.md](README.md) for language documentation.
 
-## Project Overview
-
-**Goal:** Build a Hindley-Milner type-inferred language inspired by Rust's syntax.
-
-### Compilation Pipeline
+## Architecture
 
 ```
-Source → Lexer → Parser → Type Checker → Typed IR → Codegen → JavaScript → rquickjs
+Source → Lexer → Parser → Type Checker → Typed IR → Codegen → JavaScript
 ```
 
-### Module Structure
+### Source Files
 
 ```
 src/
-├── main.rs        # CLI entry point
+├── main.rs        # CLI (clap)
 ├── lexer.rs       # Tokenizer (logos)
 ├── parser.rs      # Parser (chumsky)
 ├── ast.rs         # Untyped AST
-├── check.rs       # Type checker (returns TypedExpr)
+├── check.rs       # Type checker → TypedExpr
 ├── unify.rs       # Type unification (Union-Find)
-├── usefulness.rs  # Pattern exhaustiveness (Maranget's algorithm)
-├── ir.rs          # Typed IR (TypedExpr)
+├── usefulness.rs  # Pattern exhaustiveness (Maranget)
+├── ir.rs          # Typed IR
 ├── types.rs       # Type definitions
-├── codegen.rs     # JavaScript code generation
-├── eval.rs        # JS execution via rquickjs
-├── repl.rs        # Interactive REPL (rustyline)
+├── codegen.rs     # JavaScript generation
+├── eval.rs        # JS execution (rquickjs)
+├── repl.rs        # REPL (rustyline)
 └── runner.rs      # File runner
 ```
 
-### Current Features
-
-- **Types:** `Int`, `BigInt`, `Float`, `Bool`, `String`, `List<T>`, tuples `(T, U, ...)`, functions `T -> U`, type variables (`T`, `U`)
-- **Built-in types:** `Option<T>` (`Some(T)`, `None`) and `Result<T, E>` (`Ok(T)`, `Err(E)`)
-- **Literals:**
-  - Integers (Int): `42`, `1_000`
-  - BigInts: `42n`, `9_000_000_000n` (with `n` suffix)
-  - Floats: `3.14`, `0.5`
-  - Booleans: `true`, `false`
-  - Strings: `"hello"`, `"line\nbreak"`
-  - Lists: `[1, 2, 3]`, `[]`
-  - Tuples: `(1, "hello")`, `()`, `(42,)` (single-element)
-- **Operators:**
-  - Arithmetic: `+`, `-`, `*`, `/`
-  - Comparison: `==`, `!=`, `<`, `>`, `<=`, `>=`
-  - Unary: `-` (negation)
-- **Functions:** definitions with `fn`, generic type parameters, type annotations, calls
-  - Simple bodies can omit braces: `fn square(x: Int) -> Int x * x`
-  - Pattern destructuring in params: `fn swap((a, b): (Int, Int)) -> (Int, Int) (b, a)`
-  - Struct destructuring in params: `fn get_x(Point { x, .. }: Point) -> Int x`
-- **Let bindings:** `let pattern = expr` or `let x: Type = expr`
-  - Simple: `let x = 42`
-  - Tuple destructuring: `let (a, b) = (1, 2)`, `let (first, ..) = tuple`
-  - Struct destructuring: `let Point { x, y } = point`, `let Point { x, .. } = point`
-  - Nested patterns: `let (a, (b, c)) = (1, (2, 3))`
-  - Wildcard: `let _ = expr` (discards value)
-  - As patterns: `let pair @ (a, b) = (1, 2)` (binds both `pair` and `a`, `b`)
-  - Type annotations only on simple variables: `let x: Int = 42`
-  - Only irrefutable patterns allowed (patterns that always match)
-  - Refutable patterns rejected: literals, list patterns, enum patterns
-  - In function bodies (semicolons required): `fn foo() { let x = 1; let y = 2; x + y }`
-  - In REPL (persists across inputs)
-- **Lambdas (anonymous functions):** Rust-inspired syntax with let polymorphism
-  - Simple: `|x| x + 1`
-  - Multi-param: `|x, y| x + y`
-  - No params: `|| 42`
-  - Type annotations: `|x: Int| x * 2`
-  - Return type: `|x| -> Int x + 1`
-  - Block body: `|x| { let y = x * 2; y + 1 }`
-  - Pattern destructuring: `|(a, b)| a + b`, `|Point { x, y }| x + y`
-  - Function type annotations: `let f: Int -> Int = |x| x + 1`
-  - Multi-param function types: `let f: (Int, Int) -> Int = |x, y| x + y`
-  - Higher-order functions: `fn apply(f: Int -> Int, x: Int) -> Int f(x)`
-  - Let polymorphism: `let id = |x| x; id(42); id("hello")` (both work!)
-- **Structs:** product types with named fields
-  - Definition: `struct Point { x: Int, y: Int }`
-  - Generic structs: `struct Pair<T, U> { first: T, second: U }`
-  - Construction: `Point { x: 1, y: 2 }`, shorthand `Point { x, y }` when variable names match
-  - Field access: `point.x`, `pair.first`
-- **Enums:** sum types with unit, tuple, and struct variants
-  - Definition: `enum Option<T> { None, Some(T) }`
-  - Unit variants: `enum Color { Red, Green, Blue }`
-  - Tuple variants: `enum Result<T, E> { Ok(T), Err(E) }`
-  - Struct variants: `enum Message { Quit, Move { x: Int, y: Int }, Write(String) }`
-  - Construction: `Option::Some(42)`, `Color::Red`, `Message::Move { x: 1, y: 2 }`
-  - Turbofish syntax for explicit type arguments: `Option::None::<Int>`, `identity::<String>("hello")`
-  - Pattern matching with all variant types
-- **Pattern matching:** `match expr { pattern => result ... }`
-  - Literal patterns: `0`, `"hello"`, `true`, `3.14`
-  - Variable patterns: `n` (binds the matched value)
-  - Wildcard pattern: `_` (matches anything, no binding)
-  - List patterns: `[]`, `[x, ..]`, `[.., x]`, `[a, .., b]`, `[a, b]`
-  - Tuple patterns: `(x, y)`, `(a, ..)`, `(.., z)`, `(a, .., z)`
-  - Struct patterns: `Point { x, y }`, `Point { x: px, .. }` (with shorthand and rest)
-  - Enum patterns: `Option::Some(x)`, `Message::Move { x, y }`, `Color::Red`
-  - Block expressions in arms: `n => { let x = n * 2; x + 1 }`
-  - Exhaustiveness checking (compile error if cases missing)
-  - Unreachable pattern detection (compile error for dead code)
-  - Implementation: Maranget's algorithm (`src/usefulness.rs`)
-- **Method calls:** `expr.method(args)` on built-in types
-  - String: `len()`, `is_empty()`, `contains(s)`, `starts_with(s)`, `ends_with(s)`, `to_uppercase()`, `to_lowercase()`, `trim()`
-  - Int: `abs()`, `to_string()`, `to_float()`, `min(n)`, `max(n)`
-  - BigInt: `abs()`, `to_string()`, `min(n)`, `max(n)`
-  - Float: `abs()`, `to_string()`, `to_int()`, `floor()`, `ceil()`, `round()`, `sqrt()`, `min(n)`, `max(n)`
-  - List: `len()`, `is_empty()`, `push(x)`, `concat(list)`, `reverse()` (all return new lists, immutable)
-- **Type checking:** operands must match types (no implicit coercion)
-- **Naming conventions:** enforced at compile time (errors, not warnings)
-  - PascalCase required: struct names, enum names, enum variant names, type parameters
-  - snake_case required: function names, variable names (let bindings, parameters, pattern bindings)
-- **REPL:** line editing, history (persisted to `~/.zoya_history`)
-
-### Roadmap
-
-See [ROADMAP.md](ROADMAP.md) for planned features.
-
-### CLI Commands
+## Commands
 
 ```bash
-cargo run -- run              # Start REPL
-cargo run -- run file.zoya    # Run a file
-cargo run -- check file.zoya  # Type-check without executing
-cargo run -- build file.zoya  # Compile to JS (stdout)
-cargo run -- build file.zoya -o out.js  # Compile to JS file
+cargo run -- run              # REPL
+cargo run -- run file.zoya    # Run file
+cargo run -- check file.zoya  # Type-check only
+cargo run -- build file.zoya  # Compile to JS
 cargo test                    # Run tests
 cargo clippy                  # Lint
 ```
 
-### Key Dependencies
-
-- `logos` - Lexer generator
-- `chumsky` - Parser combinators
-- `rquickjs` - QuickJS JavaScript engine bindings
-- `clap` - CLI argument parsing
-- `rustyline` - REPL line editing and history
-- `dirs` - Cross-platform directory paths
-
----
-
 ## Version Control
 
-This project uses **jj (Jujutsu)** for version control, not git directly.
-
-### Committing Changes
-
-Use `jj commit` unless more complicated flow is required:
+Uses **jj (Jujutsu)**, not git directly.
 
 ```bash
+jj status
+jj diff
 jj commit -m "<type>: <description>"
+jj log
 ```
 
-### Commit Message Format
+### Commit Format
 
-Follow **Conventional Commits** specification:
+Conventional Commits: `<type>[scope]: <description>`
 
-```
-<type>[optional scope]: <description>
-```
-
-**Types:**
-- `feat` - new feature
-- `fix` - bug fix
-- `refactor` - code change that neither fixes a bug nor adds a feature
-- `docs` - documentation only
-- `test` - adding or updating tests
-- `chore` - maintenance tasks, dependencies, tooling
-- `perf` - performance improvement
-- `style` - formatting, whitespace (not CSS)
-- `build` - build system or external dependencies
-- `ci` - CI/CD configuration
-
-**Examples:**
-```bash
-jj commit -m "feat: add pattern matching to parser"
-jj commit -m "fix: resolve unification failure with recursive types"
-jj commit -m "refactor(codegen): simplify JS emission for let bindings"
-jj commit -m "docs: update README with build instructions"
-```
-
-**Breaking changes:** Add `!` after type:
-```bash
-jj commit -m "refactor!: rename Expr to Expression in AST"
-```
-
-### Common jj Commands
+Types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`
 
 ```bash
-jj status          # show working copy status
-jj log             # view commit history
-jj diff            # show changes in working copy
-jj commit -m "..." # commit with message
-jj describe -m "..." # change message of current working copy commit
-jj new             # start a new change on top of current
-jj squash          # squash into parent commit
+jj commit -m "feat(parser): add tuple patterns"
+jj commit -m "fix: resolve unification with recursive types"
 ```
 
-### Guidelines
+## Testing
 
-- Keep commits focused and atomic
-- Write descriptions in imperative mood ("add feature" not "added feature")
-- Keep the description line under 72 characters
-- Use scope sparingly, only when it adds clarity
+New features need tests at each pipeline stage:
 
----
-
-## Testing Guidelines
-
-Every new feature should include tests at multiple levels of the compilation pipeline.
-
-### Required Tests by Module
-
-| Module | Test Location | What to Test |
-|--------|---------------|--------------|
-| `lexer.rs` | `lexer::tests` | New tokens lex correctly |
-| `parser.rs` | `parser::tests` | AST structure is correct |
-| `check.rs` | `check::tests` | Type checking succeeds/fails appropriately |
-| `codegen.rs` | `codegen::tests` | Generated JS is correct |
-| `runner.rs` | `runner::tests` | End-to-end integration tests |
-
-### Example: Adding a New Feature
-
-When adding a feature like method calls, include:
-
-1. **Lexer tests** - New tokens (e.g., `Dot`) are recognized
-2. **Parser tests** - Expressions parse to correct AST shape
-3. **Type checker tests** - Valid code type-checks, invalid code produces errors
-4. **Codegen tests** - Generated JavaScript is correct (if applicable)
-5. **Runner tests** - Full pipeline works end-to-end with actual execution
-
-### Running Tests
+| File | Tests |
+|------|-------|
+| `lexer.rs` | Token recognition |
+| `parser.rs` | AST structure |
+| `check.rs` | Type checking pass/fail |
+| `codegen.rs` | Generated JS correctness |
+| `runner.rs` | End-to-end execution |
 
 ```bash
-cargo test                 # Run all tests
-cargo test lexer           # Run only lexer tests
-cargo test parser          # Run only parser tests
-cargo test check           # Run only type checker tests
-cargo test runner          # Run only integration tests
-cargo test -- --nocapture  # Show println! output
+cargo test              # All tests
+cargo test parser       # Module tests
+cargo test -- --nocapture
 ```
