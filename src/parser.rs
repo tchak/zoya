@@ -322,19 +322,25 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                 ident().map(Pattern::Var),
             ));
 
-            // List pattern element: pattern or .. (rest marker)
+            // List pattern element: pattern or .. (rest marker with optional binding)
             #[derive(Clone)]
             enum ListPatternElement {
                 Pattern(Pattern),
-                Rest, // ..
+                Rest(Option<String>), // .. or name @ ..
             }
 
             let list_element = choice((
-                just(Token::DotDot).to(ListPatternElement::Rest),
+                // name @ .. (rest with binding)
+                ident()
+                    .then_ignore(just(Token::At))
+                    .then_ignore(just(Token::DotDot))
+                    .map(|name| ListPatternElement::Rest(Some(name))),
+                // bare ..
+                just(Token::DotDot).to(ListPatternElement::Rest(None)),
                 pattern.clone().map(ListPatternElement::Pattern),
             ));
 
-            // List pattern: [], [a, b], [a, ..]
+            // List pattern: [], [a, b], [a, ..], [a, rest @ ..]
             let list_pattern = list_element
                 .separated_by(just(Token::Comma))
                 .allow_trailing()
@@ -342,7 +348,9 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                 .delimited_by(just(Token::LBracket), just(Token::RBracket))
                 .try_map(|elements, span| {
                     // Check for .. and convert to appropriate ListPattern
-                    let rest_pos = elements.iter().position(|e| matches!(e, ListPatternElement::Rest));
+                    let rest_pos = elements
+                        .iter()
+                        .position(|e| matches!(e, ListPatternElement::Rest(_)));
 
                     match rest_pos {
                         None => {
@@ -351,7 +359,7 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                                 .into_iter()
                                 .map(|e| match e {
                                     ListPatternElement::Pattern(p) => p,
-                                    ListPatternElement::Rest => unreachable!(),
+                                    ListPatternElement::Rest(_) => unreachable!(),
                                 })
                                 .collect();
                             if patterns.is_empty() {
@@ -362,16 +370,27 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                         }
                         Some(pos) => {
                             // Multiple .. not allowed
-                            if elements.iter().filter(|e| matches!(e, ListPatternElement::Rest)).count() > 1 {
+                            if elements
+                                .iter()
+                                .filter(|e| matches!(e, ListPatternElement::Rest(_)))
+                                .count()
+                                > 1
+                            {
                                 return Err(Rich::custom(span, "only one .. allowed in list pattern"));
                             }
+
+                            // Extract rest binding name
+                            let rest_binding = match &elements[pos] {
+                                ListPatternElement::Rest(name) => name.clone(),
+                                _ => unreachable!(),
+                            };
 
                             // Split into before and after ..
                             let before: Vec<Pattern> = elements[..pos]
                                 .iter()
                                 .filter_map(|e| match e {
                                     ListPatternElement::Pattern(p) => Some(p.clone()),
-                                    ListPatternElement::Rest => None,
+                                    ListPatternElement::Rest(_) => None,
                                 })
                                 .collect();
 
@@ -379,37 +398,53 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                                 .iter()
                                 .filter_map(|e| match e {
                                     ListPatternElement::Pattern(p) => Some(p.clone()),
-                                    ListPatternElement::Rest => None,
+                                    ListPatternElement::Rest(_) => None,
                                 })
                                 .collect();
 
                             if after.is_empty() {
-                                // [a, b, ..] - prefix only
-                                Ok(Pattern::List(ListPattern::Prefix(before)))
+                                // [a, b, ..] or [a, b, rest @ ..] - prefix only
+                                Ok(Pattern::List(ListPattern::Prefix {
+                                    patterns: before,
+                                    rest_binding,
+                                }))
                             } else if before.is_empty() {
-                                // [.., x, y] - suffix only
-                                Ok(Pattern::List(ListPattern::Suffix(after)))
+                                // [.., x, y] or [rest @ .., x, y] - suffix only
+                                Ok(Pattern::List(ListPattern::Suffix {
+                                    patterns: after,
+                                    rest_binding,
+                                }))
                             } else {
-                                // [a, .., z] - prefix and suffix
-                                Ok(Pattern::List(ListPattern::PrefixSuffix(before, after)))
+                                // [a, .., z] or [a, rest @ .., z] - prefix and suffix
+                                Ok(Pattern::List(ListPattern::PrefixSuffix {
+                                    prefix: before,
+                                    suffix: after,
+                                    rest_binding,
+                                }))
                             }
                         }
                     }
                 });
 
-            // Tuple pattern element: pattern or .. (rest marker)
+            // Tuple pattern element: pattern or .. (rest marker with optional binding)
             #[derive(Clone)]
             enum TuplePatternElement {
                 Pattern(Pattern),
-                Rest, // ..
+                Rest(Option<String>), // .. or name @ ..
             }
 
             let tuple_element = choice((
-                just(Token::DotDot).to(TuplePatternElement::Rest),
+                // name @ .. (rest with binding)
+                ident()
+                    .then_ignore(just(Token::At))
+                    .then_ignore(just(Token::DotDot))
+                    .map(|name| TuplePatternElement::Rest(Some(name))),
+                // bare ..
+                just(Token::DotDot).to(TuplePatternElement::Rest(None)),
                 pattern.clone().map(TuplePatternElement::Pattern),
             ));
 
-            // Tuple pattern: (), (a,), (a, b), (a, ..)
+            // Tuple pattern: (), (a,), (a, b), (a, ..), (a, rest @ ..)
             let tuple_pattern = tuple_element
                 .clone()
                 .separated_by(just(Token::Comma))
@@ -420,12 +455,12 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                     // Check for .. and convert to appropriate TuplePattern
                     let rest_pos = elements
                         .iter()
-                        .position(|e| matches!(e, TuplePatternElement::Rest));
+                        .position(|e| matches!(e, TuplePatternElement::Rest(_)));
 
                     // Check for multiple .. markers
                     if elements
                         .iter()
-                        .filter(|e| matches!(e, TuplePatternElement::Rest))
+                        .filter(|e| matches!(e, TuplePatternElement::Rest(_)))
                         .count()
                         > 1
                     {
@@ -439,7 +474,7 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                                 .into_iter()
                                 .map(|e| match e {
                                     TuplePatternElement::Pattern(p) => p,
-                                    TuplePatternElement::Rest => unreachable!(),
+                                    TuplePatternElement::Rest(_) => unreachable!(),
                                 })
                                 .collect();
                             if patterns.is_empty() {
@@ -449,12 +484,18 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                             }
                         }
                         Some(pos) => {
+                            // Extract rest binding name
+                            let rest_binding = match &elements[pos] {
+                                TuplePatternElement::Rest(name) => name.clone(),
+                                _ => unreachable!(),
+                            };
+
                             // Split into before and after ..
                             let before: Vec<Pattern> = elements[..pos]
                                 .iter()
                                 .filter_map(|e| match e {
                                     TuplePatternElement::Pattern(p) => Some(p.clone()),
-                                    TuplePatternElement::Rest => None,
+                                    TuplePatternElement::Rest(_) => None,
                                 })
                                 .collect();
 
@@ -462,19 +503,29 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                                 .iter()
                                 .filter_map(|e| match e {
                                     TuplePatternElement::Pattern(p) => Some(p.clone()),
-                                    TuplePatternElement::Rest => None,
+                                    TuplePatternElement::Rest(_) => None,
                                 })
                                 .collect();
 
                             if after.is_empty() {
-                                // (a, b, ..) - prefix only
-                                Ok(Pattern::Tuple(TuplePattern::Prefix(before)))
+                                // (a, b, ..) or (a, b, rest @ ..) - prefix only
+                                Ok(Pattern::Tuple(TuplePattern::Prefix {
+                                    patterns: before,
+                                    rest_binding,
+                                }))
                             } else if before.is_empty() {
-                                // (.., x, y) - suffix only
-                                Ok(Pattern::Tuple(TuplePattern::Suffix(after)))
+                                // (.., x, y) or (rest @ .., x, y) - suffix only
+                                Ok(Pattern::Tuple(TuplePattern::Suffix {
+                                    patterns: after,
+                                    rest_binding,
+                                }))
                             } else {
-                                // (a, .., z) - prefix and suffix
-                                Ok(Pattern::Tuple(TuplePattern::PrefixSuffix(before, after)))
+                                // (a, .., z) or (a, rest @ .., z) - prefix and suffix
+                                Ok(Pattern::Tuple(TuplePattern::PrefixSuffix {
+                                    prefix: before,
+                                    suffix: after,
+                                    rest_binding,
+                                }))
                             }
                         }
                     }
@@ -488,6 +539,16 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
             }
 
             let struct_field_pattern = choice((
+                // Error on name @ .. in struct patterns (not allowed)
+                ident()
+                    .then_ignore(just(Token::At))
+                    .then_ignore(just(Token::DotDot))
+                    .try_map(|_, span| {
+                        Err(Rich::custom(
+                            span,
+                            "@ binding not allowed on struct rest pattern (..)",
+                        ))
+                    }),
                 just(Token::DotDot).to(StructPatternField::Rest),
                 // Field with binding: x: pattern
                 ident()
@@ -541,7 +602,8 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
             // Reuses TuplePatternElement and StructPatternField for rest pattern support
 
             // Tuple variant pattern fields (with rest support)
-            let enum_tuple_pattern_fields = tuple_element.clone()
+            let enum_tuple_pattern_fields = tuple_element
+                .clone()
                 .separated_by(just(Token::Comma))
                 .allow_trailing()
                 .collect::<Vec<_>>()
@@ -549,11 +611,11 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                 .try_map(|elements, span| {
                     let rest_pos = elements
                         .iter()
-                        .position(|e| matches!(e, TuplePatternElement::Rest));
+                        .position(|e| matches!(e, TuplePatternElement::Rest(_)));
 
                     if elements
                         .iter()
-                        .filter(|e| matches!(e, TuplePatternElement::Rest))
+                        .filter(|e| matches!(e, TuplePatternElement::Rest(_)))
                         .count()
                         > 1
                     {
@@ -566,7 +628,7 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                                 .into_iter()
                                 .map(|e| match e {
                                     TuplePatternElement::Pattern(p) => p,
-                                    TuplePatternElement::Rest => unreachable!(),
+                                    TuplePatternElement::Rest(_) => unreachable!(),
                                 })
                                 .collect();
                             if patterns.is_empty() {
@@ -576,11 +638,17 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                             }
                         }
                         Some(pos) => {
+                            // Extract rest binding name
+                            let rest_binding = match &elements[pos] {
+                                TuplePatternElement::Rest(name) => name.clone(),
+                                _ => unreachable!(),
+                            };
+
                             let before: Vec<Pattern> = elements[..pos]
                                 .iter()
                                 .filter_map(|e| match e {
                                     TuplePatternElement::Pattern(p) => Some(p.clone()),
-                                    TuplePatternElement::Rest => None,
+                                    TuplePatternElement::Rest(_) => None,
                                 })
                                 .collect();
 
@@ -588,18 +656,26 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                                 .iter()
                                 .filter_map(|e| match e {
                                     TuplePatternElement::Pattern(p) => Some(p.clone()),
-                                    TuplePatternElement::Rest => None,
+                                    TuplePatternElement::Rest(_) => None,
                                 })
                                 .collect();
 
                             if after.is_empty() {
-                                Ok(EnumPatternFields::Tuple(TuplePattern::Prefix(before)))
+                                Ok(EnumPatternFields::Tuple(TuplePattern::Prefix {
+                                    patterns: before,
+                                    rest_binding,
+                                }))
                             } else if before.is_empty() {
-                                Ok(EnumPatternFields::Tuple(TuplePattern::Suffix(after)))
+                                Ok(EnumPatternFields::Tuple(TuplePattern::Suffix {
+                                    patterns: after,
+                                    rest_binding,
+                                }))
                             } else {
-                                Ok(EnumPatternFields::Tuple(TuplePattern::PrefixSuffix(
-                                    before, after,
-                                )))
+                                Ok(EnumPatternFields::Tuple(TuplePattern::PrefixSuffix {
+                                    prefix: before,
+                                    suffix: after,
+                                    rest_binding,
+                                }))
                             }
                         }
                     }
@@ -667,8 +743,32 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                     Pattern::Enum(EnumPattern { path, fields })
                 });
 
+            // As pattern: name @ pattern (binds entire matched value to name)
+            // Note: name @ .. is handled separately in list/tuple element parsing
+            let as_pattern = ident()
+                .then_ignore(just(Token::At))
+                .then(choice((
+                    list_pattern.clone(),
+                    tuple_pattern.clone(),
+                    enum_pattern.clone(),
+                    struct_pattern.clone(),
+                    simple_pattern.clone(),
+                )))
+                .map(|(name, inner)| Pattern::As {
+                    name,
+                    pattern: Box::new(inner),
+                });
+
             // enum_pattern must come before struct_pattern to match :: first
-            choice((list_pattern, tuple_pattern, enum_pattern, struct_pattern, simple_pattern))
+            // as_pattern must come before simple_pattern to capture name @ ...
+            choice((
+                list_pattern,
+                tuple_pattern,
+                enum_pattern,
+                struct_pattern,
+                as_pattern,
+                simple_pattern,
+            ))
         });
 
         // Let binding for use in match arm blocks (uses expr from recursive context)
@@ -2034,9 +2134,11 @@ mod tests {
     fn test_parse_match_prefix_list_pattern() {
         let expr = parse_str("match xs { [head, ..] => head }").unwrap();
         if let Expr::Match { arms, .. } = expr {
-            if let Pattern::List(ListPattern::Prefix(patterns)) = &arms[0].pattern {
+            if let Pattern::List(ListPattern::Prefix { patterns, rest_binding }) = &arms[0].pattern
+            {
                 assert_eq!(patterns.len(), 1);
                 assert!(matches!(&patterns[0], Pattern::Var(s) if s == "head"));
+                assert!(rest_binding.is_none());
             } else {
                 panic!("expected prefix list pattern");
             }
@@ -2049,10 +2151,12 @@ mod tests {
     fn test_parse_match_list_pattern_with_literals() {
         let expr = parse_str("match xs { [1, x, ..] => x }").unwrap();
         if let Expr::Match { arms, .. } = expr {
-            if let Pattern::List(ListPattern::Prefix(patterns)) = &arms[0].pattern {
+            if let Pattern::List(ListPattern::Prefix { patterns, rest_binding }) = &arms[0].pattern
+            {
                 assert_eq!(patterns.len(), 2);
                 assert!(matches!(&patterns[0], Pattern::Literal(lit) if **lit == Expr::Int(1)));
                 assert!(matches!(&patterns[1], Pattern::Var(s) if s == "x"));
+                assert!(rest_binding.is_none());
             } else {
                 panic!("expected prefix list pattern");
             }
@@ -2081,9 +2185,11 @@ mod tests {
     fn test_parse_match_suffix_list_pattern() {
         let expr = parse_str("match xs { [.., last] => last }").unwrap();
         if let Expr::Match { arms, .. } = expr {
-            if let Pattern::List(ListPattern::Suffix(patterns)) = &arms[0].pattern {
+            if let Pattern::List(ListPattern::Suffix { patterns, rest_binding }) = &arms[0].pattern
+            {
                 assert_eq!(patterns.len(), 1);
                 assert!(matches!(&patterns[0], Pattern::Var(s) if s == "last"));
+                assert!(rest_binding.is_none());
             } else {
                 panic!("expected suffix list pattern");
             }
@@ -2096,10 +2202,12 @@ mod tests {
     fn test_parse_match_suffix_list_pattern_multiple() {
         let expr = parse_str("match xs { [.., x, y] => x }").unwrap();
         if let Expr::Match { arms, .. } = expr {
-            if let Pattern::List(ListPattern::Suffix(patterns)) = &arms[0].pattern {
+            if let Pattern::List(ListPattern::Suffix { patterns, rest_binding }) = &arms[0].pattern
+            {
                 assert_eq!(patterns.len(), 2);
                 assert!(matches!(&patterns[0], Pattern::Var(s) if s == "x"));
                 assert!(matches!(&patterns[1], Pattern::Var(s) if s == "y"));
+                assert!(rest_binding.is_none());
             } else {
                 panic!("expected suffix list pattern");
             }
@@ -2112,11 +2220,17 @@ mod tests {
     fn test_parse_match_prefix_suffix_list_pattern() {
         let expr = parse_str("match xs { [first, .., last] => first }").unwrap();
         if let Expr::Match { arms, .. } = expr {
-            if let Pattern::List(ListPattern::PrefixSuffix(prefix, suffix)) = &arms[0].pattern {
+            if let Pattern::List(ListPattern::PrefixSuffix {
+                prefix,
+                suffix,
+                rest_binding,
+            }) = &arms[0].pattern
+            {
                 assert_eq!(prefix.len(), 1);
                 assert_eq!(suffix.len(), 1);
                 assert!(matches!(&prefix[0], Pattern::Var(s) if s == "first"));
                 assert!(matches!(&suffix[0], Pattern::Var(s) if s == "last"));
+                assert!(rest_binding.is_none());
             } else {
                 panic!("expected prefix+suffix list pattern");
             }
@@ -2129,13 +2243,19 @@ mod tests {
     fn test_parse_match_prefix_suffix_multiple() {
         let expr = parse_str("match xs { [a, b, .., y, z] => a }").unwrap();
         if let Expr::Match { arms, .. } = expr {
-            if let Pattern::List(ListPattern::PrefixSuffix(prefix, suffix)) = &arms[0].pattern {
+            if let Pattern::List(ListPattern::PrefixSuffix {
+                prefix,
+                suffix,
+                rest_binding,
+            }) = &arms[0].pattern
+            {
                 assert_eq!(prefix.len(), 2);
                 assert_eq!(suffix.len(), 2);
                 assert!(matches!(&prefix[0], Pattern::Var(s) if s == "a"));
                 assert!(matches!(&prefix[1], Pattern::Var(s) if s == "b"));
                 assert!(matches!(&suffix[0], Pattern::Var(s) if s == "y"));
                 assert!(matches!(&suffix[1], Pattern::Var(s) if s == "z"));
+                assert!(rest_binding.is_none());
             } else {
                 panic!("expected prefix+suffix list pattern");
             }
@@ -2209,9 +2329,12 @@ mod tests {
     fn test_parse_tuple_pattern_prefix() {
         let expr = parse_str("match t { (a, ..) => a }").unwrap();
         if let Expr::Match { arms, .. } = expr {
-            if let Pattern::Tuple(TuplePattern::Prefix(patterns)) = &arms[0].pattern {
+            if let Pattern::Tuple(TuplePattern::Prefix { patterns, rest_binding }) =
+                &arms[0].pattern
+            {
                 assert_eq!(patterns.len(), 1);
                 assert!(matches!(&patterns[0], Pattern::Var(s) if s == "a"));
+                assert!(rest_binding.is_none());
             } else {
                 panic!("expected prefix tuple pattern");
             }
@@ -2224,9 +2347,12 @@ mod tests {
     fn test_parse_tuple_pattern_suffix() {
         let expr = parse_str("match t { (.., z) => z }").unwrap();
         if let Expr::Match { arms, .. } = expr {
-            if let Pattern::Tuple(TuplePattern::Suffix(patterns)) = &arms[0].pattern {
+            if let Pattern::Tuple(TuplePattern::Suffix { patterns, rest_binding }) =
+                &arms[0].pattern
+            {
                 assert_eq!(patterns.len(), 1);
                 assert!(matches!(&patterns[0], Pattern::Var(s) if s == "z"));
+                assert!(rest_binding.is_none());
             } else {
                 panic!("expected suffix tuple pattern");
             }
@@ -2239,11 +2365,17 @@ mod tests {
     fn test_parse_tuple_pattern_prefix_suffix() {
         let expr = parse_str("match t { (a, .., z) => a + z }").unwrap();
         if let Expr::Match { arms, .. } = expr {
-            if let Pattern::Tuple(TuplePattern::PrefixSuffix(prefix, suffix)) = &arms[0].pattern {
+            if let Pattern::Tuple(TuplePattern::PrefixSuffix {
+                prefix,
+                suffix,
+                rest_binding,
+            }) = &arms[0].pattern
+            {
                 assert_eq!(prefix.len(), 1);
                 assert_eq!(suffix.len(), 1);
                 assert!(matches!(&prefix[0], Pattern::Var(s) if s == "a"));
                 assert!(matches!(&suffix[0], Pattern::Var(s) if s == "z"));
+                assert!(rest_binding.is_none());
             } else {
                 panic!("expected prefix+suffix tuple pattern");
             }
@@ -2257,6 +2389,74 @@ mod tests {
         let expr = parse_str("match t { () => 0 }").unwrap();
         if let Expr::Match { arms, .. } = expr {
             assert!(matches!(&arms[0].pattern, Pattern::Tuple(TuplePattern::Empty)));
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    // As pattern (@) tests
+    #[test]
+    fn test_parse_as_pattern() {
+        let expr = parse_str("match x { n @ 42 => n }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::As { name, pattern } = &arms[0].pattern {
+                assert_eq!(name, "n");
+                assert!(matches!(pattern.as_ref(), Pattern::Literal(lit) if **lit == Expr::Int(42)));
+            } else {
+                panic!("expected as pattern");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_list_rest_binding() {
+        let expr = parse_str("match xs { [first, rest @ ..] => rest }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::List(ListPattern::Prefix { patterns, rest_binding }) = &arms[0].pattern
+            {
+                assert_eq!(patterns.len(), 1);
+                assert!(matches!(&patterns[0], Pattern::Var(s) if s == "first"));
+                assert_eq!(rest_binding.as_deref(), Some("rest"));
+            } else {
+                panic!("expected prefix list pattern with rest binding");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_list_rest_binding_suffix() {
+        let expr = parse_str("match xs { [rest @ .., last] => rest }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::List(ListPattern::Suffix { patterns, rest_binding }) = &arms[0].pattern
+            {
+                assert_eq!(patterns.len(), 1);
+                assert!(matches!(&patterns[0], Pattern::Var(s) if s == "last"));
+                assert_eq!(rest_binding.as_deref(), Some("rest"));
+            } else {
+                panic!("expected suffix list pattern with rest binding");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_tuple_rest_binding() {
+        let expr = parse_str("match t { (a, rest @ ..) => rest }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::Tuple(TuplePattern::Prefix { patterns, rest_binding }) =
+                &arms[0].pattern
+            {
+                assert_eq!(patterns.len(), 1);
+                assert!(matches!(&patterns[0], Pattern::Var(s) if s == "a"));
+                assert_eq!(rest_binding.as_deref(), Some("rest"));
+            } else {
+                panic!("expected prefix tuple pattern with rest binding");
+            }
         } else {
             panic!("expected match expression");
         }

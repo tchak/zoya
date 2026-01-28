@@ -161,6 +161,9 @@ pub enum Token {
 
     #[token("|")]
     Pipe,
+
+    #[token("@")]
+    At,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -253,10 +256,34 @@ mod tests {
 
     #[test]
     fn test_invalid_character() {
-        let result = lex("2 + @");
+        let result = lex("2 + #");
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("@"));
+        assert!(err.message.contains("#"));
+    }
+
+    #[test]
+    fn test_at_token() {
+        let tokens = lex("@").unwrap();
+        assert_eq!(tokens, vec![Token::At]);
+    }
+
+    #[test]
+    fn test_as_pattern_tokens() {
+        let tokens = lex("n @ 42").unwrap();
+        assert_eq!(
+            tokens,
+            vec![Token::Ident("n".to_string()), Token::At, Token::Int(42)]
+        );
+    }
+
+    #[test]
+    fn test_rest_binding_tokens() {
+        let tokens = lex("rest @ ..").unwrap();
+        assert_eq!(
+            tokens,
+            vec![Token::Ident("rest".to_string()), Token::At, Token::DotDot]
+        );
     }
 
     #[test]

@@ -63,6 +63,12 @@ pub enum TypedPattern {
         ty: Type,
     },
     Wildcard,
+    /// As pattern: `n @ pattern` binds the entire matched value to `n`
+    As {
+        name: String,
+        ty: Type,
+        pattern: Box<TypedPattern>,
+    },
     ListEmpty,
     ListExact {
         patterns: Vec<TypedPattern>,
@@ -70,15 +76,18 @@ pub enum TypedPattern {
     },
     ListPrefix {
         patterns: Vec<TypedPattern>,
+        rest_binding: Option<String>,
         min_len: usize,
     },
     ListSuffix {
         patterns: Vec<TypedPattern>,
+        rest_binding: Option<String>,
         min_len: usize,
     },
     ListPrefixSuffix {
         prefix: Vec<TypedPattern>,
         suffix: Vec<TypedPattern>,
+        rest_binding: Option<String>,
         min_len: usize,
     },
     TupleEmpty,
@@ -88,15 +97,18 @@ pub enum TypedPattern {
     },
     TuplePrefix {
         patterns: Vec<TypedPattern>,
+        rest_binding: Option<String>,
         total_len: usize,
     },
     TupleSuffix {
         patterns: Vec<TypedPattern>,
+        rest_binding: Option<String>,
         total_len: usize,
     },
     TuplePrefixSuffix {
         prefix: Vec<TypedPattern>,
         suffix: Vec<TypedPattern>,
+        rest_binding: Option<String>,
         total_len: usize,
     },
     /// Struct pattern: `Point { x, y }` or `Point { x: px, .. }`
@@ -120,23 +132,26 @@ pub enum TypedPattern {
         patterns: Vec<TypedPattern>,
         total_fields: usize,
     },
-    /// Enum tuple variant pattern (prefix): `Result::Ok(a, ..)`
+    /// Enum tuple variant pattern (prefix): `Result::Ok(a, ..)` or `Result::Ok(a, rest @ ..)`
     EnumTuplePrefix {
         path: QualifiedPath,
         patterns: Vec<TypedPattern>,
+        rest_binding: Option<String>,
         total_fields: usize,
     },
-    /// Enum tuple variant pattern (suffix): `Result::Err(.., msg)`
+    /// Enum tuple variant pattern (suffix): `Result::Err(.., msg)` or `Result::Err(rest @ .., msg)`
     EnumTupleSuffix {
         path: QualifiedPath,
         patterns: Vec<TypedPattern>,
+        rest_binding: Option<String>,
         total_fields: usize,
     },
-    /// Enum tuple variant pattern (prefix+suffix): `Triple::Make(a, .., c)`
+    /// Enum tuple variant pattern (prefix+suffix): `Triple::Make(a, .., c)` or `Triple::Make(a, rest @ .., c)`
     EnumTuplePrefixSuffix {
         path: QualifiedPath,
         prefix: Vec<TypedPattern>,
         suffix: Vec<TypedPattern>,
+        rest_binding: Option<String>,
         total_fields: usize,
     },
     /// Enum struct variant pattern (exact): `Message::Move { x, y }`

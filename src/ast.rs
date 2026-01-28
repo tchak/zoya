@@ -192,6 +192,10 @@ pub enum Pattern {
     Tuple(TuplePattern),   // (), (a, b), (x, ..)
     Struct(StructPattern), // Point { x, y }, Point { x: px, .. }
     Enum(EnumPattern),     // Option::Some(x), Option::None, Message::Move { x, .. }
+    As {
+        name: String,          // n @ pattern - binds entire matched value to `n`
+        pattern: Box<Pattern>,
+    },
 }
 
 /// Enum pattern: `Option::Some(x)`, `Option::None`, `Message::Move { x, .. }`
@@ -240,21 +244,47 @@ pub enum StructPattern {
 /// List pattern variants
 #[derive(Debug, Clone, PartialEq)]
 pub enum ListPattern {
-    Empty,                                    // []
-    Exact(Vec<Pattern>),                      // [a, b, c] - match exactly N elements
-    Prefix(Vec<Pattern>),                     // [a, b, ..] - match at least N elements at start
-    Suffix(Vec<Pattern>),                     // [.., x, y] - match at least N elements at end
-    PrefixSuffix(Vec<Pattern>, Vec<Pattern>), // [a, .., z] - match first and last elements
+    Empty, // []
+    Exact(Vec<Pattern>), // [a, b, c] - match exactly N elements
+    Prefix {
+        // [a, b, ..] or [a, b, rest @ ..]
+        patterns: Vec<Pattern>,
+        rest_binding: Option<String>, // name for rest @ ..
+    },
+    Suffix {
+        // [.., x, y] or [rest @ .., x, y]
+        patterns: Vec<Pattern>,
+        rest_binding: Option<String>,
+    },
+    PrefixSuffix {
+        // [a, .., z] or [a, rest @ .., z]
+        prefix: Vec<Pattern>,
+        suffix: Vec<Pattern>,
+        rest_binding: Option<String>,
+    },
 }
 
 /// Tuple pattern variants
 #[derive(Debug, Clone, PartialEq)]
 pub enum TuplePattern {
-    Empty,                                    // ()
-    Exact(Vec<Pattern>),                      // (a, b, c) - match exactly N elements
-    Prefix(Vec<Pattern>),                     // (a, b, ..) - match first N, skip rest
-    Suffix(Vec<Pattern>),                     // (.., y, z) - skip first, match last N
-    PrefixSuffix(Vec<Pattern>, Vec<Pattern>), // (a, .., z) - match first and last
+    Empty, // ()
+    Exact(Vec<Pattern>), // (a, b, c) - match exactly N elements
+    Prefix {
+        // (a, b, ..) or (a, b, rest @ ..)
+        patterns: Vec<Pattern>,
+        rest_binding: Option<String>,
+    },
+    Suffix {
+        // (.., y, z) or (rest @ .., y, z)
+        patterns: Vec<Pattern>,
+        rest_binding: Option<String>,
+    },
+    PrefixSuffix {
+        // (a, .., z) or (a, rest @ .., z)
+        prefix: Vec<Pattern>,
+        suffix: Vec<Pattern>,
+        rest_binding: Option<String>,
+    },
 }
 
 /// Match arm: pattern => result

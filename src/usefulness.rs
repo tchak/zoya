@@ -369,6 +369,9 @@ impl Pat {
         match pattern {
             TypedPattern::Wildcard | TypedPattern::Var { .. } => Pat::Wild,
 
+            // As pattern: for exhaustiveness, behaves like the inner pattern
+            TypedPattern::As { pattern, .. } => Pat::from_typed(pattern, ty),
+
             TypedPattern::Literal(lit) => {
                 let ctor = match lit {
                     TypedExpr::Bool(true) => Constructor::True,
@@ -394,7 +397,9 @@ impl Pat {
                 Self::list_prefix_to_cons(patterns, ty)
             }
 
-            TypedPattern::ListSuffix { patterns, min_len } => {
+            TypedPattern::ListSuffix {
+                patterns, min_len, ..
+            } => {
                 // [.., x] matches any list with at least min_len elements
                 // If patterns contain specific literals, use a unique opaque pattern
                 // to avoid incorrectly claiming coverage of all non-empty lists
@@ -413,6 +418,7 @@ impl Pat {
                 prefix,
                 suffix,
                 min_len,
+                ..
             } => {
                 // [a, .., z] matches lists with at least min_len elements
                 // If prefix/suffix contain specific literals, use unique opaque pattern
@@ -444,6 +450,7 @@ impl Pat {
             TypedPattern::TuplePrefix {
                 patterns,
                 total_len,
+                ..
             } => {
                 // (a, b, ..) in a tuple of total_len elements
                 Self::expand_tuple_pattern_prefix(patterns, *total_len, ty)
@@ -452,6 +459,7 @@ impl Pat {
             TypedPattern::TupleSuffix {
                 patterns,
                 total_len,
+                ..
             } => {
                 // (.., y, z) in a tuple of total_len elements
                 Self::expand_tuple_pattern_suffix(patterns, *total_len, ty)
@@ -461,6 +469,7 @@ impl Pat {
                 prefix,
                 suffix,
                 total_len,
+                ..
             } => {
                 // (a, .., z) in a tuple of total_len elements
                 Self::expand_tuple_pattern_both(prefix, suffix, *total_len, ty)
@@ -569,6 +578,7 @@ impl Pat {
                 path,
                 patterns,
                 total_fields,
+                ..
             } => {
                 let field_types = Self::get_enum_tuple_variant_types(ty, path.last());
                 let start_idx = total_fields - patterns.len();
@@ -593,6 +603,7 @@ impl Pat {
                 prefix,
                 suffix,
                 total_fields,
+                ..
             } => {
                 let field_types = Self::get_enum_tuple_variant_types(ty, path.last());
                 let mut sub_pats = Vec::with_capacity(*total_fields);
@@ -1308,6 +1319,7 @@ mod tests {
         TypedMatchArm {
             pattern: TypedPattern::ListPrefix {
                 patterns,
+                rest_binding: None,
                 min_len: len,
             },
             result: TypedExpr::Int(0),

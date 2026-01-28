@@ -93,6 +93,15 @@ fn codegen_pattern_at_path(
             // No conditions or bindings needed
         }
 
+        TypedPattern::As { name, pattern, .. } => {
+            // Bind the entire value to name
+            bindings.push(format!("const {} = {};", name, access_path));
+            // Recursively handle inner pattern (conditions and additional bindings)
+            let (inner_conds, inner_binds) = codegen_pattern_at_path(pattern, access_path);
+            conditions.extend(inner_conds);
+            bindings.extend(inner_binds);
+        }
+
         TypedPattern::ListEmpty => {
             conditions.push(format!(
                 "Array.isArray({}) && {}.length === 0",
@@ -113,7 +122,11 @@ fn codegen_pattern_at_path(
             }
         }
 
-        TypedPattern::ListPrefix { patterns, min_len } => {
+        TypedPattern::ListPrefix {
+            patterns,
+            rest_binding,
+            min_len,
+        } => {
             conditions.push(format!(
                 "Array.isArray({}) && {}.length >= {}",
                 access_path, access_path, min_len
@@ -124,9 +137,20 @@ fn codegen_pattern_at_path(
                 conditions.extend(child_conds);
                 bindings.extend(child_binds);
             }
+            // Handle rest binding: rest @ .. binds to remaining elements
+            if let Some(name) = rest_binding {
+                bindings.push(format!(
+                    "const {} = {}.slice({});",
+                    name, access_path, patterns.len()
+                ));
+            }
         }
 
-        TypedPattern::ListSuffix { patterns, min_len } => {
+        TypedPattern::ListSuffix {
+            patterns,
+            rest_binding,
+            min_len,
+        } => {
             conditions.push(format!(
                 "Array.isArray({}) && {}.length >= {}",
                 access_path, access_path, min_len
@@ -139,11 +163,19 @@ fn codegen_pattern_at_path(
                 conditions.extend(child_conds);
                 bindings.extend(child_binds);
             }
+            // Handle rest binding: rest @ .. binds to leading elements
+            if let Some(name) = rest_binding {
+                bindings.push(format!(
+                    "const {} = {}.slice(0, {}.length - {});",
+                    name, access_path, access_path, patterns.len()
+                ));
+            }
         }
 
         TypedPattern::ListPrefixSuffix {
             prefix,
             suffix,
+            rest_binding,
             min_len,
         } => {
             conditions.push(format!(
@@ -167,6 +199,17 @@ fn codegen_pattern_at_path(
                 conditions.extend(child_conds);
                 bindings.extend(child_binds);
             }
+            // Handle rest binding: rest @ .. binds to middle elements
+            if let Some(name) = rest_binding {
+                bindings.push(format!(
+                    "const {} = {}.slice({}, {}.length - {});",
+                    name,
+                    access_path,
+                    prefix.len(),
+                    access_path,
+                    suffix_len
+                ));
+            }
         }
 
         TypedPattern::TupleEmpty => {
@@ -189,7 +232,11 @@ fn codegen_pattern_at_path(
             }
         }
 
-        TypedPattern::TuplePrefix { patterns, total_len } => {
+        TypedPattern::TuplePrefix {
+            patterns,
+            rest_binding,
+            total_len,
+        } => {
             conditions.push(format!(
                 "Array.isArray({}) && {}.length === {}",
                 access_path, access_path, total_len
@@ -200,9 +247,20 @@ fn codegen_pattern_at_path(
                 conditions.extend(child_conds);
                 bindings.extend(child_binds);
             }
+            // Handle rest binding: rest @ .. binds to tuple of remaining elements
+            if let Some(name) = rest_binding {
+                let rest_indices: Vec<String> = (patterns.len()..*total_len)
+                    .map(|i| format!("{}[{}]", access_path, i))
+                    .collect();
+                bindings.push(format!("const {} = [{}];", name, rest_indices.join(", ")));
+            }
         }
 
-        TypedPattern::TupleSuffix { patterns, total_len } => {
+        TypedPattern::TupleSuffix {
+            patterns,
+            rest_binding,
+            total_len,
+        } => {
             conditions.push(format!(
                 "Array.isArray({}) && {}.length === {}",
                 access_path, access_path, total_len
@@ -215,11 +273,19 @@ fn codegen_pattern_at_path(
                 conditions.extend(child_conds);
                 bindings.extend(child_binds);
             }
+            // Handle rest binding: rest @ .. binds to tuple of leading elements
+            if let Some(name) = rest_binding {
+                let rest_indices: Vec<String> = (0..start_idx)
+                    .map(|i| format!("{}[{}]", access_path, i))
+                    .collect();
+                bindings.push(format!("const {} = [{}];", name, rest_indices.join(", ")));
+            }
         }
 
         TypedPattern::TuplePrefixSuffix {
             prefix,
             suffix,
+            rest_binding,
             total_len,
         } => {
             conditions.push(format!(
@@ -241,6 +307,13 @@ fn codegen_pattern_at_path(
                 let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
                 conditions.extend(child_conds);
                 bindings.extend(child_binds);
+            }
+            // Handle rest binding: rest @ .. binds to tuple of middle elements
+            if let Some(name) = rest_binding {
+                let rest_indices: Vec<String> = (prefix.len()..suffix_start)
+                    .map(|i| format!("{}[{}]", access_path, i))
+                    .collect();
+                bindings.push(format!("const {} = [{}];", name, rest_indices.join(", ")));
             }
         }
 

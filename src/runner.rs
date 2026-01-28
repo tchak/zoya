@@ -1810,4 +1810,133 @@ mod tests {
         let result = run(source).unwrap();
         assert_eq!(result, Value::Int(42));
     }
+
+    // As pattern (@) tests
+    #[test]
+    fn test_as_pattern_literal() {
+        let source = r#"
+            fn main() -> Int {
+                let x = 42;
+                match x {
+                    n @ 42 => n,
+                    _ => 0
+                }
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(42));
+    }
+
+    #[test]
+    fn test_as_pattern_with_enum() {
+        let source = r#"
+            fn main() -> Int {
+                let opt = Option::Some(10);
+                match opt {
+                    whole @ Option::Some(x) => x,
+                    Option::None => 0
+                }
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(10));
+    }
+
+    #[test]
+    fn test_list_rest_binding() {
+        let source = r#"
+            fn main() -> Int {
+                let xs = [1, 2, 3, 4];
+                match xs {
+                    [first, rest @ ..] => {
+                        match rest {
+                            [a, ..] => a,
+                            [] => 0
+                        }
+                    },
+                    [] => 0
+                }
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(2));
+    }
+
+    #[test]
+    fn test_list_rest_binding_suffix() {
+        let source = r#"
+            fn main() -> Int {
+                let xs = [1, 2, 3, 4];
+                match xs {
+                    [rest @ .., last] => {
+                        match rest {
+                            [.., x] => x,
+                            [] => 0
+                        }
+                    },
+                    [] => 0
+                }
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(3));
+    }
+
+    #[test]
+    fn test_list_rest_binding_middle() {
+        let source = r#"
+            fn main() -> Int {
+                let xs = [1, 2, 3, 4, 5];
+                match xs {
+                    [_, middle @ .., _] => {
+                        match middle {
+                            [a, ..] => a,
+                            [] => 0
+                        }
+                    },
+                    _ => 0
+                }
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(2));
+    }
+
+    #[test]
+    fn test_tuple_rest_binding() {
+        // rest @ .. on (1, 2, 3) with (first, rest @ ..) gives rest: (Int, Int)
+        let source = r#"
+            fn main() -> Int {
+                let t = (1, 2, 3);
+                match t {
+                    (first, rest @ ..) => {
+                        match rest {
+                            (a, _) => a
+                        }
+                    }
+                }
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(2));
+    }
+
+    #[test]
+    fn test_tuple_rest_binding_suffix() {
+        // rest @ .. on (1, 2, 3, 4) with (rest @ .., last) gives rest: (Int, Int, Int)
+        let source = r#"
+            fn main() -> Int {
+                let t = (1, 2, 3, 4);
+                match t {
+                    (rest @ .., last) => {
+                        match rest {
+                            (_, b, _) => b
+                        }
+                    }
+                }
+            }
+        "#;
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Int(2));
+    }
 }
