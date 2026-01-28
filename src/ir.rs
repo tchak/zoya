@@ -14,6 +14,10 @@ impl QualifiedPath {
         Self { segments }
     }
 
+    pub fn simple(name: String) -> Self {
+        Self { segments: vec![name] }
+    }
+
     pub fn last(&self) -> &str {
         self.segments.last().expect("path cannot be empty")
     }
@@ -99,12 +103,12 @@ pub enum TypedPattern {
     /// Fields are in the order they appear in the struct definition, not the pattern.
     /// For partial patterns, missing fields are omitted from the vec.
     StructExact {
-        name: String,
+        path: QualifiedPath,
         /// (field_name, pattern) pairs for all struct fields
         fields: Vec<(String, TypedPattern)>,
     },
     StructPartial {
-        name: String,
+        path: QualifiedPath,
         /// (field_name, pattern) pairs for matched fields only
         fields: Vec<(String, TypedPattern)>,
     },
@@ -170,11 +174,11 @@ pub enum TypedExpr {
         ty: Type,
     },
     Var {
-        name: String,
+        path: QualifiedPath,
         ty: Type,
     },
     Call {
-        func: String,
+        path: QualifiedPath,
         args: Vec<TypedExpr>,
         ty: Type,
     },
@@ -211,7 +215,7 @@ pub enum TypedExpr {
     },
     /// Struct constructor: `Point { x: 1, y: 2 }`
     StructConstruct {
-        name: String,
+        path: QualifiedPath,
         fields: Vec<(String, TypedExpr)>, // field name -> typed value
         ty: Type,
     },

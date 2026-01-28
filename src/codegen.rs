@@ -374,10 +374,10 @@ pub fn codegen(expr: &TypedExpr) -> String {
             let strs: Vec<String> = elements.iter().map(codegen).collect();
             format!("[{}]", strs.join(", "))
         }
-        TypedExpr::Var { name, .. } => name.clone(),
-        TypedExpr::Call { func, args, .. } => {
+        TypedExpr::Var { path, .. } => path.last().to_string(),
+        TypedExpr::Call { path, args, .. } => {
             let args_str: Vec<String> = args.iter().map(codegen).collect();
-            format!("{}({})", func, args_str.join(", "))
+            format!("{}({})", path.last(), args_str.join(", "))
         }
         TypedExpr::UnaryOp { op, expr, .. } => {
             let inner = codegen(expr);
@@ -654,6 +654,7 @@ fn escape_js_string(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::QualifiedPath;
 
     #[test]
     fn test_codegen_int() {
@@ -798,7 +799,7 @@ mod tests {
     #[test]
     fn test_codegen_var() {
         let expr = TypedExpr::Var {
-            name: "x".to_string(),
+            path: QualifiedPath::simple("x".to_string()),
             ty: Type::Int,
         };
         assert_eq!(codegen(&expr), "x");
@@ -807,7 +808,7 @@ mod tests {
     #[test]
     fn test_codegen_call_no_args() {
         let expr = TypedExpr::Call {
-            func: "foo".to_string(),
+            path: QualifiedPath::simple("foo".to_string()),
             args: vec![],
             ty: Type::Int,
         };
@@ -817,7 +818,7 @@ mod tests {
     #[test]
     fn test_codegen_call_one_arg() {
         let expr = TypedExpr::Call {
-            func: "square".to_string(),
+            path: QualifiedPath::simple("square".to_string()),
             args: vec![TypedExpr::Int(5)],
             ty: Type::Int,
         };
@@ -827,7 +828,7 @@ mod tests {
     #[test]
     fn test_codegen_call_multiple_args() {
         let expr = TypedExpr::Call {
-            func: "add".to_string(),
+            path: QualifiedPath::simple("add".to_string()),
             args: vec![TypedExpr::Int(1), TypedExpr::Int(2)],
             ty: Type::Int,
         };
@@ -837,14 +838,14 @@ mod tests {
     #[test]
     fn test_codegen_call_with_vars() {
         let expr = TypedExpr::Call {
-            func: "add".to_string(),
+            path: QualifiedPath::simple("add".to_string()),
             args: vec![
                 TypedExpr::Var {
-                    name: "x".to_string(),
+                    path: QualifiedPath::simple("x".to_string()),
                     ty: Type::Int,
                 },
                 TypedExpr::Var {
-                    name: "y".to_string(),
+                    path: QualifiedPath::simple("y".to_string()),
                     ty: Type::Int,
                 },
             ],
@@ -858,7 +859,7 @@ mod tests {
         let expr = TypedExpr::BinOp {
             op: BinOp::Add,
             left: Box::new(TypedExpr::Var {
-                name: "x".to_string(),
+                path: QualifiedPath::simple("x".to_string()),
                 ty: Type::Int,
             }),
             right: Box::new(TypedExpr::Int(1)),
@@ -875,11 +876,11 @@ mod tests {
             body: TypedExpr::BinOp {
                 op: BinOp::Mul,
                 left: Box::new(TypedExpr::Var {
-                    name: "x".to_string(),
+                    path: QualifiedPath::simple("x".to_string()),
                     ty: Type::Int,
                 }),
                 right: Box::new(TypedExpr::Var {
-                    name: "x".to_string(),
+                    path: QualifiedPath::simple("x".to_string()),
                     ty: Type::Int,
                 }),
                 ty: Type::Int,
@@ -903,11 +904,11 @@ mod tests {
             body: TypedExpr::BinOp {
                 op: BinOp::Add,
                 left: Box::new(TypedExpr::Var {
-                    name: "x".to_string(),
+                    path: QualifiedPath::simple("x".to_string()),
                     ty: Type::Int,
                 }),
                 right: Box::new(TypedExpr::Var {
-                    name: "y".to_string(),
+                    path: QualifiedPath::simple("y".to_string()),
                     ty: Type::Int,
                 }),
                 ty: Type::Int,
@@ -942,7 +943,7 @@ mod tests {
             body: TypedExpr::BinOp {
                 op: BinOp::Add,
                 left: Box::new(TypedExpr::Var {
-                    name: "x".to_string(),
+                    path: QualifiedPath::simple("x".to_string()),
                     ty: Type::BigInt,
                 }),
                 right: Box::new(TypedExpr::BigInt(1)),

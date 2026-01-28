@@ -466,7 +466,7 @@ impl Pat {
                 Self::expand_tuple_pattern_both(prefix, suffix, *total_len, ty)
             }
 
-            TypedPattern::StructExact { name, fields } => {
+            TypedPattern::StructExact { path, fields } => {
                 // Get field info from the type
                 let (field_names, field_types) = match ty {
                     Type::Struct { fields: struct_fields, .. } => {
@@ -490,7 +490,7 @@ impl Pat {
 
                 Pat::Ctor(
                     Constructor::Struct {
-                        name: name.clone(),
+                        name: path.last().to_string(),
                         field_names,
                         field_types,
                     },
@@ -498,7 +498,7 @@ impl Pat {
                 )
             }
 
-            TypedPattern::StructPartial { name, fields } => {
+            TypedPattern::StructPartial { path, fields } => {
                 // Get field info from the type
                 let (field_names, field_types) = match ty {
                     Type::Struct { fields: struct_fields, .. } => {
@@ -522,7 +522,7 @@ impl Pat {
 
                 Pat::Ctor(
                     Constructor::Struct {
-                        name: name.clone(),
+                        name: path.last().to_string(),
                         field_names,
                         field_types,
                     },

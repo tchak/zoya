@@ -398,7 +398,7 @@ fn check_path_expr(path: &Path, env: &TypeEnv, ctx: &mut UnifyCtx) -> Result<Typ
             if let Some(scheme) = env.locals.get(name) {
                 let ty = ctx.instantiate(scheme);
                 Ok(TypedExpr::Var {
-                    name: name.to_string(),
+                    path: QualifiedPath::simple(name.to_string()),
                     ty: ctx.resolve(&ty),
                 })
             } else {
@@ -623,7 +623,7 @@ fn check_simple_call(
         let return_type = ctx.resolve(&instantiated_return);
 
         Ok(TypedExpr::Call {
-            func: func.to_string(),
+            path: QualifiedPath::simple(func.to_string()),
             args: typed_args,
             ty: return_type,
         })
@@ -673,7 +673,7 @@ fn check_simple_call(
             let return_type = ctx.resolve(&ret);
 
             Ok(TypedExpr::Call {
-                func: func.to_string(),
+                path: QualifiedPath::simple(func.to_string()),
                 args: typed_args,
                 ty: return_type,
             })
@@ -1295,7 +1295,7 @@ fn check_struct_construct(
         .collect();
 
     Ok(TypedExpr::StructConstruct {
-        name: name.to_string(),
+        path: QualifiedPath::simple(name.to_string()),
         fields: typed_fields,
         ty: Type::Struct {
             name: name.to_string(),
@@ -1959,12 +1959,12 @@ fn check_pattern(
 
             let typed_pattern = if is_partial {
                 TypedPattern::StructPartial {
-                    name: struct_name.to_string(),
+                    path: QualifiedPath::simple(struct_name.to_string()),
                     fields: typed_fields,
                 }
             } else {
                 TypedPattern::StructExact {
-                    name: struct_name.to_string(),
+                    path: QualifiedPath::simple(struct_name.to_string()),
                     fields: typed_fields,
                 }
             };
