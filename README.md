@@ -24,6 +24,7 @@ fn main() -> Float {
 
 - **Type inference** - Types are inferred automatically; annotations optional
 - **Algebraic data types** - Structs (products) and enums (sums) with generics
+- **Type aliases** - Named type synonyms with generic support
 - **Pattern matching** - Exhaustive matching with destructuring everywhere
 - **First-class functions** - Lambdas, closures, and higher-order functions
 - **Immutable by default** - All data structures are immutable
@@ -178,6 +179,22 @@ let msg = Message::Move { x: 10, y: 20 }
 // Turbofish for explicit type arguments
 let none = Option::None::<Int>
 ```
+
+### Type Aliases
+
+Create named synonyms for types:
+
+```zoya
+type UserId = Int
+type Callback = (Int) -> Bool
+type Pair<A, B> = (A, B)
+type StringList = List<String>
+
+fn get_user(id: UserId) -> String { ... }
+fn make_pair() -> Pair<Int, Bool> { (1, true) }
+```
+
+Type aliases are transparent - `UserId` and `Int` are interchangeable everywhere.
 
 ### Pattern Matching
 
