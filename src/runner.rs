@@ -48,7 +48,7 @@ pub fn run(source: &str) -> Result<Value, EvalError> {
         js_code.push_str(&codegen_function(typed_func));
         js_code.push('\n');
     }
-    js_code.push_str("main()");
+    js_code.push_str("$main()");
 
     // Execute
     let (_runtime, context) =

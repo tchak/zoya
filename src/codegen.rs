@@ -57,6 +57,16 @@ fn needs_deep_equality(ty: &Type) -> bool {
     matches!(ty, Type::List(_) | Type::Struct { .. } | Type::Enum { .. })
 }
 
+/// Format a qualified path as a JS identifier: Option::Some -> $Option$Some
+fn format_path(path: &crate::ir::QualifiedPath) -> String {
+    format!("${}", path.segments.join("$"))
+}
+
+/// Format a simple name as a JS identifier: x -> $x
+fn format_name(name: &str) -> String {
+    format!("${}", name)
+}
+
 /// Generate conditions and bindings for a pattern at a given access path.
 /// This is the core recursive function for nested pattern support.
 ///
@@ -86,7 +96,7 @@ fn codegen_pattern_at_path(
         }
 
         TypedPattern::Var { name, .. } => {
-            bindings.push(format!("const {} = {};", name, access_path));
+            bindings.push(format!("const {} = {};", format_name(name), access_path));
         }
 
         TypedPattern::Wildcard => {
@@ -95,7 +105,7 @@ fn codegen_pattern_at_path(
 
         TypedPattern::As { name, pattern, .. } => {
             // Bind the entire value to name
-            bindings.push(format!("const {} = {};", name, access_path));
+            bindings.push(format!("const {} = {};", format_name(name), access_path));
             // Recursively handle inner pattern (conditions and additional bindings)
             let (inner_conds, inner_binds) = codegen_pattern_at_path(pattern, access_path);
             conditions.extend(inner_conds);
@@ -141,7 +151,7 @@ fn codegen_pattern_at_path(
             if let Some(name) = rest_binding {
                 bindings.push(format!(
                     "const {} = {}.slice({});",
-                    name, access_path, patterns.len()
+                    format_name(name), access_path, patterns.len()
                 ));
             }
         }
@@ -167,7 +177,7 @@ fn codegen_pattern_at_path(
             if let Some(name) = rest_binding {
                 bindings.push(format!(
                     "const {} = {}.slice(0, {}.length - {});",
-                    name, access_path, access_path, patterns.len()
+                    format_name(name), access_path, access_path, patterns.len()
                 ));
             }
         }
@@ -203,7 +213,7 @@ fn codegen_pattern_at_path(
             if let Some(name) = rest_binding {
                 bindings.push(format!(
                     "const {} = {}.slice({}, {}.length - {});",
-                    name,
+                    format_name(name),
                     access_path,
                     prefix.len(),
                     access_path,
@@ -252,7 +262,7 @@ fn codegen_pattern_at_path(
                 let rest_indices: Vec<String> = (patterns.len()..*total_len)
                     .map(|i| format!("{}[{}]", access_path, i))
                     .collect();
-                bindings.push(format!("const {} = [{}];", name, rest_indices.join(", ")));
+                bindings.push(format!("const {} = [{}];", format_name(name), rest_indices.join(", ")));
             }
         }
 
@@ -278,7 +288,7 @@ fn codegen_pattern_at_path(
                 let rest_indices: Vec<String> = (0..start_idx)
                     .map(|i| format!("{}[{}]", access_path, i))
                     .collect();
-                bindings.push(format!("const {} = [{}];", name, rest_indices.join(", ")));
+                bindings.push(format!("const {} = [{}];", format_name(name), rest_indices.join(", ")));
             }
         }
 
@@ -313,7 +323,7 @@ fn codegen_pattern_at_path(
                 let rest_indices: Vec<String> = (prefix.len()..suffix_start)
                     .map(|i| format!("{}[{}]", access_path, i))
                     .collect();
-                bindings.push(format!("const {} = [{}];", name, rest_indices.join(", ")));
+                bindings.push(format!("const {} = [{}];", format_name(name), rest_indices.join(", ")));
             }
         }
 
@@ -447,10 +457,10 @@ pub fn codegen(expr: &TypedExpr) -> String {
             let strs: Vec<String> = elements.iter().map(codegen).collect();
             format!("[{}]", strs.join(", "))
         }
-        TypedExpr::Var { path, .. } => path.last().to_string(),
+        TypedExpr::Var { path, .. } => format_path(path),
         TypedExpr::Call { path, args, .. } => {
             let args_str: Vec<String> = args.iter().map(codegen).collect();
-            format!("{}({})", path.last(), args_str.join(", "))
+            format!("{}({})", format_path(path), args_str.join(", "))
         }
         TypedExpr::UnaryOp { op, expr, .. } => {
             let inner = codegen(expr);
@@ -503,7 +513,7 @@ pub fn codegen(expr: &TypedExpr) -> String {
 
             for binding in bindings {
                 let value_code = codegen(&binding.value);
-                parts.push(format!("const {} = {};", binding.name, value_code));
+                parts.push(format!("const {} = {};", format_name(&binding.name), value_code));
             }
 
             let result_code = codegen(result);
@@ -571,7 +581,7 @@ pub fn codegen(expr: &TypedExpr) -> String {
         }
 
         TypedExpr::Lambda { params, body, .. } => {
-            let param_names: Vec<&str> = params.iter().map(|(name, _)| name.as_str()).collect();
+            let param_names: Vec<String> = params.iter().map(|(name, _)| format_name(name)).collect();
             let body_code = codegen(body);
             if params.is_empty() {
                 format!("(() => {})", body_code)
@@ -680,11 +690,11 @@ fn codegen_match(scrutinee: &TypedExpr, arms: &[TypedMatchArm]) -> String {
 
 /// Generate JS code for a function definition
 pub fn codegen_function(func: &TypedFunction) -> String {
-    let params: Vec<&str> = func.params.iter().map(|(name, _)| name.as_str()).collect();
+    let params: Vec<String> = func.params.iter().map(|(name, _)| format_name(name)).collect();
     let body = codegen(&func.body);
     format!(
         "function {}({}) {{ return {}; }}",
-        func.name,
+        format_name(&func.name),
         params.join(", "),
         body
     )
@@ -694,7 +704,7 @@ pub fn codegen_function(func: &TypedFunction) -> String {
 pub fn codegen_let(binding: &TypedLetBinding) -> String {
     let value_code = codegen(&binding.value);
     // Use var for REPL to allow redefinition and global scope
-    format!("var {} = {};", binding.name, value_code)
+    format!("var {} = {};", format_name(&binding.name), value_code)
 }
 
 fn format_float(n: f64) -> String {
@@ -875,7 +885,7 @@ mod tests {
             path: QualifiedPath::simple("x".to_string()),
             ty: Type::Int,
         };
-        assert_eq!(codegen(&expr), "x");
+        assert_eq!(codegen(&expr), "$x");
     }
 
     #[test]
@@ -885,7 +895,7 @@ mod tests {
             args: vec![],
             ty: Type::Int,
         };
-        assert_eq!(codegen(&expr), "foo()");
+        assert_eq!(codegen(&expr), "$foo()");
     }
 
     #[test]
@@ -895,7 +905,7 @@ mod tests {
             args: vec![TypedExpr::Int(5)],
             ty: Type::Int,
         };
-        assert_eq!(codegen(&expr), "square(5)");
+        assert_eq!(codegen(&expr), "$square(5)");
     }
 
     #[test]
@@ -905,7 +915,7 @@ mod tests {
             args: vec![TypedExpr::Int(1), TypedExpr::Int(2)],
             ty: Type::Int,
         };
-        assert_eq!(codegen(&expr), "add(1, 2)");
+        assert_eq!(codegen(&expr), "$add(1, 2)");
     }
 
     #[test]
@@ -924,7 +934,7 @@ mod tests {
             ],
             ty: Type::Int,
         };
-        assert_eq!(codegen(&expr), "add(x, y)");
+        assert_eq!(codegen(&expr), "$add($x, $y)");
     }
 
     #[test]
@@ -938,7 +948,7 @@ mod tests {
             right: Box::new(TypedExpr::Int(1)),
             ty: Type::Int,
         };
-        assert_eq!(codegen(&expr), "((x) + (1))");
+        assert_eq!(codegen(&expr), "(($x) + (1))");
     }
 
     #[test]
@@ -962,7 +972,7 @@ mod tests {
         };
         assert_eq!(
             codegen_function(&func),
-            "function square(x) { return ((x) * (x)); }"
+            "function $square($x) { return (($x) * ($x)); }"
         );
     }
 
@@ -990,7 +1000,7 @@ mod tests {
         };
         assert_eq!(
             codegen_function(&func),
-            "function add(x, y) { return ((x) + (y)); }"
+            "function $add($x, $y) { return (($x) + ($y)); }"
         );
     }
 
@@ -1004,7 +1014,7 @@ mod tests {
         };
         assert_eq!(
             codegen_function(&func),
-            "function answer() { return 42; }"
+            "function $answer() { return 42; }"
         );
     }
 
@@ -1026,7 +1036,7 @@ mod tests {
         };
         assert_eq!(
             codegen_function(&func),
-            "function big(x) { return ((x) + (1n)); }"
+            "function $big($x) { return (($x) + (1n)); }"
         );
     }
 }
