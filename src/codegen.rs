@@ -4,48 +4,48 @@ use crate::ir::{TypedExpr, TypedFunction, TypedLetBinding, TypedMatchArm, TypedP
 use crate::types::Type;
 
 /// Deep equality function name used in generated JS
-const DEEP_EQ_FN: &str = "$eq";
+const DEEP_EQ_FN: &str = "$$eq";
 
 /// Plain object check function name used in generated JS
-const IS_OBJ_FN: &str = "$isObj";
+const IS_OBJ_FN: &str = "$$is_obj";
 
 /// Division by zero check function name used in generated JS
-const DIV_CHECK_FN: &str = "$div";
+const DIV_CHECK_FN: &str = "$$div";
 
 /// BigInt absolute value function name used in generated JS
-const ABS_BIGINT_FN: &str = "$absBigInt";
+const ABS_BIGINT_FN: &str = "$$abs_bigint";
 
 /// BigInt minimum function name used in generated JS
-const MIN_BIGINT_FN: &str = "$minBigInt";
+const MIN_BIGINT_FN: &str = "$$min_bigint";
 
 /// BigInt maximum function name used in generated JS
-const MAX_BIGINT_FN: &str = "$maxBigInt";
+const MAX_BIGINT_FN: &str = "$$max_bigint";
 
 /// Prelude containing helper functions for generated JS
 pub fn prelude() -> &'static str {
-    r#"function $isObj(x) {
+    r#"function $$is_obj(x) {
   return typeof x === 'object' && x !== null && !Array.isArray(x);
 }
-function $div(a, b) {
+function $$div(a, b) {
   if (b === 0) throw new Error("division by zero");
   return Math.trunc(a / b);
 }
-function $absBigInt(x) { return x < 0n ? -x : x; }
-function $minBigInt(a, b) { return a < b ? a : b; }
-function $maxBigInt(a, b) { return a > b ? a : b; }
-function $eq(a, b) {
+function $$abs_bigint(x) { return x < 0n ? -x : x; }
+function $$min_bigint(a, b) { return a < b ? a : b; }
+function $$max_bigint(a, b) { return a > b ? a : b; }
+function $$eq(a, b) {
   if (Array.isArray(a) && Array.isArray(b)) {
     if (a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) {
-      if (!$eq(a[i], b[i])) return false;
+      if (!$$eq(a[i], b[i])) return false;
     }
     return true;
   }
-  if ($isObj(a) && $isObj(b)) {
+  if ($$is_obj(a) && $$is_obj(b)) {
     const ka = Object.keys(a), kb = Object.keys(b);
     if (ka.length !== kb.length) return false;
     for (let k of ka) {
-      if (!$eq(a[k], b[k])) return false;
+      if (!$$eq(a[k], b[k])) return false;
     }
     return true;
   }
@@ -837,8 +837,8 @@ mod tests {
             right: Box::new(TypedExpr::Int(2)),
             ty: Type::Int,
         };
-        // Int division uses $div for truncation and division-by-zero checking
-        assert_eq!(codegen(&expr), "$div(10, 2)");
+        // Int division uses $$div for truncation and division-by-zero checking
+        assert_eq!(codegen(&expr), "$$div(10, 2)");
     }
 
     #[test]
