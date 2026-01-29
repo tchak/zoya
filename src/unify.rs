@@ -274,7 +274,6 @@ impl UnifyCtx {
     }
 
     /// Check if a type is fully resolved (contains no unbound type variables).
-    #[allow(dead_code)]
     pub fn is_concrete(&self, ty: &Type) -> bool {
         let resolved = self.resolve(ty);
         match resolved {
@@ -284,7 +283,24 @@ impl UnifyCtx {
             Type::Function { params, ret } => {
                 params.iter().all(|p| self.is_concrete(p)) && self.is_concrete(&ret)
             }
+            Type::Struct { type_args, fields, .. } => {
+                type_args.iter().all(|t| self.is_concrete(t))
+                    && fields.iter().all(|(_, t)| self.is_concrete(t))
+            }
+            Type::Enum { type_args, variants, .. } => {
+                type_args.iter().all(|t| self.is_concrete(t))
+                    && variants.iter().all(|(_, vt)| self.is_concrete_variant(vt))
+            }
             _ => true,
+        }
+    }
+
+    /// Check if an enum variant type is fully resolved.
+    fn is_concrete_variant(&self, vt: &EnumVariantType) -> bool {
+        match vt {
+            EnumVariantType::Unit => true,
+            EnumVariantType::Tuple(types) => types.iter().all(|t| self.is_concrete(t)),
+            EnumVariantType::Struct(fields) => fields.iter().all(|(_, t)| self.is_concrete(t)),
         }
     }
 
@@ -772,6 +788,592 @@ mod tests {
         ) = (&inst1, &inst2)
         {
             assert_ne!(p1[0], p2[0]);
+        }
+    }
+
+    // ==================== Tuple Unification Tests ====================
+
+    #[test]
+    fn test_unify_tuple_same_types() {
+        let mut ctx = UnifyCtx::new();
+        let t1 = Type::Tuple(vec![Type::Int, Type::Bool]);
+        let t2 = Type::Tuple(vec![Type::Int, Type::Bool]);
+        assert!(ctx.unify(&t1, &t2).is_ok());
+    }
+
+    #[test]
+    fn test_unify_tuple_different_lengths() {
+        let mut ctx = UnifyCtx::new();
+        let t1 = Type::Tuple(vec![Type::Int, Type::Bool]);
+        let t2 = Type::Tuple(vec![Type::Int]);
+        let result = ctx.unify(&t1, &t2);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("tuple length mismatch"));
+    }
+
+    #[test]
+    fn test_unify_tuple_different_elements() {
+        let mut ctx = UnifyCtx::new();
+        let t1 = Type::Tuple(vec![Type::Int, Type::Bool]);
+        let t2 = Type::Tuple(vec![Type::Int, Type::String]);
+        assert!(ctx.unify(&t1, &t2).is_err());
+    }
+
+    #[test]
+    fn test_unify_tuple_with_var() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+        let t1 = Type::Tuple(vec![var.clone(), Type::Bool]);
+        let t2 = Type::Tuple(vec![Type::Int, Type::Bool]);
+        assert!(ctx.unify(&t1, &t2).is_ok());
+        assert_eq!(ctx.resolve(&var), Type::Int);
+    }
+
+    #[test]
+    fn test_unify_tuple_empty() {
+        let mut ctx = UnifyCtx::new();
+        let t1 = Type::Tuple(vec![]);
+        let t2 = Type::Tuple(vec![]);
+        assert!(ctx.unify(&t1, &t2).is_ok());
+    }
+
+    #[test]
+    fn test_unify_tuple_nested() {
+        let mut ctx = UnifyCtx::new();
+        let inner = Type::Tuple(vec![Type::Int, Type::Bool]);
+        let t1 = Type::Tuple(vec![inner.clone(), Type::String]);
+        let t2 = Type::Tuple(vec![inner, Type::String]);
+        assert!(ctx.unify(&t1, &t2).is_ok());
+    }
+
+    // ==================== Struct Unification Tests ====================
+
+    #[test]
+    fn test_unify_struct_same_name() {
+        let mut ctx = UnifyCtx::new();
+        let s1 = Type::Struct {
+            name: "Point".to_string(),
+            type_args: vec![],
+            fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
+        };
+        let s2 = Type::Struct {
+            name: "Point".to_string(),
+            type_args: vec![],
+            fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
+        };
+        assert!(ctx.unify(&s1, &s2).is_ok());
+    }
+
+    #[test]
+    fn test_unify_struct_different_names() {
+        let mut ctx = UnifyCtx::new();
+        let s1 = Type::Struct {
+            name: "Point".to_string(),
+            type_args: vec![],
+            fields: vec![],
+        };
+        let s2 = Type::Struct {
+            name: "Vec".to_string(),
+            type_args: vec![],
+            fields: vec![],
+        };
+        let result = ctx.unify(&s1, &s2);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("struct type mismatch"));
+    }
+
+    #[test]
+    fn test_unify_struct_with_type_args() {
+        let mut ctx = UnifyCtx::new();
+        let s1 = Type::Struct {
+            name: "Pair".to_string(),
+            type_args: vec![Type::Int, Type::Bool],
+            fields: vec![("first".to_string(), Type::Int), ("second".to_string(), Type::Bool)],
+        };
+        let s2 = Type::Struct {
+            name: "Pair".to_string(),
+            type_args: vec![Type::Int, Type::Bool],
+            fields: vec![("first".to_string(), Type::Int), ("second".to_string(), Type::Bool)],
+        };
+        assert!(ctx.unify(&s1, &s2).is_ok());
+    }
+
+    #[test]
+    fn test_unify_struct_different_type_args() {
+        let mut ctx = UnifyCtx::new();
+        let s1 = Type::Struct {
+            name: "Pair".to_string(),
+            type_args: vec![Type::Int, Type::Bool],
+            fields: vec![],
+        };
+        let s2 = Type::Struct {
+            name: "Pair".to_string(),
+            type_args: vec![Type::Int, Type::String],
+            fields: vec![],
+        };
+        assert!(ctx.unify(&s1, &s2).is_err());
+    }
+
+    #[test]
+    fn test_unify_struct_with_var_type_args() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+        let s1 = Type::Struct {
+            name: "Pair".to_string(),
+            type_args: vec![var.clone(), Type::Bool],
+            fields: vec![],
+        };
+        let s2 = Type::Struct {
+            name: "Pair".to_string(),
+            type_args: vec![Type::Int, Type::Bool],
+            fields: vec![],
+        };
+        assert!(ctx.unify(&s1, &s2).is_ok());
+        assert_eq!(ctx.resolve(&var), Type::Int);
+    }
+
+    #[test]
+    fn test_unify_struct_type_arg_count_mismatch() {
+        let mut ctx = UnifyCtx::new();
+        let s1 = Type::Struct {
+            name: "Pair".to_string(),
+            type_args: vec![Type::Int],
+            fields: vec![],
+        };
+        let s2 = Type::Struct {
+            name: "Pair".to_string(),
+            type_args: vec![Type::Int, Type::Bool],
+            fields: vec![],
+        };
+        let result = ctx.unify(&s1, &s2);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("type argument count mismatch"));
+    }
+
+    // ==================== Enum Unification Tests ====================
+
+    #[test]
+    fn test_unify_enum_same_name() {
+        let mut ctx = UnifyCtx::new();
+        let e1 = Type::Enum {
+            name: "Color".to_string(),
+            type_args: vec![],
+            variants: vec![
+                ("Red".to_string(), EnumVariantType::Unit),
+                ("Green".to_string(), EnumVariantType::Unit),
+            ],
+        };
+        let e2 = Type::Enum {
+            name: "Color".to_string(),
+            type_args: vec![],
+            variants: vec![
+                ("Red".to_string(), EnumVariantType::Unit),
+                ("Green".to_string(), EnumVariantType::Unit),
+            ],
+        };
+        assert!(ctx.unify(&e1, &e2).is_ok());
+    }
+
+    #[test]
+    fn test_unify_enum_different_names() {
+        let mut ctx = UnifyCtx::new();
+        let e1 = Type::Enum {
+            name: "Color".to_string(),
+            type_args: vec![],
+            variants: vec![],
+        };
+        let e2 = Type::Enum {
+            name: "Direction".to_string(),
+            type_args: vec![],
+            variants: vec![],
+        };
+        let result = ctx.unify(&e1, &e2);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("enum type mismatch"));
+    }
+
+    #[test]
+    fn test_unify_enum_with_type_args() {
+        let mut ctx = UnifyCtx::new();
+        let e1 = Type::Enum {
+            name: "Option".to_string(),
+            type_args: vec![Type::Int],
+            variants: vec![
+                ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Int])),
+                ("None".to_string(), EnumVariantType::Unit),
+            ],
+        };
+        let e2 = Type::Enum {
+            name: "Option".to_string(),
+            type_args: vec![Type::Int],
+            variants: vec![
+                ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Int])),
+                ("None".to_string(), EnumVariantType::Unit),
+            ],
+        };
+        assert!(ctx.unify(&e1, &e2).is_ok());
+    }
+
+    #[test]
+    fn test_unify_enum_different_type_args() {
+        let mut ctx = UnifyCtx::new();
+        let e1 = Type::Enum {
+            name: "Option".to_string(),
+            type_args: vec![Type::Int],
+            variants: vec![],
+        };
+        let e2 = Type::Enum {
+            name: "Option".to_string(),
+            type_args: vec![Type::String],
+            variants: vec![],
+        };
+        assert!(ctx.unify(&e1, &e2).is_err());
+    }
+
+    #[test]
+    fn test_unify_enum_with_var_type_args() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+        let e1 = Type::Enum {
+            name: "Option".to_string(),
+            type_args: vec![var.clone()],
+            variants: vec![],
+        };
+        let e2 = Type::Enum {
+            name: "Option".to_string(),
+            type_args: vec![Type::Int],
+            variants: vec![],
+        };
+        assert!(ctx.unify(&e1, &e2).is_ok());
+        assert_eq!(ctx.resolve(&var), Type::Int);
+    }
+
+    #[test]
+    fn test_unify_enum_type_arg_count_mismatch() {
+        let mut ctx = UnifyCtx::new();
+        let e1 = Type::Enum {
+            name: "Result".to_string(),
+            type_args: vec![Type::Int],
+            variants: vec![],
+        };
+        let e2 = Type::Enum {
+            name: "Result".to_string(),
+            type_args: vec![Type::Int, Type::String],
+            variants: vec![],
+        };
+        let result = ctx.unify(&e1, &e2);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("type argument count mismatch"));
+    }
+
+    // ==================== Additional Occurs Check Tests ====================
+
+    #[test]
+    fn test_unify_tuple_occurs_check() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+        let tuple = Type::Tuple(vec![var.clone(), Type::Int]);
+        // T = (T, Int) should fail (infinite type)
+        let result = ctx.unify(&var, &tuple);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("infinite type"));
+    }
+
+    #[test]
+    fn test_unify_function_occurs_check() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+        let func = Type::Function {
+            params: vec![var.clone()],
+            ret: Box::new(Type::Int),
+        };
+        // T = T -> Int should fail (infinite type)
+        let result = ctx.unify(&var, &func);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("infinite type"));
+    }
+
+    #[test]
+    fn test_unify_struct_occurs_check() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+        let s = Type::Struct {
+            name: "Box".to_string(),
+            type_args: vec![var.clone()],
+            fields: vec![("value".to_string(), var.clone())],
+        };
+        // T = Box<T> should fail (infinite type)
+        let result = ctx.unify(&var, &s);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("infinite type"));
+    }
+
+    #[test]
+    fn test_unify_enum_occurs_check() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+        let e = Type::Enum {
+            name: "Option".to_string(),
+            type_args: vec![var.clone()],
+            variants: vec![("Some".to_string(), EnumVariantType::Tuple(vec![var.clone()]))],
+        };
+        // T = Option<T> should fail (infinite type)
+        let result = ctx.unify(&var, &e);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("infinite type"));
+    }
+
+    // ==================== Free Variables Tests ====================
+
+    #[test]
+    fn test_free_vars_list() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+        let list = Type::List(Box::new(var.clone()));
+        let fv = ctx.free_vars(&list);
+        assert_eq!(fv.len(), 1);
+        if let Type::Var(id) = var {
+            assert!(fv.contains(&id));
+        }
+    }
+
+    #[test]
+    fn test_free_vars_tuple() {
+        let mut ctx = UnifyCtx::new();
+        let v1 = ctx.fresh_var();
+        let v2 = ctx.fresh_var();
+        let tuple = Type::Tuple(vec![v1.clone(), v2.clone()]);
+        let fv = ctx.free_vars(&tuple);
+        assert_eq!(fv.len(), 2);
+    }
+
+    #[test]
+    fn test_free_vars_struct() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+        let s = Type::Struct {
+            name: "Box".to_string(),
+            type_args: vec![var.clone()],
+            fields: vec![("value".to_string(), var.clone())],
+        };
+        let fv = ctx.free_vars(&s);
+        assert_eq!(fv.len(), 1);
+        if let Type::Var(id) = var {
+            assert!(fv.contains(&id));
+        }
+    }
+
+    #[test]
+    fn test_free_vars_enum() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+        let e = Type::Enum {
+            name: "Option".to_string(),
+            type_args: vec![var.clone()],
+            variants: vec![("Some".to_string(), EnumVariantType::Tuple(vec![var.clone()]))],
+        };
+        let fv = ctx.free_vars(&e);
+        assert_eq!(fv.len(), 1);
+        if let Type::Var(id) = var {
+            assert!(fv.contains(&id));
+        }
+    }
+
+    #[test]
+    fn test_free_vars_enum_struct_variant() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+        let e = Type::Enum {
+            name: "Result".to_string(),
+            type_args: vec![var.clone()],
+            variants: vec![(
+                "Ok".to_string(),
+                EnumVariantType::Struct(vec![("value".to_string(), var.clone())]),
+            )],
+        };
+        let fv = ctx.free_vars(&e);
+        assert_eq!(fv.len(), 1);
+    }
+
+    // ==================== is_concrete Tests ====================
+
+    #[test]
+    fn test_is_concrete_tuple() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+
+        let tuple_concrete = Type::Tuple(vec![Type::Int, Type::Bool]);
+        let tuple_var = Type::Tuple(vec![Type::Int, var.clone()]);
+
+        assert!(ctx.is_concrete(&tuple_concrete));
+        assert!(!ctx.is_concrete(&tuple_var));
+
+        ctx.unify(&var, &Type::String).unwrap();
+        assert!(ctx.is_concrete(&tuple_var));
+    }
+
+    #[test]
+    fn test_is_concrete_function() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+
+        let func_concrete = Type::Function {
+            params: vec![Type::Int],
+            ret: Box::new(Type::Bool),
+        };
+        let func_var = Type::Function {
+            params: vec![var.clone()],
+            ret: Box::new(Type::Bool),
+        };
+
+        assert!(ctx.is_concrete(&func_concrete));
+        assert!(!ctx.is_concrete(&func_var));
+
+        ctx.unify(&var, &Type::Int).unwrap();
+        assert!(ctx.is_concrete(&func_var));
+    }
+
+    #[test]
+    fn test_is_concrete_struct() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+
+        let struct_concrete = Type::Struct {
+            name: "Point".to_string(),
+            type_args: vec![],
+            fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
+        };
+        let struct_var = Type::Struct {
+            name: "Box".to_string(),
+            type_args: vec![var.clone()],
+            fields: vec![("value".to_string(), var.clone())],
+        };
+
+        assert!(ctx.is_concrete(&struct_concrete));
+        assert!(!ctx.is_concrete(&struct_var));
+
+        ctx.unify(&var, &Type::Int).unwrap();
+        assert!(ctx.is_concrete(&struct_var));
+    }
+
+    #[test]
+    fn test_is_concrete_enum() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+
+        let enum_concrete = Type::Enum {
+            name: "Color".to_string(),
+            type_args: vec![],
+            variants: vec![("Red".to_string(), EnumVariantType::Unit)],
+        };
+        let enum_var = Type::Enum {
+            name: "Option".to_string(),
+            type_args: vec![var.clone()],
+            variants: vec![("Some".to_string(), EnumVariantType::Tuple(vec![var.clone()]))],
+        };
+
+        assert!(ctx.is_concrete(&enum_concrete));
+        assert!(!ctx.is_concrete(&enum_var));
+
+        ctx.unify(&var, &Type::Int).unwrap();
+        assert!(ctx.is_concrete(&enum_var));
+    }
+
+    #[test]
+    fn test_is_concrete_enum_struct_variant() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+
+        let enum_var = Type::Enum {
+            name: "Result".to_string(),
+            type_args: vec![var.clone()],
+            variants: vec![(
+                "Ok".to_string(),
+                EnumVariantType::Struct(vec![("value".to_string(), var.clone())]),
+            )],
+        };
+
+        assert!(!ctx.is_concrete(&enum_var));
+
+        ctx.unify(&var, &Type::Int).unwrap();
+        assert!(ctx.is_concrete(&enum_var));
+    }
+
+    // ==================== Resolve Tests for Complex Types ====================
+
+    #[test]
+    fn test_resolve_struct() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+        let s = Type::Struct {
+            name: "Box".to_string(),
+            type_args: vec![var.clone()],
+            fields: vec![("value".to_string(), var.clone())],
+        };
+
+        ctx.unify(&var, &Type::Int).unwrap();
+
+        let resolved = ctx.resolve(&s);
+        if let Type::Struct { type_args, fields, .. } = resolved {
+            assert_eq!(type_args[0], Type::Int);
+            assert_eq!(fields[0].1, Type::Int);
+        } else {
+            panic!("Expected Struct type");
+        }
+    }
+
+    #[test]
+    fn test_resolve_enum() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+        let e = Type::Enum {
+            name: "Option".to_string(),
+            type_args: vec![var.clone()],
+            variants: vec![
+                ("Some".to_string(), EnumVariantType::Tuple(vec![var.clone()])),
+                ("None".to_string(), EnumVariantType::Unit),
+            ],
+        };
+
+        ctx.unify(&var, &Type::Int).unwrap();
+
+        let resolved = ctx.resolve(&e);
+        if let Type::Enum { type_args, variants, .. } = resolved {
+            assert_eq!(type_args[0], Type::Int);
+            if let EnumVariantType::Tuple(types) = &variants[0].1 {
+                assert_eq!(types[0], Type::Int);
+            } else {
+                panic!("Expected Tuple variant");
+            }
+        } else {
+            panic!("Expected Enum type");
+        }
+    }
+
+    #[test]
+    fn test_resolve_enum_struct_variant() {
+        let mut ctx = UnifyCtx::new();
+        let var = ctx.fresh_var();
+        let e = Type::Enum {
+            name: "Result".to_string(),
+            type_args: vec![var.clone()],
+            variants: vec![(
+                "Ok".to_string(),
+                EnumVariantType::Struct(vec![("value".to_string(), var.clone())]),
+            )],
+        };
+
+        ctx.unify(&var, &Type::Int).unwrap();
+
+        let resolved = ctx.resolve(&e);
+        if let Type::Enum { variants, .. } = resolved {
+            if let EnumVariantType::Struct(fields) = &variants[0].1 {
+                assert_eq!(fields[0].1, Type::Int);
+            } else {
+                panic!("Expected Struct variant");
+            }
+        } else {
+            panic!("Expected Enum type");
         }
     }
 
