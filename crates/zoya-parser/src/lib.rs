@@ -2,9 +2,9 @@ use chumsky::prelude::*;
 
 use zoya_ast::{
     BinOp, EnumDef, EnumPattern, EnumPatternFields, EnumVariant, EnumVariantKind, Expr,
-    FunctionDef, Item, LambdaParam, LetBinding, ListPattern, MatchArm, Param, Path, Pattern, Stmt,
-    StructDef, StructFieldDef, StructFieldPattern, StructPattern, TuplePattern, TypeAliasDef,
-    TypeAnnotation, UnaryOp,
+    FunctionDef, Item, LambdaParam, LetBinding, ListPattern, MatchArm, ModDecl, ModuleDef, Param,
+    Path, Pattern, Stmt, StructDef, StructFieldDef, StructFieldPattern, StructPattern,
+    TuplePattern, TypeAliasDef, TypeAnnotation, UnaryOp,
 };
 use zoya_lexer::Token;
 
@@ -61,8 +61,35 @@ pub fn parse_repl(tokens: Vec<Token>) -> Result<(Vec<Item>, Vec<Stmt>), ParseErr
     Ok((items, stmts))
 }
 
+/// Parse a module file: mod declarations followed by items
+pub fn parse_module(tokens: Vec<Token>) -> Result<ModuleDef, ParseError> {
+    let parser = mod_decl_parser()
+        .repeated()
+        .collect::<Vec<_>>()
+        .then(item_parser().repeated().collect::<Vec<_>>())
+        .map(|(mods, items)| ModuleDef { mods, items });
+
+    parser
+        .parse(&tokens)
+        .into_result()
+        .map_err(|errs| ParseError {
+            message: errs
+                .into_iter()
+                .map(|e| format!("{:?}", e))
+                .collect::<Vec<_>>()
+                .join(", "),
+        })
+}
+
 fn ident<'a>() -> impl Parser<'a, &'a [Token], String, extra::Err<Rich<'a, Token>>> + Clone {
     select! { Token::Ident(name) => name }
+}
+
+fn mod_decl_parser<'a>() -> impl Parser<'a, &'a [Token], ModDecl, extra::Err<Rich<'a, Token>>> + Clone
+{
+    just(Token::Mod)
+        .ignore_then(ident())
+        .map(|name| ModDecl { name })
 }
 
 fn type_annotation<'a>() -> impl Parser<'a, &'a [Token], TypeAnnotation, extra::Err<Rich<'a, Token>>>
@@ -3479,5 +3506,42 @@ mod tests {
         };
         // Should not be a Block, just a BinOp expression
         assert!(matches!(*body, Expr::BinOp { op: BinOp::Add, .. }));
+    }
+
+    // === Module parsing tests ===
+
+    fn parse_module_str(input: &str) -> Result<ModuleDef, ParseError> {
+        let tokens = lex(input).map_err(|e| ParseError { message: e.message })?;
+        parse_module(tokens)
+    }
+
+    #[test]
+    fn test_parse_module_empty() {
+        let module = parse_module_str("").unwrap();
+        assert!(module.mods.is_empty());
+        assert!(module.items.is_empty());
+    }
+
+    #[test]
+    fn test_parse_module_items_only() {
+        let module = parse_module_str("fn foo() -> Int 42").unwrap();
+        assert!(module.mods.is_empty());
+        assert_eq!(module.items.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_module_mods_only() {
+        let module = parse_module_str("mod foo mod bar").unwrap();
+        assert_eq!(module.mods.len(), 2);
+        assert_eq!(module.mods[0].name, "foo");
+        assert_eq!(module.mods[1].name, "bar");
+        assert!(module.items.is_empty());
+    }
+
+    #[test]
+    fn test_parse_module_mods_and_items() {
+        let module = parse_module_str("mod utils mod helpers fn main() -> Int 42").unwrap();
+        assert_eq!(module.mods.len(), 2);
+        assert_eq!(module.items.len(), 1);
     }
 }

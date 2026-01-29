@@ -1222,6 +1222,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "zoya-loader"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "zoya-ast",
+ "zoya-lexer",
+ "zoya-parser",
+]
+
+[[package]]
 name = "zoya-parser"
 version = "0.1.0"
 dependencies = [

@@ -66,6 +66,9 @@ pub enum Token {
     #[token("type")]
     Type,
 
+    #[token("mod")]
+    Mod,
+
     // String literals with escape sequences
     #[regex(r#""([^"\\]|\\.)*""#, parse_string)]
     String(String),
@@ -739,5 +742,17 @@ mod tests {
                 Token::RBrace,
             ]
         );
+    }
+
+    #[test]
+    fn test_mod_keyword() {
+        let tokens = lex("mod").unwrap();
+        assert_eq!(tokens, vec![Token::Mod]);
+    }
+
+    #[test]
+    fn test_mod_declaration_tokens() {
+        let tokens = lex("mod foo").unwrap();
+        assert_eq!(tokens, vec![Token::Mod, Token::Ident("foo".to_string())]);
     }
 }
