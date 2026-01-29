@@ -164,7 +164,7 @@ impl State {
     pub fn eval(&mut self, input: &str) -> Result<Vec<ReplResult>, String> {
         // Lex and parse
         let tokens = zoya_lexer::lex(input).map_err(|e| e.message)?;
-        let (items, stmts) = zoya_parser::parse_repl(tokens).map_err(|e| e.message)?;
+        let (items, stmts) = zoya_parser::parse_input(tokens).map_err(|e| e.message)?;
 
         if items.is_empty() && stmts.is_empty() {
             return Ok(vec![]);
