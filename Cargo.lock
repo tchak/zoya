@@ -1213,6 +1213,7 @@ name = "zoya-ir"
 version = "0.1.0"
 dependencies = [
  "zoya-ast",
+ "zoya-loader",
 ]
 
 [[package]]

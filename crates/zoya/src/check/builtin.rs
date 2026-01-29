@@ -64,50 +64,58 @@ pub fn builtin_method(receiver_ty: &Type, method: &str) -> Option<(Vec<Type>, Ty
 /// Create built-in enum definitions (Option, Result).
 /// These use high type var IDs (starting at 1,000,000) to avoid collision with
 /// normal type checking which starts from 0.
+///
+/// Builtins are registered with fully qualified names:
+/// - `Option` (short alias for compatibility)
+/// - `std::option::Option` (full path)
+/// - `Result` (short alias for compatibility)
+/// - `std::result::Result` (full path)
 pub fn builtin_enums() -> HashMap<String, EnumType> {
     let mut enums = HashMap::new();
 
     // Option<T> { None, Some(T) }
     // Type var ID 1_000_000 for T
     let option_t_id = TypeVarId(1_000_000);
-    enums.insert(
-        "Option".to_string(),
-        EnumType {
-            name: "Option".to_string(),
-            type_params: vec!["T".to_string()],
-            type_var_ids: vec![option_t_id],
-            variants: vec![
-                ("None".to_string(), EnumVariantType::Unit),
-                (
-                    "Some".to_string(),
-                    EnumVariantType::Tuple(vec![Type::Var(option_t_id)]),
-                ),
-            ],
-        },
-    );
+    let option_type = EnumType {
+        name: "Option".to_string(),
+        type_params: vec!["T".to_string()],
+        type_var_ids: vec![option_t_id],
+        variants: vec![
+            ("None".to_string(), EnumVariantType::Unit),
+            (
+                "Some".to_string(),
+                EnumVariantType::Tuple(vec![Type::Var(option_t_id)]),
+            ),
+        ],
+    };
+    // Register with short name for compatibility
+    enums.insert("Option".to_string(), option_type.clone());
+    // Register with fully qualified std path
+    enums.insert("std::option::Option".to_string(), option_type);
 
     // Result<T, E> { Ok(T), Err(E) }
     // Type var ID 1_000_001 for T, 1_000_002 for E
     let result_t_id = TypeVarId(1_000_001);
     let result_e_id = TypeVarId(1_000_002);
-    enums.insert(
-        "Result".to_string(),
-        EnumType {
-            name: "Result".to_string(),
-            type_params: vec!["T".to_string(), "E".to_string()],
-            type_var_ids: vec![result_t_id, result_e_id],
-            variants: vec![
-                (
-                    "Ok".to_string(),
-                    EnumVariantType::Tuple(vec![Type::Var(result_t_id)]),
-                ),
-                (
-                    "Err".to_string(),
-                    EnumVariantType::Tuple(vec![Type::Var(result_e_id)]),
-                ),
-            ],
-        },
-    );
+    let result_type = EnumType {
+        name: "Result".to_string(),
+        type_params: vec!["T".to_string(), "E".to_string()],
+        type_var_ids: vec![result_t_id, result_e_id],
+        variants: vec![
+            (
+                "Ok".to_string(),
+                EnumVariantType::Tuple(vec![Type::Var(result_t_id)]),
+            ),
+            (
+                "Err".to_string(),
+                EnumVariantType::Tuple(vec![Type::Var(result_e_id)]),
+            ),
+        ],
+    };
+    // Register with short name for compatibility
+    enums.insert("Result".to_string(), result_type.clone());
+    // Register with fully qualified std path
+    enums.insert("std::result::Result".to_string(), result_type);
 
     enums
 }

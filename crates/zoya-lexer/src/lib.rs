@@ -69,6 +69,15 @@ pub enum Token {
     #[token("mod")]
     Mod,
 
+    #[token("root")]
+    Root,
+
+    #[token("self")]
+    Self_,
+
+    #[token("super")]
+    Super,
+
     // String literals with escape sequences
     #[regex(r#""([^"\\]|\\.)*""#, parse_string)]
     String(String),
@@ -754,5 +763,62 @@ mod tests {
     fn test_mod_declaration_tokens() {
         let tokens = lex("mod foo").unwrap();
         assert_eq!(tokens, vec![Token::Mod, Token::Ident("foo".to_string())]);
+    }
+
+    #[test]
+    fn test_root_keyword() {
+        let tokens = lex("root").unwrap();
+        assert_eq!(tokens, vec![Token::Root]);
+    }
+
+    #[test]
+    fn test_self_keyword() {
+        let tokens = lex("self").unwrap();
+        assert_eq!(tokens, vec![Token::Self_]);
+    }
+
+    #[test]
+    fn test_super_keyword() {
+        let tokens = lex("super").unwrap();
+        assert_eq!(tokens, vec![Token::Super]);
+    }
+
+    #[test]
+    fn test_root_path_tokens() {
+        let tokens = lex("root::foo").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Root,
+                Token::ColonColon,
+                Token::Ident("foo".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_self_path_tokens() {
+        let tokens = lex("self::bar").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Self_,
+                Token::ColonColon,
+                Token::Ident("bar".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_super_path_tokens() {
+        let tokens = lex("super::baz").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Super,
+                Token::ColonColon,
+                Token::Ident("baz".to_string()),
+            ]
+        );
     }
 }

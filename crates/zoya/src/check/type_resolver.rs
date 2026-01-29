@@ -211,7 +211,7 @@ pub fn resolve_type_annotation(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zoya_ast::{Path, TypeAnnotation};
+    use zoya_ast::{Path, PathPrefix, TypeAnnotation};
     use zoya_ir::{EnumType, EnumVariantType, StructType, TypeAliasType};
 
     fn empty_env() -> TypeEnv {
@@ -299,6 +299,7 @@ mod tests {
     #[test]
     fn test_resolve_qualified_type_path_error() {
         let annotation = TypeAnnotation::Named(Path {
+            prefix: PathPrefix::None,
             segments: vec!["Module".to_string(), "Type".to_string()],
             type_args: None,
         });
@@ -312,6 +313,7 @@ mod tests {
     fn test_resolve_qualified_parameterized_type_path_error() {
         let annotation = TypeAnnotation::Parameterized(
             Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Module".to_string(), "Container".to_string()],
                 type_args: None,
             },

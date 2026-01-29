@@ -1168,7 +1168,7 @@ pub fn check_let_binding(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zoya_ast::{Expr, Path, StructFieldPattern};
+    use zoya_ast::{Expr, Path, PathPrefix, StructFieldPattern};
     use zoya_ir::{EnumType, StructType};
 
     fn default_env() -> TypeEnv {
@@ -1903,6 +1903,7 @@ mod tests {
     fn test_enum_pattern_unit_variant() {
         let pattern = Pattern::Enum(EnumPattern {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Option".to_string(), "None".to_string()],
                 type_args: None,
             },
@@ -1929,6 +1930,7 @@ mod tests {
     fn test_enum_pattern_tuple_variant() {
         let pattern = Pattern::Enum(EnumPattern {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Option".to_string(), "Some".to_string()],
                 type_args: None,
             },
@@ -1956,6 +1958,7 @@ mod tests {
     fn test_enum_pattern_struct_variant() {
         let pattern = Pattern::Enum(EnumPattern {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Message".to_string(), "Move".to_string()],
                 type_args: None,
             },
@@ -1998,6 +2001,7 @@ mod tests {
     fn test_enum_pattern_struct_variant_partial() {
         let pattern = Pattern::Enum(EnumPattern {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Message".to_string(), "Move".to_string()],
                 type_args: None,
             },
@@ -2033,6 +2037,7 @@ mod tests {
     fn test_enum_pattern_struct_variant_missing_field() {
         let pattern = Pattern::Enum(EnumPattern {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Message".to_string(), "Move".to_string()],
                 type_args: None,
             },
@@ -2072,6 +2077,7 @@ mod tests {
         // Try to match a tuple variant with a unit pattern
         let pattern = Pattern::Enum(EnumPattern {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Option".to_string(), "Some".to_string()],
                 type_args: None,
             },
@@ -2098,6 +2104,7 @@ mod tests {
         // Try to match a unit variant with a tuple pattern
         let pattern = Pattern::Enum(EnumPattern {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Option".to_string(), "None".to_string()],
                 type_args: None,
             },
@@ -2126,6 +2133,7 @@ mod tests {
         // Try to match a tuple variant with a struct pattern
         let pattern = Pattern::Enum(EnumPattern {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Message".to_string(), "Write".to_string()],
                 type_args: None,
             },
@@ -2158,6 +2166,7 @@ mod tests {
     fn test_enum_pattern_unknown_enum() {
         let pattern = Pattern::Enum(EnumPattern {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["UnknownEnum".to_string(), "Variant".to_string()],
                 type_args: None,
             },
@@ -2174,6 +2183,7 @@ mod tests {
     fn test_enum_pattern_unknown_variant() {
         let pattern = Pattern::Enum(EnumPattern {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Option".to_string(), "Unknown".to_string()],
                 type_args: None,
             },
@@ -2376,6 +2386,7 @@ mod tests {
     fn test_refutable_enum() {
         let pattern = Pattern::Enum(EnumPattern {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Option".to_string(), "None".to_string()],
                 type_args: None,
             },
@@ -2410,6 +2421,7 @@ mod tests {
     fn test_enum_tuple_pattern_prefix() {
         let pattern = Pattern::Enum(EnumPattern {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Data".to_string(), "Triple".to_string()],
                 type_args: None,
             },
@@ -2438,6 +2450,7 @@ mod tests {
     fn test_enum_tuple_pattern_suffix() {
         let pattern = Pattern::Enum(EnumPattern {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Data".to_string(), "Triple".to_string()],
                 type_args: None,
             },
@@ -2466,6 +2479,7 @@ mod tests {
     fn test_enum_tuple_pattern_prefix_suffix() {
         let pattern = Pattern::Enum(EnumPattern {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Data".to_string(), "Triple".to_string()],
                 type_args: None,
             },
@@ -2496,6 +2510,7 @@ mod tests {
     fn test_enum_tuple_pattern_too_many_elements() {
         let pattern = Pattern::Enum(EnumPattern {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Data".to_string(), "Triple".to_string()],
                 type_args: None,
             },
@@ -2525,6 +2540,7 @@ mod tests {
     fn test_enum_tuple_pattern_empty_on_nonempty() {
         let pattern = Pattern::Enum(EnumPattern {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Data".to_string(), "Triple".to_string()],
                 type_args: None,
             },

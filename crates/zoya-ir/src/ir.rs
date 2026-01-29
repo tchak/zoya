@@ -291,3 +291,22 @@ impl TypedExpr {
         }
     }
 }
+
+/// A checked module containing type-checked items
+#[derive(Debug, Clone, PartialEq)]
+pub struct CheckedModule {
+    pub items: Vec<CheckedItem>,
+}
+
+/// The complete checked module tree
+#[derive(Debug, Clone, PartialEq)]
+pub struct CheckedModuleTree {
+    pub modules: std::collections::HashMap<zoya_loader::ModulePath, CheckedModule>,
+}
+
+impl CheckedModuleTree {
+    /// Get the root module
+    pub fn root(&self) -> Option<&CheckedModule> {
+        self.modules.get(&zoya_loader::ModulePath::root())
+    }
+}

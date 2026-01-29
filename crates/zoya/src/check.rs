@@ -2,6 +2,7 @@ mod builtin;
 mod definition;
 mod naming;
 mod pattern;
+mod resolution;
 mod type_resolver;
 mod unify;
 mod usefulness;
@@ -12,10 +13,11 @@ use zoya_ast::{
     BinOp, Expr, FunctionDef, Item, LetBinding, MatchArm, Path, Stmt, TypeAnnotation, UnaryOp,
 };
 use zoya_ir::{
-    CheckedItem, CheckedStmt, EnumType, EnumVariantType, FunctionType, QualifiedPath, StructType,
-    Type, TypeAliasType, TypeError, TypeScheme, TypeVarId, TypedEnumConstructFields, TypedExpr,
-    TypedFunction,
+    CheckedItem, CheckedModule, CheckedModuleTree, CheckedStmt, EnumType, EnumVariantType,
+    FunctionType, QualifiedPath, StructType, Type, TypeAliasType, TypeError, TypeScheme,
+    TypeVarId, TypedEnumConstructFields, TypedExpr, TypedFunction,
 };
+use zoya_loader::{ModulePath, ModuleTree};
 
 pub use unify::UnifyCtx;
 
@@ -1386,6 +1388,174 @@ fn is_syntactic_value(expr: &Expr) -> bool {
         _ => false,
     }
 }
+/// Check an entire module tree, returning a checked module tree.
+///
+/// This performs multi-module type checking:
+/// 1. Register all declarations from all modules
+/// 2. Type-check all function bodies with module context for path resolution
+pub fn check_module_tree(
+    tree: &ModuleTree,
+    env: &mut TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<CheckedModuleTree, TypeError> {
+    // Phase 1: Register ALL declarations from ALL modules
+    // Process modules in dependency order (parents before children)
+    let mut module_paths: Vec<_> = tree.modules.keys().cloned().collect();
+    module_paths.sort_by_key(|p| p.depth());
+
+    for path in &module_paths {
+        if let Some(module) = tree.modules.get(path) {
+            register_module_declarations(&module.items, path, env, ctx)?;
+        }
+    }
+
+    // Phase 2: Type-check ALL function bodies
+    let mut checked_modules = HashMap::new();
+    for path in &module_paths {
+        if let Some(module) = tree.modules.get(path) {
+            let checked = check_module_bodies(&module.items, path, env, ctx)?;
+            checked_modules.insert(path.clone(), checked);
+        }
+    }
+
+    Ok(CheckedModuleTree {
+        modules: checked_modules,
+    })
+}
+
+/// Register declarations from a single module into the type environment.
+/// Uses fully qualified names (e.g., "root::utils::foo").
+fn register_module_declarations(
+    items: &[Item],
+    current_module: &ModulePath,
+    env: &mut TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<(), TypeError> {
+    // Phase 1a: Register all struct names with placeholder types
+    for item in items {
+        if let Item::Struct(def) = item {
+            let qualified_name = resolution::qualified_name(current_module, &def.name);
+            let mut type_var_ids = Vec::new();
+            for _ in &def.type_params {
+                let var = ctx.fresh_var();
+                if let Type::Var(id) = var {
+                    type_var_ids.push(id);
+                }
+            }
+            env.structs.insert(
+                qualified_name,
+                StructType {
+                    name: def.name.clone(),
+                    type_params: def.type_params.clone(),
+                    type_var_ids,
+                    fields: vec![],
+                },
+            );
+        }
+        if let Item::Enum(def) = item {
+            let qualified_name = resolution::qualified_name(current_module, &def.name);
+            let mut type_var_ids = Vec::new();
+            for _ in &def.type_params {
+                let var = ctx.fresh_var();
+                if let Type::Var(id) = var {
+                    type_var_ids.push(id);
+                }
+            }
+            env.enums.insert(
+                qualified_name,
+                EnumType {
+                    name: def.name.clone(),
+                    type_params: def.type_params.clone(),
+                    type_var_ids,
+                    variants: vec![],
+                },
+            );
+        }
+    }
+
+    // Phase 1b: Resolve all struct field types
+    for item in items {
+        if let Item::Struct(def) = item {
+            let qualified_name = resolution::qualified_name(current_module, &def.name);
+            let struct_type = struct_type_from_def(def, env, ctx)?;
+            env.structs.insert(qualified_name, struct_type);
+        }
+    }
+
+    // Phase 1c: Resolve all enum variant types
+    for item in items {
+        if let Item::Enum(def) = item {
+            let qualified_name = resolution::qualified_name(current_module, &def.name);
+            let enum_type = enum_type_from_def(def, env, ctx)?;
+            env.enums.insert(qualified_name, enum_type);
+        }
+    }
+
+    // Phase 1d: Register all type aliases
+    for item in items {
+        if let Item::TypeAlias(def) = item {
+            let qualified_name = resolution::qualified_name(current_module, &def.name);
+            let alias_type = type_alias_from_def(def, env, ctx)?;
+            env.type_aliases.insert(qualified_name, alias_type);
+        }
+    }
+
+    // Phase 2: Register all function signatures
+    for item in items {
+        if let Item::Function(func) = item {
+            let qualified_name = resolution::qualified_name(current_module, &func.name);
+            let func_type = function_type_from_def(func, env, ctx)?;
+            env.functions.insert(qualified_name, func_type);
+        }
+    }
+
+    Ok(())
+}
+
+/// Type-check function bodies from a single module.
+fn check_module_bodies(
+    items: &[Item],
+    current_module: &ModulePath,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<CheckedModule, TypeError> {
+    let mut checked_items = Vec::new();
+
+    for item in items {
+        match item {
+            Item::Function(func) => {
+                let typed = check_function_in_module(func, current_module, env, ctx)?;
+                checked_items.push(CheckedItem::Function(Box::new(typed)));
+            }
+            Item::Struct(def) => {
+                checked_items.push(CheckedItem::Struct(def.clone()));
+            }
+            Item::Enum(def) => {
+                checked_items.push(CheckedItem::Enum(def.clone()));
+            }
+            Item::TypeAlias(def) => {
+                checked_items.push(CheckedItem::TypeAlias(def.clone()));
+            }
+        }
+    }
+
+    Ok(CheckedModule {
+        items: checked_items,
+    })
+}
+
+/// Check a function definition within a specific module context.
+fn check_function_in_module(
+    func: &FunctionDef,
+    _current_module: &ModulePath,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedFunction, TypeError> {
+    // For now, delegate to existing check_function
+    // In the future, this will use current_module for path resolution
+    check_function(func, env, ctx)
+}
+
 /// Check a file's items (functions, structs, and enums), returning checked items
 pub fn check_items(
     items: &[Item],
@@ -1534,7 +1704,7 @@ pub fn check_stmts(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zoya_ast::{BinOp, TypeAliasDef};
+    use zoya_ast::{BinOp, PathPrefix, TypeAliasDef};
     use zoya_ir::Type;
 
     fn check(expr: &Expr) -> Result<TypedExpr, TypeError> {
@@ -2996,6 +3166,7 @@ mod tests {
         let stmts = vec![Stmt::Let(LetBinding {
             pattern: Pattern::Enum(EnumPattern {
                 path: Path {
+                    prefix: PathPrefix::None,
                     segments: vec!["Option".to_string(), "Some".to_string()],
                     type_args: None,
                 },
@@ -3294,6 +3465,7 @@ mod tests {
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Call {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["f".to_string()],
                 type_args: Some(vec![TypeAnnotation::Named(Path::simple("Int".to_string()))]),
             },
@@ -3467,6 +3639,7 @@ mod tests {
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Call {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Message".to_string(), "Write".to_string()],
                 type_args: None,
             },
@@ -3485,6 +3658,7 @@ mod tests {
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Call {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Message".to_string(), "Quit".to_string()],
                 type_args: None,
             },
@@ -3502,6 +3676,7 @@ mod tests {
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Call {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Message".to_string(), "Move".to_string()],
                 type_args: None,
             },
@@ -3519,6 +3694,7 @@ mod tests {
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Struct {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Message".to_string(), "Move".to_string()],
                 type_args: None,
             },
@@ -3540,6 +3716,7 @@ mod tests {
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Struct {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Message".to_string(), "Quit".to_string()],
                 type_args: None,
             },
@@ -3559,6 +3736,7 @@ mod tests {
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Struct {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Message".to_string(), "Write".to_string()],
                 type_args: None,
             },
@@ -3578,6 +3756,7 @@ mod tests {
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Struct {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Message".to_string(), "Move".to_string()],
                 type_args: None,
             },
@@ -3598,6 +3777,7 @@ mod tests {
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Struct {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Message".to_string(), "Move".to_string()],
                 type_args: None,
             },
@@ -3619,6 +3799,7 @@ mod tests {
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Struct {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["Message".to_string(), "Move".to_string()],
                 type_args: None,
             },
@@ -3749,6 +3930,7 @@ mod tests {
         // identity::<Int>(42)
         let expr = Expr::Call {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["identity".to_string()],
                 type_args: Some(vec![TypeAnnotation::Named(Path::simple("Int".to_string()))]),
             },
@@ -3778,6 +3960,7 @@ mod tests {
         // identity::<Int, String>(42) - wrong number of type args
         let expr = Expr::Call {
             path: Path {
+                prefix: PathPrefix::None,
                 segments: vec!["identity".to_string()],
                 type_args: Some(vec![
                     TypeAnnotation::Named(Path::simple("Int".to_string())),
@@ -3803,6 +3986,7 @@ mod tests {
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Path(Path {
+            prefix: PathPrefix::None,
             segments: vec!["x".to_string()],
             type_args: Some(vec![TypeAnnotation::Named(Path::simple("Int".to_string()))]),
         });

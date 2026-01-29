@@ -3,7 +3,7 @@ use chumsky::prelude::*;
 use zoya_ast::{
     BinOp, EnumDef, EnumPattern, EnumPatternFields, EnumVariant, EnumVariantKind, Expr,
     FunctionDef, Item, LambdaParam, LetBinding, ListPattern, MatchArm, ModDecl, ModuleDef, Param,
-    Path, Pattern, Stmt, StructDef, StructFieldDef, StructFieldPattern, StructPattern,
+    Path, PathPrefix, Pattern, Stmt, StructDef, StructFieldDef, StructFieldPattern, StructPattern,
     TuplePattern, TypeAliasDef, TypeAnnotation, UnaryOp,
 };
 use zoya_lexer::Token;
@@ -579,6 +579,7 @@ fn pattern_parser<'a>() -> impl Parser<'a, &'a [Token], Pattern, extra::Err<Rich
             .map(|(((enum_name, variant_name), type_args), fields)| {
                 let fields = fields.unwrap_or(EnumPatternFields::Unit);
                 let path = Path {
+                    prefix: PathPrefix::None,
                     segments: vec![enum_name, variant_name],
                     type_args,
                 };
@@ -921,13 +922,35 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                 .delimited_by(just(Token::Lt), just(Token::Gt)),
         );
 
-        // Path parser: `foo` or `Foo::Bar` or `Option::None::<Int>`
-        let path = ident()
-            .separated_by(just(Token::ColonColon))
-            .at_least(1)
-            .collect::<Vec<_>>()
+        // Path prefix: root::, self::, super::
+        let path_prefix = choice((
+            just(Token::Root)
+                .then_ignore(just(Token::ColonColon))
+                .to(PathPrefix::Root),
+            just(Token::Self_)
+                .then_ignore(just(Token::ColonColon))
+                .to(PathPrefix::Self_),
+            just(Token::Super)
+                .then_ignore(just(Token::ColonColon))
+                .to(PathPrefix::Super),
+        ))
+        .or_not()
+        .map(|opt| opt.unwrap_or(PathPrefix::None));
+
+        // Path parser: `foo` or `Foo::Bar` or `Option::None::<Int>` or `root::utils::foo`
+        let path = path_prefix
+            .then(
+                ident()
+                    .separated_by(just(Token::ColonColon))
+                    .at_least(1)
+                    .collect::<Vec<_>>(),
+            )
             .then(turbofish.or_not())
-            .map(|(segments, type_args)| Path { segments, type_args });
+            .map(|((prefix, segments), type_args)| Path {
+                prefix,
+                segments,
+                type_args,
+            });
 
         // What can follow a path
         #[derive(Clone)]
@@ -3506,5 +3529,95 @@ mod tests {
         let module = parse_module_str("mod utils mod helpers fn main() -> Int 42").unwrap();
         assert_eq!(module.mods.len(), 2);
         assert_eq!(module.items.len(), 1);
+    }
+
+    // Path prefix tests
+
+    #[test]
+    fn test_parse_path_no_prefix() {
+        let expr = parse_str("foo").unwrap();
+        match expr {
+            Expr::Path(path) => {
+                assert_eq!(path.prefix, PathPrefix::None);
+                assert_eq!(path.segments, vec!["foo"]);
+            }
+            _ => panic!("expected path"),
+        }
+    }
+
+    #[test]
+    fn test_parse_path_root_prefix() {
+        let expr = parse_str("root::foo").unwrap();
+        match expr {
+            Expr::Path(path) => {
+                assert_eq!(path.prefix, PathPrefix::Root);
+                assert_eq!(path.segments, vec!["foo"]);
+            }
+            _ => panic!("expected path"),
+        }
+    }
+
+    #[test]
+    fn test_parse_path_root_prefix_multi_segment() {
+        let expr = parse_str("root::utils::helper").unwrap();
+        match expr {
+            Expr::Path(path) => {
+                assert_eq!(path.prefix, PathPrefix::Root);
+                assert_eq!(path.segments, vec!["utils", "helper"]);
+            }
+            _ => panic!("expected path"),
+        }
+    }
+
+    #[test]
+    fn test_parse_path_self_prefix() {
+        let expr = parse_str("self::bar").unwrap();
+        match expr {
+            Expr::Path(path) => {
+                assert_eq!(path.prefix, PathPrefix::Self_);
+                assert_eq!(path.segments, vec!["bar"]);
+            }
+            _ => panic!("expected path"),
+        }
+    }
+
+    #[test]
+    fn test_parse_path_super_prefix() {
+        let expr = parse_str("super::baz").unwrap();
+        match expr {
+            Expr::Path(path) => {
+                assert_eq!(path.prefix, PathPrefix::Super);
+                assert_eq!(path.segments, vec!["baz"]);
+            }
+            _ => panic!("expected path"),
+        }
+    }
+
+    #[test]
+    fn test_parse_path_prefix_call() {
+        let expr = parse_str("root::utils::add(1, 2)").unwrap();
+        match expr {
+            Expr::Call { path, args } => {
+                assert_eq!(path.prefix, PathPrefix::Root);
+                assert_eq!(path.segments, vec!["utils", "add"]);
+                assert_eq!(args.len(), 2);
+            }
+            _ => panic!("expected call"),
+        }
+    }
+
+    #[test]
+    fn test_parse_path_prefix_enum_variant() {
+        // Note: enum patterns in expressions still use Enum::Variant syntax
+        // The path prefix is for module resolution
+        let expr = parse_str("root::types::Option::Some(42)").unwrap();
+        match expr {
+            Expr::Call { path, args } => {
+                assert_eq!(path.prefix, PathPrefix::Root);
+                assert_eq!(path.segments, vec!["types", "Option", "Some"]);
+                assert_eq!(args.len(), 1);
+            }
+            _ => panic!("expected call"),
+        }
     }
 }

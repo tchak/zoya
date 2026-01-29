@@ -1,7 +1,7 @@
 use zoya_ast::{BinOp, UnaryOp};
 use zoya_ir::{
-    CheckedItem, QualifiedPath, Type, TypedEnumConstructFields, TypedExpr, TypedFunction,
-    TypedLetBinding, TypedMatchArm, TypedPattern,
+    CheckedItem, CheckedModuleTree, QualifiedPath, Type, TypedEnumConstructFields, TypedExpr,
+    TypedFunction, TypedLetBinding, TypedMatchArm, TypedPattern,
 };
 
 /// Deep equality function name used in generated JS
@@ -65,6 +65,25 @@ pub fn codegen_items(items: &[CheckedItem]) -> String {
             js.push('\n');
         }
     }
+    js
+}
+
+/// Generate JavaScript code for all modules in the checked module tree.
+/// Processes modules in dependency order (parents before children).
+/// Does NOT include prelude - call `prelude()` separately if needed.
+pub fn codegen_module_tree(tree: &CheckedModuleTree) -> String {
+    let mut js = String::new();
+
+    // Sort modules by depth (parents before children)
+    let mut module_paths: Vec<_> = tree.modules.keys().collect();
+    module_paths.sort_by_key(|p| p.depth());
+
+    for path in module_paths {
+        if let Some(module) = tree.modules.get(path) {
+            js.push_str(&codegen_items(&module.items));
+        }
+    }
+
     js
 }
 

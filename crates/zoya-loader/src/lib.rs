@@ -31,6 +31,16 @@ impl ModulePath {
     pub fn is_root(&self) -> bool {
         self.0.len() == 1 && self.0[0] == "root"
     }
+
+    /// Get the depth of this module path (number of segments)
+    pub fn depth(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Get the segments of this module path
+    pub fn segments(&self) -> &[String] {
+        &self.0
+    }
 }
 
 impl std::fmt::Display for ModulePath {

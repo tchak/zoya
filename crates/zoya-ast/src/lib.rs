@@ -1,7 +1,31 @@
+/// Path prefix for module resolution
+/// Examples: `root::foo`, `self::bar`, `super::baz`
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PathPrefix {
+    #[default]
+    None,   // Relative path (child module or current scope)
+    Root,   // root::
+    Self_,  // self::
+    Super,  // super::
+}
+
+impl std::fmt::Display for PathPrefix {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PathPrefix::None => Ok(()),
+            PathPrefix::Root => write!(f, "root::"),
+            PathPrefix::Self_ => write!(f, "self::"),
+            PathPrefix::Super => write!(f, "super::"),
+        }
+    }
+}
+
 /// A path representing a potentially qualified name with optional type arguments
-/// Examples: `foo`, `Foo::Bar`, `Option::None::<Int>`
+/// Examples: `foo`, `Foo::Bar`, `Option::None::<Int>`, `root::utils::helper`
 #[derive(Debug, Clone, PartialEq)]
 pub struct Path {
+    /// Path prefix for module resolution (root::, self::, super::, or none)
+    pub prefix: PathPrefix,
     pub segments: Vec<String>,
     /// Optional explicit type arguments (turbofish syntax)
     /// e.g., `Option::None::<Int>` has type_args = Some([Named("Int")])
@@ -12,6 +36,7 @@ impl Path {
     /// Create a single-segment path (e.g., `foo`)
     pub fn simple(name: String) -> Self {
         Path {
+            prefix: PathPrefix::None,
             segments: vec![name],
             type_args: None,
         }
@@ -35,7 +60,7 @@ impl Path {
 
 impl std::fmt::Display for Path {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.segments.join("::"))?;
+        write!(f, "{}{}", self.prefix, self.segments.join("::"))?;
         if let Some(ref args) = self.type_args {
             write!(f, "::<")?;
             for (i, arg) in args.iter().enumerate() {
@@ -418,6 +443,7 @@ mod tests {
         assert!(simple.is_simple());
 
         let qualified = Path {
+            prefix: PathPrefix::None,
             segments: vec!["Mod".to_string(), "Type".to_string()],
             type_args: None,
         };
@@ -430,6 +456,7 @@ mod tests {
         assert_eq!(simple.as_simple(), Some("foo"));
 
         let qualified = Path {
+            prefix: PathPrefix::None,
             segments: vec!["Mod".to_string(), "Type".to_string()],
             type_args: None,
         };
@@ -445,6 +472,7 @@ mod tests {
     #[test]
     fn test_path_display_qualified() {
         let path = Path {
+            prefix: PathPrefix::None,
             segments: vec!["Option".to_string(), "Some".to_string()],
             type_args: None,
         };
@@ -454,6 +482,7 @@ mod tests {
     #[test]
     fn test_path_display_with_turbofish() {
         let path = Path {
+            prefix: PathPrefix::None,
             segments: vec!["Option".to_string(), "None".to_string()],
             type_args: Some(vec![TypeAnnotation::Named(Path::simple("Int".to_string()))]),
         };
@@ -463,6 +492,7 @@ mod tests {
     #[test]
     fn test_path_display_turbofish_multiple_args() {
         let path = Path {
+            prefix: PathPrefix::None,
             segments: vec!["Result".to_string()],
             type_args: Some(vec![
                 TypeAnnotation::Named(Path::simple("Int".to_string())),
@@ -470,6 +500,46 @@ mod tests {
             ]),
         };
         assert_eq!(path.to_string(), "Result::<Int, String>");
+    }
+
+    // PathPrefix tests
+
+    #[test]
+    fn test_path_prefix_display() {
+        assert_eq!(PathPrefix::None.to_string(), "");
+        assert_eq!(PathPrefix::Root.to_string(), "root::");
+        assert_eq!(PathPrefix::Self_.to_string(), "self::");
+        assert_eq!(PathPrefix::Super.to_string(), "super::");
+    }
+
+    #[test]
+    fn test_path_with_prefix_display() {
+        let path = Path {
+            prefix: PathPrefix::Root,
+            segments: vec!["utils".to_string(), "foo".to_string()],
+            type_args: None,
+        };
+        assert_eq!(path.to_string(), "root::utils::foo");
+    }
+
+    #[test]
+    fn test_path_self_prefix_display() {
+        let path = Path {
+            prefix: PathPrefix::Self_,
+            segments: vec!["bar".to_string()],
+            type_args: None,
+        };
+        assert_eq!(path.to_string(), "self::bar");
+    }
+
+    #[test]
+    fn test_path_super_prefix_display() {
+        let path = Path {
+            prefix: PathPrefix::Super,
+            segments: vec!["helper".to_string()],
+            type_args: None,
+        };
+        assert_eq!(path.to_string(), "super::helper");
     }
 
     // TypeAnnotation tests

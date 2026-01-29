@@ -1,24 +1,24 @@
 use std::path::Path;
 
-use crate::check::{check_items, TypeEnv, UnifyCtx};
-use zoya_codegen::{codegen_items, prelude};
+use crate::check::{check_module_tree, TypeEnv, UnifyCtx};
+use zoya_codegen::{codegen_module_tree, prelude};
 
 /// Compile a file to JavaScript without executing
 pub fn execute(path: &Path, output: Option<&Path>) -> Result<(), String> {
     // Load and parse modules
     let tree = zoya_loader::load_modules(path).map_err(|e| format!("error: {}", e))?;
-    let items = tree.root().expect("root module must exist").items.clone();
 
-    // Type check
+    // Type check entire module tree
     let mut env = TypeEnv::with_builtins();
     let mut ctx = UnifyCtx::new();
-    let checked_items = check_items(&items, &mut env, &mut ctx).map_err(|e| format!("error: {}", e))?;
+    let checked_tree =
+        check_module_tree(&tree, &mut env, &mut ctx).map_err(|e| format!("error: {}", e))?;
 
     // Generate JS code
     let mut js_code = String::new();
     js_code.push_str(prelude());
     js_code.push('\n');
-    js_code.push_str(&codegen_items(&checked_items));
+    js_code.push_str(&codegen_module_tree(&checked_tree));
 
     // Write output
     match output {
