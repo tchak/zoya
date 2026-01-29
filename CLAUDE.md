@@ -42,7 +42,17 @@ cargo clippy --workspace              # Lint
 
 ## Version Control
 
-Uses **jj (Jujutsu)**, not git directly.
+**IMPORTANT: ALWAYS use jj (Jujutsu). NEVER use git commands directly.**
+
+This project uses jj as its version control interface. Do not use `git add`, `git commit`, `git status`, `git diff`, `git log`, or any other git commands. Always use the jj equivalents:
+
+| Instead of | Use |
+|------------|-----|
+| `git status` | `jj status` |
+| `git diff` | `jj diff` |
+| `git add && git commit` | `jj commit -m "..."` |
+| `git log` | `jj log` |
+| `git push` | `jj git push` |
 
 ```bash
 jj status
