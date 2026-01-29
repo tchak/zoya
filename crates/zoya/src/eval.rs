@@ -306,7 +306,7 @@ fn js_value_to_value(
 mod tests {
     use super::*;
     use zoya_ast::{BinOp, UnaryOp};
-    use crate::codegen::{codegen, prelude};
+    use zoya_codegen::{codegen, prelude};
     use zoya_ir::TypedExpr;
 
     /// Test helper: compile and evaluate a TypedExpr in a fresh context

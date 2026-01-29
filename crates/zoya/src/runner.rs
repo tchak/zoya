@@ -1,5 +1,5 @@
 use crate::check::{check_items, TypeEnv, UnifyCtx};
-use crate::codegen::{codegen_items, prelude};
+use zoya_codegen::{codegen_items, prelude};
 use crate::eval::{self, EvalError, Value};
 use zoya_ir::CheckedItem;
 

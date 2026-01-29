@@ -4,7 +4,7 @@ use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
 use crate::check::{check_items, check_stmts, TypeEnv, UnifyCtx};
-use crate::codegen::{codegen, codegen_items, codegen_let, prelude};
+use zoya_codegen::{codegen, codegen_items, codegen_let, prelude};
 use crate::eval::{self, Context, Value};
 use zoya_ir::{CheckedItem, CheckedStmt, Type, TypedPattern};
 

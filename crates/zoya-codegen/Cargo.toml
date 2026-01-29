@@ -1,0 +1,8 @@
+[package]
+name = "zoya-codegen"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+zoya-ast = { path = "../zoya-ast" }
+zoya-ir = { path = "../zoya-ir" }
