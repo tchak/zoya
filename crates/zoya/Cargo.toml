@@ -1,0 +1,20 @@
+[package]
+name = "zoya"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "zoya"
+path = "src/main.rs"
+
+[dependencies]
+zoya-ast = { path = "../zoya-ast" }
+zoya-lexer = { path = "../zoya-lexer" }
+zoya-parser = { path = "../zoya-parser" }
+clap = { version = "4", features = ["derive"] }
+rquickjs = { version = "0.9", features = ["bindgen"] }
+rustyline = "14"
+dirs = "5"
+
+[dev-dependencies]
+tempfile = "3"
