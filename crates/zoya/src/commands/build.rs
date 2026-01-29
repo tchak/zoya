@@ -1,8 +1,7 @@
 use std::path::Path;
 
 use crate::check::{check_items, TypeEnv, UnifyCtx};
-use crate::codegen::{codegen_function, prelude};
-use zoya_ir::{CheckedItem, TypedFunction};
+use crate::codegen::{codegen_items, prelude};
 
 /// Compile a file to JavaScript without executing
 pub fn execute(path: &Path, output: Option<&Path>) -> Result<(), String> {
@@ -21,25 +20,11 @@ pub fn execute(path: &Path, output: Option<&Path>) -> Result<(), String> {
     let mut ctx = UnifyCtx::new();
     let checked_items = check_items(&items, &mut env, &mut ctx).map_err(|e| format!("error: {}", e))?;
 
-    // Extract functions from checked items
-    let typed_functions: Vec<&TypedFunction> = checked_items
-        .iter()
-        .filter_map(|item| match item {
-            CheckedItem::Function(f) => Some(f.as_ref()),
-            CheckedItem::Struct(_) => None,
-            CheckedItem::Enum(_) => None,
-            CheckedItem::TypeAlias(_) => None,
-        })
-        .collect();
-
     // Generate JS code
     let mut js_code = String::new();
     js_code.push_str(prelude());
     js_code.push('\n');
-    for typed_func in &typed_functions {
-        js_code.push_str(&codegen_function(typed_func));
-        js_code.push('\n');
-    }
+    js_code.push_str(&codegen_items(&checked_items));
 
     // Write output
     match output {

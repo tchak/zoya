@@ -1,7 +1,7 @@
 use crate::check::{check_items, TypeEnv, UnifyCtx};
-use crate::codegen::{codegen_function, prelude};
+use crate::codegen::{codegen_items, prelude};
 use crate::eval::{self, EvalError, Value};
-use zoya_ir::{CheckedItem, TypedFunction};
+use zoya_ir::CheckedItem;
 
 /// Run Zoya source code and return the result
 pub fn run(source: &str) -> Result<Value, EvalError> {
@@ -15,24 +15,15 @@ pub fn run(source: &str) -> Result<Value, EvalError> {
     let checked_items =
         check_items(&items, &mut env, &mut ctx).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
 
-    // Extract functions from checked items
-    let typed_functions: Vec<&TypedFunction> = checked_items
+    // Find and validate main function
+    let main_func = checked_items
         .iter()
-        .filter_map(|item| match item {
-            CheckedItem::Function(f) => Some(f.as_ref()),
-            CheckedItem::Struct(_) => None,
-            CheckedItem::Enum(_) => None,
-            CheckedItem::TypeAlias(_) => None,
+        .find_map(|item| match item {
+            CheckedItem::Function(f) if f.name == "main" => Some(f.as_ref()),
+            _ => None,
         })
-        .collect();
-
-    // Find main function
-    let main_func = typed_functions
-        .iter()
-        .find(|f| f.name == "main")
         .ok_or_else(|| EvalError::RuntimeError("no main() function found".to_string()))?;
 
-    // Check main has no parameters
     if !main_func.params.is_empty() {
         return Err(EvalError::RuntimeError(
             "main() must not take any parameters".to_string(),
@@ -41,15 +32,9 @@ pub fn run(source: &str) -> Result<Value, EvalError> {
 
     // Generate JS code
     let mut js_code = String::new();
-
-    // Add prelude for deep equality (used by list/struct comparison)
     js_code.push_str(prelude());
     js_code.push('\n');
-
-    for typed_func in &typed_functions {
-        js_code.push_str(&codegen_function(typed_func));
-        js_code.push('\n');
-    }
+    js_code.push_str(&codegen_items(&checked_items));
     js_code.push_str("$main()");
 
     // Execute

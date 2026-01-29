@@ -1,7 +1,7 @@
 use zoya_ast::{BinOp, UnaryOp};
 use zoya_ir::{
-    QualifiedPath, Type, TypedEnumConstructFields, TypedExpr, TypedFunction, TypedLetBinding,
-    TypedMatchArm, TypedPattern,
+    CheckedItem, QualifiedPath, Type, TypedEnumConstructFields, TypedExpr, TypedFunction,
+    TypedLetBinding, TypedMatchArm, TypedPattern,
 };
 
 /// Deep equality function name used in generated JS
@@ -53,6 +53,21 @@ function $$eq(a, b) {
   return a === b;
 }"#
 }
+
+/// Generate JavaScript code for all functions in the checked items.
+/// Structs, enums, and type aliases are type-level only and produce no JS.
+/// Does NOT include prelude - call `prelude()` separately if needed.
+pub fn codegen_items(items: &[CheckedItem]) -> String {
+    let mut js = String::new();
+    for item in items {
+        if let CheckedItem::Function(f) = item {
+            js.push_str(&codegen_function(f));
+            js.push('\n');
+        }
+    }
+    js
+}
+
 /// Check if an expression doesn't need wrapping in parens when used as an operand.
 /// True for simple atoms and expressions that already produce parenthesized output.
 fn is_safe_operand(expr: &TypedExpr) -> bool {
@@ -651,7 +666,7 @@ fn codegen_params(params: &[(TypedPattern, Type)]) -> (Vec<String>, Vec<String>)
     (param_names, prologue)
 }
 
-pub fn codegen_function(func: &TypedFunction) -> String {
+fn codegen_function(func: &TypedFunction) -> String {
     let (param_names, prologue) = codegen_params(&func.params);
     let body = codegen(&func.body);
 

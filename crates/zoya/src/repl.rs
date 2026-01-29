@@ -4,7 +4,7 @@ use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
 use crate::check::{check_items, check_stmts, TypeEnv, UnifyCtx};
-use crate::codegen::{codegen, codegen_function, codegen_let, prelude};
+use crate::codegen::{codegen, codegen_items, codegen_let, prelude};
 use crate::eval::{self, Context, Value};
 use zoya_ir::{CheckedItem, CheckedStmt, Type, TypedPattern};
 
@@ -179,38 +179,29 @@ impl State {
         // Execute each checked item and statement, collect results
         let mut results = Vec::new();
 
-        // Process items first
+        // Generate and eval all functions at once
+        let js_code = codegen_items(&checked_items);
+        if !js_code.is_empty() {
+            self.context.with(|ctx| {
+                ctx.eval::<(), _>(js_code)
+                    .map_err(|e| format!("JS error: {}", e))
+            })?;
+        }
+
+        // Collect results for all items
         for item in checked_items {
             match item {
-                CheckedItem::Function(typed_func) => {
-                    let name = typed_func.name.clone();
-                    let js_code = codegen_function(&typed_func);
-
-                    // Define function in QuickJS context
-                    self.context.with(|ctx| {
-                        ctx.eval::<(), _>(js_code)
-                            .map_err(|e| format!("JS error: {}", e))
-                    })?;
-
-                    results.push(ReplResult::FunctionDefined(name));
+                CheckedItem::Function(f) => {
+                    results.push(ReplResult::FunctionDefined(f.name.clone()));
                 }
-                CheckedItem::Struct(struct_def) => {
-                    let name = struct_def.name.clone();
-                    // Structs are type declarations - no JS code needed
-                    // The struct is already registered in the type_env by check_repl
-                    results.push(ReplResult::StructDefined(name));
+                CheckedItem::Struct(s) => {
+                    results.push(ReplResult::StructDefined(s.name.clone()));
                 }
-                CheckedItem::Enum(enum_def) => {
-                    let name = enum_def.name.clone();
-                    // Enums are type declarations - no JS code needed
-                    // The enum is already registered in the type_env by check_repl
-                    results.push(ReplResult::EnumDefined(name));
+                CheckedItem::Enum(e) => {
+                    results.push(ReplResult::EnumDefined(e.name.clone()));
                 }
-                CheckedItem::TypeAlias(alias_def) => {
-                    let name = alias_def.name.clone();
-                    // Type aliases are transparent - no JS code needed
-                    // The alias is already registered in the type_env by check_repl
-                    results.push(ReplResult::TypeAliasDefined(name));
+                CheckedItem::TypeAlias(t) => {
+                    results.push(ReplResult::TypeAliasDefined(t.name.clone()));
                 }
             }
         }
