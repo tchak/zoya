@@ -3146,4 +3146,423 @@ mod tests {
             }) if name == "Callback" && type_params.is_empty()
         ));
     }
+
+    // ===== parse_file() tests =====
+
+    fn parse_file_str(input: &str) -> Result<Vec<Item>, ParseError> {
+        let tokens = lex(input).expect("lexing failed");
+        parse_file(tokens)
+    }
+
+    #[test]
+    fn test_parse_file_single_function() {
+        let items = parse_file_str("fn foo() -> Int 42").unwrap();
+        assert_eq!(items.len(), 1);
+        assert!(matches!(&items[0], Item::Function(f) if f.name == "foo"));
+    }
+
+    #[test]
+    fn test_parse_file_multiple_functions() {
+        let items = parse_file_str("fn foo() -> Int 1 fn bar() -> Int 2").unwrap();
+        assert_eq!(items.len(), 2);
+        assert!(matches!(&items[0], Item::Function(f) if f.name == "foo"));
+        assert!(matches!(&items[1], Item::Function(f) if f.name == "bar"));
+    }
+
+    #[test]
+    fn test_parse_file_mixed_items() {
+        let items = parse_file_str(
+            "struct Point { x: Int, y: Int } \
+             enum Option<T> { None, Some(T) } \
+             type IntPair = (Int, Int) \
+             fn make_point(x: Int) -> Point Point { x, y: x }",
+        )
+        .unwrap();
+        assert_eq!(items.len(), 4);
+        assert!(matches!(&items[0], Item::Struct(s) if s.name == "Point"));
+        assert!(matches!(&items[1], Item::Enum(e) if e.name == "Option"));
+        assert!(matches!(&items[2], Item::TypeAlias(t) if t.name == "IntPair"));
+        assert!(matches!(&items[3], Item::Function(f) if f.name == "make_point"));
+    }
+
+    #[test]
+    fn test_parse_file_empty() {
+        let items = parse_file_str("").unwrap();
+        assert!(items.is_empty());
+    }
+
+    // ===== Enum definition tests =====
+
+    #[test]
+    fn test_parse_enum_unit_variants() {
+        let item = parse_item_str("enum Color { Red, Green, Blue }").unwrap();
+        let Item::Enum(e) = item else {
+            panic!("expected enum");
+        };
+        assert_eq!(e.name, "Color");
+        assert_eq!(e.variants.len(), 3);
+        assert!(matches!(&e.variants[0], EnumVariant { name, kind: EnumVariantKind::Unit } if name == "Red"));
+        assert!(matches!(&e.variants[1], EnumVariant { name, kind: EnumVariantKind::Unit } if name == "Green"));
+        assert!(matches!(&e.variants[2], EnumVariant { name, kind: EnumVariantKind::Unit } if name == "Blue"));
+    }
+
+    #[test]
+    fn test_parse_enum_tuple_variant() {
+        let item = parse_item_str("enum Option<T> { None, Some(T) }").unwrap();
+        let Item::Enum(e) = item else {
+            panic!("expected enum");
+        };
+        assert_eq!(e.name, "Option");
+        assert_eq!(e.type_params, vec!["T"]);
+        assert_eq!(e.variants.len(), 2);
+        assert!(matches!(&e.variants[0], EnumVariant { name, kind: EnumVariantKind::Unit } if name == "None"));
+        if let EnumVariant {
+            name,
+            kind: EnumVariantKind::Tuple(types),
+        } = &e.variants[1]
+        {
+            assert_eq!(name, "Some");
+            assert_eq!(types.len(), 1);
+        } else {
+            panic!("expected tuple variant");
+        }
+    }
+
+    #[test]
+    fn test_parse_enum_struct_variant() {
+        let item = parse_item_str("enum Message { Move { x: Int, y: Int } }").unwrap();
+        let Item::Enum(e) = item else {
+            panic!("expected enum");
+        };
+        assert_eq!(e.name, "Message");
+        if let EnumVariant {
+            name,
+            kind: EnumVariantKind::Struct(fields),
+        } = &e.variants[0]
+        {
+            assert_eq!(name, "Move");
+            assert_eq!(fields.len(), 2);
+            assert_eq!(fields[0].name, "x");
+            assert_eq!(fields[1].name, "y");
+        } else {
+            panic!("expected struct variant");
+        }
+    }
+
+    #[test]
+    fn test_parse_enum_generic() {
+        let item = parse_item_str("enum Result<T, E> { Ok(T), Err(E) }").unwrap();
+        let Item::Enum(e) = item else {
+            panic!("expected enum");
+        };
+        assert_eq!(e.name, "Result");
+        assert_eq!(e.type_params, vec!["T", "E"]);
+        assert_eq!(e.variants.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_enum_mixed_variants() {
+        let item = parse_item_str(
+            "enum Event { Click, Move { x: Int, y: Int }, KeyPress(String) }",
+        )
+        .unwrap();
+        let Item::Enum(e) = item else {
+            panic!("expected enum");
+        };
+        assert_eq!(e.name, "Event");
+        assert_eq!(e.variants.len(), 3);
+        assert!(matches!(
+            &e.variants[0],
+            EnumVariant { kind: EnumVariantKind::Unit, .. }
+        ));
+        assert!(matches!(
+            &e.variants[1],
+            EnumVariant { kind: EnumVariantKind::Struct(_), .. }
+        ));
+        assert!(matches!(
+            &e.variants[2],
+            EnumVariant { kind: EnumVariantKind::Tuple(_), .. }
+        ));
+    }
+
+    // ===== Enum pattern tests =====
+
+    #[test]
+    fn test_parse_enum_pattern_unit() {
+        let expr = parse_str("match x { Option::None => 0 }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::Enum(EnumPattern { path, fields }) = &arms[0].pattern {
+                assert_eq!(path.segments, vec!["Option", "None"]);
+                assert!(matches!(fields, EnumPatternFields::Unit));
+            } else {
+                panic!("expected enum pattern");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_enum_pattern_tuple() {
+        let expr = parse_str("match x { Option::Some(v) => v }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::Enum(EnumPattern { path, fields }) = &arms[0].pattern {
+                assert_eq!(path.segments, vec!["Option", "Some"]);
+                if let EnumPatternFields::Tuple(TuplePattern::Exact(patterns)) = fields {
+                    assert_eq!(patterns.len(), 1);
+                    assert!(matches!(&patterns[0], Pattern::Var(n) if n == "v"));
+                } else {
+                    panic!("expected tuple pattern fields");
+                }
+            } else {
+                panic!("expected enum pattern");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_enum_pattern_struct() {
+        let expr = parse_str("match m { Message::Move { x, y } => x + y }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::Enum(EnumPattern { path, fields }) = &arms[0].pattern {
+                assert_eq!(path.segments, vec!["Message", "Move"]);
+                if let EnumPatternFields::Struct { fields, is_partial } = fields {
+                    assert!(!is_partial);
+                    assert_eq!(fields.len(), 2);
+                    assert_eq!(fields[0].field_name, "x");
+                    assert_eq!(fields[1].field_name, "y");
+                } else {
+                    panic!("expected struct pattern fields");
+                }
+            } else {
+                panic!("expected enum pattern");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_enum_pattern_turbofish() {
+        let expr = parse_str("match x { Option::Some::<Int>(v) => v }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::Enum(EnumPattern { path, fields }) = &arms[0].pattern {
+                assert_eq!(path.segments, vec!["Option", "Some"]);
+                assert!(path.type_args.is_some());
+                let type_args = path.type_args.as_ref().unwrap();
+                assert_eq!(type_args.len(), 1);
+                assert!(matches!(&type_args[0], TypeAnnotation::Named(n) if n.as_simple() == Some("Int")));
+                assert!(matches!(fields, EnumPatternFields::Tuple(_)));
+            } else {
+                panic!("expected enum pattern");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_enum_pattern_tuple_with_rest() {
+        let expr = parse_str("match x { Triple::V(first, ..) => first }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::Enum(EnumPattern { path, fields }) = &arms[0].pattern {
+                assert_eq!(path.segments, vec!["Triple", "V"]);
+                if let EnumPatternFields::Tuple(TuplePattern::Prefix {
+                    patterns,
+                    rest_binding,
+                }) = fields
+                {
+                    assert_eq!(patterns.len(), 1);
+                    assert!(matches!(&patterns[0], Pattern::Var(n) if n == "first"));
+                    assert!(rest_binding.is_none());
+                } else {
+                    panic!("expected tuple prefix pattern fields");
+                }
+            } else {
+                panic!("expected enum pattern");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_enum_pattern_struct_with_rest() {
+        let expr = parse_str("match m { Message::Move { x, .. } => x }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::Enum(EnumPattern { path, fields }) = &arms[0].pattern {
+                assert_eq!(path.segments, vec!["Message", "Move"]);
+                if let EnumPatternFields::Struct { fields, is_partial } = fields {
+                    assert!(is_partial);
+                    assert_eq!(fields.len(), 1);
+                    assert_eq!(fields[0].field_name, "x");
+                } else {
+                    panic!("expected struct pattern fields");
+                }
+            } else {
+                panic!("expected enum pattern");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_enum_pattern_empty_tuple() {
+        let expr = parse_str("match x { Unit::Empty() => 0 }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::Enum(EnumPattern { fields, .. }) = &arms[0].pattern {
+                assert!(matches!(fields, EnumPatternFields::Tuple(TuplePattern::Empty)));
+            } else {
+                panic!("expected enum pattern");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_enum_pattern_tuple_suffix() {
+        let expr = parse_str("match x { Triple::V(.., last) => last }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::Enum(EnumPattern { fields, .. }) = &arms[0].pattern {
+                if let EnumPatternFields::Tuple(TuplePattern::Suffix { patterns, .. }) = fields {
+                    assert_eq!(patterns.len(), 1);
+                    assert!(matches!(&patterns[0], Pattern::Var(n) if n == "last"));
+                } else {
+                    panic!("expected tuple suffix pattern");
+                }
+            } else {
+                panic!("expected enum pattern");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_enum_pattern_tuple_prefix_suffix() {
+        let expr = parse_str("match x { Triple::V(a, .., z) => a + z }").unwrap();
+        if let Expr::Match { arms, .. } = expr {
+            if let Pattern::Enum(EnumPattern { fields, .. }) = &arms[0].pattern {
+                if let EnumPatternFields::Tuple(TuplePattern::PrefixSuffix {
+                    prefix,
+                    suffix,
+                    ..
+                }) = fields
+                {
+                    assert_eq!(prefix.len(), 1);
+                    assert_eq!(suffix.len(), 1);
+                } else {
+                    panic!("expected tuple prefix+suffix pattern");
+                }
+            } else {
+                panic!("expected enum pattern");
+            }
+        } else {
+            panic!("expected match expression");
+        }
+    }
+
+    // ===== Error case tests =====
+
+    // Note: Some error cases produce generic parser errors rather than our custom
+    // messages because chumsky fails earlier during parsing before reaching our
+    // try_map validation. We still verify that invalid syntax produces errors.
+
+    #[test]
+    fn test_parse_list_pattern_multiple_rest_error() {
+        // Multiple .. in list pattern - parser fails with a syntax error
+        let result = parse_str("match xs { [a, .., .., c] => a }");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_tuple_pattern_multiple_rest_error() {
+        // Multiple .. in tuple pattern - parser fails with a syntax error
+        let result = parse_str("match t { (a, .., .., z) => a }");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_struct_pattern_rest_binding_error() {
+        // @ binding on struct rest pattern - not allowed
+        let result = parse_str("match p { Point { x, y @ .. } => x }");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_enum_tuple_pattern_multiple_rest_error() {
+        // Multiple .. in enum tuple pattern - parser fails with a syntax error
+        let result = parse_str("match x { Triple::V(a, .., .., z) => a }");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_enum_struct_pattern_multiple_rest_error() {
+        // Multiple .. in enum struct pattern - produces our custom error
+        let result = parse_str("match m { Message::Move { x, .., .. } => x }");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .message
+            .contains("only one .. allowed in enum struct pattern"));
+    }
+
+    #[test]
+    fn test_parse_enum_struct_pattern_rest_binding_error() {
+        // @ binding on enum struct rest pattern - not allowed
+        let result = parse_str("match m { Message::Move { x, y @ .. } => x }");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_file_error() {
+        // Invalid syntax in file - should produce an error
+        let result = parse_file_str("fn foo( 42");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_struct_pattern_multiple_rest_error() {
+        // Multiple .. in struct pattern - parser fails with a syntax error
+        let result = parse_str("match p { Point { x, .., .. } => x }");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_let_type_annotation_on_tuple_error() {
+        // Type annotation on tuple pattern in let - produces custom error in match arm
+        let result = parse_str("match x { n => { let (a, b): (Int, Int) = n; a } }");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .message
+            .contains("type annotations are only allowed on simple variable patterns"));
+    }
+
+    #[test]
+    fn test_parse_lambda_let_type_annotation_error() {
+        // Type annotation on tuple pattern in lambda body - produces custom error
+        let result = parse_str("|x| { let (a, b): (Int, Int) = x; a }");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .message
+            .contains("type annotations are only allowed on simple variable patterns"));
+    }
+
+    #[test]
+    fn test_parse_lambda_braced_body_no_bindings() {
+        // Lambda with braces but no let bindings - should unwrap to just the expression
+        let expr = parse_str("|x| { x + 1 }").unwrap();
+        if let Expr::Lambda { body, .. } = expr {
+            // Should not be a Block, just a BinOp expression
+            assert!(matches!(*body, Expr::BinOp { op: BinOp::Add, .. }));
+        } else {
+            panic!("expected lambda");
+        }
+    }
 }
