@@ -24,6 +24,8 @@ zoya build file.zoya  # Compile to JavaScript
 ## Dependencies
 
 - [zoya-ast](../zoya-ast) - AST types
+- [zoya-codegen](../zoya-codegen) - JavaScript code generation
+- [zoya-ir](../zoya-ir) - Typed IR and type definitions
 - [zoya-lexer](../zoya-lexer) - Tokenizer
 - [zoya-parser](../zoya-parser) - Parser
 - [clap](https://github.com/clap-rs/clap) - CLI argument parsing

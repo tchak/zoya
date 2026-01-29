@@ -16,15 +16,12 @@ crates/
 │   └── src/
 │       ├── main.rs        # CLI (clap)
 │       ├── check.rs       # Type checker → TypedExpr
-│       ├── unify.rs       # Type unification (Union-Find)
-│       ├── usefulness.rs  # Pattern exhaustiveness (Maranget)
-│       ├── ir.rs          # Typed IR
-│       ├── types.rs       # Type definitions
-│       ├── codegen.rs     # JavaScript generation
 │       ├── eval.rs        # JS execution (rquickjs)
 │       ├── repl.rs        # REPL (rustyline)
 │       └── runner.rs      # File runner
 ├── zoya-ast/          # Untyped AST types
+├── zoya-codegen/      # JavaScript code generation
+├── zoya-ir/           # Typed IR and type definitions
 ├── zoya-lexer/        # Tokenizer (logos)
 └── zoya-parser/       # Parser (chumsky)
 ```
@@ -81,7 +78,7 @@ New features need tests at each pipeline stage:
 | `zoya-lexer` | Token recognition |
 | `zoya-parser` | AST structure |
 | `zoya` (check) | Type checking pass/fail |
-| `zoya` (codegen) | Generated JS correctness |
+| `zoya-codegen` | Generated JS correctness |
 | `zoya` (runner) | End-to-end execution |
 
 ```bash
