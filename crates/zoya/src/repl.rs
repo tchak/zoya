@@ -4,7 +4,7 @@ use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
 use crate::check::{TypeEnv, check_items, check_stmts};
-use crate::unify::UnifyCtx;
+use crate::check::UnifyCtx;
 use crate::codegen::{codegen, codegen_function, codegen_let, prelude};
 use crate::eval::{self, Context, Value};
 use crate::ir::{CheckedItem, CheckedStmt, TypedPattern};

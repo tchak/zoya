@@ -6,7 +6,7 @@ use zoya_ast::{
 };
 use crate::ir::{QualifiedPath, TypedLetBinding, TypedMatchArm, TypedPattern};
 use crate::types::{EnumVariantType, Type, TypeError, TypeScheme, TypeVarId};
-use crate::unify::UnifyCtx;
+use super::unify::UnifyCtx;
 
 use super::naming::{is_snake_case, to_snake_case};
 use super::type_resolver::resolve_type_annotation;

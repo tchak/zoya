@@ -2,7 +2,7 @@ use crate::check::{check_items, TypeEnv};
 use crate::codegen::{codegen_function, prelude};
 use crate::eval::{self, EvalError, Value};
 use crate::ir::{CheckedItem, TypedFunction};
-use crate::unify::UnifyCtx;
+use crate::check::UnifyCtx;
 
 /// Run Zoya source code and return the result
 pub fn run(source: &str) -> Result<Value, EvalError> {

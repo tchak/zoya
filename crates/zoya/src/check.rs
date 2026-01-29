@@ -3,6 +3,8 @@ mod definition;
 mod naming;
 mod pattern;
 mod type_resolver;
+mod unify;
+mod usefulness;
 
 use std::collections::{HashMap, HashSet};
 
@@ -13,8 +15,8 @@ use crate::ir::{
     CheckedItem, CheckedStmt, QualifiedPath, TypedEnumConstructFields, TypedExpr, TypedFunction,
 };
 use crate::types::{EnumType, EnumVariantType, FunctionType, StructType, Type, TypeAliasType, TypeError, TypeScheme, TypeVarId};
-use crate::unify::UnifyCtx;
-use crate::usefulness;
+
+pub use unify::UnifyCtx;
 
 pub use builtin::{builtin_enums, builtin_method, is_numeric_type};
 pub use definition::{enum_type_from_def, function_type_from_def, struct_type_from_def, type_alias_from_def};

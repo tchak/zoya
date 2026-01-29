@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use zoya_ast::{EnumDef, FunctionDef, StructDef, TypeAliasDef};
 use crate::types::{EnumType, EnumVariantType, FunctionType, StructType, Type, TypeAliasType, TypeError};
-use crate::unify::UnifyCtx;
+use super::unify::UnifyCtx;
 
 use super::naming::{is_pascal_case, to_pascal_case};
 use super::type_resolver::resolve_type_annotation;

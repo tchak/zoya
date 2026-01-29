@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::check::{check_items, TypeEnv};
-use crate::unify::UnifyCtx;
+use crate::check::UnifyCtx;
 
 /// Type-check a file without executing it
 pub fn execute(path: &Path) -> Result<(), String> {
