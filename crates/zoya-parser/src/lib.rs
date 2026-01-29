@@ -1654,32 +1654,30 @@ mod tests {
     #[test]
     fn test_parse_function_tuple_param() {
         let item = parse_item_str("fn swap((a, b): (Int, Int)) -> (Int, Int) (b, a)").unwrap();
-        if let Item::Function(func) = item {
-            assert_eq!(func.name, "swap");
-            assert_eq!(func.params.len(), 1);
-            assert!(matches!(
-                &func.params[0].pattern,
-                Pattern::Tuple(TuplePattern::Exact(patterns))
-                if patterns.len() == 2
-            ));
-        } else {
-            panic!("expected function");
-        }
+        let Item::Function(func) = item else {
+            panic!("expected function")
+        };
+        assert_eq!(func.name, "swap");
+        assert_eq!(func.params.len(), 1);
+        assert!(matches!(
+            &func.params[0].pattern,
+            Pattern::Tuple(TuplePattern::Exact(patterns))
+            if patterns.len() == 2
+        ));
     }
 
     #[test]
     fn test_parse_lambda_tuple_param() {
         let expr = parse_str("|(a, b)| a + b").unwrap();
-        if let Expr::Lambda { params, .. } = expr {
-            assert_eq!(params.len(), 1);
-            assert!(matches!(
-                &params[0].pattern,
-                Pattern::Tuple(TuplePattern::Exact(patterns))
-                if patterns.len() == 2
-            ));
-        } else {
-            panic!("expected lambda");
-        }
+        let Expr::Lambda { params, .. } = expr else {
+            panic!("expected lambda")
+        };
+        assert_eq!(params.len(), 1);
+        assert!(matches!(
+            &params[0].pattern,
+            Pattern::Tuple(TuplePattern::Exact(patterns))
+            if patterns.len() == 2
+        ));
     }
 
     #[test]
@@ -1915,18 +1913,17 @@ mod tests {
     #[test]
     fn test_parse_function_with_multiple_lets() {
         let item = parse_item_str("fn foo() { let x = 1; let y = 2; x + y }").unwrap();
-        if let Item::Function(FunctionDef {
+        let Item::Function(FunctionDef {
             body: Expr::Block { bindings, result },
             ..
         }) = item
-        {
-            assert_eq!(bindings.len(), 2);
-            assert!(matches!(&bindings[0].pattern, Pattern::Var(n) if n == "x"));
-            assert!(matches!(&bindings[1].pattern, Pattern::Var(n) if n == "y"));
-            assert!(matches!(*result, Expr::BinOp { .. }));
-        } else {
-            panic!("expected function with block body");
-        }
+        else {
+            panic!("expected function with block body")
+        };
+        assert_eq!(bindings.len(), 2);
+        assert!(matches!(&bindings[0].pattern, Pattern::Var(n) if n == "x"));
+        assert!(matches!(&bindings[1].pattern, Pattern::Var(n) if n == "y"));
+        assert!(matches!(*result, Expr::BinOp { .. }));
     }
 
     #[test]
@@ -2002,63 +1999,59 @@ mod tests {
     #[test]
     fn test_parse_match_with_literals() {
         let expr = parse_str("match x { 0 => 1, 1 => 2 }").unwrap();
-        if let Expr::Match { scrutinee, arms } = expr {
-            assert!(matches!(*scrutinee, Expr::Path(ref p) if p.as_simple() == Some("x")));
-            assert_eq!(arms.len(), 2);
-            assert!(matches!(
-                &arms[0],
-                MatchArm {
-                    pattern: Pattern::Literal(lit),
-                    result: Expr::Int(1),
-                } if **lit == Expr::Int(0)
-            ));
-            assert!(matches!(
-                &arms[1],
-                MatchArm {
-                    pattern: Pattern::Literal(lit),
-                    result: Expr::Int(2),
-                } if **lit == Expr::Int(1)
-            ));
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { scrutinee, arms } = expr else {
+            panic!("expected match expression")
+        };
+        assert!(matches!(*scrutinee, Expr::Path(ref p) if p.as_simple() == Some("x")));
+        assert_eq!(arms.len(), 2);
+        assert!(matches!(
+            &arms[0],
+            MatchArm {
+                pattern: Pattern::Literal(lit),
+                result: Expr::Int(1),
+            } if **lit == Expr::Int(0)
+        ));
+        assert!(matches!(
+            &arms[1],
+            MatchArm {
+                pattern: Pattern::Literal(lit),
+                result: Expr::Int(2),
+            } if **lit == Expr::Int(1)
+        ));
     }
 
     #[test]
     fn test_parse_match_with_wildcard() {
         let expr = parse_str("match x { 0 => 1, _ => 2 }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            assert_eq!(arms.len(), 2);
-            assert!(matches!(arms[1].pattern, Pattern::Wildcard));
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        assert_eq!(arms.len(), 2);
+        assert!(matches!(arms[1].pattern, Pattern::Wildcard));
     }
 
     #[test]
     fn test_parse_match_with_variable() {
         let expr = parse_str("match x { n => n }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            assert_eq!(arms.len(), 1);
-            assert!(matches!(&arms[0].pattern, Pattern::Var(s) if s == "n"));
-            assert!(matches!(&arms[0].result, Expr::Path(p) if p.as_simple() == Some("n")));
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        assert_eq!(arms.len(), 1);
+        assert!(matches!(&arms[0].pattern, Pattern::Var(s) if s == "n"));
+        assert!(matches!(&arms[0].result, Expr::Path(p) if p.as_simple() == Some("n")));
     }
 
     #[test]
     fn test_parse_match_with_strings() {
         let expr = parse_str(r#"match s { "a" => 1, "b" => 2 }"#).unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            assert_eq!(arms.len(), 2);
-            assert!(matches!(
-                &arms[0].pattern,
-                Pattern::Literal(lit) if **lit == Expr::String("a".to_string())
-            ));
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        assert_eq!(arms.len(), 2);
+        assert!(matches!(
+            &arms[0].pattern,
+            Pattern::Literal(lit) if **lit == Expr::String("a".to_string())
+        ));
     }
 
     #[test]
@@ -2102,24 +2095,23 @@ mod tests {
     fn test_parse_chained_method_calls() {
         let expr = parse_str(r#""hello".to_uppercase().len()"#).unwrap();
         // Should parse as ("hello".to_uppercase()).len()
-        if let Expr::MethodCall {
+        let Expr::MethodCall {
             receiver,
             method,
             args,
         } = expr
-        {
-            assert_eq!(method, "len");
-            assert!(args.is_empty());
-            assert!(matches!(
-                *receiver,
-                Expr::MethodCall {
-                    method: ref m,
-                    ..
-                } if m == "to_uppercase"
-            ));
-        } else {
-            panic!("expected method call");
-        }
+        else {
+            panic!("expected method call")
+        };
+        assert_eq!(method, "len");
+        assert!(args.is_empty());
+        assert!(matches!(
+            *receiver,
+            Expr::MethodCall {
+                method: ref m,
+                ..
+            } if m == "to_uppercase"
+        ));
     }
 
     #[test]
@@ -2190,161 +2182,140 @@ mod tests {
     #[test]
     fn test_parse_match_empty_list_pattern() {
         let expr = parse_str("match xs { [] => 0 }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            assert!(matches!(&arms[0].pattern, Pattern::List(ListPattern::Empty)));
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        assert!(matches!(&arms[0].pattern, Pattern::List(ListPattern::Empty)));
     }
 
     #[test]
     fn test_parse_match_exact_list_pattern() {
         let expr = parse_str("match xs { [a, b] => a }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::List(ListPattern::Exact(patterns)) = &arms[0].pattern {
-                assert_eq!(patterns.len(), 2);
-                assert!(matches!(&patterns[0], Pattern::Var(s) if s == "a"));
-                assert!(matches!(&patterns[1], Pattern::Var(s) if s == "b"));
-            } else {
-                panic!("expected exact list pattern");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::List(ListPattern::Exact(patterns)) = &arms[0].pattern else {
+            panic!("expected exact list pattern")
+        };
+        assert_eq!(patterns.len(), 2);
+        assert!(matches!(&patterns[0], Pattern::Var(s) if s == "a"));
+        assert!(matches!(&patterns[1], Pattern::Var(s) if s == "b"));
     }
 
     #[test]
     fn test_parse_match_prefix_list_pattern() {
         let expr = parse_str("match xs { [head, ..] => head }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::List(ListPattern::Prefix { patterns, rest_binding }) = &arms[0].pattern
-            {
-                assert_eq!(patterns.len(), 1);
-                assert!(matches!(&patterns[0], Pattern::Var(s) if s == "head"));
-                assert!(rest_binding.is_none());
-            } else {
-                panic!("expected prefix list pattern");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::List(ListPattern::Prefix { patterns, rest_binding }) = &arms[0].pattern else {
+            panic!("expected prefix list pattern")
+        };
+        assert_eq!(patterns.len(), 1);
+        assert!(matches!(&patterns[0], Pattern::Var(s) if s == "head"));
+        assert!(rest_binding.is_none());
     }
 
     #[test]
     fn test_parse_match_list_pattern_with_literals() {
         let expr = parse_str("match xs { [1, x, ..] => x }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::List(ListPattern::Prefix { patterns, rest_binding }) = &arms[0].pattern
-            {
-                assert_eq!(patterns.len(), 2);
-                assert!(matches!(&patterns[0], Pattern::Literal(lit) if **lit == Expr::Int(1)));
-                assert!(matches!(&patterns[1], Pattern::Var(s) if s == "x"));
-                assert!(rest_binding.is_none());
-            } else {
-                panic!("expected prefix list pattern");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::List(ListPattern::Prefix { patterns, rest_binding }) = &arms[0].pattern else {
+            panic!("expected prefix list pattern")
+        };
+        assert_eq!(patterns.len(), 2);
+        assert!(matches!(&patterns[0], Pattern::Literal(lit) if **lit == Expr::Int(1)));
+        assert!(matches!(&patterns[1], Pattern::Var(s) if s == "x"));
+        assert!(rest_binding.is_none());
     }
 
     #[test]
     fn test_parse_match_list_pattern_with_wildcard() {
         let expr = parse_str("match xs { [_, x] => x }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::List(ListPattern::Exact(patterns)) = &arms[0].pattern {
-                assert_eq!(patterns.len(), 2);
-                assert!(matches!(&patterns[0], Pattern::Wildcard));
-                assert!(matches!(&patterns[1], Pattern::Var(s) if s == "x"));
-            } else {
-                panic!("expected exact list pattern");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::List(ListPattern::Exact(patterns)) = &arms[0].pattern else {
+            panic!("expected exact list pattern")
+        };
+        assert_eq!(patterns.len(), 2);
+        assert!(matches!(&patterns[0], Pattern::Wildcard));
+        assert!(matches!(&patterns[1], Pattern::Var(s) if s == "x"));
     }
 
     #[test]
     fn test_parse_match_suffix_list_pattern() {
         let expr = parse_str("match xs { [.., last] => last }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::List(ListPattern::Suffix { patterns, rest_binding }) = &arms[0].pattern
-            {
-                assert_eq!(patterns.len(), 1);
-                assert!(matches!(&patterns[0], Pattern::Var(s) if s == "last"));
-                assert!(rest_binding.is_none());
-            } else {
-                panic!("expected suffix list pattern");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::List(ListPattern::Suffix { patterns, rest_binding }) = &arms[0].pattern else {
+            panic!("expected suffix list pattern")
+        };
+        assert_eq!(patterns.len(), 1);
+        assert!(matches!(&patterns[0], Pattern::Var(s) if s == "last"));
+        assert!(rest_binding.is_none());
     }
 
     #[test]
     fn test_parse_match_suffix_list_pattern_multiple() {
         let expr = parse_str("match xs { [.., x, y] => x }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::List(ListPattern::Suffix { patterns, rest_binding }) = &arms[0].pattern
-            {
-                assert_eq!(patterns.len(), 2);
-                assert!(matches!(&patterns[0], Pattern::Var(s) if s == "x"));
-                assert!(matches!(&patterns[1], Pattern::Var(s) if s == "y"));
-                assert!(rest_binding.is_none());
-            } else {
-                panic!("expected suffix list pattern");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::List(ListPattern::Suffix { patterns, rest_binding }) = &arms[0].pattern else {
+            panic!("expected suffix list pattern")
+        };
+        assert_eq!(patterns.len(), 2);
+        assert!(matches!(&patterns[0], Pattern::Var(s) if s == "x"));
+        assert!(matches!(&patterns[1], Pattern::Var(s) if s == "y"));
+        assert!(rest_binding.is_none());
     }
 
     #[test]
     fn test_parse_match_prefix_suffix_list_pattern() {
         let expr = parse_str("match xs { [first, .., last] => first }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::List(ListPattern::PrefixSuffix {
-                prefix,
-                suffix,
-                rest_binding,
-            }) = &arms[0].pattern
-            {
-                assert_eq!(prefix.len(), 1);
-                assert_eq!(suffix.len(), 1);
-                assert!(matches!(&prefix[0], Pattern::Var(s) if s == "first"));
-                assert!(matches!(&suffix[0], Pattern::Var(s) if s == "last"));
-                assert!(rest_binding.is_none());
-            } else {
-                panic!("expected prefix+suffix list pattern");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::List(ListPattern::PrefixSuffix {
+            prefix,
+            suffix,
+            rest_binding,
+        }) = &arms[0].pattern
+        else {
+            panic!("expected prefix+suffix list pattern")
+        };
+        assert_eq!(prefix.len(), 1);
+        assert_eq!(suffix.len(), 1);
+        assert!(matches!(&prefix[0], Pattern::Var(s) if s == "first"));
+        assert!(matches!(&suffix[0], Pattern::Var(s) if s == "last"));
+        assert!(rest_binding.is_none());
     }
 
     #[test]
     fn test_parse_match_prefix_suffix_multiple() {
         let expr = parse_str("match xs { [a, b, .., y, z] => a }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::List(ListPattern::PrefixSuffix {
-                prefix,
-                suffix,
-                rest_binding,
-            }) = &arms[0].pattern
-            {
-                assert_eq!(prefix.len(), 2);
-                assert_eq!(suffix.len(), 2);
-                assert!(matches!(&prefix[0], Pattern::Var(s) if s == "a"));
-                assert!(matches!(&prefix[1], Pattern::Var(s) if s == "b"));
-                assert!(matches!(&suffix[0], Pattern::Var(s) if s == "y"));
-                assert!(matches!(&suffix[1], Pattern::Var(s) if s == "z"));
-                assert!(rest_binding.is_none());
-            } else {
-                panic!("expected prefix+suffix list pattern");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::List(ListPattern::PrefixSuffix {
+            prefix,
+            suffix,
+            rest_binding,
+        }) = &arms[0].pattern
+        else {
+            panic!("expected prefix+suffix list pattern")
+        };
+        assert_eq!(prefix.len(), 2);
+        assert_eq!(suffix.len(), 2);
+        assert!(matches!(&prefix[0], Pattern::Var(s) if s == "a"));
+        assert!(matches!(&prefix[1], Pattern::Var(s) if s == "b"));
+        assert!(matches!(&suffix[0], Pattern::Var(s) if s == "y"));
+        assert!(matches!(&suffix[1], Pattern::Var(s) if s == "z"));
+        assert!(rest_binding.is_none());
     }
 
     // Parameterized type annotation tests
@@ -2395,443 +2366,399 @@ mod tests {
     #[test]
     fn test_parse_tuple_pattern_exact() {
         let expr = parse_str("match t { (a, b) => a }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::Tuple(TuplePattern::Exact(patterns)) = &arms[0].pattern {
-                assert_eq!(patterns.len(), 2);
-                assert!(matches!(&patterns[0], Pattern::Var(s) if s == "a"));
-                assert!(matches!(&patterns[1], Pattern::Var(s) if s == "b"));
-            } else {
-                panic!("expected exact tuple pattern");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::Tuple(TuplePattern::Exact(patterns)) = &arms[0].pattern else {
+            panic!("expected exact tuple pattern")
+        };
+        assert_eq!(patterns.len(), 2);
+        assert!(matches!(&patterns[0], Pattern::Var(s) if s == "a"));
+        assert!(matches!(&patterns[1], Pattern::Var(s) if s == "b"));
     }
 
     #[test]
     fn test_parse_tuple_pattern_prefix() {
         let expr = parse_str("match t { (a, ..) => a }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::Tuple(TuplePattern::Prefix { patterns, rest_binding }) =
-                &arms[0].pattern
-            {
-                assert_eq!(patterns.len(), 1);
-                assert!(matches!(&patterns[0], Pattern::Var(s) if s == "a"));
-                assert!(rest_binding.is_none());
-            } else {
-                panic!("expected prefix tuple pattern");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::Tuple(TuplePattern::Prefix { patterns, rest_binding }) = &arms[0].pattern
+        else {
+            panic!("expected prefix tuple pattern")
+        };
+        assert_eq!(patterns.len(), 1);
+        assert!(matches!(&patterns[0], Pattern::Var(s) if s == "a"));
+        assert!(rest_binding.is_none());
     }
 
     #[test]
     fn test_parse_tuple_pattern_suffix() {
         let expr = parse_str("match t { (.., z) => z }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::Tuple(TuplePattern::Suffix { patterns, rest_binding }) =
-                &arms[0].pattern
-            {
-                assert_eq!(patterns.len(), 1);
-                assert!(matches!(&patterns[0], Pattern::Var(s) if s == "z"));
-                assert!(rest_binding.is_none());
-            } else {
-                panic!("expected suffix tuple pattern");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::Tuple(TuplePattern::Suffix { patterns, rest_binding }) = &arms[0].pattern
+        else {
+            panic!("expected suffix tuple pattern")
+        };
+        assert_eq!(patterns.len(), 1);
+        assert!(matches!(&patterns[0], Pattern::Var(s) if s == "z"));
+        assert!(rest_binding.is_none());
     }
 
     #[test]
     fn test_parse_tuple_pattern_prefix_suffix() {
         let expr = parse_str("match t { (a, .., z) => a + z }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::Tuple(TuplePattern::PrefixSuffix {
-                prefix,
-                suffix,
-                rest_binding,
-            }) = &arms[0].pattern
-            {
-                assert_eq!(prefix.len(), 1);
-                assert_eq!(suffix.len(), 1);
-                assert!(matches!(&prefix[0], Pattern::Var(s) if s == "a"));
-                assert!(matches!(&suffix[0], Pattern::Var(s) if s == "z"));
-                assert!(rest_binding.is_none());
-            } else {
-                panic!("expected prefix+suffix tuple pattern");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::Tuple(TuplePattern::PrefixSuffix {
+            prefix,
+            suffix,
+            rest_binding,
+        }) = &arms[0].pattern
+        else {
+            panic!("expected prefix+suffix tuple pattern")
+        };
+        assert_eq!(prefix.len(), 1);
+        assert_eq!(suffix.len(), 1);
+        assert!(matches!(&prefix[0], Pattern::Var(s) if s == "a"));
+        assert!(matches!(&suffix[0], Pattern::Var(s) if s == "z"));
+        assert!(rest_binding.is_none());
     }
 
     #[test]
     fn test_parse_tuple_pattern_empty() {
         let expr = parse_str("match t { () => 0 }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            assert!(matches!(&arms[0].pattern, Pattern::Tuple(TuplePattern::Empty)));
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        assert!(matches!(&arms[0].pattern, Pattern::Tuple(TuplePattern::Empty)));
     }
 
     // As pattern (@) tests
     #[test]
     fn test_parse_as_pattern() {
         let expr = parse_str("match x { n @ 42 => n }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::As { name, pattern } = &arms[0].pattern {
-                assert_eq!(name, "n");
-                assert!(matches!(pattern.as_ref(), Pattern::Literal(lit) if **lit == Expr::Int(42)));
-            } else {
-                panic!("expected as pattern");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::As { name, pattern } = &arms[0].pattern else {
+            panic!("expected as pattern")
+        };
+        assert_eq!(name, "n");
+        assert!(matches!(pattern.as_ref(), Pattern::Literal(lit) if **lit == Expr::Int(42)));
     }
 
     #[test]
     fn test_parse_list_rest_binding() {
         let expr = parse_str("match xs { [first, rest @ ..] => rest }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::List(ListPattern::Prefix { patterns, rest_binding }) = &arms[0].pattern
-            {
-                assert_eq!(patterns.len(), 1);
-                assert!(matches!(&patterns[0], Pattern::Var(s) if s == "first"));
-                assert_eq!(rest_binding.as_deref(), Some("rest"));
-            } else {
-                panic!("expected prefix list pattern with rest binding");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::List(ListPattern::Prefix { patterns, rest_binding }) = &arms[0].pattern else {
+            panic!("expected prefix list pattern with rest binding")
+        };
+        assert_eq!(patterns.len(), 1);
+        assert!(matches!(&patterns[0], Pattern::Var(s) if s == "first"));
+        assert_eq!(rest_binding.as_deref(), Some("rest"));
     }
 
     #[test]
     fn test_parse_list_rest_binding_suffix() {
         let expr = parse_str("match xs { [rest @ .., last] => rest }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::List(ListPattern::Suffix { patterns, rest_binding }) = &arms[0].pattern
-            {
-                assert_eq!(patterns.len(), 1);
-                assert!(matches!(&patterns[0], Pattern::Var(s) if s == "last"));
-                assert_eq!(rest_binding.as_deref(), Some("rest"));
-            } else {
-                panic!("expected suffix list pattern with rest binding");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::List(ListPattern::Suffix { patterns, rest_binding }) = &arms[0].pattern else {
+            panic!("expected suffix list pattern with rest binding")
+        };
+        assert_eq!(patterns.len(), 1);
+        assert!(matches!(&patterns[0], Pattern::Var(s) if s == "last"));
+        assert_eq!(rest_binding.as_deref(), Some("rest"));
     }
 
     #[test]
     fn test_parse_tuple_rest_binding() {
         let expr = parse_str("match t { (a, rest @ ..) => rest }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::Tuple(TuplePattern::Prefix { patterns, rest_binding }) =
-                &arms[0].pattern
-            {
-                assert_eq!(patterns.len(), 1);
-                assert!(matches!(&patterns[0], Pattern::Var(s) if s == "a"));
-                assert_eq!(rest_binding.as_deref(), Some("rest"));
-            } else {
-                panic!("expected prefix tuple pattern with rest binding");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::Tuple(TuplePattern::Prefix { patterns, rest_binding }) = &arms[0].pattern
+        else {
+            panic!("expected prefix tuple pattern with rest binding")
+        };
+        assert_eq!(patterns.len(), 1);
+        assert!(matches!(&patterns[0], Pattern::Var(s) if s == "a"));
+        assert_eq!(rest_binding.as_deref(), Some("rest"));
     }
 
     // Match arm block expression tests
     #[test]
     fn test_parse_match_with_commas() {
         let expr = parse_str("match x { 0 => 1, 1 => 2 }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            assert_eq!(arms.len(), 2);
-            assert!(matches!(&arms[0].result, Expr::Int(1)));
-            assert!(matches!(&arms[1].result, Expr::Int(2)));
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        assert_eq!(arms.len(), 2);
+        assert!(matches!(&arms[0].result, Expr::Int(1)));
+        assert!(matches!(&arms[1].result, Expr::Int(2)));
     }
 
     #[test]
     fn test_parse_match_with_trailing_comma() {
         let expr = parse_str("match x { 0 => 1, _ => 2, }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            assert_eq!(arms.len(), 2);
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        assert_eq!(arms.len(), 2);
     }
 
     #[test]
     fn test_parse_match_braced_simple() {
         let expr = parse_str("match x { 0 => { 1 }, _ => { 2 } }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            assert_eq!(arms.len(), 2);
-            // Braced simple expressions should unwrap to just the expression
-            assert!(matches!(&arms[0].result, Expr::Int(1)));
-            assert!(matches!(&arms[1].result, Expr::Int(2)));
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        assert_eq!(arms.len(), 2);
+        // Braced simple expressions should unwrap to just the expression
+        assert!(matches!(&arms[0].result, Expr::Int(1)));
+        assert!(matches!(&arms[1].result, Expr::Int(2)));
     }
 
     #[test]
     fn test_parse_match_braced_block() {
         let expr = parse_str("match x { 0 => { let y = 1; y + 1 }, _ => 0 }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            assert_eq!(arms.len(), 2);
-            if let Expr::Block { bindings, result } = &arms[0].result {
-                assert_eq!(bindings.len(), 1);
-                assert!(matches!(&bindings[0].pattern, Pattern::Var(n) if n == "y"));
-                assert!(matches!(**result, Expr::BinOp { .. }));
-            } else {
-                panic!("expected block expression in first arm");
-            }
-            assert!(matches!(&arms[1].result, Expr::Int(0)));
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        assert_eq!(arms.len(), 2);
+        let Expr::Block { bindings, result } = &arms[0].result else {
+            panic!("expected block expression in first arm")
+        };
+        assert_eq!(bindings.len(), 1);
+        assert!(matches!(&bindings[0].pattern, Pattern::Var(n) if n == "y"));
+        assert!(matches!(**result, Expr::BinOp { .. }));
+        assert!(matches!(&arms[1].result, Expr::Int(0)));
     }
 
     #[test]
     fn test_parse_match_mixed() {
         // Mix of braced and non-braced arms with commas
         let expr = parse_str("match x { 0 => 1, 1 => { 2 }, _ => { let z = 3; z } }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            assert_eq!(arms.len(), 3);
-            assert!(matches!(&arms[0].result, Expr::Int(1)));
-            assert!(matches!(&arms[1].result, Expr::Int(2)));
-            assert!(matches!(&arms[2].result, Expr::Block { .. }));
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        assert_eq!(arms.len(), 3);
+        assert!(matches!(&arms[0].result, Expr::Int(1)));
+        assert!(matches!(&arms[1].result, Expr::Int(2)));
+        assert!(matches!(&arms[2].result, Expr::Block { .. }));
     }
 
     #[test]
     fn test_parse_match_braced_block_with_semicolons() {
         let expr = parse_str("match x { n => { let a = n; let b = a * 2; a + b } }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Expr::Block { bindings, .. } = &arms[0].result {
-                assert_eq!(bindings.len(), 2);
-                assert!(matches!(&bindings[0].pattern, Pattern::Var(n) if n == "a"));
-                assert!(matches!(&bindings[1].pattern, Pattern::Var(n) if n == "b"));
-            } else {
-                panic!("expected block expression");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Expr::Block { bindings, .. } = &arms[0].result else {
+            panic!("expected block expression")
+        };
+        assert_eq!(bindings.len(), 2);
+        assert!(matches!(&bindings[0].pattern, Pattern::Var(n) if n == "a"));
+        assert!(matches!(&bindings[1].pattern, Pattern::Var(n) if n == "b"));
     }
 
     #[test]
     fn test_parse_match_braced_with_pattern_binding() {
         // Pattern binding should be usable in the block
         let expr = parse_str("match x { n => { let doubled = n * 2; doubled + 1 } }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Expr::Block { bindings, result } = &arms[0].result {
-                assert_eq!(bindings.len(), 1);
-                assert!(matches!(&bindings[0].pattern, Pattern::Var(n) if n == "doubled"));
-                // The binding value should reference 'n' from the pattern
-                if let Expr::BinOp { left, .. } = &*bindings[0].value {
-                    assert!(matches!(**left, Expr::Path(ref p) if p.as_simple() == Some("n")));
-                }
-                // The result should reference 'doubled'
-                if let Expr::BinOp { left, .. } = &**result {
-                    assert!(matches!(**left, Expr::Path(ref p) if p.as_simple() == Some("doubled")));
-                }
-            } else {
-                panic!("expected block expression");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Expr::Block { bindings, result } = &arms[0].result else {
+            panic!("expected block expression")
+        };
+        assert_eq!(bindings.len(), 1);
+        assert!(matches!(&bindings[0].pattern, Pattern::Var(n) if n == "doubled"));
+        // The binding value should reference 'n' from the pattern
+        let Expr::BinOp { left, .. } = &*bindings[0].value else {
+            panic!("expected binop in binding value")
+        };
+        assert!(matches!(**left, Expr::Path(ref p) if p.as_simple() == Some("n")));
+        // The result should reference 'doubled'
+        let Expr::BinOp { left, .. } = &**result else {
+            panic!("expected binop in result")
+        };
+        assert!(matches!(**left, Expr::Path(ref p) if p.as_simple() == Some("doubled")));
     }
 
     // Lambda tests
     #[test]
     fn test_parse_simple_lambda() {
         let expr = parse_str("|x| x + 1").unwrap();
-        if let Expr::Lambda {
+        let Expr::Lambda {
             params,
             return_type,
             body,
         } = expr
-        {
-            assert_eq!(params.len(), 1);
-            assert_eq!(params[0].pattern, Pattern::Var("x".to_string()));
-            assert!(params[0].typ.is_none());
-            assert!(return_type.is_none());
-            assert!(matches!(*body, Expr::BinOp { op: BinOp::Add, .. }));
-        } else {
-            panic!("expected lambda");
-        }
+        else {
+            panic!("expected lambda")
+        };
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0].pattern, Pattern::Var("x".to_string()));
+        assert!(params[0].typ.is_none());
+        assert!(return_type.is_none());
+        assert!(matches!(*body, Expr::BinOp { op: BinOp::Add, .. }));
     }
 
     #[test]
     fn test_parse_lambda_multi_param() {
         let expr = parse_str("|x, y| x + y").unwrap();
-        if let Expr::Lambda { params, .. } = expr {
-            assert_eq!(params.len(), 2);
-            assert_eq!(params[0].pattern, Pattern::Var("x".to_string()));
-            assert_eq!(params[1].pattern, Pattern::Var("y".to_string()));
-        } else {
-            panic!("expected lambda");
-        }
+        let Expr::Lambda { params, .. } = expr else {
+            panic!("expected lambda")
+        };
+        assert_eq!(params.len(), 2);
+        assert_eq!(params[0].pattern, Pattern::Var("x".to_string()));
+        assert_eq!(params[1].pattern, Pattern::Var("y".to_string()));
     }
 
     #[test]
     fn test_parse_lambda_with_type_annotation() {
         let expr = parse_str("|x: Int| x * 2").unwrap();
-        if let Expr::Lambda { params, .. } = expr {
-            assert_eq!(params.len(), 1);
-            assert_eq!(params[0].pattern, Pattern::Var("x".to_string()));
-            assert!(matches!(
-                &params[0].typ,
-                Some(TypeAnnotation::Named(s)) if s.as_simple() == Some("Int")
-            ));
-        } else {
-            panic!("expected lambda");
-        }
+        let Expr::Lambda { params, .. } = expr else {
+            panic!("expected lambda")
+        };
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0].pattern, Pattern::Var("x".to_string()));
+        assert!(matches!(
+            &params[0].typ,
+            Some(TypeAnnotation::Named(s)) if s.as_simple() == Some("Int")
+        ));
     }
 
     #[test]
     fn test_parse_lambda_with_return_type() {
         let expr = parse_str("|x| -> Int x + 1").unwrap();
-        if let Expr::Lambda {
+        let Expr::Lambda {
             params, return_type, ..
         } = expr
-        {
-            assert_eq!(params.len(), 1);
-            assert!(matches!(
-                return_type,
-                Some(TypeAnnotation::Named(s)) if s.as_simple() == Some("Int")
-            ));
-        } else {
-            panic!("expected lambda");
-        }
+        else {
+            panic!("expected lambda")
+        };
+        assert_eq!(params.len(), 1);
+        assert!(matches!(
+            return_type,
+            Some(TypeAnnotation::Named(s)) if s.as_simple() == Some("Int")
+        ));
     }
 
     #[test]
     fn test_parse_lambda_fully_annotated() {
         let expr = parse_str("|x: Int| -> Int x * 2").unwrap();
-        if let Expr::Lambda {
+        let Expr::Lambda {
             params,
             return_type,
             ..
         } = expr
-        {
-            assert_eq!(params.len(), 1);
-            assert!(matches!(
-                &params[0].typ,
-                Some(TypeAnnotation::Named(s)) if s.as_simple() == Some("Int")
-            ));
-            assert!(matches!(
-                return_type,
-                Some(TypeAnnotation::Named(s)) if s.as_simple() == Some("Int")
-            ));
-        } else {
-            panic!("expected lambda");
-        }
+        else {
+            panic!("expected lambda")
+        };
+        assert_eq!(params.len(), 1);
+        assert!(matches!(
+            &params[0].typ,
+            Some(TypeAnnotation::Named(s)) if s.as_simple() == Some("Int")
+        ));
+        assert!(matches!(
+            return_type,
+            Some(TypeAnnotation::Named(s)) if s.as_simple() == Some("Int")
+        ));
     }
 
     #[test]
     fn test_parse_lambda_block_body() {
         let expr = parse_str("|x| { let y = x * 2; y + 1 }").unwrap();
-        if let Expr::Lambda { body, .. } = expr {
-            assert!(matches!(*body, Expr::Block { .. }));
-        } else {
-            panic!("expected lambda");
-        }
+        let Expr::Lambda { body, .. } = expr else {
+            panic!("expected lambda")
+        };
+        assert!(matches!(*body, Expr::Block { .. }));
     }
 
     #[test]
     fn test_parse_lambda_no_params() {
         let expr = parse_str("|| 42").unwrap();
-        if let Expr::Lambda { params, body, .. } = expr {
-            assert!(params.is_empty());
-            assert!(matches!(*body, Expr::Int(42)));
-        } else {
-            panic!("expected lambda");
-        }
+        let Expr::Lambda { params, body, .. } = expr else {
+            panic!("expected lambda")
+        };
+        assert!(params.is_empty());
+        assert!(matches!(*body, Expr::Int(42)));
     }
 
     #[test]
     fn test_parse_lambda_in_expression() {
         // Lambda as function argument (conceptually - requires let binding to use)
         let stmts = parse_repl_str("let f = |x| x + 1").unwrap();
-        if let Statement::Let(binding) = &stmts[0] {
-            assert!(matches!(&binding.pattern, Pattern::Var(n) if n == "f"));
-            assert!(matches!(*binding.value, Expr::Lambda { .. }));
-        } else {
-            panic!("expected let statement");
-        }
+        let Statement::Let(binding) = &stmts[0] else {
+            panic!("expected let statement")
+        };
+        assert!(matches!(&binding.pattern, Pattern::Var(n) if n == "f"));
+        assert!(matches!(*binding.value, Expr::Lambda { .. }));
     }
 
     #[test]
     fn test_parse_lambda_nested() {
         let expr = parse_str("|x| |y| x + y").unwrap();
-        if let Expr::Lambda { body, .. } = expr {
-            assert!(matches!(*body, Expr::Lambda { .. }));
-        } else {
-            panic!("expected lambda");
-        }
+        let Expr::Lambda { body, .. } = expr else {
+            panic!("expected lambda")
+        };
+        assert!(matches!(*body, Expr::Lambda { .. }));
     }
 
     #[test]
     fn test_parse_function_type_simple() {
         // let f: Int -> Int = ...
         let stmts = parse_repl_str("let f: Int -> Int = |x| x + 1").unwrap();
-        if let Statement::Let(binding) = &stmts[0] {
-            assert!(matches!(
-                &binding.type_annotation,
-                Some(TypeAnnotation::Function(params, ret))
-                if params.len() == 1
-                    && matches!(&params[0], TypeAnnotation::Named(n) if n.as_simple() == Some("Int"))
-                    && matches!(ret.as_ref(), TypeAnnotation::Named(n) if n.as_simple() == Some("Int"))
-            ));
-        } else {
-            panic!("expected let statement");
-        }
+        let Statement::Let(binding) = &stmts[0] else {
+            panic!("expected let statement")
+        };
+        assert!(matches!(
+            &binding.type_annotation,
+            Some(TypeAnnotation::Function(params, ret))
+            if params.len() == 1
+                && matches!(&params[0], TypeAnnotation::Named(n) if n.as_simple() == Some("Int"))
+                && matches!(ret.as_ref(), TypeAnnotation::Named(n) if n.as_simple() == Some("Int"))
+        ));
     }
 
     #[test]
     fn test_parse_function_type_multi_param() {
         // let f: (Int, String) -> Bool = ...
         let stmts = parse_repl_str("let f: (Int, String) -> Bool = |x, y| true").unwrap();
-        if let Statement::Let(binding) = &stmts[0] {
-            if let Some(TypeAnnotation::Function(params, ret)) = &binding.type_annotation {
-                assert_eq!(params.len(), 2);
-                assert!(matches!(&params[0], TypeAnnotation::Named(n) if n.as_simple() == Some("Int")));
-                assert!(matches!(&params[1], TypeAnnotation::Named(n) if n.as_simple() == Some("String")));
-                assert!(matches!(ret.as_ref(), TypeAnnotation::Named(n) if n.as_simple() == Some("Bool")));
-            } else {
-                panic!("expected function type annotation");
-            }
-        } else {
-            panic!("expected let statement");
-        }
+        let Statement::Let(binding) = &stmts[0] else {
+            panic!("expected let statement")
+        };
+        let Some(TypeAnnotation::Function(params, ret)) = &binding.type_annotation else {
+            panic!("expected function type annotation")
+        };
+        assert_eq!(params.len(), 2);
+        assert!(matches!(&params[0], TypeAnnotation::Named(n) if n.as_simple() == Some("Int")));
+        assert!(matches!(&params[1], TypeAnnotation::Named(n) if n.as_simple() == Some("String")));
+        assert!(matches!(ret.as_ref(), TypeAnnotation::Named(n) if n.as_simple() == Some("Bool")));
     }
 
     #[test]
     fn test_parse_function_type_no_params() {
         // let f: () -> Int = ...
         let stmts = parse_repl_str("let f: () -> Int = || 42").unwrap();
-        if let Statement::Let(binding) = &stmts[0] {
-            if let Some(TypeAnnotation::Function(params, ret)) = &binding.type_annotation {
-                assert!(params.is_empty());
-                assert!(matches!(ret.as_ref(), TypeAnnotation::Named(n) if n.as_simple() == Some("Int")));
-            } else {
-                panic!("expected function type annotation");
-            }
-        } else {
-            panic!("expected let statement");
-        }
+        let Statement::Let(binding) = &stmts[0] else {
+            panic!("expected let statement")
+        };
+        let Some(TypeAnnotation::Function(params, ret)) = &binding.type_annotation else {
+            panic!("expected function type annotation")
+        };
+        assert!(params.is_empty());
+        assert!(matches!(ret.as_ref(), TypeAnnotation::Named(n) if n.as_simple() == Some("Int")));
     }
 
     #[test]
@@ -2839,24 +2766,21 @@ mod tests {
         // let f: Int -> Int -> Int = |x| |y| x + y
         // Should be: Int -> (Int -> Int) (right associative)
         let stmts = parse_repl_str("let f: Int -> Int -> Int = |x| |y| x + y").unwrap();
-        if let Statement::Let(binding) = &stmts[0] {
-            if let Some(TypeAnnotation::Function(params, ret)) = &binding.type_annotation {
-                assert_eq!(params.len(), 1);
-                assert!(matches!(&params[0], TypeAnnotation::Named(n) if n.as_simple() == Some("Int")));
-                // ret should be Int -> Int
-                if let TypeAnnotation::Function(inner_params, inner_ret) = ret.as_ref() {
-                    assert_eq!(inner_params.len(), 1);
-                    assert!(matches!(&inner_params[0], TypeAnnotation::Named(n) if n.as_simple() == Some("Int")));
-                    assert!(matches!(inner_ret.as_ref(), TypeAnnotation::Named(n) if n.as_simple() == Some("Int")));
-                } else {
-                    panic!("expected nested function type");
-                }
-            } else {
-                panic!("expected function type annotation");
-            }
-        } else {
-            panic!("expected let statement");
-        }
+        let Statement::Let(binding) = &stmts[0] else {
+            panic!("expected let statement")
+        };
+        let Some(TypeAnnotation::Function(params, ret)) = &binding.type_annotation else {
+            panic!("expected function type annotation")
+        };
+        assert_eq!(params.len(), 1);
+        assert!(matches!(&params[0], TypeAnnotation::Named(n) if n.as_simple() == Some("Int")));
+        // ret should be Int -> Int
+        let TypeAnnotation::Function(inner_params, inner_ret) = ret.as_ref() else {
+            panic!("expected nested function type")
+        };
+        assert_eq!(inner_params.len(), 1);
+        assert!(matches!(&inner_params[0], TypeAnnotation::Named(n) if n.as_simple() == Some("Int")));
+        assert!(matches!(inner_ret.as_ref(), TypeAnnotation::Named(n) if n.as_simple() == Some("Int")));
     }
 
     #[test]
@@ -2917,15 +2841,14 @@ mod tests {
     #[test]
     fn test_parse_struct_construct_shorthand() {
         let expr = parse_str("Point { x, y }").unwrap();
-        if let Expr::Struct { path, fields } = expr {
-            assert_eq!(path.as_simple(), Some("Point"));
-            assert_eq!(fields.len(), 2);
-            // Shorthand: x means x: x
-            assert_eq!(fields[0].0, "x");
-            assert!(matches!(&fields[0].1, Expr::Path(p) if p.as_simple() == Some("x")));
-        } else {
-            panic!("expected struct construct");
-        }
+        let Expr::Struct { path, fields } = expr else {
+            panic!("expected struct construct")
+        };
+        assert_eq!(path.as_simple(), Some("Point"));
+        assert_eq!(fields.len(), 2);
+        // Shorthand: x means x: x
+        assert_eq!(fields[0].0, "x");
+        assert!(matches!(&fields[0].1, Expr::Path(p) if p.as_simple() == Some("x")));
     }
 
     #[test]
@@ -2951,61 +2874,56 @@ mod tests {
     #[test]
     fn test_parse_chained_field_access() {
         let expr = parse_str("a.b.c").unwrap();
-        if let Expr::FieldAccess { expr: inner, field } = expr {
-            assert_eq!(field, "c");
-            assert!(matches!(
-                *inner,
-                Expr::FieldAccess { field: f, .. }
-                if f == "b"
-            ));
-        } else {
-            panic!("expected field access");
-        }
+        let Expr::FieldAccess { expr: inner, field } = expr else {
+            panic!("expected field access")
+        };
+        assert_eq!(field, "c");
+        assert!(matches!(
+            *inner,
+            Expr::FieldAccess { field: f, .. }
+            if f == "b"
+        ));
     }
 
     #[test]
     fn test_parse_struct_pattern_exact() {
         let expr = parse_str("match p { Point { x, y } => x + y }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            assert!(matches!(
-                &arms[0].pattern,
-                Pattern::Struct(StructPattern::Exact { path, fields })
-                if path.as_simple() == Some("Point") && fields.len() == 2
-            ));
-        } else {
-            panic!("expected match");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match")
+        };
+        assert!(matches!(
+            &arms[0].pattern,
+            Pattern::Struct(StructPattern::Exact { path, fields })
+            if path.as_simple() == Some("Point") && fields.len() == 2
+        ));
     }
 
     #[test]
     fn test_parse_struct_pattern_partial() {
         let expr = parse_str("match p { Point { x, .. } => x }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            assert!(matches!(
-                &arms[0].pattern,
-                Pattern::Struct(StructPattern::Partial { path, fields })
-                if path.as_simple() == Some("Point") && fields.len() == 1
-            ));
-        } else {
-            panic!("expected match");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match")
+        };
+        assert!(matches!(
+            &arms[0].pattern,
+            Pattern::Struct(StructPattern::Partial { path, fields })
+            if path.as_simple() == Some("Point") && fields.len() == 1
+        ));
     }
 
     #[test]
     fn test_parse_struct_pattern_with_binding() {
         let expr = parse_str("match p { Point { x: a, y: b } => a }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::Struct(StructPattern::Exact { path, fields }) = &arms[0].pattern {
-                assert_eq!(path.as_simple(), Some("Point"));
-                assert_eq!(fields.len(), 2);
-                assert_eq!(fields[0].field_name, "x");
-                assert!(matches!(&*fields[0].pattern, Pattern::Var(n) if n == "a"));
-            } else {
-                panic!("expected exact struct pattern");
-            }
-        } else {
-            panic!("expected match");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match")
+        };
+        let Pattern::Struct(StructPattern::Exact { path, fields }) = &arms[0].pattern else {
+            panic!("expected exact struct pattern")
+        };
+        assert_eq!(path.as_simple(), Some("Point"));
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0].field_name, "x");
+        assert!(matches!(&*fields[0].pattern, Pattern::Var(n) if n == "a"));
     }
 
     // ===== Let Pattern Destructuring Parser Tests =====
@@ -3025,15 +2943,14 @@ mod tests {
     #[test]
     fn test_parse_let_struct_pattern() {
         let stmts = parse_repl_str("let Point { x, y } = p").unwrap();
-        if let Statement::Let(LetBinding {
+        let Statement::Let(LetBinding {
             pattern: Pattern::Struct(StructPattern::Exact { fields, .. }),
             ..
         }) = &stmts[0]
-        {
-            assert_eq!(fields.len(), 2);
-        } else {
-            panic!("expected struct pattern");
-        }
+        else {
+            panic!("expected struct pattern")
+        };
+        assert_eq!(fields.len(), 2);
     }
 
     #[test]
@@ -3051,17 +2968,16 @@ mod tests {
     #[test]
     fn test_parse_let_nested_pattern() {
         let stmts = parse_repl_str("let (a, (b, c)) = x").unwrap();
-        if let Statement::Let(LetBinding {
+        let Statement::Let(LetBinding {
             pattern: Pattern::Tuple(TuplePattern::Exact(outer)),
             ..
         }) = &stmts[0]
-        {
-            assert_eq!(outer.len(), 2);
-            assert!(matches!(&outer[0], Pattern::Var(_)));
-            assert!(matches!(&outer[1], Pattern::Tuple(_)));
-        } else {
-            panic!("expected nested tuple pattern");
-        }
+        else {
+            panic!("expected nested tuple pattern")
+        };
+        assert_eq!(outer.len(), 2);
+        assert!(matches!(&outer[0], Pattern::Var(_)));
+        assert!(matches!(&outer[1], Pattern::Tuple(_)));
     }
 
     #[test]
@@ -3105,18 +3021,17 @@ mod tests {
     fn test_parse_type_alias_generic() {
         let tokens = lex("type Pair<A, B> = (A, B)").unwrap();
         let item = parse_item(tokens).unwrap();
-        if let Item::TypeAlias(TypeAliasDef {
+        let Item::TypeAlias(TypeAliasDef {
             name,
             type_params,
             typ: TypeAnnotation::Tuple(elems),
         }) = item
-        {
-            assert_eq!(name, "Pair");
-            assert_eq!(type_params, vec!["A".to_string(), "B".to_string()]);
-            assert_eq!(elems.len(), 2);
-        } else {
-            panic!("expected generic type alias with tuple");
-        }
+        else {
+            panic!("expected generic type alias with tuple")
+        };
+        assert_eq!(name, "Pair");
+        assert_eq!(type_params, vec!["A".to_string(), "B".to_string()]);
+        assert_eq!(elems.len(), 2);
     }
 
     #[test]
@@ -3210,43 +3125,41 @@ mod tests {
     fn test_parse_enum_tuple_variant() {
         let item = parse_item_str("enum Option<T> { None, Some(T) }").unwrap();
         let Item::Enum(e) = item else {
-            panic!("expected enum");
+            panic!("expected enum")
         };
         assert_eq!(e.name, "Option");
         assert_eq!(e.type_params, vec!["T"]);
         assert_eq!(e.variants.len(), 2);
         assert!(matches!(&e.variants[0], EnumVariant { name, kind: EnumVariantKind::Unit } if name == "None"));
-        if let EnumVariant {
+        let EnumVariant {
             name,
             kind: EnumVariantKind::Tuple(types),
         } = &e.variants[1]
-        {
-            assert_eq!(name, "Some");
-            assert_eq!(types.len(), 1);
-        } else {
-            panic!("expected tuple variant");
-        }
+        else {
+            panic!("expected tuple variant")
+        };
+        assert_eq!(name, "Some");
+        assert_eq!(types.len(), 1);
     }
 
     #[test]
     fn test_parse_enum_struct_variant() {
         let item = parse_item_str("enum Message { Move { x: Int, y: Int } }").unwrap();
         let Item::Enum(e) = item else {
-            panic!("expected enum");
+            panic!("expected enum")
         };
         assert_eq!(e.name, "Message");
-        if let EnumVariant {
+        let EnumVariant {
             name,
             kind: EnumVariantKind::Struct(fields),
         } = &e.variants[0]
-        {
-            assert_eq!(name, "Move");
-            assert_eq!(fields.len(), 2);
-            assert_eq!(fields[0].name, "x");
-            assert_eq!(fields[1].name, "y");
-        } else {
-            panic!("expected struct variant");
-        }
+        else {
+            panic!("expected struct variant")
+        };
+        assert_eq!(name, "Move");
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0].name, "x");
+        assert_eq!(fields[1].name, "y");
     }
 
     #[test]
@@ -3290,180 +3203,156 @@ mod tests {
     #[test]
     fn test_parse_enum_pattern_unit() {
         let expr = parse_str("match x { Option::None => 0 }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::Enum(EnumPattern { path, fields }) = &arms[0].pattern {
-                assert_eq!(path.segments, vec!["Option", "None"]);
-                assert!(matches!(fields, EnumPatternFields::Unit));
-            } else {
-                panic!("expected enum pattern");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::Enum(EnumPattern { path, fields }) = &arms[0].pattern else {
+            panic!("expected enum pattern")
+        };
+        assert_eq!(path.segments, vec!["Option", "None"]);
+        assert!(matches!(fields, EnumPatternFields::Unit));
     }
 
     #[test]
     fn test_parse_enum_pattern_tuple() {
         let expr = parse_str("match x { Option::Some(v) => v }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::Enum(EnumPattern { path, fields }) = &arms[0].pattern {
-                assert_eq!(path.segments, vec!["Option", "Some"]);
-                if let EnumPatternFields::Tuple(TuplePattern::Exact(patterns)) = fields {
-                    assert_eq!(patterns.len(), 1);
-                    assert!(matches!(&patterns[0], Pattern::Var(n) if n == "v"));
-                } else {
-                    panic!("expected tuple pattern fields");
-                }
-            } else {
-                panic!("expected enum pattern");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::Enum(EnumPattern { path, fields }) = &arms[0].pattern else {
+            panic!("expected enum pattern")
+        };
+        assert_eq!(path.segments, vec!["Option", "Some"]);
+        let EnumPatternFields::Tuple(TuplePattern::Exact(patterns)) = fields else {
+            panic!("expected tuple pattern fields")
+        };
+        assert_eq!(patterns.len(), 1);
+        assert!(matches!(&patterns[0], Pattern::Var(n) if n == "v"));
     }
 
     #[test]
     fn test_parse_enum_pattern_struct() {
         let expr = parse_str("match m { Message::Move { x, y } => x + y }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::Enum(EnumPattern { path, fields }) = &arms[0].pattern {
-                assert_eq!(path.segments, vec!["Message", "Move"]);
-                if let EnumPatternFields::Struct { fields, is_partial } = fields {
-                    assert!(!is_partial);
-                    assert_eq!(fields.len(), 2);
-                    assert_eq!(fields[0].field_name, "x");
-                    assert_eq!(fields[1].field_name, "y");
-                } else {
-                    panic!("expected struct pattern fields");
-                }
-            } else {
-                panic!("expected enum pattern");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::Enum(EnumPattern { path, fields }) = &arms[0].pattern else {
+            panic!("expected enum pattern")
+        };
+        assert_eq!(path.segments, vec!["Message", "Move"]);
+        let EnumPatternFields::Struct { fields, is_partial } = fields else {
+            panic!("expected struct pattern fields")
+        };
+        assert!(!is_partial);
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0].field_name, "x");
+        assert_eq!(fields[1].field_name, "y");
     }
 
     #[test]
     fn test_parse_enum_pattern_turbofish() {
         let expr = parse_str("match x { Option::Some::<Int>(v) => v }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::Enum(EnumPattern { path, fields }) = &arms[0].pattern {
-                assert_eq!(path.segments, vec!["Option", "Some"]);
-                assert!(path.type_args.is_some());
-                let type_args = path.type_args.as_ref().unwrap();
-                assert_eq!(type_args.len(), 1);
-                assert!(matches!(&type_args[0], TypeAnnotation::Named(n) if n.as_simple() == Some("Int")));
-                assert!(matches!(fields, EnumPatternFields::Tuple(_)));
-            } else {
-                panic!("expected enum pattern");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::Enum(EnumPattern { path, fields }) = &arms[0].pattern else {
+            panic!("expected enum pattern")
+        };
+        assert_eq!(path.segments, vec!["Option", "Some"]);
+        assert!(path.type_args.is_some());
+        let type_args = path.type_args.as_ref().unwrap();
+        assert_eq!(type_args.len(), 1);
+        assert!(matches!(&type_args[0], TypeAnnotation::Named(n) if n.as_simple() == Some("Int")));
+        assert!(matches!(fields, EnumPatternFields::Tuple(_)));
     }
 
     #[test]
     fn test_parse_enum_pattern_tuple_with_rest() {
         let expr = parse_str("match x { Triple::V(first, ..) => first }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::Enum(EnumPattern { path, fields }) = &arms[0].pattern {
-                assert_eq!(path.segments, vec!["Triple", "V"]);
-                if let EnumPatternFields::Tuple(TuplePattern::Prefix {
-                    patterns,
-                    rest_binding,
-                }) = fields
-                {
-                    assert_eq!(patterns.len(), 1);
-                    assert!(matches!(&patterns[0], Pattern::Var(n) if n == "first"));
-                    assert!(rest_binding.is_none());
-                } else {
-                    panic!("expected tuple prefix pattern fields");
-                }
-            } else {
-                panic!("expected enum pattern");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::Enum(EnumPattern { path, fields }) = &arms[0].pattern else {
+            panic!("expected enum pattern")
+        };
+        assert_eq!(path.segments, vec!["Triple", "V"]);
+        let EnumPatternFields::Tuple(TuplePattern::Prefix {
+            patterns,
+            rest_binding,
+        }) = fields
+        else {
+            panic!("expected tuple prefix pattern fields")
+        };
+        assert_eq!(patterns.len(), 1);
+        assert!(matches!(&patterns[0], Pattern::Var(n) if n == "first"));
+        assert!(rest_binding.is_none());
     }
 
     #[test]
     fn test_parse_enum_pattern_struct_with_rest() {
         let expr = parse_str("match m { Message::Move { x, .. } => x }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::Enum(EnumPattern { path, fields }) = &arms[0].pattern {
-                assert_eq!(path.segments, vec!["Message", "Move"]);
-                if let EnumPatternFields::Struct { fields, is_partial } = fields {
-                    assert!(is_partial);
-                    assert_eq!(fields.len(), 1);
-                    assert_eq!(fields[0].field_name, "x");
-                } else {
-                    panic!("expected struct pattern fields");
-                }
-            } else {
-                panic!("expected enum pattern");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::Enum(EnumPattern { path, fields }) = &arms[0].pattern else {
+            panic!("expected enum pattern")
+        };
+        assert_eq!(path.segments, vec!["Message", "Move"]);
+        let EnumPatternFields::Struct { fields, is_partial } = fields else {
+            panic!("expected struct pattern fields")
+        };
+        assert!(is_partial);
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].field_name, "x");
     }
 
     #[test]
     fn test_parse_enum_pattern_empty_tuple() {
         let expr = parse_str("match x { Unit::Empty() => 0 }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::Enum(EnumPattern { fields, .. }) = &arms[0].pattern {
-                assert!(matches!(fields, EnumPatternFields::Tuple(TuplePattern::Empty)));
-            } else {
-                panic!("expected enum pattern");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::Enum(EnumPattern { fields, .. }) = &arms[0].pattern else {
+            panic!("expected enum pattern")
+        };
+        assert!(matches!(fields, EnumPatternFields::Tuple(TuplePattern::Empty)));
     }
 
     #[test]
     fn test_parse_enum_pattern_tuple_suffix() {
         let expr = parse_str("match x { Triple::V(.., last) => last }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::Enum(EnumPattern { fields, .. }) = &arms[0].pattern {
-                if let EnumPatternFields::Tuple(TuplePattern::Suffix { patterns, .. }) = fields {
-                    assert_eq!(patterns.len(), 1);
-                    assert!(matches!(&patterns[0], Pattern::Var(n) if n == "last"));
-                } else {
-                    panic!("expected tuple suffix pattern");
-                }
-            } else {
-                panic!("expected enum pattern");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::Enum(EnumPattern { fields, .. }) = &arms[0].pattern else {
+            panic!("expected enum pattern")
+        };
+        let EnumPatternFields::Tuple(TuplePattern::Suffix { patterns, .. }) = fields else {
+            panic!("expected tuple suffix pattern")
+        };
+        assert_eq!(patterns.len(), 1);
+        assert!(matches!(&patterns[0], Pattern::Var(n) if n == "last"));
     }
 
     #[test]
     fn test_parse_enum_pattern_tuple_prefix_suffix() {
         let expr = parse_str("match x { Triple::V(a, .., z) => a + z }").unwrap();
-        if let Expr::Match { arms, .. } = expr {
-            if let Pattern::Enum(EnumPattern { fields, .. }) = &arms[0].pattern {
-                if let EnumPatternFields::Tuple(TuplePattern::PrefixSuffix {
-                    prefix,
-                    suffix,
-                    ..
-                }) = fields
-                {
-                    assert_eq!(prefix.len(), 1);
-                    assert_eq!(suffix.len(), 1);
-                } else {
-                    panic!("expected tuple prefix+suffix pattern");
-                }
-            } else {
-                panic!("expected enum pattern");
-            }
-        } else {
-            panic!("expected match expression");
-        }
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        let Pattern::Enum(EnumPattern { fields, .. }) = &arms[0].pattern else {
+            panic!("expected enum pattern")
+        };
+        let EnumPatternFields::Tuple(TuplePattern::PrefixSuffix {
+            prefix,
+            suffix,
+            ..
+        }) = fields
+        else {
+            panic!("expected tuple prefix+suffix pattern")
+        };
+        assert_eq!(prefix.len(), 1);
+        assert_eq!(suffix.len(), 1);
     }
 
     // ===== Error case tests =====
@@ -3558,11 +3447,10 @@ mod tests {
     fn test_parse_lambda_braced_body_no_bindings() {
         // Lambda with braces but no let bindings - should unwrap to just the expression
         let expr = parse_str("|x| { x + 1 }").unwrap();
-        if let Expr::Lambda { body, .. } = expr {
-            // Should not be a Block, just a BinOp expression
-            assert!(matches!(*body, Expr::BinOp { op: BinOp::Add, .. }));
-        } else {
-            panic!("expected lambda");
-        }
+        let Expr::Lambda { body, .. } = expr else {
+            panic!("expected lambda")
+        };
+        // Should not be a Block, just a BinOp expression
+        assert!(matches!(*body, Expr::BinOp { op: BinOp::Add, .. }));
     }
 }
