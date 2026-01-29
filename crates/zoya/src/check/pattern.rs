@@ -1,11 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
 use zoya_ast::{
-    EnumPattern, EnumPatternFields, LetBinding, ListPattern, MatchArm, Pattern,
-    StructPattern, TuplePattern,
+    EnumPattern, EnumPatternFields, LetBinding, ListPattern, MatchArm, Pattern, StructPattern,
+    TuplePattern,
 };
-use crate::ir::{QualifiedPath, TypedLetBinding, TypedMatchArm, TypedPattern};
-use crate::types::{EnumVariantType, Type, TypeError, TypeScheme, TypeVarId};
+use zoya_ir::{
+    EnumVariantType, QualifiedPath, Type, TypeError, TypeScheme, TypeVarId, TypedLetBinding,
+    TypedMatchArm, TypedPattern,
+};
 use super::unify::UnifyCtx;
 
 use super::naming::{is_snake_case, to_snake_case};
@@ -1140,7 +1142,7 @@ pub fn check_let_binding(
 mod tests {
     use super::*;
     use zoya_ast::{Expr, Path, StructFieldPattern};
-    use crate::types::{EnumType, StructType};
+    use zoya_ir::{EnumType, StructType};
 
     fn default_env() -> TypeEnv {
         TypeEnv::default()

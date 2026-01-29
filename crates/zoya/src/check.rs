@@ -11,10 +11,11 @@ use std::collections::{HashMap, HashSet};
 use zoya_ast::{
     BinOp, Expr, FunctionDef, Item, LetBinding, MatchArm, Path, Stmt, TypeAnnotation, UnaryOp,
 };
-use crate::ir::{
-    CheckedItem, CheckedStmt, QualifiedPath, TypedEnumConstructFields, TypedExpr, TypedFunction,
+use zoya_ir::{
+    CheckedItem, CheckedStmt, EnumType, EnumVariantType, FunctionType, QualifiedPath, StructType,
+    Type, TypeAliasType, TypeError, TypeScheme, TypeVarId, TypedEnumConstructFields, TypedExpr,
+    TypedFunction,
 };
-use crate::types::{EnumType, EnumVariantType, FunctionType, StructType, Type, TypeAliasType, TypeError, TypeScheme, TypeVarId};
 
 pub use unify::UnifyCtx;
 
@@ -1534,7 +1535,7 @@ pub fn check_stmts(
 mod tests {
     use super::*;
     use zoya_ast::{BinOp, TypeAliasDef};
-    use crate::types::Type;
+    use zoya_ir::Type;
 
     fn check(expr: &Expr) -> Result<TypedExpr, TypeError> {
         let mut ctx = UnifyCtx::new();
@@ -1721,7 +1722,7 @@ mod tests {
     }
 
     use zoya_ast::{FunctionDef, Param, Path, TypeAnnotation};
-    use crate::types::FunctionType;
+    use zoya_ir::FunctionType;
 
     #[test]
     fn test_check_variable() {
@@ -3330,7 +3331,7 @@ mod tests {
     // Struct construction tests
     // ========================================================================
 
-    use crate::types::StructType;
+    use zoya_ir::StructType;
 
     fn env_with_point_struct() -> TypeEnv {
         let mut env = TypeEnv::default();
@@ -3437,7 +3438,7 @@ mod tests {
     // Enum construction tests
     // ========================================================================
 
-    use crate::types::EnumType;
+    use zoya_ir::EnumType;
 
     fn env_with_message_enum() -> TypeEnv {
         let mut env = TypeEnv::default();

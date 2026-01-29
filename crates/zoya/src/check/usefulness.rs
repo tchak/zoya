@@ -4,8 +4,9 @@
 
 use std::collections::HashSet;
 
-use crate::ir::{QualifiedPath, TypedExpr, TypedMatchArm, TypedPattern};
-use crate::types::{EnumVariantType, Type, TypeError};
+use zoya_ir::{
+    EnumVariantType, QualifiedPath, Type, TypeError, TypedExpr, TypedMatchArm, TypedPattern,
+};
 
 /// A constructor represents a way to build a value of a given type.
 #[derive(Debug, Clone)]
@@ -1277,6 +1278,7 @@ pub fn check_patterns(arms: &[TypedMatchArm], scrutinee_ty: &Type) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zoya_ir::TypeVarId;
 
     fn make_bool_arm(val: bool) -> TypedMatchArm {
         TypedMatchArm {
@@ -2506,7 +2508,7 @@ mod tests {
     #[test]
     fn test_type_ctors_type_var() {
         // Type variables are treated as Infinite (conservative)
-        let var_ty = Type::Var(crate::types::TypeVarId(0));
+        let var_ty = Type::Var(TypeVarId(0));
         let arms = vec![make_wildcard_arm()];
         let result = check_exhaustiveness(&arms, &var_ty);
         assert!(matches!(result, Exhaustiveness::Exhaustive));

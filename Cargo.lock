@@ -1189,6 +1189,7 @@ dependencies = [
  "rustyline",
  "tempfile",
  "zoya-ast",
+ "zoya-ir",
  "zoya-lexer",
  "zoya-parser",
 ]
@@ -1196,6 +1197,13 @@ dependencies = [
 [[package]]
 name = "zoya-ast"
 version = "0.1.0"
+
+[[package]]
+name = "zoya-ir"
+version = "0.1.0"
+dependencies = [
+ "zoya-ast",
+]
 
 [[package]]
 name = "zoya-lexer"

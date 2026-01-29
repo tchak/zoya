@@ -3,7 +3,7 @@ use std::fmt;
 pub use rquickjs::Context;
 use rquickjs::{BigInt, CatchResultExt, Runtime};
 
-use crate::types::Type;
+use zoya_ir::{EnumVariantType, Type};
 
 /// Create a new QuickJS runtime and context
 pub fn create_context() -> Result<(Runtime, Context), String> {
@@ -251,8 +251,7 @@ fn js_value_to_value(
             variants,
             ..
         } => {
-            use crate::types::EnumVariantType;
-            let obj: rquickjs::Object = js_val
+                        let obj: rquickjs::Object = js_val
                 .get()
                 .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
             let tag: String = obj
@@ -308,7 +307,7 @@ mod tests {
     use super::*;
     use zoya_ast::{BinOp, UnaryOp};
     use crate::codegen::{codegen, prelude};
-    use crate::ir::TypedExpr;
+    use zoya_ir::TypedExpr;
 
     /// Test helper: compile and evaluate a TypedExpr in a fresh context
     fn eval_expr(expr: &TypedExpr) -> Result<Value, EvalError> {

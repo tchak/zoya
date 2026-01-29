@@ -1,7 +1,8 @@
 use zoya_ast::{BinOp, UnaryOp};
-use crate::ir::{TypedExpr, TypedFunction, TypedLetBinding, TypedMatchArm, TypedPattern};
-
-use crate::types::Type;
+use zoya_ir::{
+    QualifiedPath, Type, TypedEnumConstructFields, TypedExpr, TypedFunction, TypedLetBinding,
+    TypedMatchArm, TypedPattern,
+};
 
 /// Deep equality function name used in generated JS
 const DEEP_EQ_FN: &str = "$$eq";
@@ -90,7 +91,7 @@ fn needs_deep_equality(ty: &Type) -> bool {
 }
 
 /// Format a qualified path as a JS identifier: Option::Some -> $Option$Some
-fn format_path(path: &crate::ir::QualifiedPath) -> String {
+fn format_path(path: &QualifiedPath) -> String {
     format!("${}", path.segments.join("$"))
 }
 
@@ -155,7 +156,7 @@ fn array_length_condition(access_path: &str, op: &str, len: usize) -> String {
 }
 
 /// Generate a JS condition checking an enum variant tag.
-fn enum_tag_condition(access_path: &str, path: &crate::ir::QualifiedPath) -> String {
+fn enum_tag_condition(access_path: &str, path: &QualifiedPath) -> String {
     format!(
         "{}({}) && {}.$tag === \"{}\"",
         IS_OBJ_FN, access_path, access_path, path.last()
@@ -543,8 +544,7 @@ pub fn codegen(expr: &TypedExpr) -> String {
             format!("({}).{}", codegen(expr), field)
         }
         TypedExpr::EnumConstruct { path, fields, .. } => {
-            use crate::ir::TypedEnumConstructFields;
-            let variant_name = path.last();
+                        let variant_name = path.last();
             match fields {
                 TypedEnumConstructFields::Unit => {
                     format!("({{ $tag: \"{}\" }})", variant_name)
@@ -742,7 +742,7 @@ fn escape_js_string(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::QualifiedPath;
+    use zoya_ir::QualifiedPath;
 
     #[test]
     fn test_codegen_int() {

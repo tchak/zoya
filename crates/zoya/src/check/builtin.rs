@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::types::{EnumType, EnumVariantType, Type, TypeVarId};
+use zoya_ir::{EnumType, EnumVariantType, Type, TypeVarId};
 
 /// Check if a type is numeric (for ordering comparisons)
 pub fn is_numeric_type(ty: &Type) -> bool {

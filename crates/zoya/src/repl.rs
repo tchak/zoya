@@ -3,12 +3,10 @@ use std::path::PathBuf;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
-use crate::check::{TypeEnv, check_items, check_stmts};
-use crate::check::UnifyCtx;
+use crate::check::{check_items, check_stmts, TypeEnv, UnifyCtx};
 use crate::codegen::{codegen, codegen_function, codegen_let, prelude};
 use crate::eval::{self, Context, Value};
-use crate::ir::{CheckedItem, CheckedStmt, TypedPattern};
-use crate::types::Type;
+use zoya_ir::{CheckedItem, CheckedStmt, Type, TypedPattern};
 
 /// Extract all variable bindings from a typed pattern.
 /// Returns a list of (name, type) pairs for each bound variable.

@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::types::{EnumVariantType, Type, TypeError, TypeScheme, TypeVarId};
+use zoya_ir::{EnumVariantType, Type, TypeError, TypeScheme, TypeVarId};
 
 /// Unification context that tracks type variable bindings.
 #[derive(Debug, Clone, Default)]

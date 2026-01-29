@@ -6,10 +6,8 @@ mod check;
 mod codegen;
 mod commands;
 mod eval;
-mod ir;
 mod repl;
 mod runner;
-mod types;
 
 #[derive(Parser)]
 #[command(name = "zoya")]

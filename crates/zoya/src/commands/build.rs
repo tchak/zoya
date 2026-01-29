@@ -1,9 +1,8 @@
 use std::path::Path;
 
-use crate::check::{check_items, TypeEnv};
+use crate::check::{check_items, TypeEnv, UnifyCtx};
 use crate::codegen::{codegen_function, prelude};
-use crate::ir::{CheckedItem, TypedFunction};
-use crate::check::UnifyCtx;
+use zoya_ir::{CheckedItem, TypedFunction};
 
 /// Compile a file to JavaScript without executing
 pub fn execute(path: &Path, output: Option<&Path>) -> Result<(), String> {

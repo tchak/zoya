@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use zoya_ast::TypeAnnotation;
-use crate::types::{Type, TypeError, TypeVarId};
+use zoya_ir::{Type, TypeError, TypeVarId};
 
 use super::{substitute_type_vars, substitute_variant_type_vars, TypeEnv};
 
@@ -212,7 +212,7 @@ pub fn resolve_type_annotation(
 mod tests {
     use super::*;
     use zoya_ast::{Path, TypeAnnotation};
-    use crate::types::{EnumType, EnumVariantType, StructType, TypeAliasType};
+    use zoya_ir::{EnumType, EnumVariantType, StructType, TypeAliasType};
 
     fn empty_env() -> TypeEnv {
         TypeEnv::default()
