@@ -77,3 +77,11 @@ cargo test              # All tests
 cargo test parser       # Module tests
 cargo test -- --nocapture
 ```
+
+## Coverage
+
+```bash
+cargo llvm-cov          # Summary report
+cargo llvm-cov --html   # HTML report (target/llvm-cov/html/)
+cargo llvm-cov --open   # Generate and open HTML report
+```
