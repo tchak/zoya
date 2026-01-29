@@ -239,7 +239,7 @@ fn codegen_pattern_at_path(
         } => {
             conditions.push(array_length_condition(access_path, ">=", *min_len));
             codegen_indexed_patterns(patterns, access_path, 0, array_index, &mut conditions, &mut bindings);
-            if let Some(name) = rest_binding {
+            if let Some((name, _)) = rest_binding {
                 bindings.push(format!(
                     "const {} = {}.slice({});",
                     format_name(name), access_path, patterns.len()
@@ -254,7 +254,7 @@ fn codegen_pattern_at_path(
         } => {
             conditions.push(array_length_condition(access_path, ">=", *min_len));
             codegen_suffix_from_end_patterns(patterns, access_path, *min_len, &mut conditions, &mut bindings);
-            if let Some(name) = rest_binding {
+            if let Some((name, _)) = rest_binding {
                 bindings.push(format!(
                     "const {} = {}.slice(0, {}.length - {});",
                     format_name(name), access_path, access_path, patterns.len()
@@ -271,7 +271,7 @@ fn codegen_pattern_at_path(
             conditions.push(array_length_condition(access_path, ">=", *min_len));
             codegen_indexed_patterns(prefix, access_path, 0, array_index, &mut conditions, &mut bindings);
             codegen_suffix_from_end_patterns(suffix, access_path, suffix.len(), &mut conditions, &mut bindings);
-            if let Some(name) = rest_binding {
+            if let Some((name, _)) = rest_binding {
                 bindings.push(format!(
                     "const {} = {}.slice({}, {}.length - {});",
                     format_name(name), access_path, prefix.len(), access_path, suffix.len()
@@ -286,7 +286,7 @@ fn codegen_pattern_at_path(
         } => {
             conditions.push(array_length_condition(access_path, "===", *total_len));
             codegen_indexed_patterns(patterns, access_path, 0, array_index, &mut conditions, &mut bindings);
-            if let Some(name) = rest_binding {
+            if let Some((name, _)) = rest_binding {
                 tuple_rest_binding(name, access_path, patterns.len()..*total_len, &mut bindings);
             }
         }
@@ -299,7 +299,7 @@ fn codegen_pattern_at_path(
             conditions.push(array_length_condition(access_path, "===", *total_len));
             let start_idx = total_len - patterns.len();
             codegen_indexed_patterns(patterns, access_path, start_idx, array_index, &mut conditions, &mut bindings);
-            if let Some(name) = rest_binding {
+            if let Some((name, _)) = rest_binding {
                 tuple_rest_binding(name, access_path, 0..start_idx, &mut bindings);
             }
         }
@@ -314,7 +314,7 @@ fn codegen_pattern_at_path(
             let suffix_start = total_len - suffix.len();
             codegen_indexed_patterns(prefix, access_path, 0, array_index, &mut conditions, &mut bindings);
             codegen_indexed_patterns(suffix, access_path, suffix_start, array_index, &mut conditions, &mut bindings);
-            if let Some(name) = rest_binding {
+            if let Some((name, _)) = rest_binding {
                 tuple_rest_binding(name, access_path, prefix.len()..suffix_start, &mut bindings);
             }
         }

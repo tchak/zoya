@@ -67,10 +67,9 @@ fn extract_bindings_impl(pattern: &TypedPattern, bindings: &mut Vec<(String, Typ
             for p in patterns {
                 extract_bindings_impl(p, bindings);
             }
-            // Note: rest bindings in TypedPattern don't include type info here,
-            // they would need to be resolved from context. For REPL display,
-            // we skip them for now as they're not commonly used.
-            let _ = rest_binding;
+            if let Some((name, ty)) = rest_binding {
+                bindings.push((name.clone(), ty.clone()));
+            }
         }
         TypedPattern::ListPrefixSuffix {
             prefix,
@@ -96,7 +95,9 @@ fn extract_bindings_impl(pattern: &TypedPattern, bindings: &mut Vec<(String, Typ
             for p in suffix {
                 extract_bindings_impl(p, bindings);
             }
-            let _ = rest_binding;
+            if let Some((name, ty)) = rest_binding {
+                bindings.push((name.clone(), ty.clone()));
+            }
         }
         TypedPattern::StructExact { fields, .. }
         | TypedPattern::StructPartial { fields, .. }

@@ -131,7 +131,7 @@ pub fn check_pattern(
                         check_patterns_against_elem(patterns, &resolved_elem, env, ctx)?;
 
                     // Handle rest binding: rest @ .. binds to List<T>
-                    if let Some(name) = rest_binding {
+                    let rest_binding_with_type = if let Some(name) = rest_binding {
                         if !is_snake_case(name) {
                             return Err(TypeError {
                                 message: format!(
@@ -142,13 +142,16 @@ pub fn check_pattern(
                             });
                         }
                         let rest_ty = Type::List(Box::new(resolved_elem.clone()));
-                        bindings.insert(name.clone(), rest_ty);
-                    }
+                        bindings.insert(name.clone(), rest_ty.clone());
+                        Some((name.clone(), rest_ty))
+                    } else {
+                        None
+                    };
 
                     Ok((
                         TypedPattern::ListPrefix {
                             patterns: typed_patterns,
-                            rest_binding: rest_binding.clone(),
+                            rest_binding: rest_binding_with_type,
                             min_len: patterns.len(),
                         },
                         bindings,
@@ -163,7 +166,7 @@ pub fn check_pattern(
                         check_patterns_against_elem(patterns, &resolved_elem, env, ctx)?;
 
                     // Handle rest binding
-                    if let Some(name) = rest_binding {
+                    let rest_binding_with_type = if let Some(name) = rest_binding {
                         if !is_snake_case(name) {
                             return Err(TypeError {
                                 message: format!(
@@ -174,13 +177,16 @@ pub fn check_pattern(
                             });
                         }
                         let rest_ty = Type::List(Box::new(resolved_elem.clone()));
-                        bindings.insert(name.clone(), rest_ty);
-                    }
+                        bindings.insert(name.clone(), rest_ty.clone());
+                        Some((name.clone(), rest_ty))
+                    } else {
+                        None
+                    };
 
                     Ok((
                         TypedPattern::ListSuffix {
                             patterns: typed_patterns,
-                            rest_binding: rest_binding.clone(),
+                            rest_binding: rest_binding_with_type,
                             min_len: patterns.len(),
                         },
                         bindings,
@@ -199,7 +205,7 @@ pub fn check_pattern(
                     bindings.extend(suffix_bindings);
 
                     // Handle rest binding
-                    if let Some(name) = rest_binding {
+                    let rest_binding_with_type = if let Some(name) = rest_binding {
                         if !is_snake_case(name) {
                             return Err(TypeError {
                                 message: format!(
@@ -210,14 +216,17 @@ pub fn check_pattern(
                             });
                         }
                         let rest_ty = Type::List(Box::new(resolved_elem.clone()));
-                        bindings.insert(name.clone(), rest_ty);
-                    }
+                        bindings.insert(name.clone(), rest_ty.clone());
+                        Some((name.clone(), rest_ty))
+                    } else {
+                        None
+                    };
 
                     Ok((
                         TypedPattern::ListPrefixSuffix {
                             prefix: prefix_typed,
                             suffix: suffix_typed,
-                            rest_binding: rest_binding.clone(),
+                            rest_binding: rest_binding_with_type,
                             min_len: prefix.len() + suffix.len(),
                         },
                         bindings,
@@ -331,7 +340,7 @@ pub fn check_pattern(
                         check_patterns_against_types(patterns, &tuple_types, env, ctx)?;
 
                     // Handle rest binding: rest @ .. binds to tuple of remaining elements
-                    if let Some(name) = rest_binding {
+                    let rest_binding_with_type = if let Some(name) = rest_binding {
                         if !is_snake_case(name) {
                             return Err(TypeError {
                                 message: format!(
@@ -343,13 +352,16 @@ pub fn check_pattern(
                         }
                         let rest_types: Vec<Type> = tuple_types[patterns.len()..].to_vec();
                         let rest_ty = Type::Tuple(rest_types);
-                        bindings.insert(name.clone(), rest_ty);
-                    }
+                        bindings.insert(name.clone(), rest_ty.clone());
+                        Some((name.clone(), rest_ty))
+                    } else {
+                        None
+                    };
 
                     Ok((
                         TypedPattern::TuplePrefix {
                             patterns: typed_patterns,
-                            rest_binding: rest_binding.clone(),
+                            rest_binding: rest_binding_with_type,
                             total_len: tuple_types.len(),
                         },
                         bindings,
@@ -376,7 +388,7 @@ pub fn check_pattern(
                         check_patterns_against_types(patterns, &tuple_types[start_idx..], env, ctx)?;
 
                     // Handle rest binding: rest @ .. binds to tuple of leading elements
-                    if let Some(name) = rest_binding {
+                    let rest_binding_with_type = if let Some(name) = rest_binding {
                         if !is_snake_case(name) {
                             return Err(TypeError {
                                 message: format!(
@@ -388,13 +400,16 @@ pub fn check_pattern(
                         }
                         let rest_types: Vec<Type> = tuple_types[..start_idx].to_vec();
                         let rest_ty = Type::Tuple(rest_types);
-                        bindings.insert(name.clone(), rest_ty);
-                    }
+                        bindings.insert(name.clone(), rest_ty.clone());
+                        Some((name.clone(), rest_ty))
+                    } else {
+                        None
+                    };
 
                     Ok((
                         TypedPattern::TupleSuffix {
                             patterns: typed_patterns,
-                            rest_binding: rest_binding.clone(),
+                            rest_binding: rest_binding_with_type,
                             total_len: tuple_types.len(),
                         },
                         bindings,
@@ -428,7 +443,7 @@ pub fn check_pattern(
                     bindings.extend(suffix_bindings);
 
                     // Handle rest binding: rest @ .. binds to tuple of middle elements
-                    if let Some(name) = rest_binding {
+                    let rest_binding_with_type = if let Some(name) = rest_binding {
                         if !is_snake_case(name) {
                             return Err(TypeError {
                                 message: format!(
@@ -440,14 +455,17 @@ pub fn check_pattern(
                         }
                         let rest_types: Vec<Type> = tuple_types[prefix.len()..suffix_start].to_vec();
                         let rest_ty = Type::Tuple(rest_types);
-                        bindings.insert(name.clone(), rest_ty);
-                    }
+                        bindings.insert(name.clone(), rest_ty.clone());
+                        Some((name.clone(), rest_ty))
+                    } else {
+                        None
+                    };
 
                     Ok((
                         TypedPattern::TuplePrefixSuffix {
                             prefix: prefix_typed,
                             suffix: suffix_typed,
-                            rest_binding: rest_binding.clone(),
+                            rest_binding: rest_binding_with_type,
                             total_len: tuple_types.len(),
                         },
                         bindings,
@@ -827,7 +845,7 @@ fn check_enum_tuple_pattern(
                 check_patterns_against_types(patterns, expected_types, env, ctx)?;
 
             // Handle rest binding: rest @ .. binds to tuple of remaining elements
-            if let Some(name) = rest_binding {
+            let rest_binding_with_type = if let Some(name) = rest_binding {
                 if !is_snake_case(name) {
                     return Err(TypeError {
                         message: format!(
@@ -839,8 +857,11 @@ fn check_enum_tuple_pattern(
                 }
                 let rest_types: Vec<Type> = expected_types[patterns.len()..].to_vec();
                 let rest_ty = Type::Tuple(rest_types);
-                bindings.insert(name.clone(), rest_ty);
-            }
+                bindings.insert(name.clone(), rest_ty.clone());
+                Some((name.clone(), rest_ty))
+            } else {
+                None
+            };
 
             Ok((
                 TypedPattern::EnumTuplePrefix {
@@ -849,7 +870,7 @@ fn check_enum_tuple_pattern(
                         variant_name.to_string(),
                     ]),
                     patterns: typed_patterns,
-                    rest_binding: rest_binding.clone(),
+                    rest_binding: rest_binding_with_type,
                     total_fields,
                 },
                 bindings,
@@ -876,7 +897,7 @@ fn check_enum_tuple_pattern(
                 check_patterns_against_types(patterns, &expected_types[start_idx..], env, ctx)?;
 
             // Handle rest binding: rest @ .. binds to tuple of leading elements
-            if let Some(name) = rest_binding {
+            let rest_binding_with_type = if let Some(name) = rest_binding {
                 if !is_snake_case(name) {
                     return Err(TypeError {
                         message: format!(
@@ -888,8 +909,11 @@ fn check_enum_tuple_pattern(
                 }
                 let rest_types: Vec<Type> = expected_types[..start_idx].to_vec();
                 let rest_ty = Type::Tuple(rest_types);
-                bindings.insert(name.clone(), rest_ty);
-            }
+                bindings.insert(name.clone(), rest_ty.clone());
+                Some((name.clone(), rest_ty))
+            } else {
+                None
+            };
 
             Ok((
                 TypedPattern::EnumTupleSuffix {
@@ -898,7 +922,7 @@ fn check_enum_tuple_pattern(
                         variant_name.to_string(),
                     ]),
                     patterns: typed_patterns,
-                    rest_binding: rest_binding.clone(),
+                    rest_binding: rest_binding_with_type,
                     total_fields,
                 },
                 bindings,
@@ -927,7 +951,7 @@ fn check_enum_tuple_pattern(
             bindings.extend(suffix_bindings);
 
             // Handle rest binding: rest @ .. binds to tuple of middle elements
-            if let Some(name) = rest_binding {
+            let rest_binding_with_type = if let Some(name) = rest_binding {
                 if !is_snake_case(name) {
                     return Err(TypeError {
                         message: format!(
@@ -939,8 +963,11 @@ fn check_enum_tuple_pattern(
                 }
                 let rest_types: Vec<Type> = expected_types[prefix.len()..suffix_start].to_vec();
                 let rest_ty = Type::Tuple(rest_types);
-                bindings.insert(name.clone(), rest_ty);
-            }
+                bindings.insert(name.clone(), rest_ty.clone());
+                Some((name.clone(), rest_ty))
+            } else {
+                None
+            };
 
             Ok((
                 TypedPattern::EnumTuplePrefixSuffix {
@@ -950,7 +977,7 @@ fn check_enum_tuple_pattern(
                     ]),
                     prefix: prefix_typed,
                     suffix: suffix_typed,
-                    rest_binding: rest_binding.clone(),
+                    rest_binding: rest_binding_with_type,
                     total_fields,
                 },
                 bindings,
