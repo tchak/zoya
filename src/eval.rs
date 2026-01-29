@@ -306,7 +306,7 @@ fn js_value_to_value(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{BinOp, UnaryOp};
+    use zoya_ast::{BinOp, UnaryOp};
     use crate::codegen::{codegen, prelude};
     use crate::ir::TypedExpr;
 

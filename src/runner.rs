@@ -2,14 +2,12 @@ use crate::check::check_file;
 use crate::codegen::{codegen_function, prelude};
 use crate::eval::{self, EvalError, Value};
 use crate::ir::{CheckedItem, TypedFunction};
-use crate::lexer;
-use crate::parser;
 
 /// Run Zoya source code and return the result
 pub fn run(source: &str) -> Result<Value, EvalError> {
     // Lex and parse all items
-    let tokens = lexer::lex(source).map_err(|e| EvalError::RuntimeError(e.message))?;
-    let items = parser::parse_file(tokens).map_err(|e| EvalError::RuntimeError(e.message))?;
+    let tokens = zoya_lexer::lex(source).map_err(|e| EvalError::RuntimeError(e.message))?;
+    let items = zoya_parser::parse_file(tokens).map_err(|e| EvalError::RuntimeError(e.message))?;
 
     // Type-check all items
     let checked_items = check_file(&items).map_err(|e| EvalError::RuntimeError(e.to_string()))?;

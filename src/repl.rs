@@ -4,13 +4,11 @@ use std::path::PathBuf;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
-use crate::ast::{EnumDef, StructDef};
+use zoya_ast::{EnumDef, StructDef};
 use crate::check::{CheckedStatement, TypeEnv, check_repl};
 use crate::codegen::{codegen, codegen_function, codegen_let, prelude};
 use crate::eval::{self, Context, Value};
 use crate::ir::TypedPattern;
-use crate::lexer;
-use crate::parser;
 use crate::types::Type;
 
 /// Extract all variable bindings from a typed pattern.
@@ -173,8 +171,8 @@ impl State {
     /// Returns a result for each statement in the input.
     pub fn eval(&mut self, input: &str) -> Result<Vec<ReplResult>, String> {
         // Lex and parse
-        let tokens = lexer::lex(input).map_err(|e| e.message)?;
-        let statements = parser::parse_repl(tokens).map_err(|e| e.message)?;
+        let tokens = zoya_lexer::lex(input).map_err(|e| e.message)?;
+        let statements = zoya_parser::parse_repl(tokens).map_err(|e| e.message)?;
 
         if statements.is_empty() {
             return Ok(vec![]);

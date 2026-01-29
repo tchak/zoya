@@ -2,14 +2,11 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-mod ast;
 mod check;
 mod codegen;
 mod commands;
 mod eval;
 mod ir;
-mod lexer;
-mod parser;
 mod repl;
 mod runner;
 mod types;

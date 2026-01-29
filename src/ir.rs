@@ -1,4 +1,4 @@
-use crate::ast::{BinOp, EnumDef, StructDef, TypeAliasDef, UnaryOp};
+use zoya_ast::{BinOp, EnumDef, StructDef, TypeAliasDef, UnaryOp};
 use crate::types::Type;
 
 /// A resolved qualified path (e.g., `Option::Some`, `Color::Red`)

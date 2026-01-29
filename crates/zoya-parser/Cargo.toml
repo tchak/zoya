@@ -1,0 +1,9 @@
+[package]
+name = "zoya-parser"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+zoya-ast = { path = "../zoya-ast" }
+zoya-lexer = { path = "../zoya-lexer" }
+chumsky = "0.10"

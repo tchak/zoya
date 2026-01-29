@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::ast::{
+use zoya_ast::{
     EnumPattern, EnumPatternFields, LetBinding, ListPattern, MatchArm, Pattern,
     StructPattern, TuplePattern,
 };
@@ -961,7 +961,7 @@ fn check_enum_tuple_pattern(
 fn check_enum_struct_pattern(
     enum_name: &str,
     variant_name: &str,
-    field_patterns: &[crate::ast::StructFieldPattern],
+    field_patterns: &[zoya_ast::StructFieldPattern],
     is_partial: bool,
     expected_fields: &[(String, Type)],
     env: &TypeEnv,
@@ -1139,7 +1139,7 @@ pub fn check_let_binding(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{Expr, Path, StructFieldPattern};
+    use zoya_ast::{Expr, Path, StructFieldPattern};
     use crate::types::{EnumType, StructType};
 
     fn default_env() -> TypeEnv {

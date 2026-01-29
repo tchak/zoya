@@ -1,12 +1,12 @@
 use chumsky::prelude::*;
 
-use crate::ast::{
+use zoya_ast::{
     BinOp, EnumDef, EnumPattern, EnumPatternFields, EnumVariant, EnumVariantKind, Expr,
     FunctionDef, Item, LambdaParam, LetBinding, ListPattern, MatchArm, Param, Path, Pattern,
     Statement, StructDef, StructFieldDef, StructFieldPattern, StructPattern, TuplePattern,
     TypeAliasDef, TypeAnnotation, UnaryOp,
 };
-use crate::lexer::Token;
+use zoya_lexer::Token;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParseError {
@@ -1154,7 +1154,7 @@ fn statement_parser<'a>() -> impl Parser<'a, &'a [Token], Statement, extra::Err<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lexer::lex;
+    use zoya_lexer::lex;
 
     fn parse(tokens: Vec<Token>) -> Result<Expr, ParseError> {
         expr_parser()
@@ -1523,7 +1523,7 @@ mod tests {
         );
     }
 
-    use crate::ast::{FunctionDef, Item, Param, TypeAnnotation};
+    use zoya_ast::{FunctionDef, Item, Param, TypeAnnotation};
 
     fn parse_item_str(input: &str) -> Result<Item, ParseError> {
         let tokens = lex(input).expect("lexing failed");
@@ -1863,7 +1863,7 @@ mod tests {
         assert!(matches!(stmts[2], Statement::Expr(Expr::Int(3))));
     }
 
-    use crate::ast::LetBinding;
+    use zoya_ast::LetBinding;
 
     #[test]
     fn test_parse_let_simple() {
@@ -1997,7 +1997,7 @@ mod tests {
         assert!(matches!(body, Expr::BinOp { op: BinOp::Mul, .. }));
     }
 
-    use crate::ast::{MatchArm, Pattern};
+    use zoya_ast::{MatchArm, Pattern};
 
     #[test]
     fn test_parse_match_with_literals() {

@@ -1,4 +1,4 @@
-use crate::ast::{BinOp, UnaryOp};
+use zoya_ast::{BinOp, UnaryOp};
 use crate::ir::{TypedExpr, TypedFunction, TypedLetBinding, TypedMatchArm, TypedPattern};
 
 use crate::types::Type;

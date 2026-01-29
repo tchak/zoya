@@ -1,12 +1,21 @@
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
 [package]
-name = "zoya-lang"
+name = "zoya"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "zoya"
+path = "src/main.rs"
+
 [dependencies]
+zoya-ast = { path = "crates/zoya-ast" }
+zoya-lexer = { path = "crates/zoya-lexer" }
+zoya-parser = { path = "crates/zoya-parser" }
 clap = { version = "4", features = ["derive"] }
-logos = "0.15"
-chumsky = "0.10"
 rquickjs = { version = "0.9", features = ["bindgen"] }
 rustyline = "14"
 dirs = "5"

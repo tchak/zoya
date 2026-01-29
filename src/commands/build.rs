@@ -3,8 +3,6 @@ use std::path::Path;
 use crate::check::check_file;
 use crate::codegen::{codegen_function, prelude};
 use crate::ir::{CheckedItem, TypedFunction};
-use crate::lexer;
-use crate::parser;
 
 /// Compile a file to JavaScript without executing
 pub fn execute(path: &Path, output: Option<&Path>) -> Result<(), String> {
@@ -13,10 +11,10 @@ pub fn execute(path: &Path, output: Option<&Path>) -> Result<(), String> {
         .map_err(|e| format!("error: failed to read file '{}': {}", path.display(), e))?;
 
     // Lex
-    let tokens = lexer::lex(&source).map_err(|e| format!("error: {}", e.message))?;
+    let tokens = zoya_lexer::lex(&source).map_err(|e| format!("error: {}", e.message))?;
 
     // Parse
-    let items = parser::parse_file(tokens).map_err(|e| format!("error: {}", e.message))?;
+    let items = zoya_parser::parse_file(tokens).map_err(|e| format!("error: {}", e.message))?;
 
     // Type check
     let checked_items = check_file(&items).map_err(|e| format!("error: {}", e))?;

@@ -1,8 +1,6 @@
 use std::path::Path;
 
 use crate::check::check_file;
-use crate::lexer;
-use crate::parser;
 
 /// Type-check a file without executing it
 pub fn execute(path: &Path) -> Result<(), String> {
@@ -11,10 +9,10 @@ pub fn execute(path: &Path) -> Result<(), String> {
         .map_err(|e| format!("error: failed to read file '{}': {}", path.display(), e))?;
 
     // Lex
-    let tokens = lexer::lex(&source).map_err(|e| format!("error: {}", e.message))?;
+    let tokens = zoya_lexer::lex(&source).map_err(|e| format!("error: {}", e.message))?;
 
     // Parse
-    let items = parser::parse_file(tokens).map_err(|e| format!("error: {}", e.message))?;
+    let items = zoya_parser::parse_file(tokens).map_err(|e| format!("error: {}", e.message))?;
 
     // Type check
     check_file(&items).map_err(|e| format!("error: {}", e))?;

@@ -6,7 +6,7 @@ mod type_resolver;
 
 use std::collections::{HashMap, HashSet};
 
-use crate::ast::{
+use zoya_ast::{
     BinOp, EnumDef, Expr, FunctionDef, Item, LetBinding, MatchArm, Path, Statement, StructDef,
     TypeAliasDef, TypeAnnotation, UnaryOp,
 };
@@ -910,7 +910,7 @@ fn check_tuple_expr(
 
 /// Check a lambda expression
 fn check_lambda(
-    params: &[crate::ast::LambdaParam],
+    params: &[zoya_ast::LambdaParam],
     return_type: &Option<TypeAnnotation>,
     body: &Expr,
     env: &TypeEnv,
@@ -1667,7 +1667,7 @@ pub fn check_repl(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::BinOp;
+    use zoya_ast::BinOp;
     use crate::types::Type;
 
     fn check(expr: &Expr) -> Result<TypedExpr, TypeError> {
@@ -1854,7 +1854,7 @@ mod tests {
         assert_eq!(result.ty(), Type::Int);
     }
 
-    use crate::ast::{FunctionDef, Param, Path, TypeAnnotation};
+    use zoya_ast::{FunctionDef, Param, Path, TypeAnnotation};
     use crate::types::FunctionType;
 
     #[test]
@@ -2431,7 +2431,7 @@ mod tests {
         assert_eq!(result.ty(), Type::Int);
     }
 
-    use crate::ast::{MatchArm, Pattern};
+    use zoya_ast::{MatchArm, Pattern};
 
     #[test]
     fn test_check_match_with_literals() {
@@ -3072,7 +3072,7 @@ mod tests {
 
     #[test]
     fn test_let_list_pattern_rejected() {
-        use crate::ast::ListPattern;
+        use zoya_ast::ListPattern;
         let mut env = TypeEnv::default();
         let stmts = vec![Statement::Let(LetBinding {
             pattern: Pattern::List(ListPattern::Exact(vec![Pattern::Var("x".to_string())])),
@@ -3086,7 +3086,7 @@ mod tests {
 
     #[test]
     fn test_let_enum_pattern_rejected() {
-        use crate::ast::{EnumPattern, EnumPatternFields, Pattern, TuplePattern};
+        use zoya_ast::{EnumPattern, EnumPatternFields, Pattern, TuplePattern};
         let mut env = TypeEnv::default();
         // Don't need to set up actual enum type - irrefutability check happens before type checking
         let stmts = vec![Statement::Let(LetBinding {
@@ -3109,7 +3109,7 @@ mod tests {
 
     #[test]
     fn test_let_tuple_pattern_irrefutable() {
-        use crate::ast::{Pattern, TuplePattern};
+        use zoya_ast::{Pattern, TuplePattern};
         let mut env = TypeEnv::default();
         let stmts = vec![Statement::Let(LetBinding {
             pattern: Pattern::Tuple(TuplePattern::Exact(vec![
@@ -3225,7 +3225,7 @@ mod tests {
     // Lambda tests
     // ========================================================================
 
-    use crate::ast::LambdaParam;
+    use zoya_ast::LambdaParam;
 
     #[test]
     fn test_check_lambda_basic() {
@@ -3304,7 +3304,7 @@ mod tests {
     fn test_check_lambda_tuple_param() {
         let expr = Expr::Lambda {
             params: vec![LambdaParam {
-                pattern: Pattern::Tuple(crate::ast::TuplePattern::Exact(vec![
+                pattern: Pattern::Tuple(zoya_ast::TuplePattern::Exact(vec![
                     Pattern::Var("x".to_string()),
                     Pattern::Var("y".to_string()),
                 ])),
