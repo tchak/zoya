@@ -3,13 +3,13 @@ use std::path::{Path, PathBuf};
 
 use zoya_ast::Item;
 
-/// Module path: root is empty vec, `utils::helpers` is `["utils", "helpers"]`
+/// Module path: root is `["root"]`, `utils::helpers` is `["root", "utils", "helpers"]`
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ModulePath(pub Vec<String>);
 
 impl ModulePath {
     pub fn root() -> Self {
-        ModulePath(Vec::new())
+        ModulePath(vec!["root".to_string()])
     }
 
     pub fn child(&self, name: &str) -> Self {
@@ -19,7 +19,7 @@ impl ModulePath {
     }
 
     pub fn parent(&self) -> Option<Self> {
-        if self.0.is_empty() {
+        if self.is_root() {
             None
         } else {
             let mut segments = self.0.clone();
@@ -29,17 +29,13 @@ impl ModulePath {
     }
 
     pub fn is_root(&self) -> bool {
-        self.0.is_empty()
+        self.0.len() == 1 && self.0[0] == "root"
     }
 }
 
 impl std::fmt::Display for ModulePath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.0.is_empty() {
-            write!(f, "(root)")
-        } else {
-            write!(f, "{}", self.0.join("::"))
-        }
+        write!(f, "{}", self.0.join("::"))
     }
 }
 
@@ -202,12 +198,23 @@ fn load_module_recursive(
     Ok(())
 }
 
+/// Get path segments for filesystem resolution (strips "root" prefix)
+/// Panics if path is not a local module (doesn't start with "root")
+fn filesystem_segments(path: &ModulePath) -> &[String] {
+    assert!(
+        path.0.first().map(|s| s.as_str()) == Some("root"),
+        "filesystem_segments called on non-local path: {}",
+        path
+    );
+    &path.0[1..]
+}
+
 /// Compute file path for a submodule
 /// - `mod foo` in root -> `base_dir/foo.zoya`
 /// - `mod bar` in `utils` -> `base_dir/utils/bar.zoya`
 fn compute_module_file_path(base_dir: &Path, parent_module: &ModulePath, mod_name: &str) -> PathBuf {
     let mut path = base_dir.to_path_buf();
-    for segment in &parent_module.0 {
+    for segment in filesystem_segments(parent_module) {
         path.push(segment);
     }
     path.push(format!("{}.zoya", mod_name));
@@ -224,15 +231,17 @@ mod tests {
     fn test_module_path_root() {
         let root = ModulePath::root();
         assert!(root.is_root());
-        assert_eq!(root.to_string(), "(root)");
+        assert_eq!(root.0, vec!["root"]);
+        assert_eq!(root.to_string(), "root");
     }
 
     #[test]
     fn test_module_path_child() {
         let root = ModulePath::root();
         let utils = root.child("utils");
-        assert_eq!(utils.0, vec!["utils"]);
-        assert_eq!(utils.to_string(), "utils");
+        assert_eq!(utils.0, vec!["root", "utils"]);
+        assert_eq!(utils.to_string(), "root::utils");
+        assert!(!utils.is_root());
     }
 
     #[test]
@@ -246,15 +255,15 @@ mod tests {
         let helpers = utils.child("helpers");
         assert_eq!(
             helpers.parent(),
-            Some(ModulePath(vec!["utils".to_string()]))
+            Some(ModulePath(vec!["root".to_string(), "utils".to_string()]))
         );
     }
 
     #[test]
     fn test_module_path_deeply_nested() {
         let path = ModulePath::root().child("a").child("b").child("c");
-        assert_eq!(path.0, vec!["a", "b", "c"]);
-        assert_eq!(path.to_string(), "a::b::c");
+        assert_eq!(path.0, vec!["root", "a", "b", "c"]);
+        assert_eq!(path.to_string(), "root::a::b::c");
     }
 
     // === File path computation tests ===
@@ -269,7 +278,7 @@ mod tests {
     #[test]
     fn test_compute_module_file_path_nested() {
         let base = Path::new("/project");
-        let utils = ModulePath(vec!["utils".to_string()]);
+        let utils = ModulePath(vec!["root".to_string(), "utils".to_string()]);
         let path = compute_module_file_path(base, &utils, "bar");
         assert_eq!(path, PathBuf::from("/project/utils/bar.zoya"));
     }
@@ -277,7 +286,11 @@ mod tests {
     #[test]
     fn test_compute_module_file_path_deeply_nested() {
         let base = Path::new("/project");
-        let helpers = ModulePath(vec!["utils".to_string(), "helpers".to_string()]);
+        let helpers = ModulePath(vec![
+            "root".to_string(),
+            "utils".to_string(),
+            "helpers".to_string(),
+        ]);
         let path = compute_module_file_path(base, &helpers, "baz");
         assert_eq!(path, PathBuf::from("/project/utils/helpers/baz.zoya"));
     }
@@ -346,7 +359,7 @@ mod integration_tests {
         assert!(root.children.contains_key("utils"));
 
         // Check utils module
-        let utils_path = ModulePath(vec!["utils".to_string()]);
+        let utils_path = ModulePath(vec!["root".to_string(), "utils".to_string()]);
         let utils = tree.get(&utils_path).unwrap();
         assert_eq!(utils.items.len(), 1);
         assert!(utils.children.is_empty());
@@ -384,12 +397,16 @@ mod integration_tests {
         assert_eq!(tree.modules.len(), 3);
 
         // Check utils has helpers as child
-        let utils_path = ModulePath(vec!["utils".to_string()]);
+        let utils_path = ModulePath(vec!["root".to_string(), "utils".to_string()]);
         let utils = tree.get(&utils_path).unwrap();
         assert!(utils.children.contains_key("helpers"));
 
         // Check helpers module exists
-        let helpers_path = ModulePath(vec!["utils".to_string(), "helpers".to_string()]);
+        let helpers_path = ModulePath(vec![
+            "root".to_string(),
+            "utils".to_string(),
+            "helpers".to_string(),
+        ]);
         let helpers = tree.get(&helpers_path).unwrap();
         assert_eq!(helpers.items.len(), 1);
     }
@@ -406,7 +423,12 @@ mod integration_tests {
 
         assert_eq!(tree.modules.len(), 4);
 
-        let c_path = ModulePath(vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+        let c_path = ModulePath(vec![
+            "root".to_string(),
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+        ]);
         let c_module = tree.get(&c_path).unwrap();
         assert_eq!(c_module.items.len(), 1);
     }
@@ -477,9 +499,14 @@ mod integration_tests {
         let tree = load_modules(&dir.path().join("main.zoya")).unwrap();
 
         assert!(tree.get(&ModulePath::root()).is_some());
-        assert!(tree.get(&ModulePath(vec!["utils".to_string()])).is_some());
         assert!(tree
-            .get(&ModulePath(vec!["nonexistent".to_string()]))
+            .get(&ModulePath(vec!["root".to_string(), "utils".to_string()]))
+            .is_some());
+        assert!(tree
+            .get(&ModulePath(vec![
+                "root".to_string(),
+                "nonexistent".to_string()
+            ]))
             .is_none());
     }
 }
