@@ -273,37 +273,6 @@ impl UnifyCtx {
         }
     }
 
-    /// Check if a type is fully resolved (contains no unbound type variables).
-    pub fn is_concrete(&self, ty: &Type) -> bool {
-        let resolved = self.resolve(ty);
-        match resolved {
-            Type::Var(_) => false,
-            Type::List(elem) => self.is_concrete(&elem),
-            Type::Tuple(elems) => elems.iter().all(|e| self.is_concrete(e)),
-            Type::Function { params, ret } => {
-                params.iter().all(|p| self.is_concrete(p)) && self.is_concrete(&ret)
-            }
-            Type::Struct { type_args, fields, .. } => {
-                type_args.iter().all(|t| self.is_concrete(t))
-                    && fields.iter().all(|(_, t)| self.is_concrete(t))
-            }
-            Type::Enum { type_args, variants, .. } => {
-                type_args.iter().all(|t| self.is_concrete(t))
-                    && variants.iter().all(|(_, vt)| self.is_concrete_variant(vt))
-            }
-            _ => true,
-        }
-    }
-
-    /// Check if an enum variant type is fully resolved.
-    fn is_concrete_variant(&self, vt: &EnumVariantType) -> bool {
-        match vt {
-            EnumVariantType::Unit => true,
-            EnumVariantType::Tuple(types) => types.iter().all(|t| self.is_concrete(t)),
-            EnumVariantType::Struct(fields) => fields.iter().all(|(_, t)| self.is_concrete(t)),
-        }
-    }
-
     /// Collect all free (unbound) type variables in a type.
     pub fn free_vars(&self, ty: &Type) -> HashSet<TypeVarId> {
         let ty = self.resolve(ty);
@@ -543,18 +512,6 @@ mod tests {
     }
 
     #[test]
-    fn test_is_concrete() {
-        let mut ctx = UnifyCtx::new();
-        let var = ctx.fresh_var();
-
-        assert!(ctx.is_concrete(&Type::Int));
-        assert!(!ctx.is_concrete(&var));
-
-        ctx.unify(&var, &Type::Float).unwrap();
-        assert!(ctx.is_concrete(&var));
-    }
-
-    #[test]
     fn test_unify_list_same_element() {
         let mut ctx = UnifyCtx::new();
         let list1 = Type::List(Box::new(Type::Int));
@@ -596,21 +553,6 @@ mod tests {
         let result = ctx.unify(&var, &list);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("infinite type"));
-    }
-
-    #[test]
-    fn test_is_concrete_list() {
-        let mut ctx = UnifyCtx::new();
-        let var = ctx.fresh_var();
-
-        let list_concrete = Type::List(Box::new(Type::Int));
-        let list_var = Type::List(Box::new(var.clone()));
-
-        assert!(ctx.is_concrete(&list_concrete));
-        assert!(!ctx.is_concrete(&list_var));
-
-        ctx.unify(&var, &Type::String).unwrap();
-        assert!(ctx.is_concrete(&list_var));
     }
 
     #[test]
@@ -1193,110 +1135,6 @@ mod tests {
         };
         let fv = ctx.free_vars(&e);
         assert_eq!(fv.len(), 1);
-    }
-
-    // ==================== is_concrete Tests ====================
-
-    #[test]
-    fn test_is_concrete_tuple() {
-        let mut ctx = UnifyCtx::new();
-        let var = ctx.fresh_var();
-
-        let tuple_concrete = Type::Tuple(vec![Type::Int, Type::Bool]);
-        let tuple_var = Type::Tuple(vec![Type::Int, var.clone()]);
-
-        assert!(ctx.is_concrete(&tuple_concrete));
-        assert!(!ctx.is_concrete(&tuple_var));
-
-        ctx.unify(&var, &Type::String).unwrap();
-        assert!(ctx.is_concrete(&tuple_var));
-    }
-
-    #[test]
-    fn test_is_concrete_function() {
-        let mut ctx = UnifyCtx::new();
-        let var = ctx.fresh_var();
-
-        let func_concrete = Type::Function {
-            params: vec![Type::Int],
-            ret: Box::new(Type::Bool),
-        };
-        let func_var = Type::Function {
-            params: vec![var.clone()],
-            ret: Box::new(Type::Bool),
-        };
-
-        assert!(ctx.is_concrete(&func_concrete));
-        assert!(!ctx.is_concrete(&func_var));
-
-        ctx.unify(&var, &Type::Int).unwrap();
-        assert!(ctx.is_concrete(&func_var));
-    }
-
-    #[test]
-    fn test_is_concrete_struct() {
-        let mut ctx = UnifyCtx::new();
-        let var = ctx.fresh_var();
-
-        let struct_concrete = Type::Struct {
-            name: "Point".to_string(),
-            type_args: vec![],
-            fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
-        };
-        let struct_var = Type::Struct {
-            name: "Box".to_string(),
-            type_args: vec![var.clone()],
-            fields: vec![("value".to_string(), var.clone())],
-        };
-
-        assert!(ctx.is_concrete(&struct_concrete));
-        assert!(!ctx.is_concrete(&struct_var));
-
-        ctx.unify(&var, &Type::Int).unwrap();
-        assert!(ctx.is_concrete(&struct_var));
-    }
-
-    #[test]
-    fn test_is_concrete_enum() {
-        let mut ctx = UnifyCtx::new();
-        let var = ctx.fresh_var();
-
-        let enum_concrete = Type::Enum {
-            name: "Color".to_string(),
-            type_args: vec![],
-            variants: vec![("Red".to_string(), EnumVariantType::Unit)],
-        };
-        let enum_var = Type::Enum {
-            name: "Option".to_string(),
-            type_args: vec![var.clone()],
-            variants: vec![("Some".to_string(), EnumVariantType::Tuple(vec![var.clone()]))],
-        };
-
-        assert!(ctx.is_concrete(&enum_concrete));
-        assert!(!ctx.is_concrete(&enum_var));
-
-        ctx.unify(&var, &Type::Int).unwrap();
-        assert!(ctx.is_concrete(&enum_var));
-    }
-
-    #[test]
-    fn test_is_concrete_enum_struct_variant() {
-        let mut ctx = UnifyCtx::new();
-        let var = ctx.fresh_var();
-
-        let enum_var = Type::Enum {
-            name: "Result".to_string(),
-            type_args: vec![var.clone()],
-            variants: vec![(
-                "Ok".to_string(),
-                EnumVariantType::Struct(vec![("value".to_string(), var.clone())]),
-            )],
-        };
-
-        assert!(!ctx.is_concrete(&enum_var));
-
-        ctx.unify(&var, &Type::Int).unwrap();
-        assert!(ctx.is_concrete(&enum_var));
     }
 
     // ==================== Resolve Tests for Complex Types ====================

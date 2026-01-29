@@ -10,8 +10,6 @@ use crate::ast::{
     BinOp, EnumDef, Expr, FunctionDef, Item, LetBinding, MatchArm, Path, Statement, StructDef,
     TypeAliasDef, TypeAnnotation, UnaryOp,
 };
-#[cfg(test)]
-use crate::ast::{EnumPattern, EnumPatternFields, Pattern, TuplePattern};
 use crate::ir::{
     CheckedItem, QualifiedPath, TypedEnumConstructFields, TypedExpr, TypedFunction,
     TypedLetBinding,
@@ -3088,8 +3086,7 @@ mod tests {
 
     #[test]
     fn test_let_enum_pattern_rejected() {
-        use crate::ast::EnumPattern;
-        use crate::ast::EnumPatternFields;
+        use crate::ast::{EnumPattern, EnumPatternFields, Pattern, TuplePattern};
         let mut env = TypeEnv::default();
         // Don't need to set up actual enum type - irrefutability check happens before type checking
         let stmts = vec![Statement::Let(LetBinding {
@@ -3112,6 +3109,7 @@ mod tests {
 
     #[test]
     fn test_let_tuple_pattern_irrefutable() {
+        use crate::ast::{Pattern, TuplePattern};
         let mut env = TypeEnv::default();
         let stmts = vec![Statement::Let(LetBinding {
             pattern: Pattern::Tuple(TuplePattern::Exact(vec![
