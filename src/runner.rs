@@ -511,6 +511,27 @@ mod tests {
     }
 
     #[test]
+    fn test_run_tuple_equality_true() {
+        let source = "fn main() -> Bool { (1, 2) == (1, 2) }";
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_run_tuple_equality_false() {
+        let source = "fn main() -> Bool { (1, 2) == (1, 3) }";
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Bool(false));
+    }
+
+    #[test]
+    fn test_run_tuple_inequality() {
+        let source = "fn main() -> Bool { (1, 2) != (1, 3) }";
+        let result = run(source).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
     fn test_run_list_match_empty() {
         let source = r#"
             fn is_empty<T>(xs: List<T>) -> Bool {

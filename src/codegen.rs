@@ -52,9 +52,41 @@ function $$eq(a, b) {
   return a === b;
 }"#
 }
+/// Check if an expression doesn't need wrapping in parens when used as an operand.
+/// True for simple atoms and expressions that already produce parenthesized output.
+fn is_safe_operand(expr: &TypedExpr) -> bool {
+    matches!(
+        expr,
+        TypedExpr::Int(_)
+            | TypedExpr::BigInt(_)
+            | TypedExpr::Float(_)
+            | TypedExpr::Bool(_)
+            | TypedExpr::String(_)
+            | TypedExpr::Var { .. }
+            | TypedExpr::Call { .. }
+            | TypedExpr::List { .. }
+            | TypedExpr::Tuple { .. }
+            | TypedExpr::BinOp { .. }
+            | TypedExpr::UnaryOp { .. }
+    )
+}
+
+/// Generate JS for an expression, wrapping in parens only if needed for operator safety.
+fn codegen_operand(expr: &TypedExpr) -> String {
+    let code = codegen(expr);
+    if is_safe_operand(expr) {
+        code
+    } else {
+        format!("({})", code)
+    }
+}
+
 /// Check if a type requires deep equality comparison
 fn needs_deep_equality(ty: &Type) -> bool {
-    matches!(ty, Type::List(_) | Type::Struct { .. } | Type::Enum { .. })
+    matches!(
+        ty,
+        Type::List(_) | Type::Tuple(_) | Type::Struct { .. } | Type::Enum { .. }
+    )
 }
 
 /// Format a qualified path as a JS identifier: Option::Some -> $Option$Some
@@ -65,6 +97,69 @@ fn format_path(path: &crate::ir::QualifiedPath) -> String {
 /// Format a simple name as a JS identifier: x -> $x
 fn format_name(name: &str) -> String {
     format!("${}", name)
+}
+
+/// Format an array index path: `path[idx]`
+fn array_index(access_path: &str, idx: usize) -> String {
+    format!("{}[{}]", access_path, idx)
+}
+
+/// Format an enum field path: `path.$idx`
+fn enum_field(access_path: &str, idx: usize) -> String {
+    format!("{}.${}",  access_path, idx)
+}
+
+/// Generate conditions and bindings for a sequence of patterns at indexed positions.
+fn codegen_indexed_patterns(
+    patterns: &[TypedPattern],
+    access_path: &str,
+    start_idx: usize,
+    make_child_path: fn(&str, usize) -> String,
+    conditions: &mut Vec<String>,
+    bindings: &mut Vec<String>,
+) {
+    for (i, pat) in patterns.iter().enumerate() {
+        let child_path = make_child_path(access_path, start_idx + i);
+        let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
+        conditions.extend(child_conds);
+        bindings.extend(child_binds);
+    }
+}
+
+/// Generate conditions and bindings for suffix patterns indexed from the end of a list.
+fn codegen_suffix_from_end_patterns(
+    patterns: &[TypedPattern],
+    access_path: &str,
+    suffix_len: usize,
+    conditions: &mut Vec<String>,
+    bindings: &mut Vec<String>,
+) {
+    for (i, pat) in patterns.iter().enumerate() {
+        let offset = suffix_len - i;
+        let indexed_path = format!("{}[{}.length - {}]", access_path, access_path, offset);
+        let (child_conds, child_binds) = codegen_pattern_at_path(pat, &indexed_path);
+        conditions.extend(child_conds);
+        bindings.extend(child_binds);
+    }
+}
+
+/// Generate a rest binding for a tuple by enumerating known indices.
+fn tuple_rest_binding(name: &str, access_path: &str, range: std::ops::Range<usize>, bindings: &mut Vec<String>) {
+    let rest_indices: Vec<String> = range.map(|i| format!("{}[{}]", access_path, i)).collect();
+    bindings.push(format!("const {} = [{}];", format_name(name), rest_indices.join(", ")));
+}
+
+/// Generate a JS condition checking an array's length.
+fn array_length_condition(access_path: &str, op: &str, len: usize) -> String {
+    format!("Array.isArray({}) && {}.length {} {}", access_path, access_path, op, len)
+}
+
+/// Generate a JS condition checking an enum variant tag.
+fn enum_tag_condition(access_path: &str, path: &crate::ir::QualifiedPath) -> String {
+    format!(
+        "{}({}) && {}.$tag === \"{}\"",
+        IS_OBJ_FN, access_path, access_path, path.last()
+    )
 }
 
 /// Generate conditions and bindings for a pattern at a given access path.
@@ -112,24 +207,13 @@ fn codegen_pattern_at_path(
             bindings.extend(inner_binds);
         }
 
-        TypedPattern::ListEmpty => {
-            conditions.push(format!(
-                "Array.isArray({}) && {}.length === 0",
-                access_path, access_path
-            ));
+        TypedPattern::ListEmpty | TypedPattern::TupleEmpty => {
+            conditions.push(array_length_condition(access_path, "===", 0));
         }
 
-        TypedPattern::ListExact { patterns, len } => {
-            conditions.push(format!(
-                "Array.isArray({}) && {}.length === {}",
-                access_path, access_path, len
-            ));
-            for (i, pat) in patterns.iter().enumerate() {
-                let child_path = format!("{}[{}]", access_path, i);
-                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
-                conditions.extend(child_conds);
-                bindings.extend(child_binds);
-            }
+        TypedPattern::ListExact { patterns, len } | TypedPattern::TupleExact { patterns, len } => {
+            conditions.push(array_length_condition(access_path, "===", *len));
+            codegen_indexed_patterns(patterns, access_path, 0, array_index, &mut conditions, &mut bindings);
         }
 
         TypedPattern::ListPrefix {
@@ -137,17 +221,8 @@ fn codegen_pattern_at_path(
             rest_binding,
             min_len,
         } => {
-            conditions.push(format!(
-                "Array.isArray({}) && {}.length >= {}",
-                access_path, access_path, min_len
-            ));
-            for (i, pat) in patterns.iter().enumerate() {
-                let child_path = format!("{}[{}]", access_path, i);
-                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
-                conditions.extend(child_conds);
-                bindings.extend(child_binds);
-            }
-            // Handle rest binding: rest @ .. binds to remaining elements
+            conditions.push(array_length_condition(access_path, ">=", *min_len));
+            codegen_indexed_patterns(patterns, access_path, 0, array_index, &mut conditions, &mut bindings);
             if let Some(name) = rest_binding {
                 bindings.push(format!(
                     "const {} = {}.slice({});",
@@ -161,19 +236,8 @@ fn codegen_pattern_at_path(
             rest_binding,
             min_len,
         } => {
-            conditions.push(format!(
-                "Array.isArray({}) && {}.length >= {}",
-                access_path, access_path, min_len
-            ));
-            for (i, pat) in patterns.iter().enumerate() {
-                let offset = min_len - i;
-                let child_path = format!("{}.length - {}", access_path, offset);
-                let indexed_path = format!("{}[{}]", access_path, child_path);
-                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &indexed_path);
-                conditions.extend(child_conds);
-                bindings.extend(child_binds);
-            }
-            // Handle rest binding: rest @ .. binds to leading elements
+            conditions.push(array_length_condition(access_path, ">=", *min_len));
+            codegen_suffix_from_end_patterns(patterns, access_path, *min_len, &mut conditions, &mut bindings);
             if let Some(name) = rest_binding {
                 bindings.push(format!(
                     "const {} = {}.slice(0, {}.length - {});",
@@ -188,57 +252,14 @@ fn codegen_pattern_at_path(
             rest_binding,
             min_len,
         } => {
-            conditions.push(format!(
-                "Array.isArray({}) && {}.length >= {}",
-                access_path, access_path, min_len
-            ));
-            // Prefix patterns: indexed from start
-            for (i, pat) in prefix.iter().enumerate() {
-                let child_path = format!("{}[{}]", access_path, i);
-                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
-                conditions.extend(child_conds);
-                bindings.extend(child_binds);
-            }
-            // Suffix patterns: indexed from end
-            let suffix_len = suffix.len();
-            for (i, pat) in suffix.iter().enumerate() {
-                let offset = suffix_len - i;
-                let child_path = format!("{}.length - {}", access_path, offset);
-                let indexed_path = format!("{}[{}]", access_path, child_path);
-                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &indexed_path);
-                conditions.extend(child_conds);
-                bindings.extend(child_binds);
-            }
-            // Handle rest binding: rest @ .. binds to middle elements
+            conditions.push(array_length_condition(access_path, ">=", *min_len));
+            codegen_indexed_patterns(prefix, access_path, 0, array_index, &mut conditions, &mut bindings);
+            codegen_suffix_from_end_patterns(suffix, access_path, suffix.len(), &mut conditions, &mut bindings);
             if let Some(name) = rest_binding {
                 bindings.push(format!(
                     "const {} = {}.slice({}, {}.length - {});",
-                    format_name(name),
-                    access_path,
-                    prefix.len(),
-                    access_path,
-                    suffix_len
+                    format_name(name), access_path, prefix.len(), access_path, suffix.len()
                 ));
-            }
-        }
-
-        TypedPattern::TupleEmpty => {
-            conditions.push(format!(
-                "Array.isArray({}) && {}.length === 0",
-                access_path, access_path
-            ));
-        }
-
-        TypedPattern::TupleExact { patterns, len } => {
-            conditions.push(format!(
-                "Array.isArray({}) && {}.length === {}",
-                access_path, access_path, len
-            ));
-            for (i, pat) in patterns.iter().enumerate() {
-                let child_path = format!("{}[{}]", access_path, i);
-                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
-                conditions.extend(child_conds);
-                bindings.extend(child_binds);
             }
         }
 
@@ -247,22 +268,10 @@ fn codegen_pattern_at_path(
             rest_binding,
             total_len,
         } => {
-            conditions.push(format!(
-                "Array.isArray({}) && {}.length === {}",
-                access_path, access_path, total_len
-            ));
-            for (i, pat) in patterns.iter().enumerate() {
-                let child_path = format!("{}[{}]", access_path, i);
-                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
-                conditions.extend(child_conds);
-                bindings.extend(child_binds);
-            }
-            // Handle rest binding: rest @ .. binds to tuple of remaining elements
+            conditions.push(array_length_condition(access_path, "===", *total_len));
+            codegen_indexed_patterns(patterns, access_path, 0, array_index, &mut conditions, &mut bindings);
             if let Some(name) = rest_binding {
-                let rest_indices: Vec<String> = (patterns.len()..*total_len)
-                    .map(|i| format!("{}[{}]", access_path, i))
-                    .collect();
-                bindings.push(format!("const {} = [{}];", format_name(name), rest_indices.join(", ")));
+                tuple_rest_binding(name, access_path, patterns.len()..*total_len, &mut bindings);
             }
         }
 
@@ -271,24 +280,11 @@ fn codegen_pattern_at_path(
             rest_binding,
             total_len,
         } => {
-            conditions.push(format!(
-                "Array.isArray({}) && {}.length === {}",
-                access_path, access_path, total_len
-            ));
+            conditions.push(array_length_condition(access_path, "===", *total_len));
             let start_idx = total_len - patterns.len();
-            for (i, pat) in patterns.iter().enumerate() {
-                let idx = start_idx + i;
-                let child_path = format!("{}[{}]", access_path, idx);
-                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
-                conditions.extend(child_conds);
-                bindings.extend(child_binds);
-            }
-            // Handle rest binding: rest @ .. binds to tuple of leading elements
+            codegen_indexed_patterns(patterns, access_path, start_idx, array_index, &mut conditions, &mut bindings);
             if let Some(name) = rest_binding {
-                let rest_indices: Vec<String> = (0..start_idx)
-                    .map(|i| format!("{}[{}]", access_path, i))
-                    .collect();
-                bindings.push(format!("const {} = [{}];", format_name(name), rest_indices.join(", ")));
+                tuple_rest_binding(name, access_path, 0..start_idx, &mut bindings);
             }
         }
 
@@ -298,32 +294,12 @@ fn codegen_pattern_at_path(
             rest_binding,
             total_len,
         } => {
-            conditions.push(format!(
-                "Array.isArray({}) && {}.length === {}",
-                access_path, access_path, total_len
-            ));
-            // Prefix patterns
-            for (i, pat) in prefix.iter().enumerate() {
-                let child_path = format!("{}[{}]", access_path, i);
-                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
-                conditions.extend(child_conds);
-                bindings.extend(child_binds);
-            }
-            // Suffix patterns
+            conditions.push(array_length_condition(access_path, "===", *total_len));
             let suffix_start = total_len - suffix.len();
-            for (i, pat) in suffix.iter().enumerate() {
-                let idx = suffix_start + i;
-                let child_path = format!("{}[{}]", access_path, idx);
-                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
-                conditions.extend(child_conds);
-                bindings.extend(child_binds);
-            }
-            // Handle rest binding: rest @ .. binds to tuple of middle elements
+            codegen_indexed_patterns(prefix, access_path, 0, array_index, &mut conditions, &mut bindings);
+            codegen_indexed_patterns(suffix, access_path, suffix_start, array_index, &mut conditions, &mut bindings);
             if let Some(name) = rest_binding {
-                let rest_indices: Vec<String> = (prefix.len()..suffix_start)
-                    .map(|i| format!("{}[{}]", access_path, i))
-                    .collect();
-                bindings.push(format!("const {} = [{}];", format_name(name), rest_indices.join(", ")));
+                tuple_rest_binding(name, access_path, prefix.len()..suffix_start, &mut bindings);
             }
         }
 
@@ -339,44 +315,13 @@ fn codegen_pattern_at_path(
 
         // Enum patterns
         TypedPattern::EnumUnit { path } => {
-            conditions.push(format!(
-                "{}({}) && {}.$tag === \"{}\"",
-                IS_OBJ_FN, access_path, access_path, path.last()
-            ));
+            conditions.push(enum_tag_condition(access_path, path));
         }
 
-        TypedPattern::EnumTupleExact {
-            path,
-            patterns,
-            ..
-        } => {
-            conditions.push(format!(
-                "{}({}) && {}.$tag === \"{}\"",
-                IS_OBJ_FN, access_path, access_path, path.last()
-            ));
-            for (i, pat) in patterns.iter().enumerate() {
-                let child_path = format!("{}.${}",  access_path, i);
-                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
-                conditions.extend(child_conds);
-                bindings.extend(child_binds);
-            }
-        }
-
-        TypedPattern::EnumTuplePrefix {
-            path,
-            patterns,
-            ..
-        } => {
-            conditions.push(format!(
-                "{}({}) && {}.$tag === \"{}\"",
-                IS_OBJ_FN, access_path, access_path, path.last()
-            ));
-            for (i, pat) in patterns.iter().enumerate() {
-                let child_path = format!("{}.${}",  access_path, i);
-                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
-                conditions.extend(child_conds);
-                bindings.extend(child_binds);
-            }
+        TypedPattern::EnumTupleExact { path, patterns, .. }
+        | TypedPattern::EnumTuplePrefix { path, patterns, .. } => {
+            conditions.push(enum_tag_condition(access_path, path));
+            codegen_indexed_patterns(patterns, access_path, 0, enum_field, &mut conditions, &mut bindings);
         }
 
         TypedPattern::EnumTupleSuffix {
@@ -385,18 +330,9 @@ fn codegen_pattern_at_path(
             total_fields,
             ..
         } => {
-            conditions.push(format!(
-                "{}({}) && {}.$tag === \"{}\"",
-                IS_OBJ_FN, access_path, access_path, path.last()
-            ));
+            conditions.push(enum_tag_condition(access_path, path));
             let start_idx = total_fields - patterns.len();
-            for (i, pat) in patterns.iter().enumerate() {
-                let idx = start_idx + i;
-                let child_path = format!("{}.${}",  access_path, idx);
-                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
-                conditions.extend(child_conds);
-                bindings.extend(child_binds);
-            }
+            codegen_indexed_patterns(patterns, access_path, start_idx, enum_field, &mut conditions, &mut bindings);
         }
 
         TypedPattern::EnumTuplePrefixSuffix {
@@ -406,34 +342,15 @@ fn codegen_pattern_at_path(
             total_fields,
             ..
         } => {
-            conditions.push(format!(
-                "{}({}) && {}.$tag === \"{}\"",
-                IS_OBJ_FN, access_path, access_path, path.last()
-            ));
-            // Prefix patterns
-            for (i, pat) in prefix.iter().enumerate() {
-                let child_path = format!("{}.${}",  access_path, i);
-                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
-                conditions.extend(child_conds);
-                bindings.extend(child_binds);
-            }
-            // Suffix patterns
+            conditions.push(enum_tag_condition(access_path, path));
+            codegen_indexed_patterns(prefix, access_path, 0, enum_field, &mut conditions, &mut bindings);
             let suffix_start = total_fields - suffix.len();
-            for (i, pat) in suffix.iter().enumerate() {
-                let idx = suffix_start + i;
-                let child_path = format!("{}.${}",  access_path, idx);
-                let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
-                conditions.extend(child_conds);
-                bindings.extend(child_binds);
-            }
+            codegen_indexed_patterns(suffix, access_path, suffix_start, enum_field, &mut conditions, &mut bindings);
         }
 
         TypedPattern::EnumStructExact { path, fields }
         | TypedPattern::EnumStructPartial { path, fields } => {
-            conditions.push(format!(
-                "{}({}) && {}.$tag === \"{}\"",
-                IS_OBJ_FN, access_path, access_path, path.last()
-            ));
+            conditions.push(enum_tag_condition(access_path, path));
             for (field_name, pat) in fields {
                 let child_path = format!("{}.{}", access_path, field_name);
                 let (child_conds, child_binds) = codegen_pattern_at_path(pat, &child_path);
@@ -463,9 +380,9 @@ pub fn codegen(expr: &TypedExpr) -> String {
             format!("{}({})", format_path(path), args_str.join(", "))
         }
         TypedExpr::UnaryOp { op, expr, .. } => {
-            let inner = codegen(expr);
+            let inner = codegen_operand(expr);
             match op {
-                UnaryOp::Neg => format!("(-({}))", inner),
+                UnaryOp::Neg => format!("(-{})", inner),
             }
         }
         TypedExpr::BinOp {
@@ -492,6 +409,8 @@ pub fn codegen(expr: &TypedExpr) -> String {
                 return format!("{}({}, {})", DIV_CHECK_FN, l, r);
             }
 
+            let l = codegen_operand(left);
+            let r = codegen_operand(right);
             let op_str = match op {
                 BinOp::Add => "+",
                 BinOp::Sub => "-",
@@ -504,7 +423,7 @@ pub fn codegen(expr: &TypedExpr) -> String {
                 BinOp::Le => "<=",
                 BinOp::Ge => ">=",
             };
-            format!("(({}) {} ({}))", l, op_str, r)
+            format!("({} {} {})", l, op_str, r)
         }
         TypedExpr::Block { bindings, result } => {
             // Generate IIFE for proper scoping
@@ -591,25 +510,7 @@ pub fn codegen(expr: &TypedExpr) -> String {
         }
 
         TypedExpr::Lambda { params, body, .. } => {
-            let mut param_names = Vec::new();
-            let mut prologue = Vec::new();
-            let mut param_counter = 0;
-
-            for (pattern, _) in params {
-                match pattern {
-                    TypedPattern::Var { name, .. } => {
-                        param_names.push(format_name(name));
-                    }
-                    _ => {
-                        let synthetic_name = format!("$$param{}", param_counter);
-                        param_counter += 1;
-                        param_names.push(synthetic_name.clone());
-                        let (_, bindings) = codegen_pattern_at_path(pattern, &synthetic_name);
-                        prologue.extend(bindings);
-                    }
-                }
-            }
-
+            let (param_names, prologue) = codegen_params(params);
             let body_code = codegen(body);
 
             if params.is_empty() {
@@ -726,12 +627,13 @@ fn codegen_match(scrutinee: &TypedExpr, arms: &[TypedMatchArm]) -> String {
 }
 
 /// Generate JS code for a function definition
-pub fn codegen_function(func: &TypedFunction) -> String {
+/// Generate JS parameter names and destructuring prologue from pattern params.
+fn codegen_params(params: &[(TypedPattern, Type)]) -> (Vec<String>, Vec<String>) {
     let mut param_names = Vec::new();
     let mut prologue = Vec::new();
     let mut param_counter = 0;
 
-    for (pattern, _) in &func.params {
+    for (pattern, _) in params {
         match pattern {
             TypedPattern::Var { name, .. } => {
                 param_names.push(format_name(name));
@@ -746,6 +648,11 @@ pub fn codegen_function(func: &TypedFunction) -> String {
         }
     }
 
+    (param_names, prologue)
+}
+
+pub fn codegen_function(func: &TypedFunction) -> String {
+    let (param_names, prologue) = codegen_params(&func.params);
     let body = codegen(&func.body);
 
     if prologue.is_empty() {
@@ -792,9 +699,19 @@ pub fn codegen_let(binding: &TypedLetBinding) -> String {
 }
 
 fn format_float(n: f64) -> String {
+    if n.is_nan() {
+        return "NaN".to_string();
+    }
+    if n.is_infinite() {
+        return if n.is_sign_positive() {
+            "Infinity".to_string()
+        } else {
+            "-Infinity".to_string()
+        };
+    }
     let s = n.to_string();
     // Ensure float always has decimal point for JS
-    if s.contains('.') {
+    if s.contains('.') || s.contains('e') || s.contains('E') {
         s
     } else {
         format!("{}.0", s)
@@ -802,6 +719,7 @@ fn format_float(n: f64) -> String {
 }
 
 fn escape_js_string(s: &str) -> String {
+    use std::fmt::Write;
     let mut result = String::with_capacity(s.len() + 2);
     result.push('"');
     for c in s.chars() {
@@ -811,6 +729,9 @@ fn escape_js_string(s: &str) -> String {
             '\n' => result.push_str("\\n"),
             '\r' => result.push_str("\\r"),
             '\t' => result.push_str("\\t"),
+            '\0' => result.push_str("\\0"),
+            // Other control characters as \uXXXX
+            c if c < '\x20' => { let _ = write!(result, "\\u{:04x}", c as u32); }
             _ => result.push(c),
         }
     }
@@ -866,7 +787,7 @@ mod tests {
             expr: Box::new(TypedExpr::Int(42)),
             ty: Type::Int,
         };
-        assert_eq!(codegen(&expr), "(-(42))");
+        assert_eq!(codegen(&expr), "(-42)");
     }
 
     #[test]
@@ -876,7 +797,7 @@ mod tests {
             expr: Box::new(TypedExpr::BigInt(42)),
             ty: Type::BigInt,
         };
-        assert_eq!(codegen(&expr), "(-(42n))");
+        assert_eq!(codegen(&expr), "(-42n)");
     }
 
     #[test]
@@ -887,7 +808,7 @@ mod tests {
             right: Box::new(TypedExpr::Int(2)),
             ty: Type::Int,
         };
-        assert_eq!(codegen(&expr), "((1) + (2))");
+        assert_eq!(codegen(&expr), "(1 + 2)");
     }
 
     #[test]
@@ -898,7 +819,7 @@ mod tests {
             right: Box::new(TypedExpr::BigInt(2)),
             ty: Type::BigInt,
         };
-        assert_eq!(codegen(&expr), "((1n) + (2n))");
+        assert_eq!(codegen(&expr), "(1n + 2n)");
     }
 
     #[test]
@@ -909,7 +830,7 @@ mod tests {
             right: Box::new(TypedExpr::Int(3)),
             ty: Type::Int,
         };
-        assert_eq!(codegen(&expr), "((5) - (3))");
+        assert_eq!(codegen(&expr), "(5 - 3)");
     }
 
     #[test]
@@ -920,7 +841,7 @@ mod tests {
             right: Box::new(TypedExpr::Int(4)),
             ty: Type::Int,
         };
-        assert_eq!(codegen(&expr), "((3) * (4))");
+        assert_eq!(codegen(&expr), "(3 * 4)");
     }
 
     #[test]
@@ -949,7 +870,7 @@ mod tests {
             }),
             ty: Type::Int,
         };
-        assert_eq!(codegen(&expr), "((2) + (((3) * (4))))");
+        assert_eq!(codegen(&expr), "(2 + (3 * 4))");
     }
 
     #[test]
@@ -960,7 +881,7 @@ mod tests {
             right: Box::new(TypedExpr::Float(2.5)),
             ty: Type::Float,
         };
-        assert_eq!(codegen(&expr), "((1.5) + (2.5))");
+        assert_eq!(codegen(&expr), "(1.5 + 2.5)");
     }
 
     #[test]
@@ -1032,7 +953,7 @@ mod tests {
             right: Box::new(TypedExpr::Int(1)),
             ty: Type::Int,
         };
-        assert_eq!(codegen(&expr), "(($x) + (1))");
+        assert_eq!(codegen(&expr), "($x + 1)");
     }
 
     #[test]
@@ -1056,7 +977,7 @@ mod tests {
         };
         assert_eq!(
             codegen_function(&func),
-            "function $square($x) { return (($x) * ($x)); }"
+            "function $square($x) { return ($x * $x); }"
         );
     }
 
@@ -1084,7 +1005,7 @@ mod tests {
         };
         assert_eq!(
             codegen_function(&func),
-            "function $add($x, $y) { return (($x) + ($y)); }"
+            "function $add($x, $y) { return ($x + $y); }"
         );
     }
 
@@ -1120,7 +1041,7 @@ mod tests {
         };
         assert_eq!(
             codegen_function(&func),
-            "function $big($x) { return (($x) + (1n)); }"
+            "function $big($x) { return ($x + 1n); }"
         );
     }
 }
