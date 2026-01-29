@@ -207,3 +207,688 @@ pub fn resolve_type_annotation(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::{Path, TypeAnnotation};
+    use crate::types::{EnumType, EnumVariantType, StructType, TypeAliasType};
+
+    fn empty_env() -> TypeEnv {
+        TypeEnv::default()
+    }
+
+    fn empty_map() -> HashMap<String, TypeVarId> {
+        HashMap::new()
+    }
+
+    // ========================================================================
+    // Basic type resolution tests
+    // ========================================================================
+
+    #[test]
+    fn test_resolve_int() {
+        let annotation = TypeAnnotation::Named(Path::simple("Int".to_string()));
+        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Type::Int);
+    }
+
+    #[test]
+    fn test_resolve_bigint() {
+        let annotation = TypeAnnotation::Named(Path::simple("BigInt".to_string()));
+        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Type::BigInt);
+    }
+
+    #[test]
+    fn test_resolve_float() {
+        let annotation = TypeAnnotation::Named(Path::simple("Float".to_string()));
+        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Type::Float);
+    }
+
+    #[test]
+    fn test_resolve_bool() {
+        let annotation = TypeAnnotation::Named(Path::simple("Bool".to_string()));
+        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn test_resolve_string() {
+        let annotation = TypeAnnotation::Named(Path::simple("String".to_string()));
+        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Type::String);
+    }
+
+    // ========================================================================
+    // Unknown type tests
+    // ========================================================================
+
+    #[test]
+    fn test_resolve_unknown_type() {
+        let annotation = TypeAnnotation::Named(Path::simple("UnknownType".to_string()));
+        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("unknown type"));
+        assert!(err.message.contains("UnknownType"));
+    }
+
+    #[test]
+    fn test_resolve_unknown_parameterized_type() {
+        let annotation = TypeAnnotation::Parameterized(
+            Path::simple("UnknownGeneric".to_string()),
+            vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
+        );
+        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("unknown parameterized type"));
+    }
+
+    // ========================================================================
+    // Qualified path error tests
+    // ========================================================================
+
+    #[test]
+    fn test_resolve_qualified_type_path_error() {
+        let annotation = TypeAnnotation::Named(Path {
+            segments: vec!["Module".to_string(), "Type".to_string()],
+            type_args: None,
+        });
+        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("qualified type paths not yet supported"));
+    }
+
+    #[test]
+    fn test_resolve_qualified_parameterized_type_path_error() {
+        let annotation = TypeAnnotation::Parameterized(
+            Path {
+                segments: vec!["Module".to_string(), "Container".to_string()],
+                type_args: None,
+            },
+            vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
+        );
+        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("qualified type paths not yet supported"));
+    }
+
+    // ========================================================================
+    // Type parameter resolution tests
+    // ========================================================================
+
+    #[test]
+    fn test_resolve_type_param() {
+        let mut type_param_map = HashMap::new();
+        type_param_map.insert("T".to_string(), TypeVarId(42));
+
+        let annotation = TypeAnnotation::Named(Path::simple("T".to_string()));
+        let result = resolve_type_annotation(&annotation, &type_param_map, &empty_env());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Type::Var(TypeVarId(42)));
+    }
+
+    // ========================================================================
+    // List type tests
+    // ========================================================================
+
+    #[test]
+    fn test_resolve_list_int() {
+        let annotation = TypeAnnotation::Parameterized(
+            Path::simple("List".to_string()),
+            vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
+        );
+        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Type::List(Box::new(Type::Int)));
+    }
+
+    #[test]
+    fn test_resolve_list_wrong_param_count_zero() {
+        let annotation = TypeAnnotation::Parameterized(
+            Path::simple("List".to_string()),
+            vec![],
+        );
+        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("List requires exactly one type parameter"));
+    }
+
+    #[test]
+    fn test_resolve_list_wrong_param_count_two() {
+        let annotation = TypeAnnotation::Parameterized(
+            Path::simple("List".to_string()),
+            vec![
+                TypeAnnotation::Named(Path::simple("Int".to_string())),
+                TypeAnnotation::Named(Path::simple("String".to_string())),
+            ],
+        );
+        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("List requires exactly one type parameter"));
+    }
+
+    #[test]
+    fn test_resolve_nested_list() {
+        let annotation = TypeAnnotation::Parameterized(
+            Path::simple("List".to_string()),
+            vec![TypeAnnotation::Parameterized(
+                Path::simple("List".to_string()),
+                vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
+            )],
+        );
+        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap(),
+            Type::List(Box::new(Type::List(Box::new(Type::Int))))
+        );
+    }
+
+    // ========================================================================
+    // Struct type resolution tests
+    // ========================================================================
+
+    #[test]
+    fn test_resolve_non_generic_struct() {
+        let mut env = empty_env();
+        env.structs.insert(
+            "Point".to_string(),
+            StructType {
+                name: "Point".to_string(),
+                type_params: vec![],
+                type_var_ids: vec![],
+                fields: vec![
+                    ("x".to_string(), Type::Int),
+                    ("y".to_string(), Type::Int),
+                ],
+            },
+        );
+
+        let annotation = TypeAnnotation::Named(Path::simple("Point".to_string()));
+        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        assert!(result.is_ok());
+        match result.unwrap() {
+            Type::Struct { name, type_args, fields } => {
+                assert_eq!(name, "Point");
+                assert!(type_args.is_empty());
+                assert_eq!(fields.len(), 2);
+            }
+            _ => panic!("Expected struct type"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_struct_requires_type_args() {
+        let mut env = empty_env();
+        env.structs.insert(
+            "Container".to_string(),
+            StructType {
+                name: "Container".to_string(),
+                type_params: vec!["T".to_string()],
+                type_var_ids: vec![TypeVarId(1)],
+                fields: vec![("value".to_string(), Type::Var(TypeVarId(1)))],
+            },
+        );
+
+        let annotation = TypeAnnotation::Named(Path::simple("Container".to_string()));
+        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("struct Container requires 1 type argument"));
+    }
+
+    #[test]
+    fn test_resolve_struct_wrong_type_arg_count() {
+        let mut env = empty_env();
+        env.structs.insert(
+            "Pair".to_string(),
+            StructType {
+                name: "Pair".to_string(),
+                type_params: vec!["A".to_string(), "B".to_string()],
+                type_var_ids: vec![TypeVarId(1), TypeVarId(2)],
+                fields: vec![
+                    ("first".to_string(), Type::Var(TypeVarId(1))),
+                    ("second".to_string(), Type::Var(TypeVarId(2))),
+                ],
+            },
+        );
+
+        // Too few type args
+        let annotation = TypeAnnotation::Parameterized(
+            Path::simple("Pair".to_string()),
+            vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
+        );
+        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("struct Pair expects 2 type argument(s), got 1"));
+    }
+
+    #[test]
+    fn test_resolve_generic_struct_with_type_args() {
+        let mut env = empty_env();
+        env.structs.insert(
+            "Container".to_string(),
+            StructType {
+                name: "Container".to_string(),
+                type_params: vec!["T".to_string()],
+                type_var_ids: vec![TypeVarId(1)],
+                fields: vec![("value".to_string(), Type::Var(TypeVarId(1)))],
+            },
+        );
+
+        let annotation = TypeAnnotation::Parameterized(
+            Path::simple("Container".to_string()),
+            vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
+        );
+        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        assert!(result.is_ok());
+        match result.unwrap() {
+            Type::Struct { name, type_args, fields } => {
+                assert_eq!(name, "Container");
+                assert_eq!(type_args, vec![Type::Int]);
+                assert_eq!(fields.len(), 1);
+                assert_eq!(fields[0].1, Type::Int); // Field type is substituted
+            }
+            _ => panic!("Expected struct type"),
+        }
+    }
+
+    // ========================================================================
+    // Enum type resolution tests
+    // ========================================================================
+
+    #[test]
+    fn test_resolve_non_generic_enum() {
+        let mut env = empty_env();
+        env.enums.insert(
+            "Status".to_string(),
+            EnumType {
+                name: "Status".to_string(),
+                type_params: vec![],
+                type_var_ids: vec![],
+                variants: vec![
+                    ("Ok".to_string(), EnumVariantType::Unit),
+                    ("Error".to_string(), EnumVariantType::Unit),
+                ],
+            },
+        );
+
+        let annotation = TypeAnnotation::Named(Path::simple("Status".to_string()));
+        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        assert!(result.is_ok());
+        match result.unwrap() {
+            Type::Enum { name, type_args, variants } => {
+                assert_eq!(name, "Status");
+                assert!(type_args.is_empty());
+                assert_eq!(variants.len(), 2);
+            }
+            _ => panic!("Expected enum type"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_enum_requires_type_args() {
+        let mut env = empty_env();
+        env.enums.insert(
+            "Option".to_string(),
+            EnumType {
+                name: "Option".to_string(),
+                type_params: vec!["T".to_string()],
+                type_var_ids: vec![TypeVarId(1)],
+                variants: vec![
+                    ("None".to_string(), EnumVariantType::Unit),
+                    ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Var(TypeVarId(1))])),
+                ],
+            },
+        );
+
+        let annotation = TypeAnnotation::Named(Path::simple("Option".to_string()));
+        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("enum Option requires 1 type argument"));
+    }
+
+    #[test]
+    fn test_resolve_enum_wrong_type_arg_count() {
+        let mut env = empty_env();
+        env.enums.insert(
+            "Result".to_string(),
+            EnumType {
+                name: "Result".to_string(),
+                type_params: vec!["T".to_string(), "E".to_string()],
+                type_var_ids: vec![TypeVarId(1), TypeVarId(2)],
+                variants: vec![
+                    ("Ok".to_string(), EnumVariantType::Tuple(vec![Type::Var(TypeVarId(1))])),
+                    ("Err".to_string(), EnumVariantType::Tuple(vec![Type::Var(TypeVarId(2))])),
+                ],
+            },
+        );
+
+        // Too many type args
+        let annotation = TypeAnnotation::Parameterized(
+            Path::simple("Result".to_string()),
+            vec![
+                TypeAnnotation::Named(Path::simple("Int".to_string())),
+                TypeAnnotation::Named(Path::simple("String".to_string())),
+                TypeAnnotation::Named(Path::simple("Bool".to_string())),
+            ],
+        );
+        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("enum Result expects 2 type argument(s), got 3"));
+    }
+
+    #[test]
+    fn test_resolve_generic_enum_with_type_args() {
+        let mut env = empty_env();
+        env.enums.insert(
+            "Option".to_string(),
+            EnumType {
+                name: "Option".to_string(),
+                type_params: vec!["T".to_string()],
+                type_var_ids: vec![TypeVarId(1)],
+                variants: vec![
+                    ("None".to_string(), EnumVariantType::Unit),
+                    ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Var(TypeVarId(1))])),
+                ],
+            },
+        );
+
+        let annotation = TypeAnnotation::Parameterized(
+            Path::simple("Option".to_string()),
+            vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
+        );
+        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        assert!(result.is_ok());
+        match result.unwrap() {
+            Type::Enum { name, type_args, variants } => {
+                assert_eq!(name, "Option");
+                assert_eq!(type_args, vec![Type::Int]);
+                // Check Some variant has substituted type
+                assert!(matches!(&variants[1].1, EnumVariantType::Tuple(v) if v[0] == Type::Int));
+            }
+            _ => panic!("Expected enum type"),
+        }
+    }
+
+    // ========================================================================
+    // Type alias resolution tests
+    // ========================================================================
+
+    #[test]
+    fn test_resolve_non_generic_type_alias() {
+        let mut env = empty_env();
+        env.type_aliases.insert(
+            "IntList".to_string(),
+            TypeAliasType {
+                name: "IntList".to_string(),
+                type_params: vec![],
+                type_var_ids: vec![],
+                typ: Type::List(Box::new(Type::Int)),
+            },
+        );
+
+        let annotation = TypeAnnotation::Named(Path::simple("IntList".to_string()));
+        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Type::List(Box::new(Type::Int)));
+    }
+
+    #[test]
+    fn test_resolve_type_alias_requires_type_args() {
+        let mut env = empty_env();
+        env.type_aliases.insert(
+            "MyList".to_string(),
+            TypeAliasType {
+                name: "MyList".to_string(),
+                type_params: vec!["T".to_string()],
+                type_var_ids: vec![TypeVarId(1)],
+                typ: Type::List(Box::new(Type::Var(TypeVarId(1)))),
+            },
+        );
+
+        let annotation = TypeAnnotation::Named(Path::simple("MyList".to_string()));
+        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("type alias MyList requires 1 type argument"));
+    }
+
+    #[test]
+    fn test_resolve_type_alias_wrong_type_arg_count() {
+        let mut env = empty_env();
+        env.type_aliases.insert(
+            "MyPair".to_string(),
+            TypeAliasType {
+                name: "MyPair".to_string(),
+                type_params: vec!["A".to_string(), "B".to_string()],
+                type_var_ids: vec![TypeVarId(1), TypeVarId(2)],
+                typ: Type::Tuple(vec![Type::Var(TypeVarId(1)), Type::Var(TypeVarId(2))]),
+            },
+        );
+
+        let annotation = TypeAnnotation::Parameterized(
+            Path::simple("MyPair".to_string()),
+            vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
+        );
+        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("type alias MyPair expects 2 type argument(s), got 1"));
+    }
+
+    #[test]
+    fn test_resolve_generic_type_alias_with_type_args() {
+        let mut env = empty_env();
+        env.type_aliases.insert(
+            "MyList".to_string(),
+            TypeAliasType {
+                name: "MyList".to_string(),
+                type_params: vec!["T".to_string()],
+                type_var_ids: vec![TypeVarId(1)],
+                typ: Type::List(Box::new(Type::Var(TypeVarId(1)))),
+            },
+        );
+
+        let annotation = TypeAnnotation::Parameterized(
+            Path::simple("MyList".to_string()),
+            vec![TypeAnnotation::Named(Path::simple("String".to_string()))],
+        );
+        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Type::List(Box::new(Type::String)));
+    }
+
+    // ========================================================================
+    // Tuple type resolution tests
+    // ========================================================================
+
+    #[test]
+    fn test_resolve_empty_tuple() {
+        let annotation = TypeAnnotation::Tuple(vec![]);
+        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Type::Tuple(vec![]));
+    }
+
+    #[test]
+    fn test_resolve_tuple_types() {
+        let annotation = TypeAnnotation::Tuple(vec![
+            TypeAnnotation::Named(Path::simple("Int".to_string())),
+            TypeAnnotation::Named(Path::simple("String".to_string())),
+            TypeAnnotation::Named(Path::simple("Bool".to_string())),
+        ]);
+        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap(),
+            Type::Tuple(vec![Type::Int, Type::String, Type::Bool])
+        );
+    }
+
+    #[test]
+    fn test_resolve_nested_tuple() {
+        let annotation = TypeAnnotation::Tuple(vec![
+            TypeAnnotation::Named(Path::simple("Int".to_string())),
+            TypeAnnotation::Tuple(vec![
+                TypeAnnotation::Named(Path::simple("String".to_string())),
+                TypeAnnotation::Named(Path::simple("Bool".to_string())),
+            ]),
+        ]);
+        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap(),
+            Type::Tuple(vec![
+                Type::Int,
+                Type::Tuple(vec![Type::String, Type::Bool])
+            ])
+        );
+    }
+
+    // ========================================================================
+    // Function type resolution tests
+    // ========================================================================
+
+    #[test]
+    fn test_resolve_function_type_no_params() {
+        let annotation = TypeAnnotation::Function(
+            vec![],
+            Box::new(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+        );
+        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        assert!(result.is_ok());
+        match result.unwrap() {
+            Type::Function { params, ret } => {
+                assert!(params.is_empty());
+                assert_eq!(*ret, Type::Int);
+            }
+            _ => panic!("Expected function type"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_function_type_with_params() {
+        let annotation = TypeAnnotation::Function(
+            vec![
+                TypeAnnotation::Named(Path::simple("Int".to_string())),
+                TypeAnnotation::Named(Path::simple("String".to_string())),
+            ],
+            Box::new(TypeAnnotation::Named(Path::simple("Bool".to_string()))),
+        );
+        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        assert!(result.is_ok());
+        match result.unwrap() {
+            Type::Function { params, ret } => {
+                assert_eq!(params, vec![Type::Int, Type::String]);
+                assert_eq!(*ret, Type::Bool);
+            }
+            _ => panic!("Expected function type"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_nested_function_type() {
+        // (Int -> Bool) -> String
+        let annotation = TypeAnnotation::Function(
+            vec![TypeAnnotation::Function(
+                vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
+                Box::new(TypeAnnotation::Named(Path::simple("Bool".to_string()))),
+            )],
+            Box::new(TypeAnnotation::Named(Path::simple("String".to_string()))),
+        );
+        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        assert!(result.is_ok());
+        match result.unwrap() {
+            Type::Function { params, ret } => {
+                assert_eq!(params.len(), 1);
+                match &params[0] {
+                    Type::Function { params: inner_params, ret: inner_ret } => {
+                        assert_eq!(inner_params, &vec![Type::Int]);
+                        assert_eq!(**inner_ret, Type::Bool);
+                    }
+                    _ => panic!("Expected inner function type"),
+                }
+                assert_eq!(*ret, Type::String);
+            }
+            _ => panic!("Expected function type"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_function_type_with_type_params() {
+        let mut type_param_map = HashMap::new();
+        type_param_map.insert("T".to_string(), TypeVarId(99));
+
+        let annotation = TypeAnnotation::Function(
+            vec![TypeAnnotation::Named(Path::simple("T".to_string()))],
+            Box::new(TypeAnnotation::Named(Path::simple("T".to_string()))),
+        );
+        let result = resolve_type_annotation(&annotation, &type_param_map, &empty_env());
+        assert!(result.is_ok());
+        match result.unwrap() {
+            Type::Function { params, ret } => {
+                assert_eq!(params, vec![Type::Var(TypeVarId(99))]);
+                assert_eq!(*ret, Type::Var(TypeVarId(99)));
+            }
+            _ => panic!("Expected function type"),
+        }
+    }
+
+    // ========================================================================
+    // Complex/nested type resolution tests
+    // ========================================================================
+
+    #[test]
+    fn test_resolve_list_of_tuples() {
+        let annotation = TypeAnnotation::Parameterized(
+            Path::simple("List".to_string()),
+            vec![TypeAnnotation::Tuple(vec![
+                TypeAnnotation::Named(Path::simple("Int".to_string())),
+                TypeAnnotation::Named(Path::simple("String".to_string())),
+            ])],
+        );
+        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap(),
+            Type::List(Box::new(Type::Tuple(vec![Type::Int, Type::String])))
+        );
+    }
+
+    #[test]
+    fn test_resolve_function_returning_list() {
+        let annotation = TypeAnnotation::Function(
+            vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
+            Box::new(TypeAnnotation::Parameterized(
+                Path::simple("List".to_string()),
+                vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
+            )),
+        );
+        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        assert!(result.is_ok());
+        match result.unwrap() {
+            Type::Function { params, ret } => {
+                assert_eq!(params, vec![Type::Int]);
+                assert_eq!(*ret, Type::List(Box::new(Type::Int)));
+            }
+            _ => panic!("Expected function type"),
+        }
+    }
+}

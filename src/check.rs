@@ -3220,4 +3220,679 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("type argument"));
     }
+
+    // ========================================================================
+    // Lambda tests
+    // ========================================================================
+
+    use crate::ast::LambdaParam;
+
+    #[test]
+    fn test_check_lambda_basic() {
+        let expr = Expr::Lambda {
+            params: vec![LambdaParam {
+                pattern: Pattern::Var("x".to_string()),
+                typ: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+            }],
+            return_type: None,
+            body: Box::new(Expr::Path(Path::simple("x".to_string()))),
+        };
+        let result = check(&expr).unwrap();
+        match result.ty() {
+            Type::Function { params, ret } => {
+                assert_eq!(params, vec![Type::Int]);
+                assert_eq!(*ret, Type::Int);
+            }
+            _ => panic!("Expected function type"),
+        }
+    }
+
+    #[test]
+    fn test_check_lambda_with_return_type() {
+        let expr = Expr::Lambda {
+            params: vec![LambdaParam {
+                pattern: Pattern::Var("x".to_string()),
+                typ: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+            }],
+            return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+            body: Box::new(Expr::Path(Path::simple("x".to_string()))),
+        };
+        let result = check(&expr).unwrap();
+        match result.ty() {
+            Type::Function { params, ret } => {
+                assert_eq!(params, vec![Type::Int]);
+                assert_eq!(*ret, Type::Int);
+            }
+            _ => panic!("Expected function type"),
+        }
+    }
+
+    #[test]
+    fn test_check_lambda_return_type_mismatch() {
+        let expr = Expr::Lambda {
+            params: vec![LambdaParam {
+                pattern: Pattern::Var("x".to_string()),
+                typ: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+            }],
+            return_type: Some(TypeAnnotation::Named(Path::simple("String".to_string()))),
+            body: Box::new(Expr::Path(Path::simple("x".to_string()))),
+        };
+        let result = check(&expr);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("lambda body type") || err.message.contains("doesn't match declared return type"));
+    }
+
+    #[test]
+    fn test_check_lambda_refutable_param_error() {
+        // Lambda with literal pattern (refutable) should fail
+        let expr = Expr::Lambda {
+            params: vec![LambdaParam {
+                pattern: Pattern::Literal(Box::new(Expr::Int(42))),
+                typ: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+            }],
+            return_type: None,
+            body: Box::new(Expr::Int(1)),
+        };
+        let result = check(&expr);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("refutable pattern in lambda parameter"));
+    }
+
+    #[test]
+    fn test_check_lambda_tuple_param() {
+        let expr = Expr::Lambda {
+            params: vec![LambdaParam {
+                pattern: Pattern::Tuple(crate::ast::TuplePattern::Exact(vec![
+                    Pattern::Var("x".to_string()),
+                    Pattern::Var("y".to_string()),
+                ])),
+                typ: Some(TypeAnnotation::Tuple(vec![
+                    TypeAnnotation::Named(Path::simple("Int".to_string())),
+                    TypeAnnotation::Named(Path::simple("Int".to_string())),
+                ])),
+            }],
+            return_type: None,
+            body: Box::new(Expr::BinOp {
+                op: BinOp::Add,
+                left: Box::new(Expr::Path(Path::simple("x".to_string()))),
+                right: Box::new(Expr::Path(Path::simple("y".to_string()))),
+            }),
+        };
+        let result = check(&expr).unwrap();
+        assert!(matches!(result.ty(), Type::Function { .. }));
+    }
+
+    // ========================================================================
+    // Call lambda variable tests
+    // ========================================================================
+
+    #[test]
+    fn test_call_lambda_variable() {
+        let mut env = TypeEnv::default();
+        env.locals.insert(
+            "f".to_string(),
+            TypeScheme::mono(Type::Function {
+                params: vec![Type::Int],
+                ret: Box::new(Type::String),
+            }),
+        );
+
+        let mut ctx = UnifyCtx::new();
+        let expr = Expr::Call {
+            path: Path::simple("f".to_string()),
+            args: vec![Expr::Int(42)],
+        };
+        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
+        assert_eq!(result.ty(), Type::String);
+    }
+
+    #[test]
+    fn test_call_non_function_error() {
+        let mut env = TypeEnv::default();
+        env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
+
+        let mut ctx = UnifyCtx::new();
+        let expr = Expr::Call {
+            path: Path::simple("x".to_string()),
+            args: vec![Expr::Int(1)],
+        };
+        let result = check_with_env(&expr, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("is not a function"));
+    }
+
+    #[test]
+    fn test_turbofish_on_lambda_error() {
+        let mut env = TypeEnv::default();
+        env.locals.insert(
+            "f".to_string(),
+            TypeScheme::mono(Type::Function {
+                params: vec![Type::Int],
+                ret: Box::new(Type::Int),
+            }),
+        );
+
+        let mut ctx = UnifyCtx::new();
+        let expr = Expr::Call {
+            path: Path {
+                segments: vec!["f".to_string()],
+                type_args: Some(vec![TypeAnnotation::Named(Path::simple("Int".to_string()))]),
+            },
+            args: vec![Expr::Int(42)],
+        };
+        let result = check_with_env(&expr, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("cannot use turbofish on lambda"));
+    }
+
+    #[test]
+    fn test_call_lambda_wrong_arity() {
+        let mut env = TypeEnv::default();
+        env.locals.insert(
+            "f".to_string(),
+            TypeScheme::mono(Type::Function {
+                params: vec![Type::Int, Type::Int],
+                ret: Box::new(Type::Int),
+            }),
+        );
+
+        let mut ctx = UnifyCtx::new();
+        let expr = Expr::Call {
+            path: Path::simple("f".to_string()),
+            args: vec![Expr::Int(42)], // Only 1 arg, needs 2
+        };
+        let result = check_with_env(&expr, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("expects 2 arguments"));
+    }
+
+    // ========================================================================
+    // Struct construction tests
+    // ========================================================================
+
+    use crate::types::StructType;
+
+    fn env_with_point_struct() -> TypeEnv {
+        let mut env = TypeEnv::default();
+        env.structs.insert(
+            "Point".to_string(),
+            StructType {
+                name: "Point".to_string(),
+                type_params: vec![],
+                type_var_ids: vec![],
+                fields: vec![
+                    ("x".to_string(), Type::Int),
+                    ("y".to_string(), Type::Int),
+                ],
+            },
+        );
+        env
+    }
+
+    #[test]
+    fn test_struct_construct_valid() {
+        let env = env_with_point_struct();
+        let mut ctx = UnifyCtx::new();
+        let expr = Expr::Struct {
+            path: Path::simple("Point".to_string()),
+            fields: vec![
+                ("x".to_string(), Expr::Int(10)),
+                ("y".to_string(), Expr::Int(20)),
+            ],
+        };
+        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
+        match result.ty() {
+            Type::Struct { name, .. } => assert_eq!(name, "Point"),
+            _ => panic!("Expected struct type"),
+        }
+    }
+
+    #[test]
+    fn test_struct_construct_missing_field() {
+        let env = env_with_point_struct();
+        let mut ctx = UnifyCtx::new();
+        let expr = Expr::Struct {
+            path: Path::simple("Point".to_string()),
+            fields: vec![
+                ("x".to_string(), Expr::Int(10)),
+                // Missing y field
+            ],
+        };
+        let result = check_with_env(&expr, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("missing field 'y'"));
+    }
+
+    #[test]
+    fn test_struct_construct_extra_field() {
+        let env = env_with_point_struct();
+        let mut ctx = UnifyCtx::new();
+        let expr = Expr::Struct {
+            path: Path::simple("Point".to_string()),
+            fields: vec![
+                ("x".to_string(), Expr::Int(10)),
+                ("y".to_string(), Expr::Int(20)),
+                ("z".to_string(), Expr::Int(30)), // Extra field
+            ],
+        };
+        let result = check_with_env(&expr, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("unknown field 'z'"));
+    }
+
+    #[test]
+    fn test_struct_construct_field_type_mismatch() {
+        let env = env_with_point_struct();
+        let mut ctx = UnifyCtx::new();
+        let expr = Expr::Struct {
+            path: Path::simple("Point".to_string()),
+            fields: vec![
+                ("x".to_string(), Expr::Int(10)),
+                ("y".to_string(), Expr::String("wrong".to_string())), // Wrong type
+            ],
+        };
+        let result = check_with_env(&expr, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("field 'y'") && err.message.contains("expects type"));
+    }
+
+    #[test]
+    fn test_struct_construct_unknown_struct() {
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let expr = Expr::Struct {
+            path: Path::simple("UnknownStruct".to_string()),
+            fields: vec![],
+        };
+        let result = check_with_env(&expr, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("unknown struct"));
+    }
+
+    // ========================================================================
+    // Enum construction tests
+    // ========================================================================
+
+    use crate::types::EnumType;
+
+    fn env_with_message_enum() -> TypeEnv {
+        let mut env = TypeEnv::default();
+        env.enums.insert(
+            "Message".to_string(),
+            EnumType {
+                name: "Message".to_string(),
+                type_params: vec![],
+                type_var_ids: vec![],
+                variants: vec![
+                    ("Quit".to_string(), EnumVariantType::Unit),
+                    ("Move".to_string(), EnumVariantType::Struct(vec![
+                        ("x".to_string(), Type::Int),
+                        ("y".to_string(), Type::Int),
+                    ])),
+                    ("Write".to_string(), EnumVariantType::Tuple(vec![Type::String])),
+                ],
+            },
+        );
+        env
+    }
+
+    #[test]
+    fn test_enum_tuple_construct_valid() {
+        let env = env_with_message_enum();
+        let mut ctx = UnifyCtx::new();
+        let expr = Expr::Call {
+            path: Path {
+                segments: vec!["Message".to_string(), "Write".to_string()],
+                type_args: None,
+            },
+            args: vec![Expr::String("hello".to_string())],
+        };
+        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
+        match result.ty() {
+            Type::Enum { name, .. } => assert_eq!(name, "Message"),
+            _ => panic!("Expected enum type"),
+        }
+    }
+
+    #[test]
+    fn test_enum_tuple_construct_unit_variant_with_args_error() {
+        let env = env_with_message_enum();
+        let mut ctx = UnifyCtx::new();
+        let expr = Expr::Call {
+            path: Path {
+                segments: vec!["Message".to_string(), "Quit".to_string()],
+                type_args: None,
+            },
+            args: vec![Expr::Int(1)], // Quit is a unit variant
+        };
+        let result = check_with_env(&expr, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("unit variant"));
+    }
+
+    #[test]
+    fn test_enum_tuple_construct_struct_variant_with_tuple_syntax_error() {
+        let env = env_with_message_enum();
+        let mut ctx = UnifyCtx::new();
+        let expr = Expr::Call {
+            path: Path {
+                segments: vec!["Message".to_string(), "Move".to_string()],
+                type_args: None,
+            },
+            args: vec![Expr::Int(1), Expr::Int(2)], // Move is a struct variant
+        };
+        let result = check_with_env(&expr, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("struct variant"));
+    }
+
+    #[test]
+    fn test_enum_struct_construct_valid() {
+        let env = env_with_message_enum();
+        let mut ctx = UnifyCtx::new();
+        let expr = Expr::Struct {
+            path: Path {
+                segments: vec!["Message".to_string(), "Move".to_string()],
+                type_args: None,
+            },
+            fields: vec![
+                ("x".to_string(), Expr::Int(10)),
+                ("y".to_string(), Expr::Int(20)),
+            ],
+        };
+        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
+        match result.ty() {
+            Type::Enum { name, .. } => assert_eq!(name, "Message"),
+            _ => panic!("Expected enum type"),
+        }
+    }
+
+    #[test]
+    fn test_enum_struct_construct_unit_variant_error() {
+        let env = env_with_message_enum();
+        let mut ctx = UnifyCtx::new();
+        let expr = Expr::Struct {
+            path: Path {
+                segments: vec!["Message".to_string(), "Quit".to_string()],
+                type_args: None,
+            },
+            fields: vec![
+                ("x".to_string(), Expr::Int(10)),
+            ],
+        };
+        let result = check_with_env(&expr, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("unit variant"));
+    }
+
+    #[test]
+    fn test_enum_struct_construct_tuple_variant_error() {
+        let env = env_with_message_enum();
+        let mut ctx = UnifyCtx::new();
+        let expr = Expr::Struct {
+            path: Path {
+                segments: vec!["Message".to_string(), "Write".to_string()],
+                type_args: None,
+            },
+            fields: vec![
+                ("msg".to_string(), Expr::String("hi".to_string())),
+            ],
+        };
+        let result = check_with_env(&expr, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("tuple variant"));
+    }
+
+    #[test]
+    fn test_enum_struct_construct_missing_field() {
+        let env = env_with_message_enum();
+        let mut ctx = UnifyCtx::new();
+        let expr = Expr::Struct {
+            path: Path {
+                segments: vec!["Message".to_string(), "Move".to_string()],
+                type_args: None,
+            },
+            fields: vec![
+                ("x".to_string(), Expr::Int(10)),
+                // Missing y
+            ],
+        };
+        let result = check_with_env(&expr, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("missing field 'y'"));
+    }
+
+    #[test]
+    fn test_enum_struct_construct_unknown_field() {
+        let env = env_with_message_enum();
+        let mut ctx = UnifyCtx::new();
+        let expr = Expr::Struct {
+            path: Path {
+                segments: vec!["Message".to_string(), "Move".to_string()],
+                type_args: None,
+            },
+            fields: vec![
+                ("x".to_string(), Expr::Int(10)),
+                ("y".to_string(), Expr::Int(20)),
+                ("z".to_string(), Expr::Int(30)), // Unknown
+            ],
+        };
+        let result = check_with_env(&expr, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("unknown field 'z'"));
+    }
+
+    #[test]
+    fn test_enum_struct_construct_field_type_mismatch() {
+        let env = env_with_message_enum();
+        let mut ctx = UnifyCtx::new();
+        let expr = Expr::Struct {
+            path: Path {
+                segments: vec!["Message".to_string(), "Move".to_string()],
+                type_args: None,
+            },
+            fields: vec![
+                ("x".to_string(), Expr::Int(10)),
+                ("y".to_string(), Expr::String("wrong".to_string())), // Wrong type
+            ],
+        };
+        let result = check_with_env(&expr, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("field 'y'") && err.message.contains("expects"));
+    }
+
+    // ========================================================================
+    // Function definition naming tests
+    // ========================================================================
+
+    #[test]
+    fn test_function_def_invalid_name_pascal_case() {
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let func = FunctionDef {
+            name: "MyFunction".to_string(), // Should be snake_case
+            type_params: vec![],
+            params: vec![],
+            return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+            body: Expr::Int(42),
+        };
+        let result = check_function(&func, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("should be snake_case"));
+    }
+
+    #[test]
+    fn test_function_def_invalid_type_param() {
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let func = FunctionDef {
+            name: "identity".to_string(),
+            type_params: vec!["bad_type".to_string()], // Should be PascalCase
+            params: vec![Param {
+                pattern: Pattern::Var("x".to_string()),
+                typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
+            }],
+            return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+            body: Expr::Path(Path::simple("x".to_string())),
+        };
+        let result = check_function(&func, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("type parameter") && err.message.contains("should be PascalCase"));
+    }
+
+    #[test]
+    fn test_function_def_refutable_param_pattern() {
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let func = FunctionDef {
+            name: "bad".to_string(),
+            type_params: vec![],
+            params: vec![Param {
+                pattern: Pattern::Literal(Box::new(Expr::Int(42))), // Refutable
+                typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
+            }],
+            return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+            body: Expr::Int(0),
+        };
+        let result = check_function(&func, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("refutable pattern in function parameter"));
+    }
+
+    // ========================================================================
+    // Match expression edge cases
+    // ========================================================================
+
+    #[test]
+    fn test_match_empty_arms_exhaustiveness_warning() {
+        // While this test doesn't check for empty arms directly (since the usefulness
+        // checker handles it), we test that match expressions with no matching arms
+        // behave correctly type-wise. The usefulness checker tests handle exhaustiveness.
+        let mut env = TypeEnv::default();
+        env.locals.insert("x".to_string(), TypeScheme::mono(Type::Bool));
+
+        let mut ctx = UnifyCtx::new();
+        // Match Bool with only one arm (non-exhaustive) - usefulness checker should catch this
+        let expr = Expr::Match {
+            scrutinee: Box::new(Expr::Path(Path::simple("x".to_string()))),
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Literal(Box::new(Expr::Bool(true))),
+                    result: Expr::Int(1),
+                },
+                MatchArm {
+                    pattern: Pattern::Literal(Box::new(Expr::Bool(false))),
+                    result: Expr::Int(0),
+                },
+            ],
+        };
+        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
+        assert_eq!(result.ty(), Type::Int);
+    }
+
+    // ========================================================================
+    // Turbofish on function call tests
+    // ========================================================================
+
+    #[test]
+    fn test_turbofish_correct_count() {
+        let mut ctx = UnifyCtx::new();
+        let t_var = ctx.fresh_var();
+        let t_id = if let Type::Var(id) = t_var { id } else { panic!() };
+
+        let mut env = TypeEnv::default();
+        env.functions.insert(
+            "identity".to_string(),
+            FunctionType {
+                type_params: vec!["T".to_string()],
+                type_var_ids: vec![t_id],
+                params: vec![Type::Var(t_id)],
+                return_type: Type::Var(t_id),
+            },
+        );
+
+        // identity::<Int>(42)
+        let expr = Expr::Call {
+            path: Path {
+                segments: vec!["identity".to_string()],
+                type_args: Some(vec![TypeAnnotation::Named(Path::simple("Int".to_string()))]),
+            },
+            args: vec![Expr::Int(42)],
+        };
+        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
+        assert_eq!(result.ty(), Type::Int);
+    }
+
+    #[test]
+    fn test_turbofish_wrong_count_error() {
+        let mut ctx = UnifyCtx::new();
+        let t_var = ctx.fresh_var();
+        let t_id = if let Type::Var(id) = t_var { id } else { panic!() };
+
+        let mut env = TypeEnv::default();
+        env.functions.insert(
+            "identity".to_string(),
+            FunctionType {
+                type_params: vec!["T".to_string()],
+                type_var_ids: vec![t_id],
+                params: vec![Type::Var(t_id)],
+                return_type: Type::Var(t_id),
+            },
+        );
+
+        // identity::<Int, String>(42) - wrong number of type args
+        let expr = Expr::Call {
+            path: Path {
+                segments: vec!["identity".to_string()],
+                type_args: Some(vec![
+                    TypeAnnotation::Named(Path::simple("Int".to_string())),
+                    TypeAnnotation::Named(Path::simple("String".to_string())),
+                ]),
+            },
+            args: vec![Expr::Int(42)],
+        };
+        let result = check_with_env(&expr, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("expects 1 type argument(s), got 2"));
+    }
+
+    // ========================================================================
+    // Variable path tests
+    // ========================================================================
+
+    #[test]
+    fn test_turbofish_on_variable_error() {
+        let mut env = TypeEnv::default();
+        env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
+
+        let mut ctx = UnifyCtx::new();
+        let expr = Expr::Path(Path {
+            segments: vec!["x".to_string()],
+            type_args: Some(vec![TypeAnnotation::Named(Path::simple("Int".to_string()))]),
+        });
+        let result = check_with_env(&expr, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("cannot use turbofish on variable"));
+    }
 }

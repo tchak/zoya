@@ -230,3 +230,569 @@ pub fn type_alias_from_def(
         typ,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::{EnumVariant, EnumVariantKind, Path, StructFieldDef, TypeAnnotation};
+
+    // ========================================================================
+    // struct_type_from_def tests
+    // ========================================================================
+
+    #[test]
+    fn test_struct_valid_name() {
+        let def = StructDef {
+            name: "Point".to_string(),
+            type_params: vec![],
+            fields: vec![
+                StructFieldDef {
+                    name: "x".to_string(),
+                    typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
+                },
+            ],
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = struct_type_from_def(&def, &env, &mut ctx);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().name, "Point");
+    }
+
+    #[test]
+    fn test_struct_invalid_name_lowercase() {
+        let def = StructDef {
+            name: "point".to_string(),
+            type_params: vec![],
+            fields: vec![],
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = struct_type_from_def(&def, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("should be PascalCase"));
+        assert!(err.message.contains("Point"));
+    }
+
+    #[test]
+    fn test_struct_invalid_name_snake_case() {
+        let def = StructDef {
+            name: "my_point".to_string(),
+            type_params: vec![],
+            fields: vec![],
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = struct_type_from_def(&def, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("should be PascalCase"));
+        assert!(err.message.contains("MyPoint"));
+    }
+
+    #[test]
+    fn test_struct_invalid_type_param_lowercase() {
+        let def = StructDef {
+            name: "Container".to_string(),
+            type_params: vec!["t".to_string()],
+            fields: vec![],
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = struct_type_from_def(&def, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("type parameter"));
+        assert!(err.message.contains("should be PascalCase"));
+    }
+
+    #[test]
+    fn test_struct_invalid_type_param_snake_case() {
+        let def = StructDef {
+            name: "Container".to_string(),
+            type_params: vec!["my_type".to_string()],
+            fields: vec![],
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = struct_type_from_def(&def, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("type parameter 'my_type'"));
+        assert!(err.message.contains("MyType"));
+    }
+
+    #[test]
+    fn test_struct_with_valid_type_params() {
+        let def = StructDef {
+            name: "Container".to_string(),
+            type_params: vec!["T".to_string(), "U".to_string()],
+            fields: vec![
+                StructFieldDef {
+                    name: "value".to_string(),
+                    typ: TypeAnnotation::Named(Path::simple("T".to_string())),
+                },
+            ],
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = struct_type_from_def(&def, &env, &mut ctx);
+        assert!(result.is_ok());
+        let st = result.unwrap();
+        assert_eq!(st.type_params.len(), 2);
+        assert_eq!(st.type_var_ids.len(), 2);
+    }
+
+    // ========================================================================
+    // enum_type_from_def tests
+    // ========================================================================
+
+    #[test]
+    fn test_enum_valid_name() {
+        let def = EnumDef {
+            name: "Option".to_string(),
+            type_params: vec!["T".to_string()],
+            variants: vec![
+                EnumVariant {
+                    name: "None".to_string(),
+                    kind: EnumVariantKind::Unit,
+                },
+                EnumVariant {
+                    name: "Some".to_string(),
+                    kind: EnumVariantKind::Tuple(vec![TypeAnnotation::Named(Path::simple("T".to_string()))]),
+                },
+            ],
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = enum_type_from_def(&def, &env, &mut ctx);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().name, "Option");
+    }
+
+    #[test]
+    fn test_enum_invalid_name_lowercase() {
+        let def = EnumDef {
+            name: "option".to_string(),
+            type_params: vec![],
+            variants: vec![],
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = enum_type_from_def(&def, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("enum name 'option'"));
+        assert!(err.message.contains("should be PascalCase"));
+    }
+
+    #[test]
+    fn test_enum_invalid_name_snake_case() {
+        let def = EnumDef {
+            name: "my_enum".to_string(),
+            type_params: vec![],
+            variants: vec![],
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = enum_type_from_def(&def, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("MyEnum"));
+    }
+
+    #[test]
+    fn test_enum_invalid_type_param() {
+        let def = EnumDef {
+            name: "Result".to_string(),
+            type_params: vec!["ok_type".to_string()],
+            variants: vec![],
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = enum_type_from_def(&def, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("type parameter 'ok_type'"));
+    }
+
+    #[test]
+    fn test_enum_invalid_variant_name_lowercase() {
+        let def = EnumDef {
+            name: "Status".to_string(),
+            type_params: vec![],
+            variants: vec![
+                EnumVariant {
+                    name: "ok".to_string(),
+                    kind: EnumVariantKind::Unit,
+                },
+            ],
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = enum_type_from_def(&def, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("enum variant 'ok'"));
+        assert!(err.message.contains("should be PascalCase"));
+    }
+
+    #[test]
+    fn test_enum_invalid_variant_name_snake_case() {
+        let def = EnumDef {
+            name: "Status".to_string(),
+            type_params: vec![],
+            variants: vec![
+                EnumVariant {
+                    name: "not_found".to_string(),
+                    kind: EnumVariantKind::Unit,
+                },
+            ],
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = enum_type_from_def(&def, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("NotFound"));
+    }
+
+    #[test]
+    fn test_enum_unit_variant() {
+        let def = EnumDef {
+            name: "Status".to_string(),
+            type_params: vec![],
+            variants: vec![
+                EnumVariant {
+                    name: "Ok".to_string(),
+                    kind: EnumVariantKind::Unit,
+                },
+                EnumVariant {
+                    name: "Error".to_string(),
+                    kind: EnumVariantKind::Unit,
+                },
+            ],
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = enum_type_from_def(&def, &env, &mut ctx);
+        assert!(result.is_ok());
+        let et = result.unwrap();
+        assert_eq!(et.variants.len(), 2);
+        assert!(matches!(et.variants[0].1, EnumVariantType::Unit));
+        assert!(matches!(et.variants[1].1, EnumVariantType::Unit));
+    }
+
+    #[test]
+    fn test_enum_tuple_variant() {
+        let def = EnumDef {
+            name: "Message".to_string(),
+            type_params: vec![],
+            variants: vec![
+                EnumVariant {
+                    name: "Text".to_string(),
+                    kind: EnumVariantKind::Tuple(vec![TypeAnnotation::Named(Path::simple("String".to_string()))]),
+                },
+                EnumVariant {
+                    name: "Pair".to_string(),
+                    kind: EnumVariantKind::Tuple(vec![
+                        TypeAnnotation::Named(Path::simple("Int".to_string())),
+                        TypeAnnotation::Named(Path::simple("Int".to_string())),
+                    ]),
+                },
+            ],
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = enum_type_from_def(&def, &env, &mut ctx);
+        assert!(result.is_ok());
+        let et = result.unwrap();
+        assert!(matches!(&et.variants[0].1, EnumVariantType::Tuple(v) if v.len() == 1));
+        assert!(matches!(&et.variants[1].1, EnumVariantType::Tuple(v) if v.len() == 2));
+    }
+
+    #[test]
+    fn test_enum_struct_variant() {
+        let def = EnumDef {
+            name: "Shape".to_string(),
+            type_params: vec![],
+            variants: vec![
+                EnumVariant {
+                    name: "Circle".to_string(),
+                    kind: EnumVariantKind::Struct(vec![
+                        StructFieldDef {
+                            name: "radius".to_string(),
+                            typ: TypeAnnotation::Named(Path::simple("Float".to_string())),
+                        },
+                    ]),
+                },
+                EnumVariant {
+                    name: "Rectangle".to_string(),
+                    kind: EnumVariantKind::Struct(vec![
+                        StructFieldDef {
+                            name: "width".to_string(),
+                            typ: TypeAnnotation::Named(Path::simple("Float".to_string())),
+                        },
+                        StructFieldDef {
+                            name: "height".to_string(),
+                            typ: TypeAnnotation::Named(Path::simple("Float".to_string())),
+                        },
+                    ]),
+                },
+            ],
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = enum_type_from_def(&def, &env, &mut ctx);
+        assert!(result.is_ok());
+        let et = result.unwrap();
+        assert!(matches!(&et.variants[0].1, EnumVariantType::Struct(f) if f.len() == 1));
+        assert!(matches!(&et.variants[1].1, EnumVariantType::Struct(f) if f.len() == 2));
+    }
+
+    #[test]
+    fn test_enum_tuple_variant_with_unknown_type() {
+        let def = EnumDef {
+            name: "Container".to_string(),
+            type_params: vec![],
+            variants: vec![
+                EnumVariant {
+                    name: "Value".to_string(),
+                    kind: EnumVariantKind::Tuple(vec![TypeAnnotation::Named(Path::simple("UnknownType".to_string()))]),
+                },
+            ],
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = enum_type_from_def(&def, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("unknown type"));
+    }
+
+    #[test]
+    fn test_enum_struct_variant_with_unknown_type() {
+        let def = EnumDef {
+            name: "Container".to_string(),
+            type_params: vec![],
+            variants: vec![
+                EnumVariant {
+                    name: "Data".to_string(),
+                    kind: EnumVariantKind::Struct(vec![
+                        StructFieldDef {
+                            name: "field".to_string(),
+                            typ: TypeAnnotation::Named(Path::simple("UnknownType".to_string())),
+                        },
+                    ]),
+                },
+            ],
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = enum_type_from_def(&def, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("unknown type"));
+    }
+
+    // ========================================================================
+    // type_alias_from_def tests
+    // ========================================================================
+
+    #[test]
+    fn test_type_alias_valid_name() {
+        let def = TypeAliasDef {
+            name: "IntList".to_string(),
+            type_params: vec![],
+            typ: TypeAnnotation::Parameterized(
+                Path::simple("List".to_string()),
+                vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
+            ),
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = type_alias_from_def(&def, &env, &mut ctx);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().name, "IntList");
+    }
+
+    #[test]
+    fn test_type_alias_invalid_name_lowercase() {
+        let def = TypeAliasDef {
+            name: "intList".to_string(),
+            type_params: vec![],
+            typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = type_alias_from_def(&def, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("type alias name 'intList'"));
+        assert!(err.message.contains("should be PascalCase"));
+    }
+
+    #[test]
+    fn test_type_alias_invalid_name_snake_case() {
+        let def = TypeAliasDef {
+            name: "int_list".to_string(),
+            type_params: vec![],
+            typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = type_alias_from_def(&def, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("IntList"));
+    }
+
+    #[test]
+    fn test_type_alias_invalid_type_param() {
+        let def = TypeAliasDef {
+            name: "Container".to_string(),
+            type_params: vec!["elem_type".to_string()],
+            typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = type_alias_from_def(&def, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("type parameter 'elem_type'"));
+    }
+
+    #[test]
+    fn test_type_alias_with_valid_type_params() {
+        let def = TypeAliasDef {
+            name: "Pair".to_string(),
+            type_params: vec!["A".to_string(), "B".to_string()],
+            typ: TypeAnnotation::Tuple(vec![
+                TypeAnnotation::Named(Path::simple("A".to_string())),
+                TypeAnnotation::Named(Path::simple("B".to_string())),
+            ]),
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = type_alias_from_def(&def, &env, &mut ctx);
+        assert!(result.is_ok());
+        let ta = result.unwrap();
+        assert_eq!(ta.type_params.len(), 2);
+        assert_eq!(ta.type_var_ids.len(), 2);
+    }
+
+    #[test]
+    fn test_type_alias_unknown_underlying_type() {
+        let def = TypeAliasDef {
+            name: "MyAlias".to_string(),
+            type_params: vec![],
+            typ: TypeAnnotation::Named(Path::simple("NonExistentType".to_string())),
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = type_alias_from_def(&def, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("unknown type"));
+    }
+
+    // ========================================================================
+    // function_type_from_def tests
+    // ========================================================================
+
+    #[test]
+    fn test_function_type_simple() {
+        let func = FunctionDef {
+            name: "add".to_string(),
+            type_params: vec![],
+            params: vec![
+                crate::ast::Param {
+                    pattern: crate::ast::Pattern::Var("x".to_string()),
+                    typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
+                },
+                crate::ast::Param {
+                    pattern: crate::ast::Pattern::Var("y".to_string()),
+                    typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
+                },
+            ],
+            return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+            body: crate::ast::Expr::Int(0),
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = function_type_from_def(&func, &env, &mut ctx);
+        assert!(result.is_ok());
+        let ft = result.unwrap();
+        assert_eq!(ft.params.len(), 2);
+        assert_eq!(ft.params[0], Type::Int);
+        assert_eq!(ft.params[1], Type::Int);
+        assert_eq!(ft.return_type, Type::Int);
+    }
+
+    #[test]
+    fn test_function_type_generic() {
+        let func = FunctionDef {
+            name: "identity".to_string(),
+            type_params: vec!["T".to_string()],
+            params: vec![
+                crate::ast::Param {
+                    pattern: crate::ast::Pattern::Var("x".to_string()),
+                    typ: TypeAnnotation::Named(Path::simple("T".to_string())),
+                },
+            ],
+            return_type: Some(TypeAnnotation::Named(Path::simple("T".to_string()))),
+            body: crate::ast::Expr::Int(0),
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = function_type_from_def(&func, &env, &mut ctx);
+        assert!(result.is_ok());
+        let ft = result.unwrap();
+        assert_eq!(ft.type_params.len(), 1);
+        assert_eq!(ft.type_var_ids.len(), 1);
+        // Param and return type should both reference the same type variable
+        assert!(matches!(ft.params[0], Type::Var(_)));
+        assert!(matches!(ft.return_type, Type::Var(_)));
+    }
+
+    #[test]
+    fn test_function_type_no_return_annotation() {
+        let func = FunctionDef {
+            name: "foo".to_string(),
+            type_params: vec![],
+            params: vec![],
+            return_type: None,
+            body: crate::ast::Expr::Int(0),
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = function_type_from_def(&func, &env, &mut ctx);
+        assert!(result.is_ok());
+        let ft = result.unwrap();
+        // Should have a fresh type variable for return type
+        assert!(matches!(ft.return_type, Type::Var(_)));
+    }
+
+    #[test]
+    fn test_function_type_unknown_param_type() {
+        let func = FunctionDef {
+            name: "foo".to_string(),
+            type_params: vec![],
+            params: vec![
+                crate::ast::Param {
+                    pattern: crate::ast::Pattern::Var("x".to_string()),
+                    typ: TypeAnnotation::Named(Path::simple("UnknownType".to_string())),
+                },
+            ],
+            return_type: None,
+            body: crate::ast::Expr::Int(0),
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = function_type_from_def(&func, &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("unknown type"));
+    }
+}
