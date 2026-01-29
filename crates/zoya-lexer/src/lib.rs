@@ -19,17 +19,17 @@ fn parse_string(lex: &logos::Lexer<Token>) -> Option<String> {
     let mut chars = inner.chars().peekable();
     while let Some(c) = chars.next() {
         if c == '\\' {
-            match chars.next() {
-                Some('n') => result.push('\n'),
-                Some('t') => result.push('\t'),
-                Some('r') => result.push('\r'),
-                Some('\\') => result.push('\\'),
-                Some('"') => result.push('"'),
-                Some(other) => {
+            // The regex ensures every backslash is followed by a character
+            match chars.next().unwrap() {
+                'n' => result.push('\n'),
+                't' => result.push('\t'),
+                'r' => result.push('\r'),
+                '\\' => result.push('\\'),
+                '"' => result.push('"'),
+                other => {
                     result.push('\\');
                     result.push(other);
                 }
-                None => result.push('\\'),
             }
         } else {
             result.push(c);
@@ -467,6 +467,31 @@ mod tests {
     fn test_string_with_escaped_quote() {
         let tokens = lex(r#""say \"hi\"""#).unwrap();
         assert_eq!(tokens, vec![Token::String("say \"hi\"".to_string())]);
+    }
+
+    #[test]
+    fn test_string_with_tab_escape() {
+        let tokens = lex(r#""hello\tworld""#).unwrap();
+        assert_eq!(tokens, vec![Token::String("hello\tworld".to_string())]);
+    }
+
+    #[test]
+    fn test_string_with_carriage_return_escape() {
+        let tokens = lex(r#""line\rend""#).unwrap();
+        assert_eq!(tokens, vec![Token::String("line\rend".to_string())]);
+    }
+
+    #[test]
+    fn test_string_with_backslash_escape() {
+        let tokens = lex(r#""path\\to\\file""#).unwrap();
+        assert_eq!(tokens, vec![Token::String("path\\to\\file".to_string())]);
+    }
+
+    #[test]
+    fn test_string_with_unknown_escape() {
+        // Unknown escape sequences are preserved literally
+        let tokens = lex(r#""test\xvalue""#).unwrap();
+        assert_eq!(tokens, vec![Token::String("test\\xvalue".to_string())]);
     }
 
     #[test]
