@@ -13,22 +13,6 @@ pub struct ParseError {
     pub message: String,
 }
 
-/// Parse multiple top-level items (for files)
-pub fn parse_file(tokens: Vec<Token>) -> Result<Vec<Item>, ParseError> {
-    item_parser()
-        .repeated()
-        .collect()
-        .parse(&tokens)
-        .into_result()
-        .map_err(|errs| ParseError {
-            message: errs
-                .into_iter()
-                .map(|e| format!("{:?}", e))
-                .collect::<Vec<_>>()
-                .join(", "),
-        })
-}
-
 /// Parse REPL input: items followed by statements (expressions or let bindings)
 pub fn parse_input(tokens: Vec<Token>) -> Result<(Vec<Item>, Vec<Stmt>), ParseError> {
     let parser = item_parser()
@@ -3099,7 +3083,7 @@ mod tests {
 
     fn parse_file_str(input: &str) -> Result<Vec<Item>, ParseError> {
         let tokens = lex(input).expect("lexing failed");
-        parse_file(tokens)
+        parse_module(tokens).map(|m| m.items)
     }
 
     #[test]

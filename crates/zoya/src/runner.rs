@@ -5,9 +5,12 @@ use zoya_ir::CheckedItem;
 
 /// Run Zoya source code and return the result
 pub fn run(source: &str) -> Result<Value, EvalError> {
-    // Lex and parse all items
+    // Lex and parse
     let tokens = zoya_lexer::lex(source).map_err(|e| EvalError::RuntimeError(e.message))?;
-    let items = zoya_parser::parse_file(tokens).map_err(|e| EvalError::RuntimeError(e.message))?;
+    let module_def =
+        zoya_parser::parse_module(tokens).map_err(|e| EvalError::RuntimeError(e.message))?;
+    // Note: mod declarations are ignored for string-based execution
+    let items = module_def.items;
 
     // Type-check all items
     let mut env = TypeEnv::with_builtins();

@@ -15,11 +15,12 @@ Transforms a token stream into an Abstract Syntax Tree using [Chumsky](https://g
 
 ```rust
 use zoya_lexer::lex;
-use zoya_parser::{parse_file, parse_input};
+use zoya_parser::{parse_module, parse_input};
 
-// Parse a file (multiple items)
+// Parse a module file (mod declarations followed by items)
 let tokens = lex("fn main() { 42 }").unwrap();
-let items = parse_file(tokens).unwrap();
+let module = parse_module(tokens).unwrap();
+// module.mods contains mod declarations, module.items contains items
 
 // Parse REPL input (items followed by expressions or let bindings)
 let tokens = lex("1 + 2").unwrap();

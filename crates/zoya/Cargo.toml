@@ -13,6 +13,7 @@ zoya-codegen = { path = "../zoya-codegen" }
 zoya-ir = { path = "../zoya-ir" }
 zoya-lexer = { path = "../zoya-lexer" }
 zoya-parser = { path = "../zoya-parser" }
+zoya-loader = { path = "../zoya-loader" }
 clap = { version = "4", features = ["derive"] }
 rquickjs = { version = "0.9", features = ["bindgen"] }
 rustyline = "14"

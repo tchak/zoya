@@ -5,15 +5,9 @@ use zoya_codegen::{codegen_items, prelude};
 
 /// Compile a file to JavaScript without executing
 pub fn execute(path: &Path, output: Option<&Path>) -> Result<(), String> {
-    // Read file
-    let source = std::fs::read_to_string(path)
-        .map_err(|e| format!("error: failed to read file '{}': {}", path.display(), e))?;
-
-    // Lex
-    let tokens = zoya_lexer::lex(&source).map_err(|e| format!("error: {}", e.message))?;
-
-    // Parse
-    let items = zoya_parser::parse_file(tokens).map_err(|e| format!("error: {}", e.message))?;
+    // Load and parse modules
+    let tree = zoya_loader::load_modules(path).map_err(|e| format!("error: {}", e))?;
+    let items = tree.root().expect("root module must exist").items.clone();
 
     // Type check
     let mut env = TypeEnv::with_builtins();
@@ -82,6 +76,6 @@ mod tests {
     fn test_execute_file_not_found() {
         let result = execute(Path::new("nonexistent.zoya"), None);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("failed to read file"));
+        assert!(result.unwrap_err().contains("failed to read"));
     }
 }

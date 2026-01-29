@@ -1192,6 +1192,7 @@ dependencies = [
  "zoya-codegen",
  "zoya-ir",
  "zoya-lexer",
+ "zoya-loader",
  "zoya-parser",
 ]
 
