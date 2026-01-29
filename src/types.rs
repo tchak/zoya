@@ -180,3 +180,135 @@ impl fmt::Display for TypeError {
         write!(f, "{}", self.message)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_display_type_var_id() {
+        assert_eq!(TypeVarId(0).to_string(), "?0");
+        assert_eq!(TypeVarId(42).to_string(), "?42");
+    }
+
+    #[test]
+    fn test_display_primitive_types() {
+        assert_eq!(Type::Int.to_string(), "Int");
+        assert_eq!(Type::BigInt.to_string(), "BigInt");
+        assert_eq!(Type::Float.to_string(), "Float");
+        assert_eq!(Type::Bool.to_string(), "Bool");
+        assert_eq!(Type::String.to_string(), "String");
+    }
+
+    #[test]
+    fn test_display_list() {
+        let list_int = Type::List(Box::new(Type::Int));
+        assert_eq!(list_int.to_string(), "List<Int>");
+
+        let list_list = Type::List(Box::new(Type::List(Box::new(Type::String))));
+        assert_eq!(list_list.to_string(), "List<List<String>>");
+    }
+
+    #[test]
+    fn test_display_tuple() {
+        let empty = Type::Tuple(vec![]);
+        assert_eq!(empty.to_string(), "()");
+
+        let single = Type::Tuple(vec![Type::Int]);
+        assert_eq!(single.to_string(), "(Int)");
+
+        let pair = Type::Tuple(vec![Type::Int, Type::String]);
+        assert_eq!(pair.to_string(), "(Int, String)");
+
+        let triple = Type::Tuple(vec![Type::Int, Type::Bool, Type::Float]);
+        assert_eq!(triple.to_string(), "(Int, Bool, Float)");
+    }
+
+    #[test]
+    fn test_display_var() {
+        let var = Type::Var(TypeVarId(5));
+        assert_eq!(var.to_string(), "?5");
+    }
+
+    #[test]
+    fn test_display_function_no_params() {
+        let func = Type::Function {
+            params: vec![],
+            ret: Box::new(Type::Int),
+        };
+        assert_eq!(func.to_string(), "() -> Int");
+    }
+
+    #[test]
+    fn test_display_function_one_param() {
+        let func = Type::Function {
+            params: vec![Type::Int],
+            ret: Box::new(Type::Bool),
+        };
+        assert_eq!(func.to_string(), "Int -> Bool");
+    }
+
+    #[test]
+    fn test_display_function_multiple_params() {
+        let func = Type::Function {
+            params: vec![Type::Int, Type::String],
+            ret: Box::new(Type::Bool),
+        };
+        assert_eq!(func.to_string(), "(Int, String) -> Bool");
+    }
+
+    #[test]
+    fn test_display_struct_no_type_args() {
+        let s = Type::Struct {
+            name: "Point".to_string(),
+            type_args: vec![],
+            fields: vec![],
+        };
+        assert_eq!(s.to_string(), "Point");
+    }
+
+    #[test]
+    fn test_display_struct_with_type_args() {
+        let s = Type::Struct {
+            name: "Pair".to_string(),
+            type_args: vec![Type::Int, Type::String],
+            fields: vec![],
+        };
+        assert_eq!(s.to_string(), "Pair<Int, String>");
+    }
+
+    #[test]
+    fn test_display_enum_no_type_args() {
+        let e = Type::Enum {
+            name: "Color".to_string(),
+            type_args: vec![],
+            variants: vec![],
+        };
+        assert_eq!(e.to_string(), "Color");
+    }
+
+    #[test]
+    fn test_display_enum_with_type_args() {
+        let e = Type::Enum {
+            name: "Option".to_string(),
+            type_args: vec![Type::Int],
+            variants: vec![],
+        };
+        assert_eq!(e.to_string(), "Option<Int>");
+    }
+
+    #[test]
+    fn test_display_type_error() {
+        let err = TypeError {
+            message: "type mismatch".to_string(),
+        };
+        assert_eq!(err.to_string(), "type mismatch");
+    }
+
+    #[test]
+    fn test_type_scheme_mono() {
+        let scheme = TypeScheme::mono(Type::Int);
+        assert!(scheme.quantified.is_empty());
+        assert_eq!(scheme.ty, Type::Int);
+    }
+}

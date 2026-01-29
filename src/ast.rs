@@ -386,3 +386,151 @@ pub enum Statement {
     Expr(Expr),
     Let(LetBinding),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Path tests
+
+    #[test]
+    fn test_path_simple() {
+        let path = Path::simple("foo".to_string());
+        assert_eq!(path.segments, vec!["foo"]);
+        assert!(path.type_args.is_none());
+    }
+
+    #[test]
+    fn test_path_is_simple() {
+        let simple = Path::simple("x".to_string());
+        assert!(simple.is_simple());
+
+        let qualified = Path {
+            segments: vec!["Mod".to_string(), "Type".to_string()],
+            type_args: None,
+        };
+        assert!(!qualified.is_simple());
+    }
+
+    #[test]
+    fn test_path_as_simple() {
+        let simple = Path::simple("foo".to_string());
+        assert_eq!(simple.as_simple(), Some("foo"));
+
+        let qualified = Path {
+            segments: vec!["Mod".to_string(), "Type".to_string()],
+            type_args: None,
+        };
+        assert_eq!(qualified.as_simple(), None);
+    }
+
+    #[test]
+    fn test_path_display_simple() {
+        let path = Path::simple("foo".to_string());
+        assert_eq!(path.to_string(), "foo");
+    }
+
+    #[test]
+    fn test_path_display_qualified() {
+        let path = Path {
+            segments: vec!["Option".to_string(), "Some".to_string()],
+            type_args: None,
+        };
+        assert_eq!(path.to_string(), "Option::Some");
+    }
+
+    #[test]
+    fn test_path_display_with_turbofish() {
+        let path = Path {
+            segments: vec!["Option".to_string(), "None".to_string()],
+            type_args: Some(vec![TypeAnnotation::Named(Path::simple("Int".to_string()))]),
+        };
+        assert_eq!(path.to_string(), "Option::None::<Int>");
+    }
+
+    #[test]
+    fn test_path_display_turbofish_multiple_args() {
+        let path = Path {
+            segments: vec!["Result".to_string()],
+            type_args: Some(vec![
+                TypeAnnotation::Named(Path::simple("Int".to_string())),
+                TypeAnnotation::Named(Path::simple("String".to_string())),
+            ]),
+        };
+        assert_eq!(path.to_string(), "Result::<Int, String>");
+    }
+
+    // TypeAnnotation tests
+
+    #[test]
+    fn test_type_annotation_display_named() {
+        let ta = TypeAnnotation::Named(Path::simple("Int".to_string()));
+        assert_eq!(ta.to_string(), "Int");
+    }
+
+    #[test]
+    fn test_type_annotation_display_parameterized() {
+        let ta = TypeAnnotation::Parameterized(
+            Path::simple("List".to_string()),
+            vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
+        );
+        assert_eq!(ta.to_string(), "List<Int>");
+    }
+
+    #[test]
+    fn test_type_annotation_display_parameterized_multiple() {
+        let ta = TypeAnnotation::Parameterized(
+            Path::simple("Map".to_string()),
+            vec![
+                TypeAnnotation::Named(Path::simple("String".to_string())),
+                TypeAnnotation::Named(Path::simple("Int".to_string())),
+            ],
+        );
+        assert_eq!(ta.to_string(), "Map<String, Int>");
+    }
+
+    #[test]
+    fn test_type_annotation_display_tuple_empty() {
+        let ta = TypeAnnotation::Tuple(vec![]);
+        assert_eq!(ta.to_string(), "()");
+    }
+
+    #[test]
+    fn test_type_annotation_display_tuple_single() {
+        let ta = TypeAnnotation::Tuple(vec![TypeAnnotation::Named(Path::simple(
+            "Int".to_string(),
+        ))]);
+        assert_eq!(ta.to_string(), "(Int)");
+    }
+
+    #[test]
+    fn test_type_annotation_display_tuple_multiple() {
+        let ta = TypeAnnotation::Tuple(vec![
+            TypeAnnotation::Named(Path::simple("Int".to_string())),
+            TypeAnnotation::Named(Path::simple("String".to_string())),
+            TypeAnnotation::Named(Path::simple("Bool".to_string())),
+        ]);
+        assert_eq!(ta.to_string(), "(Int, String, Bool)");
+    }
+
+    #[test]
+    fn test_type_annotation_display_function_single_param() {
+        let ta = TypeAnnotation::Function(
+            vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
+            Box::new(TypeAnnotation::Named(Path::simple("Bool".to_string()))),
+        );
+        assert_eq!(ta.to_string(), "Int -> Bool");
+    }
+
+    #[test]
+    fn test_type_annotation_display_function_multiple_params() {
+        let ta = TypeAnnotation::Function(
+            vec![
+                TypeAnnotation::Named(Path::simple("Int".to_string())),
+                TypeAnnotation::Named(Path::simple("String".to_string())),
+            ],
+            Box::new(TypeAnnotation::Named(Path::simple("Bool".to_string()))),
+        );
+        assert_eq!(ta.to_string(), "(Int, String) -> Bool");
+    }
+}
