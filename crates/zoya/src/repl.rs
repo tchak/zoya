@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
-use crate::check::{TypeEnv, check_repl};
+use crate::check::{TypeEnv, check_items, check_stmts};
+use crate::unify::UnifyCtx;
 use crate::codegen::{codegen, codegen_function, codegen_let, prelude};
 use crate::eval::{self, Context, Value};
 use crate::ir::{CheckedItem, CheckedStmt, TypedPattern};
@@ -171,8 +172,11 @@ impl State {
         }
 
         // Type-check all items and statements
-        let (checked_items, checked_stmts) =
-            check_repl(&items, &stmts, &mut self.type_env).map_err(|e| e.to_string())?;
+        let mut ctx = UnifyCtx::new();
+        let checked_items =
+            check_items(&items, &mut self.type_env, &mut ctx).map_err(|e| e.to_string())?;
+        let checked_stmts =
+            check_stmts(&stmts, &mut self.type_env, &mut ctx).map_err(|e| e.to_string())?;
 
         // Execute each checked item and statement, collect results
         let mut results = Vec::new();

@@ -1,6 +1,7 @@
 use std::path::Path;
 
-use crate::check::check_file;
+use crate::check::{check_items, TypeEnv};
+use crate::unify::UnifyCtx;
 
 /// Type-check a file without executing it
 pub fn execute(path: &Path) -> Result<(), String> {
@@ -15,7 +16,9 @@ pub fn execute(path: &Path) -> Result<(), String> {
     let items = zoya_parser::parse_file(tokens).map_err(|e| format!("error: {}", e.message))?;
 
     // Type check
-    check_file(&items).map_err(|e| format!("error: {}", e))?;
+    let mut env = TypeEnv::with_builtins();
+    let mut ctx = UnifyCtx::new();
+    check_items(&items, &mut env, &mut ctx).map_err(|e| format!("error: {}", e))?;
 
     // Success
     eprintln!("✓ Type checking passed: {}", path.display());

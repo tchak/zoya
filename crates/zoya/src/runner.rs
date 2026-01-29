@@ -1,7 +1,8 @@
-use crate::check::check_file;
+use crate::check::{check_items, TypeEnv};
 use crate::codegen::{codegen_function, prelude};
 use crate::eval::{self, EvalError, Value};
 use crate::ir::{CheckedItem, TypedFunction};
+use crate::unify::UnifyCtx;
 
 /// Run Zoya source code and return the result
 pub fn run(source: &str) -> Result<Value, EvalError> {
@@ -10,7 +11,10 @@ pub fn run(source: &str) -> Result<Value, EvalError> {
     let items = zoya_parser::parse_file(tokens).map_err(|e| EvalError::RuntimeError(e.message))?;
 
     // Type-check all items
-    let checked_items = check_file(&items).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+    let mut env = TypeEnv::with_builtins();
+    let mut ctx = UnifyCtx::new();
+    let checked_items =
+        check_items(&items, &mut env, &mut ctx).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
 
     // Extract functions from checked items
     let typed_functions: Vec<&TypedFunction> = checked_items

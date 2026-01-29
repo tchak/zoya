@@ -1,8 +1,9 @@
 use std::path::Path;
 
-use crate::check::check_file;
+use crate::check::{check_items, TypeEnv};
 use crate::codegen::{codegen_function, prelude};
 use crate::ir::{CheckedItem, TypedFunction};
+use crate::unify::UnifyCtx;
 
 /// Compile a file to JavaScript without executing
 pub fn execute(path: &Path, output: Option<&Path>) -> Result<(), String> {
@@ -17,7 +18,9 @@ pub fn execute(path: &Path, output: Option<&Path>) -> Result<(), String> {
     let items = zoya_parser::parse_file(tokens).map_err(|e| format!("error: {}", e.message))?;
 
     // Type check
-    let checked_items = check_file(&items).map_err(|e| format!("error: {}", e))?;
+    let mut env = TypeEnv::with_builtins();
+    let mut ctx = UnifyCtx::new();
+    let checked_items = check_items(&items, &mut env, &mut ctx).map_err(|e| format!("error: {}", e))?;
 
     // Extract functions from checked items
     let typed_functions: Vec<&TypedFunction> = checked_items
