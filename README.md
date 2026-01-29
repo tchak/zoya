@@ -32,7 +32,7 @@ fn main() -> Float {
 
 ## Installation
 
-Requires [Rust](https://rustup.rs/) (1.70+).
+Requires [Rust](https://rustup.rs/) (1.85+).
 
 ```bash
 git clone https://github.com/user/zoya-lang
@@ -40,7 +40,18 @@ cd zoya-lang
 cargo build --release
 ```
 
-The binary will be at `target/release/zoya-lang`.
+The binary will be at `target/release/zoya`.
+
+## Workspace Structure
+
+Zoya is organized as a Cargo workspace with multiple crates:
+
+| Crate | Description |
+|-------|-------------|
+| [zoya](crates/zoya) | Main compiler and CLI |
+| [zoya-ast](crates/zoya-ast) | Abstract Syntax Tree types |
+| [zoya-lexer](crates/zoya-lexer) | Tokenizer (logos) |
+| [zoya-parser](crates/zoya-parser) | Parser (chumsky) |
 
 ## Usage
 
@@ -49,7 +60,7 @@ The binary will be at `target/release/zoya-lang`.
 Start an interactive session:
 
 ```bash
-zoya-lang run
+zoya run
 ```
 
 ```
@@ -66,7 +77,7 @@ let add: (?0, ?0) -> ?0
 ### Run a File
 
 ```bash
-zoya-lang run program.zoya
+zoya run program.zoya
 ```
 
 ### Type Check Only
@@ -74,14 +85,14 @@ zoya-lang run program.zoya
 Validate types without executing:
 
 ```bash
-zoya-lang check program.zoya
+zoya check program.zoya
 ```
 
 ### Compile to JavaScript
 
 ```bash
-zoya-lang build program.zoya           # Output to stdout
-zoya-lang build program.zoya -o out.js # Output to file
+zoya build program.zoya           # Output to stdout
+zoya build program.zoya -o out.js # Output to file
 ```
 
 ## Language Tour
