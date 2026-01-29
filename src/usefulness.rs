@@ -1503,4 +1503,1207 @@ mod tests {
             _ => panic!("expected non-exhaustive"),
         }
     }
+
+    // ==================== Helper functions for new tests ====================
+
+    fn make_struct_type(name: &str, fields: Vec<(&str, Type)>) -> Type {
+        Type::Struct {
+            name: name.to_string(),
+            type_args: vec![],
+            fields: fields.into_iter().map(|(n, t)| (n.to_string(), t)).collect(),
+        }
+    }
+
+    fn make_enum_type(name: &str, variants: Vec<(&str, EnumVariantType)>) -> Type {
+        Type::Enum {
+            name: name.to_string(),
+            type_args: vec![],
+            variants: variants.into_iter().map(|(n, v)| (n.to_string(), v)).collect(),
+        }
+    }
+
+    fn make_qualified_path(segments: Vec<&str>) -> QualifiedPath {
+        QualifiedPath::new(segments.into_iter().map(|s| s.to_string()).collect())
+    }
+
+    // ==================== Struct Pattern Tests ====================
+
+    #[test]
+    fn test_struct_exhaustive_single_pattern() {
+        let struct_ty = make_struct_type("Point", vec![("x", Type::Int), ("y", Type::Int)]);
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::StructExact {
+                path: make_qualified_path(vec!["Point"]),
+                fields: vec![
+                    ("x".to_string(), TypedPattern::Wildcard),
+                    ("y".to_string(), TypedPattern::Wildcard),
+                ],
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &struct_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_struct_partial_exhaustive() {
+        let struct_ty = make_struct_type("Point", vec![("x", Type::Int), ("y", Type::Int)]);
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::StructPartial {
+                path: make_qualified_path(vec!["Point"]),
+                fields: vec![("x".to_string(), TypedPattern::Wildcard)],
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &struct_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_struct_with_bool_field_needs_both() {
+        let struct_ty = make_struct_type("Flags", vec![("enabled", Type::Bool)]);
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::StructExact {
+                path: make_qualified_path(vec!["Flags"]),
+                fields: vec![
+                    ("enabled".to_string(), TypedPattern::Literal(TypedExpr::Bool(true))),
+                ],
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &struct_ty);
+        assert!(matches!(result, Exhaustiveness::NonExhaustive(_)));
+    }
+
+    // ==================== Enum Pattern Tests ====================
+
+    #[test]
+    fn test_enum_unit_exhaustive() {
+        let option_ty = make_enum_type("Option", vec![
+            ("None", EnumVariantType::Unit),
+            ("Some", EnumVariantType::Tuple(vec![Type::Int])),
+        ]);
+        let arms = vec![
+            TypedMatchArm {
+                pattern: TypedPattern::EnumUnit {
+                    path: make_qualified_path(vec!["Option", "None"]),
+                },
+                result: TypedExpr::Int(0),
+            },
+            TypedMatchArm {
+                pattern: TypedPattern::EnumTupleExact {
+                    path: make_qualified_path(vec!["Option", "Some"]),
+                    patterns: vec![TypedPattern::Wildcard],
+                    total_fields: 1,
+                },
+                result: TypedExpr::Int(1),
+            },
+        ];
+        let result = check_exhaustiveness(&arms, &option_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_enum_unit_missing_variant() {
+        let option_ty = make_enum_type("Option", vec![
+            ("None", EnumVariantType::Unit),
+            ("Some", EnumVariantType::Tuple(vec![Type::Int])),
+        ]);
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::EnumUnit {
+                path: make_qualified_path(vec!["Option", "None"]),
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &option_ty);
+        match result {
+            Exhaustiveness::NonExhaustive(witnesses) => {
+                assert!(!witnesses.is_empty());
+                let missing = witnesses[0].to_string(&[option_ty.clone()]);
+                assert!(missing.contains("Some"));
+            }
+            _ => panic!("expected non-exhaustive"),
+        }
+    }
+
+    #[test]
+    fn test_enum_multiple_variants_exhaustive() {
+        let color_ty = make_enum_type("Color", vec![
+            ("Red", EnumVariantType::Unit),
+            ("Green", EnumVariantType::Unit),
+            ("Blue", EnumVariantType::Unit),
+        ]);
+        let arms = vec![
+            TypedMatchArm {
+                pattern: TypedPattern::EnumUnit {
+                    path: make_qualified_path(vec!["Color", "Red"]),
+                },
+                result: TypedExpr::Int(0),
+            },
+            TypedMatchArm {
+                pattern: TypedPattern::EnumUnit {
+                    path: make_qualified_path(vec!["Color", "Green"]),
+                },
+                result: TypedExpr::Int(1),
+            },
+            TypedMatchArm {
+                pattern: TypedPattern::EnumUnit {
+                    path: make_qualified_path(vec!["Color", "Blue"]),
+                },
+                result: TypedExpr::Int(2),
+            },
+        ];
+        let result = check_exhaustiveness(&arms, &color_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_enum_multiple_variants_missing_one() {
+        let color_ty = make_enum_type("Color", vec![
+            ("Red", EnumVariantType::Unit),
+            ("Green", EnumVariantType::Unit),
+            ("Blue", EnumVariantType::Unit),
+        ]);
+        let arms = vec![
+            TypedMatchArm {
+                pattern: TypedPattern::EnumUnit {
+                    path: make_qualified_path(vec!["Color", "Red"]),
+                },
+                result: TypedExpr::Int(0),
+            },
+            TypedMatchArm {
+                pattern: TypedPattern::EnumUnit {
+                    path: make_qualified_path(vec!["Color", "Green"]),
+                },
+                result: TypedExpr::Int(1),
+            },
+        ];
+        let result = check_exhaustiveness(&arms, &color_ty);
+        match result {
+            Exhaustiveness::NonExhaustive(witnesses) => {
+                assert!(!witnesses.is_empty());
+                let missing = witnesses[0].to_string(&[color_ty.clone()]);
+                assert!(missing.contains("Blue"));
+            }
+            _ => panic!("expected non-exhaustive"),
+        }
+    }
+
+    #[test]
+    fn test_enum_struct_variant_exhaustive() {
+        let msg_ty = make_enum_type("Message", vec![
+            ("Quit", EnumVariantType::Unit),
+            ("Move", EnumVariantType::Struct(vec![
+                ("x".to_string(), Type::Int),
+                ("y".to_string(), Type::Int),
+            ])),
+        ]);
+        let arms = vec![
+            TypedMatchArm {
+                pattern: TypedPattern::EnumUnit {
+                    path: make_qualified_path(vec!["Message", "Quit"]),
+                },
+                result: TypedExpr::Int(0),
+            },
+            TypedMatchArm {
+                pattern: TypedPattern::EnumStructExact {
+                    path: make_qualified_path(vec!["Message", "Move"]),
+                    fields: vec![
+                        ("x".to_string(), TypedPattern::Wildcard),
+                        ("y".to_string(), TypedPattern::Wildcard),
+                    ],
+                },
+                result: TypedExpr::Int(1),
+            },
+        ];
+        let result = check_exhaustiveness(&arms, &msg_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_enum_struct_partial_exhaustive() {
+        let msg_ty = make_enum_type("Message", vec![
+            ("Move", EnumVariantType::Struct(vec![
+                ("x".to_string(), Type::Int),
+                ("y".to_string(), Type::Int),
+            ])),
+        ]);
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::EnumStructPartial {
+                path: make_qualified_path(vec!["Message", "Move"]),
+                fields: vec![("x".to_string(), TypedPattern::Wildcard)],
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &msg_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_enum_with_wildcard_exhaustive() {
+        let option_ty = make_enum_type("Option", vec![
+            ("None", EnumVariantType::Unit),
+            ("Some", EnumVariantType::Tuple(vec![Type::Int])),
+        ]);
+        let arms = vec![make_wildcard_arm()];
+        let result = check_exhaustiveness(&arms, &option_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    // ==================== List Pattern Variant Tests ====================
+
+    #[test]
+    fn test_list_exact_exhaustive_with_wildcard() {
+        // [a, b] only matches 2-element lists, need wildcard for others
+        let list_ty = Type::List(Box::new(Type::Int));
+        let arms = vec![
+            TypedMatchArm {
+                pattern: TypedPattern::ListExact {
+                    patterns: vec![TypedPattern::Wildcard, TypedPattern::Wildcard],
+                    len: 2,
+                },
+                result: TypedExpr::Int(0),
+            },
+            make_wildcard_arm(),
+        ];
+        let result = check_exhaustiveness(&arms, &list_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_list_exact_not_exhaustive() {
+        let list_ty = Type::List(Box::new(Type::Int));
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::ListExact {
+                patterns: vec![TypedPattern::Wildcard, TypedPattern::Wildcard],
+                len: 2,
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &list_ty);
+        assert!(matches!(result, Exhaustiveness::NonExhaustive(_)));
+    }
+
+    #[test]
+    fn test_list_suffix_exhaustive() {
+        // [.., x] matches non-empty, [] matches empty
+        let list_ty = Type::List(Box::new(Type::Int));
+        let arms = vec![
+            make_list_empty_arm(),
+            TypedMatchArm {
+                pattern: TypedPattern::ListSuffix {
+                    patterns: vec![TypedPattern::Wildcard],
+                    rest_binding: None,
+                    min_len: 1,
+                },
+                result: TypedExpr::Int(1),
+            },
+        ];
+        let result = check_exhaustiveness(&arms, &list_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_list_prefix_suffix_exhaustive() {
+        // [a, .., z] matches 2+ elements, need patterns for 0 and 1 element
+        let list_ty = Type::List(Box::new(Type::Int));
+        let arms = vec![
+            make_list_empty_arm(),
+            TypedMatchArm {
+                pattern: TypedPattern::ListExact {
+                    patterns: vec![TypedPattern::Wildcard],
+                    len: 1,
+                },
+                result: TypedExpr::Int(1),
+            },
+            TypedMatchArm {
+                pattern: TypedPattern::ListPrefixSuffix {
+                    prefix: vec![TypedPattern::Wildcard],
+                    suffix: vec![TypedPattern::Wildcard],
+                    rest_binding: None,
+                    min_len: 2,
+                },
+                result: TypedExpr::Int(2),
+            },
+        ];
+        let result = check_exhaustiveness(&arms, &list_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    // ==================== Tuple Pattern Variant Tests ====================
+
+    #[test]
+    fn test_tuple_empty_exhaustive() {
+        let tuple_ty = Type::Tuple(vec![]);
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::TupleEmpty,
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &tuple_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_tuple_prefix_exhaustive() {
+        let tuple_ty = Type::Tuple(vec![Type::Int, Type::Int, Type::Int]);
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::TuplePrefix {
+                patterns: vec![TypedPattern::Wildcard],
+                rest_binding: None,
+                total_len: 3,
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &tuple_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_tuple_suffix_exhaustive() {
+        let tuple_ty = Type::Tuple(vec![Type::Int, Type::Int, Type::Int]);
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::TupleSuffix {
+                patterns: vec![TypedPattern::Wildcard],
+                rest_binding: None,
+                total_len: 3,
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &tuple_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_tuple_prefix_suffix_exhaustive() {
+        let tuple_ty = Type::Tuple(vec![Type::Int, Type::Int, Type::Int, Type::Int]);
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::TuplePrefixSuffix {
+                prefix: vec![TypedPattern::Wildcard],
+                suffix: vec![TypedPattern::Wildcard],
+                rest_binding: None,
+                total_len: 4,
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &tuple_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_tuple_prefix_with_bool_not_exhaustive() {
+        let tuple_ty = Type::Tuple(vec![Type::Bool, Type::Int, Type::Int]);
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::TuplePrefix {
+                patterns: vec![TypedPattern::Literal(TypedExpr::Bool(true))],
+                rest_binding: None,
+                total_len: 3,
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &tuple_ty);
+        assert!(matches!(result, Exhaustiveness::NonExhaustive(_)));
+    }
+
+    // ==================== Float/String/BigInt Literal Tests ====================
+
+    #[test]
+    fn test_float_exhaustive_with_wildcard() {
+        let arms = vec![
+            TypedMatchArm {
+                pattern: TypedPattern::Literal(TypedExpr::Float(1.0)),
+                result: TypedExpr::Int(0),
+            },
+            TypedMatchArm {
+                pattern: TypedPattern::Literal(TypedExpr::Float(2.0)),
+                result: TypedExpr::Int(1),
+            },
+            make_wildcard_arm(),
+        ];
+        let result = check_exhaustiveness(&arms, &Type::Float);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_float_not_exhaustive_without_wildcard() {
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::Literal(TypedExpr::Float(1.0)),
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &Type::Float);
+        assert!(matches!(result, Exhaustiveness::NonExhaustive(_)));
+    }
+
+    #[test]
+    fn test_string_exhaustive_with_wildcard() {
+        let arms = vec![
+            TypedMatchArm {
+                pattern: TypedPattern::Literal(TypedExpr::String("hello".to_string())),
+                result: TypedExpr::Int(0),
+            },
+            make_wildcard_arm(),
+        ];
+        let result = check_exhaustiveness(&arms, &Type::String);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_string_not_exhaustive_without_wildcard() {
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::Literal(TypedExpr::String("hello".to_string())),
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &Type::String);
+        assert!(matches!(result, Exhaustiveness::NonExhaustive(_)));
+    }
+
+    #[test]
+    fn test_bigint_exhaustive_with_wildcard() {
+        let arms = vec![
+            TypedMatchArm {
+                pattern: TypedPattern::Literal(TypedExpr::BigInt(0)),
+                result: TypedExpr::Int(0),
+            },
+            make_wildcard_arm(),
+        ];
+        let result = check_exhaustiveness(&arms, &Type::BigInt);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_bigint_not_exhaustive_without_wildcard() {
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::Literal(TypedExpr::BigInt(0)),
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &Type::BigInt);
+        assert!(matches!(result, Exhaustiveness::NonExhaustive(_)));
+    }
+
+    // ==================== As Pattern Tests ====================
+
+    #[test]
+    fn test_as_pattern_exhaustive() {
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::As {
+                name: "n".to_string(),
+                ty: Type::Int,
+                pattern: Box::new(TypedPattern::Wildcard),
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &Type::Int);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_as_pattern_with_nested_bool() {
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::As {
+                name: "n".to_string(),
+                ty: Type::Bool,
+                pattern: Box::new(TypedPattern::Literal(TypedExpr::Bool(true))),
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &Type::Bool);
+        // Only matches true, not false
+        assert!(matches!(result, Exhaustiveness::NonExhaustive(_)));
+    }
+
+    #[test]
+    fn test_as_pattern_with_list() {
+        let list_ty = Type::List(Box::new(Type::Int));
+        let arms = vec![
+            make_list_empty_arm(),
+            TypedMatchArm {
+                pattern: TypedPattern::As {
+                    name: "xs".to_string(),
+                    ty: list_ty.clone(),
+                    pattern: Box::new(TypedPattern::ListPrefix {
+                        patterns: vec![TypedPattern::Wildcard],
+                        rest_binding: None,
+                        min_len: 1,
+                    }),
+                },
+                result: TypedExpr::Int(1),
+            },
+        ];
+        let result = check_exhaustiveness(&arms, &list_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    // ==================== Nested Pattern Tests ====================
+
+    #[test]
+    fn test_nested_tuple_in_list() {
+        let tuple_ty = Type::Tuple(vec![Type::Int, Type::Bool]);
+        let list_ty = Type::List(Box::new(tuple_ty.clone()));
+        let arms = vec![
+            make_list_empty_arm(),
+            TypedMatchArm {
+                pattern: TypedPattern::ListPrefix {
+                    patterns: vec![TypedPattern::TupleExact {
+                        patterns: vec![TypedPattern::Wildcard, TypedPattern::Wildcard],
+                        len: 2,
+                    }],
+                    rest_binding: None,
+                    min_len: 1,
+                },
+                result: TypedExpr::Int(1),
+            },
+        ];
+        let result = check_exhaustiveness(&arms, &list_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_nested_list_in_tuple() {
+        let list_ty = Type::List(Box::new(Type::Int));
+        let tuple_ty = Type::Tuple(vec![list_ty.clone(), Type::Bool]);
+        let arms = vec![
+            TypedMatchArm {
+                pattern: TypedPattern::TupleExact {
+                    patterns: vec![TypedPattern::Wildcard, TypedPattern::Wildcard],
+                    len: 2,
+                },
+                result: TypedExpr::Int(0),
+            },
+        ];
+        let result = check_exhaustiveness(&arms, &tuple_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_nested_enum_in_tuple() {
+        let option_ty = make_enum_type("Option", vec![
+            ("None", EnumVariantType::Unit),
+            ("Some", EnumVariantType::Tuple(vec![Type::Int])),
+        ]);
+        let tuple_ty = Type::Tuple(vec![option_ty.clone(), Type::Int]);
+        let arms = vec![
+            TypedMatchArm {
+                pattern: TypedPattern::TupleExact {
+                    patterns: vec![
+                        TypedPattern::EnumUnit {
+                            path: make_qualified_path(vec!["Option", "None"]),
+                        },
+                        TypedPattern::Wildcard,
+                    ],
+                    len: 2,
+                },
+                result: TypedExpr::Int(0),
+            },
+            TypedMatchArm {
+                pattern: TypedPattern::TupleExact {
+                    patterns: vec![
+                        TypedPattern::EnumTupleExact {
+                            path: make_qualified_path(vec!["Option", "Some"]),
+                            patterns: vec![TypedPattern::Wildcard],
+                            total_fields: 1,
+                        },
+                        TypedPattern::Wildcard,
+                    ],
+                    len: 2,
+                },
+                result: TypedExpr::Int(1),
+            },
+        ];
+        let result = check_exhaustiveness(&arms, &tuple_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    // ==================== Usefulness Edge Cases ====================
+
+    #[test]
+    fn test_unreachable_multiple_arms() {
+        let arms = vec![
+            make_wildcard_arm(),
+            make_bool_arm(true),
+            make_bool_arm(false),
+        ];
+        let unreachable = check_usefulness(&arms, &Type::Bool);
+        assert_eq!(unreachable, vec![1, 2]);
+    }
+
+    #[test]
+    fn test_unreachable_enum_after_wildcard() {
+        let option_ty = make_enum_type("Option", vec![
+            ("None", EnumVariantType::Unit),
+            ("Some", EnumVariantType::Tuple(vec![Type::Int])),
+        ]);
+        let arms = vec![
+            make_wildcard_arm(),
+            TypedMatchArm {
+                pattern: TypedPattern::EnumUnit {
+                    path: make_qualified_path(vec!["Option", "None"]),
+                },
+                result: TypedExpr::Int(1),
+            },
+        ];
+        let unreachable = check_usefulness(&arms, &option_ty);
+        assert_eq!(unreachable, vec![1]);
+    }
+
+    #[test]
+    fn test_unreachable_duplicate_enum_variant() {
+        let color_ty = make_enum_type("Color", vec![
+            ("Red", EnumVariantType::Unit),
+            ("Green", EnumVariantType::Unit),
+        ]);
+        let arms = vec![
+            TypedMatchArm {
+                pattern: TypedPattern::EnumUnit {
+                    path: make_qualified_path(vec!["Color", "Red"]),
+                },
+                result: TypedExpr::Int(0),
+            },
+            TypedMatchArm {
+                pattern: TypedPattern::EnumUnit {
+                    path: make_qualified_path(vec!["Color", "Red"]),
+                },
+                result: TypedExpr::Int(1),
+            },
+            TypedMatchArm {
+                pattern: TypedPattern::EnumUnit {
+                    path: make_qualified_path(vec!["Color", "Green"]),
+                },
+                result: TypedExpr::Int(2),
+            },
+        ];
+        let unreachable = check_usefulness(&arms, &color_ty);
+        assert_eq!(unreachable, vec![1]);
+    }
+
+    // ==================== Witness Generation Tests ====================
+
+    #[test]
+    fn test_witness_for_missing_enum_variant() {
+        let option_ty = make_enum_type("Option", vec![
+            ("None", EnumVariantType::Unit),
+            ("Some", EnumVariantType::Tuple(vec![Type::Int])),
+        ]);
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::EnumTupleExact {
+                path: make_qualified_path(vec!["Option", "Some"]),
+                patterns: vec![TypedPattern::Wildcard],
+                total_fields: 1,
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &option_ty);
+        match result {
+            Exhaustiveness::NonExhaustive(witnesses) => {
+                assert!(!witnesses.is_empty());
+                let missing = witnesses[0].to_string(&[option_ty.clone()]);
+                assert!(missing.contains("None"));
+            }
+            _ => panic!("expected non-exhaustive"),
+        }
+    }
+
+    #[test]
+    fn test_witness_for_tuple_with_missing_bool() {
+        let tuple_ty = Type::Tuple(vec![Type::Bool, Type::Bool]);
+        let arms = vec![
+            TypedMatchArm {
+                pattern: TypedPattern::TupleExact {
+                    patterns: vec![
+                        TypedPattern::Literal(TypedExpr::Bool(true)),
+                        TypedPattern::Literal(TypedExpr::Bool(true)),
+                    ],
+                    len: 2,
+                },
+                result: TypedExpr::Int(0),
+            },
+            TypedMatchArm {
+                pattern: TypedPattern::TupleExact {
+                    patterns: vec![
+                        TypedPattern::Literal(TypedExpr::Bool(false)),
+                        TypedPattern::Literal(TypedExpr::Bool(false)),
+                    ],
+                    len: 2,
+                },
+                result: TypedExpr::Int(1),
+            },
+        ];
+        let result = check_exhaustiveness(&arms, &tuple_ty);
+        match result {
+            Exhaustiveness::NonExhaustive(witnesses) => {
+                assert!(!witnesses.is_empty());
+                // Should show something like (true, false) or (false, true)
+                let missing = witnesses[0].to_string(&[tuple_ty.clone()]);
+                assert!(missing.contains("true") || missing.contains("false"));
+            }
+            _ => panic!("expected non-exhaustive"),
+        }
+    }
+
+    // ==================== Edge Cases ====================
+
+    #[test]
+    fn test_single_wildcard_covers_struct() {
+        let struct_ty = make_struct_type("Point", vec![("x", Type::Int), ("y", Type::Int)]);
+        let arms = vec![make_wildcard_arm()];
+        let result = check_exhaustiveness(&arms, &struct_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_var_pattern_covers_all() {
+        let arms = vec![make_var_arm("x", Type::Int)];
+        let result = check_exhaustiveness(&arms, &Type::Int);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    // ==================== EnumTupleSuffix and EnumTuplePrefixSuffix Tests ====================
+
+    #[test]
+    fn test_enum_tuple_suffix_exhaustive() {
+        let result_ty = make_enum_type("Result", vec![
+            ("Ok", EnumVariantType::Tuple(vec![Type::Int, Type::Int])),
+            ("Err", EnumVariantType::Tuple(vec![Type::String])),
+        ]);
+        let arms = vec![
+            TypedMatchArm {
+                pattern: TypedPattern::EnumTupleSuffix {
+                    path: make_qualified_path(vec!["Result", "Ok"]),
+                    patterns: vec![TypedPattern::Wildcard], // matches second field
+                    rest_binding: None,
+                    total_fields: 2,
+                },
+                result: TypedExpr::Int(0),
+            },
+            TypedMatchArm {
+                pattern: TypedPattern::EnumTupleExact {
+                    path: make_qualified_path(vec!["Result", "Err"]),
+                    patterns: vec![TypedPattern::Wildcard],
+                    total_fields: 1,
+                },
+                result: TypedExpr::Int(1),
+            },
+        ];
+        let result = check_exhaustiveness(&arms, &result_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_enum_tuple_prefix_suffix_exhaustive() {
+        let triple_ty = make_enum_type("Triple", vec![
+            ("Make", EnumVariantType::Tuple(vec![Type::Int, Type::Int, Type::Int])),
+        ]);
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::EnumTuplePrefixSuffix {
+                path: make_qualified_path(vec!["Triple", "Make"]),
+                prefix: vec![TypedPattern::Wildcard],
+                suffix: vec![TypedPattern::Wildcard],
+                rest_binding: None,
+                total_fields: 3,
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &triple_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_enum_tuple_prefix_exhaustive() {
+        let pair_ty = make_enum_type("Pair", vec![
+            ("Make", EnumVariantType::Tuple(vec![Type::Int, Type::Int])),
+        ]);
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::EnumTuplePrefix {
+                path: make_qualified_path(vec!["Pair", "Make"]),
+                patterns: vec![TypedPattern::Wildcard],
+                rest_binding: None,
+                total_fields: 2,
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &pair_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    // ==================== More Witness Display Tests ====================
+
+    #[test]
+    fn test_witness_struct_display() {
+        let struct_ty = make_struct_type("Flags", vec![("enabled", Type::Bool)]);
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::StructExact {
+                path: make_qualified_path(vec!["Flags"]),
+                fields: vec![
+                    ("enabled".to_string(), TypedPattern::Literal(TypedExpr::Bool(true))),
+                ],
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &struct_ty);
+        match result {
+            Exhaustiveness::NonExhaustive(witnesses) => {
+                let missing = witnesses[0].to_string(&[struct_ty.clone()]);
+                assert!(missing.contains("Flags"));
+                assert!(missing.contains("false"));
+            }
+            _ => panic!("expected non-exhaustive"),
+        }
+    }
+
+    #[test]
+    fn test_witness_enum_tuple_display() {
+        let option_ty = make_enum_type("Option", vec![
+            ("None", EnumVariantType::Unit),
+            ("Some", EnumVariantType::Tuple(vec![Type::Int])),
+        ]);
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::EnumUnit {
+                path: make_qualified_path(vec!["Option", "None"]),
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &option_ty);
+        match result {
+            Exhaustiveness::NonExhaustive(witnesses) => {
+                let missing = witnesses[0].to_string(&[option_ty.clone()]);
+                assert!(missing.contains("Some"));
+            }
+            _ => panic!("expected non-exhaustive"),
+        }
+    }
+
+    #[test]
+    fn test_witness_enum_struct_display() {
+        let msg_ty = make_enum_type("Message", vec![
+            ("Quit", EnumVariantType::Unit),
+            ("Move", EnumVariantType::Struct(vec![
+                ("x".to_string(), Type::Int),
+                ("y".to_string(), Type::Int),
+            ])),
+        ]);
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::EnumUnit {
+                path: make_qualified_path(vec!["Message", "Quit"]),
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &msg_ty);
+        match result {
+            Exhaustiveness::NonExhaustive(witnesses) => {
+                let missing = witnesses[0].to_string(&[msg_ty.clone()]);
+                assert!(missing.contains("Move"));
+            }
+            _ => panic!("expected non-exhaustive"),
+        }
+    }
+
+    // ==================== Single-element Tuple Tests ====================
+
+    #[test]
+    fn test_tuple_single_element_exhaustive() {
+        let tuple_ty = Type::Tuple(vec![Type::Int]);
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::TupleExact {
+                patterns: vec![TypedPattern::Wildcard],
+                len: 1,
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &tuple_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_tuple_single_bool_not_exhaustive() {
+        let tuple_ty = Type::Tuple(vec![Type::Bool]);
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::TupleExact {
+                patterns: vec![TypedPattern::Literal(TypedExpr::Bool(true))],
+                len: 1,
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &tuple_ty);
+        match result {
+            Exhaustiveness::NonExhaustive(witnesses) => {
+                let missing = witnesses[0].to_string(&[tuple_ty.clone()]);
+                // Single element tuple should display as (false,)
+                assert!(missing.contains("false"));
+            }
+            _ => panic!("expected non-exhaustive"),
+        }
+    }
+
+    // ==================== Empty Struct Tests ====================
+
+    #[test]
+    fn test_struct_empty_fields_exhaustive() {
+        let struct_ty = Type::Struct {
+            name: "Unit".to_string(),
+            type_args: vec![],
+            fields: vec![],
+        };
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::StructExact {
+                path: make_qualified_path(vec!["Unit"]),
+                fields: vec![],
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &struct_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_enum_struct_empty_fields_exhaustive() {
+        let msg_ty = make_enum_type("Message", vec![
+            ("Empty", EnumVariantType::Struct(vec![])),
+        ]);
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::EnumStructExact {
+                path: make_qualified_path(vec!["Message", "Empty"]),
+                fields: vec![],
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &msg_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    // ==================== List with Literals Tests ====================
+
+    #[test]
+    fn test_list_with_literal_patterns() {
+        let list_ty = Type::List(Box::new(Type::Int));
+        let arms = vec![
+            make_list_empty_arm(),
+            TypedMatchArm {
+                pattern: TypedPattern::ListPrefix {
+                    patterns: vec![TypedPattern::Literal(TypedExpr::Int(0))],
+                    rest_binding: None,
+                    min_len: 1,
+                },
+                result: TypedExpr::Int(1),
+            },
+            make_wildcard_arm(),
+        ];
+        let result = check_exhaustiveness(&arms, &list_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    // ==================== TypeCtors Tests ====================
+
+    #[test]
+    fn test_type_ctors_function_type() {
+        // Function types are treated as Infinite (conservative)
+        let func_ty = Type::Function {
+            params: vec![Type::Int],
+            ret: Box::new(Type::Bool),
+        };
+        let arms = vec![make_wildcard_arm()];
+        let result = check_exhaustiveness(&arms, &func_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_type_ctors_type_var() {
+        // Type variables are treated as Infinite (conservative)
+        let var_ty = Type::Var(crate::types::TypeVarId(0));
+        let arms = vec![make_wildcard_arm()];
+        let result = check_exhaustiveness(&arms, &var_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    // ==================== Complex Nested Patterns ====================
+
+    #[test]
+    fn test_nested_struct_in_enum() {
+        let point_ty = make_struct_type("Point", vec![("x", Type::Int), ("y", Type::Int)]);
+        let shape_ty = Type::Enum {
+            name: "Shape".to_string(),
+            type_args: vec![],
+            variants: vec![
+                ("Circle".to_string(), EnumVariantType::Tuple(vec![point_ty.clone(), Type::Int])),
+                ("Rectangle".to_string(), EnumVariantType::Tuple(vec![point_ty.clone(), point_ty.clone()])),
+            ],
+        };
+        let arms = vec![
+            TypedMatchArm {
+                pattern: TypedPattern::EnumTupleExact {
+                    path: make_qualified_path(vec!["Shape", "Circle"]),
+                    patterns: vec![TypedPattern::Wildcard, TypedPattern::Wildcard],
+                    total_fields: 2,
+                },
+                result: TypedExpr::Int(0),
+            },
+            TypedMatchArm {
+                pattern: TypedPattern::EnumTupleExact {
+                    path: make_qualified_path(vec!["Shape", "Rectangle"]),
+                    patterns: vec![TypedPattern::Wildcard, TypedPattern::Wildcard],
+                    total_fields: 2,
+                },
+                result: TypedExpr::Int(1),
+            },
+        ];
+        let result = check_exhaustiveness(&arms, &shape_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_nested_option_in_option() {
+        let inner_option = make_enum_type("Option", vec![
+            ("None", EnumVariantType::Unit),
+            ("Some", EnumVariantType::Tuple(vec![Type::Int])),
+        ]);
+        let outer_option = Type::Enum {
+            name: "Option".to_string(),
+            type_args: vec![],
+            variants: vec![
+                ("None".to_string(), EnumVariantType::Unit),
+                ("Some".to_string(), EnumVariantType::Tuple(vec![inner_option.clone()])),
+            ],
+        };
+        let arms = vec![
+            TypedMatchArm {
+                pattern: TypedPattern::EnumUnit {
+                    path: make_qualified_path(vec!["Option", "None"]),
+                },
+                result: TypedExpr::Int(0),
+            },
+            TypedMatchArm {
+                pattern: TypedPattern::EnumTupleExact {
+                    path: make_qualified_path(vec!["Option", "Some"]),
+                    patterns: vec![TypedPattern::Wildcard],
+                    total_fields: 1,
+                },
+                result: TypedExpr::Int(1),
+            },
+        ];
+        let result = check_exhaustiveness(&arms, &outer_option);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    // ==================== List Exact Length Tests ====================
+
+    #[test]
+    fn test_list_exact_lengths_exhaustive() {
+        // Matching exactly 0, 1, and 2+ elements
+        let list_ty = Type::List(Box::new(Type::Int));
+        let arms = vec![
+            make_list_empty_arm(),
+            TypedMatchArm {
+                pattern: TypedPattern::ListExact {
+                    patterns: vec![TypedPattern::Wildcard],
+                    len: 1,
+                },
+                result: TypedExpr::Int(1),
+            },
+            TypedMatchArm {
+                pattern: TypedPattern::ListPrefix {
+                    patterns: vec![TypedPattern::Wildcard, TypedPattern::Wildcard],
+                    rest_binding: None,
+                    min_len: 2,
+                },
+                result: TypedExpr::Int(2),
+            },
+        ];
+        let result = check_exhaustiveness(&arms, &list_ty);
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    // ==================== OrderedFloat Tests ====================
+
+    #[test]
+    fn test_float_duplicate_detection() {
+        let arms = vec![
+            TypedMatchArm {
+                pattern: TypedPattern::Literal(TypedExpr::Float(1.5)),
+                result: TypedExpr::Int(0),
+            },
+            TypedMatchArm {
+                pattern: TypedPattern::Literal(TypedExpr::Float(1.5)), // duplicate
+                result: TypedExpr::Int(1),
+            },
+            make_wildcard_arm(),
+        ];
+        let unreachable = check_usefulness(&arms, &Type::Float);
+        assert_eq!(unreachable, vec![1]);
+    }
+
+    #[test]
+    fn test_float_different_values_reachable() {
+        let arms = vec![
+            TypedMatchArm {
+                pattern: TypedPattern::Literal(TypedExpr::Float(1.0)),
+                result: TypedExpr::Int(0),
+            },
+            TypedMatchArm {
+                pattern: TypedPattern::Literal(TypedExpr::Float(2.0)),
+                result: TypedExpr::Int(1),
+            },
+            make_wildcard_arm(),
+        ];
+        let unreachable = check_usefulness(&arms, &Type::Float);
+        assert!(unreachable.is_empty());
+    }
+
+    // ==================== String Duplicate Tests ====================
+
+    #[test]
+    fn test_string_duplicate_detection() {
+        let arms = vec![
+            TypedMatchArm {
+                pattern: TypedPattern::Literal(TypedExpr::String("hello".to_string())),
+                result: TypedExpr::Int(0),
+            },
+            TypedMatchArm {
+                pattern: TypedPattern::Literal(TypedExpr::String("hello".to_string())), // duplicate
+                result: TypedExpr::Int(1),
+            },
+            make_wildcard_arm(),
+        ];
+        let unreachable = check_usefulness(&arms, &Type::String);
+        assert_eq!(unreachable, vec![1]);
+    }
+
+    // ==================== check_patterns Integration Tests ====================
+
+    #[test]
+    fn test_check_patterns_exhaustive_no_unreachable() {
+        let arms = vec![make_bool_arm(true), make_bool_arm(false)];
+        let result = check_patterns(&arms, &Type::Bool);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_patterns_non_exhaustive_error() {
+        let arms = vec![make_bool_arm(true)];
+        let result = check_patterns(&arms, &Type::Bool);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("non-exhaustive"));
+        assert!(err.message.contains("false"));
+    }
+
+    #[test]
+    fn test_check_patterns_unreachable_error() {
+        let arms = vec![make_wildcard_arm(), make_bool_arm(true)];
+        let result = check_patterns(&arms, &Type::Bool);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("unreachable"));
+    }
+
+    #[test]
+    fn test_check_patterns_multiple_unreachable() {
+        let arms = vec![
+            make_wildcard_arm(),
+            make_bool_arm(true),
+            make_bool_arm(false),
+        ];
+        let result = check_patterns(&arms, &Type::Bool);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("unreachable"));
+        // Should mention both patterns 2 and 3
+        assert!(err.message.contains("2") && err.message.contains("3"));
+    }
 }
