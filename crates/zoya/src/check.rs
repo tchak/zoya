@@ -7,12 +7,11 @@ mod type_resolver;
 use std::collections::{HashMap, HashSet};
 
 use zoya_ast::{
-    BinOp, EnumDef, Expr, FunctionDef, Item, LetBinding, MatchArm, Path, Statement, StructDef,
+    BinOp, EnumDef, Expr, FunctionDef, Item, LetBinding, MatchArm, Path, Stmt, StructDef,
     TypeAliasDef, TypeAnnotation, UnaryOp,
 };
 use crate::ir::{
-    CheckedItem, QualifiedPath, TypedEnumConstructFields, TypedExpr, TypedFunction,
-    TypedLetBinding,
+    CheckedItem, CheckedStmt, QualifiedPath, TypedEnumConstructFields, TypedExpr, TypedFunction,
 };
 use crate::types::{EnumType, EnumVariantType, FunctionType, StructType, Type, TypeAliasType, TypeError, TypeScheme, TypeVarId};
 use crate::unify::UnifyCtx;
@@ -1490,61 +1489,38 @@ pub fn check_file(items: &[Item]) -> Result<Vec<CheckedItem>, TypeError> {
 
     Ok(checked_items)
 }
-/// Type-checked statement result for REPL
-#[derive(Debug, Clone, PartialEq)]
-pub enum CheckedStatement {
-    Function(TypedFunction),
-    Struct(StructDef),
-    Enum(EnumDef),
-    TypeAlias(TypeAliasDef),
-    Expr(TypedExpr),
-    Let(TypedLetBinding),
-}
 
-/// Check REPL statements with multi-pass type checking for forward references.
+/// Check REPL input with multi-pass type checking for forward references.
 ///
 /// This uses a multi-pass algorithm similar to `check_file`:
-/// 1. Partition statements into structs, enums, functions, and others
-/// 2. Register all struct and enum definitions first
-/// 3. Register all function signatures (enables forward references)
-/// 4. Type-check all function bodies (all signatures now available)
-/// 5. Type-check non-item statements in order
-/// 6. Sort results by original index to preserve input order
+/// 1. Register all struct and enum definitions first
+/// 2. Register all function signatures (enables forward references)
+/// 3. Type-check all function bodies (all signatures now available)
+/// 4. Type-check statements in order
 pub fn check_repl(
-    statements: &[Statement],
+    items: &[Item],
+    stmts: &[Stmt],
     env: &mut TypeEnv,
-) -> Result<Vec<CheckedStatement>, TypeError> {
+) -> Result<(Vec<CheckedItem>, Vec<CheckedStmt>), TypeError> {
     let mut ctx = UnifyCtx::new();
 
-    // Phase 1: Partition statements
-    let mut struct_items: Vec<(usize, &StructDef)> = Vec::new();
-    let mut enum_items: Vec<(usize, &EnumDef)> = Vec::new();
-    let mut type_alias_items: Vec<(usize, &TypeAliasDef)> = Vec::new();
-    let mut function_items: Vec<(usize, &FunctionDef)> = Vec::new();
-    let mut other_items: Vec<(usize, &Statement)> = Vec::new();
+    // Phase 1: Partition items
+    let mut struct_items: Vec<&StructDef> = Vec::new();
+    let mut enum_items: Vec<&EnumDef> = Vec::new();
+    let mut type_alias_items: Vec<&TypeAliasDef> = Vec::new();
+    let mut function_items: Vec<&FunctionDef> = Vec::new();
 
-    for (idx, statement) in statements.iter().enumerate() {
-        match statement {
-            Statement::Item(Item::Struct(def)) => {
-                struct_items.push((idx, def));
-            }
-            Statement::Item(Item::Enum(def)) => {
-                enum_items.push((idx, def));
-            }
-            Statement::Item(Item::TypeAlias(def)) => {
-                type_alias_items.push((idx, def));
-            }
-            Statement::Item(Item::Function(func)) => {
-                function_items.push((idx, func));
-            }
-            other => {
-                other_items.push((idx, other));
-            }
+    for item in items {
+        match item {
+            Item::Struct(def) => struct_items.push(def),
+            Item::Enum(def) => enum_items.push(def),
+            Item::TypeAlias(def) => type_alias_items.push(def),
+            Item::Function(func) => function_items.push(func),
         }
     }
 
     // Phase 2a: Register all struct names first (for mutual references)
-    for (_, def) in &struct_items {
+    for def in &struct_items {
         let mut type_var_ids = Vec::new();
         for _ in &def.type_params {
             let var = ctx.fresh_var();
@@ -1564,7 +1540,7 @@ pub fn check_repl(
     }
 
     // Phase 2a': Register all enum names (for mutual references)
-    for (_, def) in &enum_items {
+    for def in &enum_items {
         let mut type_var_ids = Vec::new();
         for _ in &def.type_params {
             let var = ctx.fresh_var();
@@ -1584,61 +1560,63 @@ pub fn check_repl(
     }
 
     // Phase 2b: Now resolve all struct field types
-    for (_, def) in &struct_items {
+    for def in &struct_items {
         let struct_type = struct_type_from_def(def, env, &mut ctx)?;
         env.structs.insert(def.name.clone(), struct_type);
     }
 
     // Phase 2b': Now resolve all enum variant types
-    for (_, def) in &enum_items {
+    for def in &enum_items {
         let enum_type = enum_type_from_def(def, env, &mut ctx)?;
         env.enums.insert(def.name.clone(), enum_type);
     }
 
     // Phase 2c: Register all type aliases
-    for (_, def) in &type_alias_items {
+    for def in &type_alias_items {
         let alias_type = type_alias_from_def(def, env, &mut ctx)?;
         env.type_aliases.insert(def.name.clone(), alias_type);
     }
 
     // Phase 3: Register all function signatures
-    for (_, func) in &function_items {
+    for func in &function_items {
         let func_type = function_type_from_def(func, env, &mut ctx)?;
         env.functions.insert(func.name.clone(), func_type);
     }
 
-    // Phase 4: Type-check all items
-    let mut results: Vec<(usize, CheckedStatement)> = Vec::new();
+    // Phase 4: Build checked items
+    let mut checked_items: Vec<CheckedItem> = Vec::new();
 
     // Add struct results
-    for (idx, def) in &struct_items {
-        results.push((*idx, CheckedStatement::Struct((*def).clone())));
+    for def in struct_items {
+        checked_items.push(CheckedItem::Struct(def.clone()));
     }
 
     // Add enum results
-    for (idx, def) in &enum_items {
-        results.push((*idx, CheckedStatement::Enum((*def).clone())));
+    for def in enum_items {
+        checked_items.push(CheckedItem::Enum(def.clone()));
     }
 
     // Add type alias results
-    for (idx, def) in &type_alias_items {
-        results.push((*idx, CheckedStatement::TypeAlias((*def).clone())));
+    for def in type_alias_items {
+        checked_items.push(CheckedItem::TypeAlias(def.clone()));
     }
 
     // Type-check function bodies
-    for (idx, func) in &function_items {
+    for func in function_items {
         let typed_func = check_function(func, env, &mut ctx)?;
-        results.push((*idx, CheckedStatement::Function(typed_func)));
+        checked_items.push(CheckedItem::Function(Box::new(typed_func)));
     }
 
-    // Phase 5: Type-check non-item statements in order
-    for (idx, statement) in other_items {
-        match statement {
-            Statement::Expr(expr) => {
+    // Phase 5: Type-check statements in order
+    let mut checked_stmts: Vec<CheckedStmt> = Vec::new();
+
+    for stmt in stmts {
+        match stmt {
+            Stmt::Expr(expr) => {
                 let typed_expr = check_with_env(expr, env, &mut ctx)?;
-                results.push((idx, CheckedStatement::Expr(typed_expr)));
+                checked_stmts.push(CheckedStmt::Expr(typed_expr));
             }
-            Statement::Let(binding) => {
+            Stmt::Let(binding) => {
                 let (typed_binding, pattern_bindings) = check_let_binding(binding, env, &mut ctx)?;
 
                 // Apply let polymorphism (value restriction) to each bound variable
@@ -1653,15 +1631,12 @@ pub fn check_repl(
                     env.locals.insert(name, scheme);
                 }
 
-                results.push((idx, CheckedStatement::Let(typed_binding)));
+                checked_stmts.push(CheckedStmt::Let(typed_binding));
             }
-            Statement::Item(_) => unreachable!("Items already handled"),
         }
     }
 
-    // Phase 6: Sort by original index to preserve input order
-    results.sort_by_key(|(idx, _)| *idx);
-    Ok(results.into_iter().map(|(_, stmt)| stmt).collect())
+    Ok((checked_items, checked_stmts))
 }
 
 #[cfg(test)]
@@ -2264,28 +2239,32 @@ mod tests {
     #[test]
     fn test_check_repl_single_expr() {
         let mut env = TypeEnv::default();
-        let stmts = vec![Statement::Expr(Expr::Int(42))];
-        let result = check_repl(&stmts, &mut env).unwrap();
-        assert_eq!(result.len(), 1);
+        let items: Vec<Item> = vec![];
+        let stmts = vec![Stmt::Expr(Expr::Int(42))];
+        let (checked_items, checked_stmts) = check_repl(&items, &stmts, &mut env).unwrap();
+        assert!(checked_items.is_empty());
+        assert_eq!(checked_stmts.len(), 1);
         assert!(matches!(
-            result[0],
-            CheckedStatement::Expr(TypedExpr::Int(42))
+            checked_stmts[0],
+            CheckedStmt::Expr(TypedExpr::Int(42))
         ));
     }
 
     #[test]
     fn test_check_repl_function_def() {
         let mut env = TypeEnv::default();
-        let stmts = vec![Statement::Item(Item::Function(FunctionDef {
+        let items = vec![Item::Function(FunctionDef {
             name: "foo".to_string(),
             type_params: vec![],
             params: vec![],
             return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
             body: Expr::Int(42),
-        }))];
-        let result = check_repl(&stmts, &mut env).unwrap();
-        assert_eq!(result.len(), 1);
-        assert!(matches!(result[0], CheckedStatement::Function(_)));
+        })];
+        let stmts: Vec<Stmt> = vec![];
+        let (checked_items, checked_stmts) = check_repl(&items, &stmts, &mut env).unwrap();
+        assert_eq!(checked_items.len(), 1);
+        assert!(checked_stmts.is_empty());
+        assert!(matches!(checked_items[0], CheckedItem::Function(_)));
         // Function should be added to env
         assert!(env.functions.contains_key("foo"));
     }
@@ -2293,43 +2272,44 @@ mod tests {
     #[test]
     fn test_check_repl_function_then_call() {
         let mut env = TypeEnv::default();
-        let stmts = vec![
-            Statement::Item(Item::Function(FunctionDef {
-                name: "double".to_string(),
-                type_params: vec![],
-                params: vec![Param {
-                    pattern: Pattern::Var("x".to_string()),
-                    typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
-                }],
-                return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
-                body: Expr::BinOp {
-                    op: BinOp::Add,
-                    left: Box::new(Expr::Path(Path::simple("x".to_string()))),
-                    right: Box::new(Expr::Path(Path::simple("x".to_string()))),
-                },
-            })),
-            Statement::Expr(Expr::Call {
-                path: Path::simple("double".to_string()),
-                args: vec![Expr::Int(5)],
-            }),
-        ];
-        let result = check_repl(&stmts, &mut env).unwrap();
-        assert_eq!(result.len(), 2);
-        assert!(matches!(result[0], CheckedStatement::Function(_)));
-        assert!(matches!(result[1], CheckedStatement::Expr(_)));
+        let items = vec![Item::Function(FunctionDef {
+            name: "double".to_string(),
+            type_params: vec![],
+            params: vec![Param {
+                pattern: Pattern::Var("x".to_string()),
+                typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
+            }],
+            return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+            body: Expr::BinOp {
+                op: BinOp::Add,
+                left: Box::new(Expr::Path(Path::simple("x".to_string()))),
+                right: Box::new(Expr::Path(Path::simple("x".to_string()))),
+            },
+        })];
+        let stmts = vec![Stmt::Expr(Expr::Call {
+            path: Path::simple("double".to_string()),
+            args: vec![Expr::Int(5)],
+        })];
+        let (checked_items, checked_stmts) = check_repl(&items, &stmts, &mut env).unwrap();
+        assert_eq!(checked_items.len(), 1);
+        assert_eq!(checked_stmts.len(), 1);
+        assert!(matches!(checked_items[0], CheckedItem::Function(_)));
+        assert!(matches!(checked_stmts[0], CheckedStmt::Expr(_)));
     }
 
     #[test]
     fn test_check_repl_let_binding() {
         let mut env = TypeEnv::default();
-        let stmts = vec![Statement::Let(LetBinding {
+        let items: Vec<Item> = vec![];
+        let stmts = vec![Stmt::Let(LetBinding {
             pattern: Pattern::Var("x".to_string()),
             type_annotation: None,
             value: Box::new(Expr::Int(42)),
         })];
-        let result = check_repl(&stmts, &mut env).unwrap();
-        assert_eq!(result.len(), 1);
-        assert!(matches!(result[0], CheckedStatement::Let(_)));
+        let (checked_items, checked_stmts) = check_repl(&items, &stmts, &mut env).unwrap();
+        assert!(checked_items.is_empty());
+        assert_eq!(checked_stmts.len(), 1);
+        assert!(matches!(checked_stmts[0], CheckedStmt::Let(_)));
         // Variable should be added to env (generalized since it's a syntactic value)
         let scheme = env.locals.get("x").expect("x should be in locals");
         assert_eq!(scheme.ty, Type::Int);
@@ -2338,34 +2318,37 @@ mod tests {
     #[test]
     fn test_check_repl_let_then_use() {
         let mut env = TypeEnv::default();
+        let items: Vec<Item> = vec![];
         let stmts = vec![
-            Statement::Let(LetBinding {
+            Stmt::Let(LetBinding {
                 pattern: Pattern::Var("x".to_string()),
                 type_annotation: None,
                 value: Box::new(Expr::Int(42)),
             }),
-            Statement::Expr(Expr::BinOp {
+            Stmt::Expr(Expr::BinOp {
                 op: BinOp::Add,
                 left: Box::new(Expr::Path(Path::simple("x".to_string()))),
                 right: Box::new(Expr::Int(1)),
             }),
         ];
-        let result = check_repl(&stmts, &mut env).unwrap();
-        assert_eq!(result.len(), 2);
-        assert!(matches!(result[0], CheckedStatement::Let(_)));
-        assert!(matches!(result[1], CheckedStatement::Expr(_)));
+        let (checked_items, checked_stmts) = check_repl(&items, &stmts, &mut env).unwrap();
+        assert!(checked_items.is_empty());
+        assert_eq!(checked_stmts.len(), 2);
+        assert!(matches!(checked_stmts[0], CheckedStmt::Let(_)));
+        assert!(matches!(checked_stmts[1], CheckedStmt::Expr(_)));
     }
 
     #[test]
     fn test_check_let_with_type_annotation() {
         let mut env = TypeEnv::default();
-        let stmts = vec![Statement::Let(LetBinding {
+        let items: Vec<Item> = vec![];
+        let stmts = vec![Stmt::Let(LetBinding {
             pattern: Pattern::Var("x".to_string()),
             type_annotation: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
             value: Box::new(Expr::Int(42)),
         })];
-        let result = check_repl(&stmts, &mut env).unwrap();
-        assert_eq!(result.len(), 1);
+        let (_, checked_stmts) = check_repl(&items, &stmts, &mut env).unwrap();
+        assert_eq!(checked_stmts.len(), 1);
         // Variable should be generalized since it's a syntactic value
         let scheme = env.locals.get("x").expect("x should be in locals");
         assert_eq!(scheme.ty, Type::Int);
@@ -2374,12 +2357,13 @@ mod tests {
     #[test]
     fn test_check_let_type_mismatch() {
         let mut env = TypeEnv::default();
-        let stmts = vec![Statement::Let(LetBinding {
+        let items: Vec<Item> = vec![];
+        let stmts = vec![Stmt::Let(LetBinding {
             pattern: Pattern::Var("x".to_string()),
             type_annotation: Some(TypeAnnotation::Named(Path::simple("Float".to_string()))),
             value: Box::new(Expr::Int(42)),
         })];
-        let result = check_repl(&stmts, &mut env);
+        let result = check_repl(&items, &stmts, &mut env);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("declares type"));
     }
@@ -2769,8 +2753,8 @@ mod tests {
         // fn callee() -> Int 42
         // Should succeed - caller can reference callee defined later
         let mut env = TypeEnv::default();
-        let stmts = vec![
-            Statement::Item(Item::Function(FunctionDef {
+        let items = vec![
+            Item::Function(FunctionDef {
                 name: "caller".to_string(),
                 type_params: vec![],
                 params: vec![],
@@ -2779,22 +2763,24 @@ mod tests {
                     path: Path::simple("callee".to_string()),
                     args: vec![],
                 },
-            })),
-            Statement::Item(Item::Function(FunctionDef {
+            }),
+            Item::Function(FunctionDef {
                 name: "callee".to_string(),
                 type_params: vec![],
                 params: vec![],
                 return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
                 body: Expr::Int(42),
-            })),
+            }),
         ];
-        let result = check_repl(&stmts, &mut env);
+        let stmts: Vec<Stmt> = vec![];
+        let result = check_repl(&items, &stmts, &mut env);
         assert!(result.is_ok(), "Forward reference should succeed: {:?}", result.err());
-        let checked = result.unwrap();
-        assert_eq!(checked.len(), 2);
-        // Results should be in original order
-        assert!(matches!(checked[0], CheckedStatement::Function(_)));
-        assert!(matches!(checked[1], CheckedStatement::Function(_)));
+        let (checked_items, checked_stmts) = result.unwrap();
+        assert_eq!(checked_items.len(), 2);
+        assert!(checked_stmts.is_empty());
+        // Both should be functions
+        assert!(matches!(checked_items[0], CheckedItem::Function(_)));
+        assert!(matches!(checked_items[1], CheckedItem::Function(_)));
     }
 
     #[test]
@@ -2803,8 +2789,8 @@ mod tests {
         // fn is_odd(n) -> Bool { match n { 0 => false, _ => is_even(n-1) } }
         // Should succeed - both see each other
         let mut env = TypeEnv::default();
-        let stmts = vec![
-            Statement::Item(Item::Function(FunctionDef {
+        let items = vec![
+            Item::Function(FunctionDef {
                 name: "is_even".to_string(),
                 type_params: vec![],
                 params: vec![Param {
@@ -2832,8 +2818,8 @@ mod tests {
                         },
                     ],
                 },
-            })),
-            Statement::Item(Item::Function(FunctionDef {
+            }),
+            Item::Function(FunctionDef {
                 name: "is_odd".to_string(),
                 type_params: vec![],
                 params: vec![Param {
@@ -2861,27 +2847,21 @@ mod tests {
                         },
                     ],
                 },
-            })),
+            }),
         ];
-        let result = check_repl(&stmts, &mut env);
+        let stmts: Vec<Stmt> = vec![];
+        let result = check_repl(&items, &stmts, &mut env);
         assert!(result.is_ok(), "Mutual recursion should succeed: {:?}", result.err());
     }
 
     #[test]
-    fn test_check_repl_mixed_preserves_order() {
-        // let x = 1
-        // fn f2() -> Int f1()  (forward ref)
-        // x + 1
-        // fn f1() -> Int 42
-        // Results should be in original order: [Let, Function, Expr, Function]
+    fn test_check_repl_mixed_items_and_stmts() {
+        // Items: fn f2() -> Int f1()  (forward ref), fn f1() -> Int 42
+        // Stmts: let x = 1, x + 1
+        // Items are processed before stmts; forward refs work
         let mut env = TypeEnv::default();
-        let stmts = vec![
-            Statement::Let(LetBinding {
-                pattern: Pattern::Var("x".to_string()),
-                type_annotation: None,
-                value: Box::new(Expr::Int(1)),
-            }),
-            Statement::Item(Item::Function(FunctionDef {
+        let items = vec![
+            Item::Function(FunctionDef {
                 name: "f2".to_string(),
                 type_params: vec![],
                 params: vec![],
@@ -2890,29 +2870,38 @@ mod tests {
                     path: Path::simple("f1".to_string()),
                     args: vec![],
                 },
-            })),
-            Statement::Expr(Expr::BinOp {
-                op: BinOp::Add,
-                left: Box::new(Expr::Path(Path::simple("x".to_string()))),
-                right: Box::new(Expr::Int(1)),
             }),
-            Statement::Item(Item::Function(FunctionDef {
+            Item::Function(FunctionDef {
                 name: "f1".to_string(),
                 type_params: vec![],
                 params: vec![],
                 return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
                 body: Expr::Int(42),
-            })),
+            }),
         ];
-        let result = check_repl(&stmts, &mut env);
-        assert!(result.is_ok(), "Mixed statements should succeed: {:?}", result.err());
-        let checked = result.unwrap();
-        assert_eq!(checked.len(), 4);
-        // Verify order is preserved
-        assert!(matches!(checked[0], CheckedStatement::Let(_)), "First should be Let");
-        assert!(matches!(checked[1], CheckedStatement::Function(_)), "Second should be Function f2");
-        assert!(matches!(checked[2], CheckedStatement::Expr(_)), "Third should be Expr");
-        assert!(matches!(checked[3], CheckedStatement::Function(_)), "Fourth should be Function f1");
+        let stmts = vec![
+            Stmt::Let(LetBinding {
+                pattern: Pattern::Var("x".to_string()),
+                type_annotation: None,
+                value: Box::new(Expr::Int(1)),
+            }),
+            Stmt::Expr(Expr::BinOp {
+                op: BinOp::Add,
+                left: Box::new(Expr::Path(Path::simple("x".to_string()))),
+                right: Box::new(Expr::Int(1)),
+            }),
+        ];
+        let result = check_repl(&items, &stmts, &mut env);
+        assert!(result.is_ok(), "Mixed items and stmts should succeed: {:?}", result.err());
+        let (checked_items, checked_stmts) = result.unwrap();
+        assert_eq!(checked_items.len(), 2);
+        assert_eq!(checked_stmts.len(), 2);
+        // Verify items
+        assert!(matches!(checked_items[0], CheckedItem::Function(_)));
+        assert!(matches!(checked_items[1], CheckedItem::Function(_)));
+        // Verify stmts
+        assert!(matches!(checked_stmts[0], CheckedStmt::Let(_)));
+        assert!(matches!(checked_stmts[1], CheckedStmt::Expr(_)));
     }
 
     #[test]
@@ -2921,21 +2910,19 @@ mod tests {
         // fn bad() -> Int x
         // Should fail: "undefined variable 'x'"
         let mut env = TypeEnv::default();
-        let stmts = vec![
-            Statement::Let(LetBinding {
-                pattern: Pattern::Var("x".to_string()),
-                type_annotation: None,
-                value: Box::new(Expr::Int(42)),
-            }),
-            Statement::Item(Item::Function(FunctionDef {
-                name: "bad".to_string(),
-                type_params: vec![],
-                params: vec![],
-                return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
-                body: Expr::Path(Path::simple("x".to_string())),
-            })),
-        ];
-        let result = check_repl(&stmts, &mut env);
+        let items = vec![Item::Function(FunctionDef {
+            name: "bad".to_string(),
+            type_params: vec![],
+            params: vec![],
+            return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+            body: Expr::Path(Path::simple("x".to_string())),
+        })];
+        let stmts = vec![Stmt::Let(LetBinding {
+            pattern: Pattern::Var("x".to_string()),
+            type_annotation: None,
+            value: Box::new(Expr::Int(42)),
+        })];
+        let result = check_repl(&items, &stmts, &mut env);
         assert!(result.is_err(), "Let should not be visible in function, but got: {:?}", result);
         let err_msg = result.unwrap_err().message;
         assert!(
@@ -2949,7 +2936,7 @@ mod tests {
         // fn factorial(n) -> Int { match n { 0 => 1, _ => n * factorial(n-1) } }
         // Should succeed
         let mut env = TypeEnv::default();
-        let stmts = vec![Statement::Item(Item::Function(FunctionDef {
+        let items = vec![Item::Function(FunctionDef {
             name: "factorial".to_string(),
             type_params: vec![],
             params: vec![Param {
@@ -2981,8 +2968,9 @@ mod tests {
                     },
                 ],
             },
-        }))];
-        let result = check_repl(&stmts, &mut env);
+        })];
+        let stmts: Vec<Stmt> = vec![];
+        let result = check_repl(&items, &stmts, &mut env);
         assert!(result.is_ok(), "Self-recursion should succeed: {:?}", result.err());
     }
 
@@ -3060,12 +3048,13 @@ mod tests {
     #[test]
     fn test_let_literal_pattern_rejected() {
         let mut env = TypeEnv::default();
-        let stmts = vec![Statement::Let(LetBinding {
+        let items: Vec<Item> = vec![];
+        let stmts = vec![Stmt::Let(LetBinding {
             pattern: Pattern::Literal(Box::new(Expr::Int(42))),
             type_annotation: None,
             value: Box::new(Expr::Int(42)),
         })];
-        let result = check_repl(&stmts, &mut env);
+        let result = check_repl(&items, &stmts, &mut env);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("refutable"));
     }
@@ -3074,12 +3063,13 @@ mod tests {
     fn test_let_list_pattern_rejected() {
         use zoya_ast::ListPattern;
         let mut env = TypeEnv::default();
-        let stmts = vec![Statement::Let(LetBinding {
+        let items: Vec<Item> = vec![];
+        let stmts = vec![Stmt::Let(LetBinding {
             pattern: Pattern::List(ListPattern::Exact(vec![Pattern::Var("x".to_string())])),
             type_annotation: None,
             value: Box::new(Expr::List(vec![Expr::Int(1)])),
         })];
-        let result = check_repl(&stmts, &mut env);
+        let result = check_repl(&items, &stmts, &mut env);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("refutable"));
     }
@@ -3088,8 +3078,9 @@ mod tests {
     fn test_let_enum_pattern_rejected() {
         use zoya_ast::{EnumPattern, EnumPatternFields, Pattern, TuplePattern};
         let mut env = TypeEnv::default();
+        let items: Vec<Item> = vec![];
         // Don't need to set up actual enum type - irrefutability check happens before type checking
-        let stmts = vec![Statement::Let(LetBinding {
+        let stmts = vec![Stmt::Let(LetBinding {
             pattern: Pattern::Enum(EnumPattern {
                 path: Path {
                     segments: vec!["Option".to_string(), "Some".to_string()],
@@ -3102,7 +3093,7 @@ mod tests {
             type_annotation: None,
             value: Box::new(Expr::Int(42)), // Doesn't matter, will fail at irrefutability check first
         })];
-        let result = check_repl(&stmts, &mut env);
+        let result = check_repl(&items, &stmts, &mut env);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("refutable"));
     }
@@ -3111,7 +3102,8 @@ mod tests {
     fn test_let_tuple_pattern_irrefutable() {
         use zoya_ast::{Pattern, TuplePattern};
         let mut env = TypeEnv::default();
-        let stmts = vec![Statement::Let(LetBinding {
+        let items: Vec<Item> = vec![];
+        let stmts = vec![Stmt::Let(LetBinding {
             pattern: Pattern::Tuple(TuplePattern::Exact(vec![
                 Pattern::Var("a".to_string()),
                 Pattern::Var("b".to_string()),
@@ -3119,7 +3111,7 @@ mod tests {
             type_annotation: None,
             value: Box::new(Expr::Tuple(vec![Expr::Int(1), Expr::Int(2)])),
         })];
-        let result = check_repl(&stmts, &mut env);
+        let result = check_repl(&items, &stmts, &mut env);
         assert!(result.is_ok());
         // Both a and b should be in the environment
         assert!(env.locals.contains_key("a"));

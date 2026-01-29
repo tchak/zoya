@@ -2,9 +2,9 @@ use chumsky::prelude::*;
 
 use zoya_ast::{
     BinOp, EnumDef, EnumPattern, EnumPatternFields, EnumVariant, EnumVariantKind, Expr,
-    FunctionDef, Item, LambdaParam, LetBinding, ListPattern, MatchArm, Param, Path, Pattern,
-    Statement, StructDef, StructFieldDef, StructFieldPattern, StructPattern, TuplePattern,
-    TypeAliasDef, TypeAnnotation, UnaryOp,
+    FunctionDef, Item, LambdaParam, LetBinding, ListPattern, MatchArm, Param, Path, Pattern, Stmt,
+    StructDef, StructFieldDef, StructFieldPattern, StructPattern, TuplePattern, TypeAliasDef,
+    TypeAnnotation, UnaryOp,
 };
 use zoya_lexer::Token;
 
@@ -29,9 +29,15 @@ pub fn parse_file(tokens: Vec<Token>) -> Result<Vec<Item>, ParseError> {
         })
 }
 
-/// Parse REPL input: zero or more statements (items or expressions)
-pub fn parse_repl(tokens: Vec<Token>) -> Result<Vec<Statement>, ParseError> {
-    statement_parser()
+/// Internal enum for parsing REPL input (either an item or a statement)
+enum ReplInput {
+    Item(Item),
+    Stmt(Stmt),
+}
+
+/// Parse REPL input: items and statements (expressions or let bindings)
+pub fn parse_repl(tokens: Vec<Token>) -> Result<(Vec<Item>, Vec<Stmt>), ParseError> {
+    let inputs: Vec<ReplInput> = repl_input_parser()
         .repeated()
         .collect()
         .parse(&tokens)
@@ -42,7 +48,17 @@ pub fn parse_repl(tokens: Vec<Token>) -> Result<Vec<Statement>, ParseError> {
                 .map(|e| format!("{:?}", e))
                 .collect::<Vec<_>>()
                 .join(", "),
-        })
+        })?;
+
+    let mut items = Vec::new();
+    let mut stmts = Vec::new();
+    for input in inputs {
+        match input {
+            ReplInput::Item(item) => items.push(item),
+            ReplInput::Stmt(stmt) => stmts.push(stmt),
+        }
+    }
+    Ok((items, stmts))
 }
 
 fn ident<'a>() -> impl Parser<'a, &'a [Token], String, extra::Err<Rich<'a, Token>>> + Clone {
@@ -1142,12 +1158,19 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
     })
 }
 
-fn statement_parser<'a>() -> impl Parser<'a, &'a [Token], Statement, extra::Err<Rich<'a, Token>>> {
-    // Try to parse as an item (starts with fn), let binding, or expression
+fn repl_input_parser<'a>() -> impl Parser<'a, &'a [Token], ReplInput, extra::Err<Rich<'a, Token>>> {
+    // Try to parse as an item (starts with fn/struct/enum/type), or a statement (let or expr)
     choice((
-        item_parser().map(Statement::Item),
-        let_binding_parser().map(Statement::Let),
-        expr_parser().map(Statement::Expr),
+        item_parser().map(ReplInput::Item),
+        stmt_parser().map(ReplInput::Stmt),
+    ))
+}
+
+fn stmt_parser<'a>() -> impl Parser<'a, &'a [Token], Stmt, extra::Err<Rich<'a, Token>>> {
+    // Parse let binding or expression
+    choice((
+        let_binding_parser().map(Stmt::Let),
+        expr_parser().map(Stmt::Expr),
     ))
 }
 
@@ -1825,51 +1848,55 @@ mod tests {
         );
     }
 
-    fn parse_repl_str(input: &str) -> Result<Vec<Statement>, ParseError> {
+    fn parse_repl_str(input: &str) -> Result<(Vec<Item>, Vec<Stmt>), ParseError> {
         let tokens = lex(input).expect("lexing failed");
         parse_repl(tokens)
     }
 
     #[test]
     fn test_parse_repl_single_expr() {
-        let stmts = parse_repl_str("1 + 2").unwrap();
+        let (items, stmts) = parse_repl_str("1 + 2").unwrap();
+        assert!(items.is_empty());
         assert_eq!(stmts.len(), 1);
-        assert!(matches!(stmts[0], Statement::Expr(_)));
+        assert!(matches!(stmts[0], Stmt::Expr(_)));
     }
 
     #[test]
     fn test_parse_repl_single_function() {
-        let stmts = parse_repl_str("fn foo() -> Int { 42 }").unwrap();
-        assert_eq!(stmts.len(), 1);
-        assert!(matches!(stmts[0], Statement::Item(_)));
+        let (items, stmts) = parse_repl_str("fn foo() -> Int { 42 }").unwrap();
+        assert_eq!(items.len(), 1);
+        assert!(stmts.is_empty());
+        assert!(matches!(items[0], Item::Function(_)));
     }
 
     #[test]
     fn test_parse_repl_function_then_expr() {
-        let stmts = parse_repl_str("fn foo() -> Int { 42 } foo()").unwrap();
-        assert_eq!(stmts.len(), 2);
-        assert!(matches!(stmts[0], Statement::Item(_)));
-        assert!(matches!(stmts[1], Statement::Expr(_)));
+        let (items, stmts) = parse_repl_str("fn foo() -> Int { 42 } foo()").unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(stmts.len(), 1);
+        assert!(matches!(items[0], Item::Function(_)));
+        assert!(matches!(stmts[0], Stmt::Expr(_)));
     }
 
     #[test]
     fn test_parse_repl_multiple_exprs() {
-        let stmts = parse_repl_str("1 2 3").unwrap();
+        let (items, stmts) = parse_repl_str("1 2 3").unwrap();
+        assert!(items.is_empty());
         assert_eq!(stmts.len(), 3);
-        assert!(matches!(stmts[0], Statement::Expr(Expr::Int(1))));
-        assert!(matches!(stmts[1], Statement::Expr(Expr::Int(2))));
-        assert!(matches!(stmts[2], Statement::Expr(Expr::Int(3))));
+        assert!(matches!(stmts[0], Stmt::Expr(Expr::Int(1))));
+        assert!(matches!(stmts[1], Stmt::Expr(Expr::Int(2))));
+        assert!(matches!(stmts[2], Stmt::Expr(Expr::Int(3))));
     }
 
     use zoya_ast::LetBinding;
 
     #[test]
     fn test_parse_let_simple() {
-        let stmts = parse_repl_str("let x = 42").unwrap();
+        let (_, stmts) = parse_repl_str("let x = 42").unwrap();
         assert_eq!(stmts.len(), 1);
         assert!(matches!(
             &stmts[0],
-            Statement::Let(LetBinding {
+            Stmt::Let(LetBinding {
                 pattern: Pattern::Var(name),
                 type_annotation: None,
                 value,
@@ -1879,11 +1906,11 @@ mod tests {
 
     #[test]
     fn test_parse_let_with_type() {
-        let stmts = parse_repl_str("let x: Int = 42").unwrap();
+        let (_, stmts) = parse_repl_str("let x: Int = 42").unwrap();
         assert_eq!(stmts.len(), 1);
         assert!(matches!(
             &stmts[0],
-            Statement::Let(LetBinding {
+            Stmt::Let(LetBinding {
                 pattern: Pattern::Var(name),
                 type_annotation: Some(TypeAnnotation::Named(ty)),
                 value,
@@ -1893,9 +1920,9 @@ mod tests {
 
     #[test]
     fn test_parse_let_with_expression() {
-        let stmts = parse_repl_str("let x = 1 + 2").unwrap();
+        let (_, stmts) = parse_repl_str("let x = 1 + 2").unwrap();
         assert_eq!(stmts.len(), 1);
-        assert!(matches!(&stmts[0], Statement::Let(_)));
+        assert!(matches!(&stmts[0], Stmt::Let(_)));
     }
 
     #[test]
@@ -2698,8 +2725,8 @@ mod tests {
     #[test]
     fn test_parse_lambda_in_expression() {
         // Lambda as function argument (conceptually - requires let binding to use)
-        let stmts = parse_repl_str("let f = |x| x + 1").unwrap();
-        let Statement::Let(binding) = &stmts[0] else {
+        let (_, stmts) = parse_repl_str("let f = |x| x + 1").unwrap();
+        let Stmt::Let(binding) = &stmts[0] else {
             panic!("expected let statement")
         };
         assert!(matches!(&binding.pattern, Pattern::Var(n) if n == "f"));
@@ -2718,8 +2745,8 @@ mod tests {
     #[test]
     fn test_parse_function_type_simple() {
         // let f: Int -> Int = ...
-        let stmts = parse_repl_str("let f: Int -> Int = |x| x + 1").unwrap();
-        let Statement::Let(binding) = &stmts[0] else {
+        let (_, stmts) = parse_repl_str("let f: Int -> Int = |x| x + 1").unwrap();
+        let Stmt::Let(binding) = &stmts[0] else {
             panic!("expected let statement")
         };
         assert!(matches!(
@@ -2734,8 +2761,8 @@ mod tests {
     #[test]
     fn test_parse_function_type_multi_param() {
         // let f: (Int, String) -> Bool = ...
-        let stmts = parse_repl_str("let f: (Int, String) -> Bool = |x, y| true").unwrap();
-        let Statement::Let(binding) = &stmts[0] else {
+        let (_, stmts) = parse_repl_str("let f: (Int, String) -> Bool = |x, y| true").unwrap();
+        let Stmt::Let(binding) = &stmts[0] else {
             panic!("expected let statement")
         };
         let Some(TypeAnnotation::Function(params, ret)) = &binding.type_annotation else {
@@ -2750,8 +2777,8 @@ mod tests {
     #[test]
     fn test_parse_function_type_no_params() {
         // let f: () -> Int = ...
-        let stmts = parse_repl_str("let f: () -> Int = || 42").unwrap();
-        let Statement::Let(binding) = &stmts[0] else {
+        let (_, stmts) = parse_repl_str("let f: () -> Int = || 42").unwrap();
+        let Stmt::Let(binding) = &stmts[0] else {
             panic!("expected let statement")
         };
         let Some(TypeAnnotation::Function(params, ret)) = &binding.type_annotation else {
@@ -2765,8 +2792,8 @@ mod tests {
     fn test_parse_function_type_nested() {
         // let f: Int -> Int -> Int = |x| |y| x + y
         // Should be: Int -> (Int -> Int) (right associative)
-        let stmts = parse_repl_str("let f: Int -> Int -> Int = |x| |y| x + y").unwrap();
-        let Statement::Let(binding) = &stmts[0] else {
+        let (_, stmts) = parse_repl_str("let f: Int -> Int -> Int = |x| |y| x + y").unwrap();
+        let Stmt::Let(binding) = &stmts[0] else {
             panic!("expected let statement")
         };
         let Some(TypeAnnotation::Function(params, ret)) = &binding.type_annotation else {
@@ -2930,10 +2957,10 @@ mod tests {
 
     #[test]
     fn test_parse_let_tuple_pattern() {
-        let stmts = parse_repl_str("let (a, b) = x").unwrap();
+        let (_, stmts) = parse_repl_str("let (a, b) = x").unwrap();
         assert!(matches!(
             &stmts[0],
-            Statement::Let(LetBinding {
+            Stmt::Let(LetBinding {
                 pattern: Pattern::Tuple(TuplePattern::Exact(patterns)),
                 ..
             }) if patterns.len() == 2
@@ -2942,8 +2969,8 @@ mod tests {
 
     #[test]
     fn test_parse_let_struct_pattern() {
-        let stmts = parse_repl_str("let Point { x, y } = p").unwrap();
-        let Statement::Let(LetBinding {
+        let (_, stmts) = parse_repl_str("let Point { x, y } = p").unwrap();
+        let Stmt::Let(LetBinding {
             pattern: Pattern::Struct(StructPattern::Exact { fields, .. }),
             ..
         }) = &stmts[0]
@@ -2955,10 +2982,10 @@ mod tests {
 
     #[test]
     fn test_parse_let_wildcard_pattern() {
-        let stmts = parse_repl_str("let _ = expr").unwrap();
+        let (_, stmts) = parse_repl_str("let _ = expr").unwrap();
         assert!(matches!(
             &stmts[0],
-            Statement::Let(LetBinding {
+            Stmt::Let(LetBinding {
                 pattern: Pattern::Wildcard,
                 ..
             })
@@ -2967,8 +2994,8 @@ mod tests {
 
     #[test]
     fn test_parse_let_nested_pattern() {
-        let stmts = parse_repl_str("let (a, (b, c)) = x").unwrap();
-        let Statement::Let(LetBinding {
+        let (_, stmts) = parse_repl_str("let (a, (b, c)) = x").unwrap();
+        let Stmt::Let(LetBinding {
             pattern: Pattern::Tuple(TuplePattern::Exact(outer)),
             ..
         }) = &stmts[0]
@@ -2982,10 +3009,10 @@ mod tests {
 
     #[test]
     fn test_parse_let_tuple_rest_pattern() {
-        let stmts = parse_repl_str("let (first, ..) = tuple").unwrap();
+        let (_, stmts) = parse_repl_str("let (first, ..) = tuple").unwrap();
         assert!(matches!(
             &stmts[0],
-            Statement::Let(LetBinding {
+            Stmt::Let(LetBinding {
                 pattern: Pattern::Tuple(TuplePattern::Prefix { .. }),
                 ..
             })

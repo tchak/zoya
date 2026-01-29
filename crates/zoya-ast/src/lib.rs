@@ -379,10 +379,9 @@ pub enum BinOp {
     Ge,
 }
 
-/// A statement in REPL input (item, expression, or let binding)
+/// A statement in REPL input (expression or let binding)
 #[derive(Debug, Clone, PartialEq)]
-pub enum Statement {
-    Item(Item),
+pub enum Stmt {
     Expr(Expr),
     Let(LetBinding),
 }

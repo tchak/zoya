@@ -1,14 +1,12 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
-use zoya_ast::{EnumDef, StructDef};
-use crate::check::{CheckedStatement, TypeEnv, check_repl};
+use crate::check::{TypeEnv, check_repl};
 use crate::codegen::{codegen, codegen_function, codegen_let, prelude};
 use crate::eval::{self, Context, Value};
-use crate::ir::TypedPattern;
+use crate::ir::{CheckedItem, CheckedStmt, TypedPattern};
 use crate::types::Type;
 
 /// Extract all variable bindings from a typed pattern.
@@ -131,10 +129,6 @@ pub enum ReplResult {
 
 /// REPL state that accumulates function and struct definitions
 pub struct State {
-    /// Struct definitions (AST level)
-    structs: HashMap<String, StructDef>,
-    /// Enum definitions (AST level)
-    enums: HashMap<String, EnumDef>,
     /// Type environment
     type_env: TypeEnv,
     /// QuickJS runtime (kept alive for context)
@@ -156,8 +150,6 @@ impl State {
         })?;
 
         Ok(State {
-            structs: HashMap::new(),
-            enums: HashMap::new(),
             type_env: TypeEnv::with_builtins(),
             runtime,
             context,
@@ -172,21 +164,23 @@ impl State {
     pub fn eval(&mut self, input: &str) -> Result<Vec<ReplResult>, String> {
         // Lex and parse
         let tokens = zoya_lexer::lex(input).map_err(|e| e.message)?;
-        let statements = zoya_parser::parse_repl(tokens).map_err(|e| e.message)?;
+        let (items, stmts) = zoya_parser::parse_repl(tokens).map_err(|e| e.message)?;
 
-        if statements.is_empty() {
+        if items.is_empty() && stmts.is_empty() {
             return Ok(vec![]);
         }
 
-        // Type-check all statements
-        let checked = check_repl(&statements, &mut self.type_env).map_err(|e| e.to_string())?;
+        // Type-check all items and statements
+        let (checked_items, checked_stmts) =
+            check_repl(&items, &stmts, &mut self.type_env).map_err(|e| e.to_string())?;
 
-        // Execute each checked statement and collect results
+        // Execute each checked item and statement, collect results
         let mut results = Vec::new();
 
-        for statement in checked {
-            match statement {
-                CheckedStatement::Function(typed_func) => {
+        // Process items first
+        for item in checked_items {
+            match item {
+                CheckedItem::Function(typed_func) => {
                     let name = typed_func.name.clone();
                     let js_code = codegen_function(&typed_func);
 
@@ -198,7 +192,31 @@ impl State {
 
                     results.push(ReplResult::FunctionDefined(name));
                 }
-                CheckedStatement::Expr(typed_expr) => {
+                CheckedItem::Struct(struct_def) => {
+                    let name = struct_def.name.clone();
+                    // Structs are type declarations - no JS code needed
+                    // The struct is already registered in the type_env by check_repl
+                    results.push(ReplResult::StructDefined(name));
+                }
+                CheckedItem::Enum(enum_def) => {
+                    let name = enum_def.name.clone();
+                    // Enums are type declarations - no JS code needed
+                    // The enum is already registered in the type_env by check_repl
+                    results.push(ReplResult::EnumDefined(name));
+                }
+                CheckedItem::TypeAlias(alias_def) => {
+                    let name = alias_def.name.clone();
+                    // Type aliases are transparent - no JS code needed
+                    // The alias is already registered in the type_env by check_repl
+                    results.push(ReplResult::TypeAliasDefined(name));
+                }
+            }
+        }
+
+        // Process statements
+        for stmt in checked_stmts {
+            match stmt {
+                CheckedStmt::Expr(typed_expr) => {
                     let js_code = codegen(&typed_expr);
                     let result_type = typed_expr.ty();
 
@@ -208,7 +226,7 @@ impl State {
 
                     results.push(ReplResult::Expression(value));
                 }
-                CheckedStatement::Let(typed_binding) => {
+                CheckedStmt::Let(typed_binding) => {
                     let bindings = extract_bindings(&typed_binding.pattern);
                     let js_code = codegen_let(&typed_binding);
 
@@ -219,26 +237,6 @@ impl State {
                     })?;
 
                     results.push(ReplResult::LetBinding { bindings });
-                }
-                CheckedStatement::Struct(struct_def) => {
-                    let name = struct_def.name.clone();
-                    // Structs are type declarations - no JS code needed
-                    // The struct is already registered in the type_env by check_repl
-                    self.structs.insert(name.clone(), struct_def);
-                    results.push(ReplResult::StructDefined(name));
-                }
-                CheckedStatement::Enum(enum_def) => {
-                    let name = enum_def.name.clone();
-                    // Enums are type declarations - no JS code needed
-                    // The enum is already registered in the type_env by check_repl
-                    self.enums.insert(name.clone(), enum_def);
-                    results.push(ReplResult::EnumDefined(name));
-                }
-                CheckedStatement::TypeAlias(alias_def) => {
-                    let name = alias_def.name.clone();
-                    // Type aliases are transparent - no JS code needed
-                    // The alias is already registered in the type_env by check_repl
-                    results.push(ReplResult::TypeAliasDefined(name));
                 }
             }
         }
