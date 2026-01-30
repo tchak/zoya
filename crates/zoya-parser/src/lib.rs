@@ -1,11 +1,18 @@
 use chumsky::prelude::*;
 
-use zoya_ast::{
-    BinOp, EnumDef, EnumVariant, EnumVariantKind, Expr, FunctionDef, Item, LambdaParam, LetBinding,
-    ListPattern, MatchArm, ModDecl, ModuleDef, Param, Path, PathPrefix, Pattern, Stmt, StructDef,
-    StructFieldDef, StructFieldPattern, TuplePattern, TypeAliasDef, TypeAnnotation, UnaryOp,
-};
+use zoya_ast::{Item, ModuleDef, Stmt};
 use zoya_lexer::Token;
+
+mod expressions;
+mod helpers;
+mod items;
+mod patterns;
+mod statements;
+mod types;
+
+use helpers::mod_decl_parser;
+use items::item_parser;
+use statements::stmt_parser;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParseError {
@@ -51,1153 +58,14 @@ pub fn parse_module(tokens: Vec<Token>) -> Result<ModuleDef, ParseError> {
         })
 }
 
-fn ident<'a>() -> impl Parser<'a, &'a [Token], String, extra::Err<Rich<'a, Token>>> + Clone {
-    select! { Token::Ident(name) => name }
-}
-
-/// Parse a path prefix: root::, self::, super::, or none
-fn path_prefix_parser<'a>(
-) -> impl Parser<'a, &'a [Token], PathPrefix, extra::Err<Rich<'a, Token>>> + Clone {
-    choice((
-        just(Token::Root)
-            .then_ignore(just(Token::ColonColon))
-            .to(PathPrefix::Root),
-        just(Token::Self_)
-            .then_ignore(just(Token::ColonColon))
-            .to(PathPrefix::Self_),
-        just(Token::Super)
-            .then_ignore(just(Token::ColonColon))
-            .to(PathPrefix::Super),
-    ))
-    .or_not()
-    .map(|opt| opt.unwrap_or(PathPrefix::None))
-}
-
-/// Parse a simple path (no turbofish): prefix + ident segments
-/// Returns a Path with type_args = None
-fn simple_path_parser<'a>() -> impl Parser<'a, &'a [Token], Path, extra::Err<Rich<'a, Token>>> + Clone
-{
-    path_prefix_parser()
-        .then(
-            ident()
-                .separated_by(just(Token::ColonColon))
-                .at_least(1)
-                .collect::<Vec<_>>(),
-        )
-        .map(|(prefix, segments)| Path {
-            prefix,
-            segments,
-            type_args: None,
-        })
-}
-
-fn mod_decl_parser<'a>() -> impl Parser<'a, &'a [Token], ModDecl, extra::Err<Rich<'a, Token>>> + Clone
-{
-    just(Token::Mod)
-        .ignore_then(ident())
-        .map(|name| ModDecl { name })
-}
-
-fn type_annotation<'a>() -> impl Parser<'a, &'a [Token], TypeAnnotation, extra::Err<Rich<'a, Token>>>
-       + Clone {
-    recursive(|type_ann| {
-        // Type parameters: <T, U>
-        let type_params = type_ann
-            .clone()
-            .separated_by(just(Token::Comma))
-            .collect::<Vec<_>>()
-            .delimited_by(just(Token::Lt), just(Token::Gt));
-
-        // Named or parameterized type: Int, List<Int>, root::types::MyType<T>
-        let named_type = simple_path_parser()
-            .then(type_params.or_not())
-            .map(|(path, params)| match params {
-                Some(params) => TypeAnnotation::Parameterized(path, params),
-                None => TypeAnnotation::Named(path),
-            });
-
-        // Empty tuple type: ()
-        let empty_tuple_type = just(Token::LParen)
-            .ignore_then(just(Token::RParen))
-            .to(TypeAnnotation::Tuple(vec![]));
-
-        // Parenthesized type: (T) for grouping, (T,) for single-element tuple, (T, U) for multi-element tuple
-        let paren_type = just(Token::LParen)
-            .ignore_then(type_ann.clone())
-            .then(
-                just(Token::Comma)
-                    .ignore_then(
-                        type_ann
-                            .clone()
-                            .separated_by(just(Token::Comma))
-                            .allow_trailing()
-                            .collect::<Vec<_>>(),
-                    )
-                    .or_not(),
-            )
-            .then_ignore(just(Token::RParen))
-            .map(|(first, rest)| match rest {
-                None => {
-                    // (T) - parenthesized type for grouping (useful in function types)
-                    first
-                }
-                Some(mut more) => {
-                    // (T,) or (T1, T2, ...) - tuple type
-                    let mut elements = vec![first];
-                    elements.append(&mut more);
-                    TypeAnnotation::Tuple(elements)
-                }
-            });
-
-        // Base type (before considering function arrow)
-        let base_type = choice((empty_tuple_type, paren_type, named_type));
-
-        // Function type: T -> U or (T, U) -> V
-        // The arrow is right-associative: A -> B -> C = A -> (B -> C)
-        // This is achieved by recursing into type_ann on the right side
-        base_type.clone().then(
-            just(Token::Arrow).ignore_then(type_ann).or_not()
-        ).map(|(lhs, rhs)| {
-            match rhs {
-                None => lhs,
-                Some(ret) => {
-                    // Convert LHS to parameter list
-                    let params = match lhs {
-                        TypeAnnotation::Tuple(elements) => elements,
-                        other => vec![other],
-                    };
-                    TypeAnnotation::Function(params, Box::new(ret))
-                }
-            }
-        })
-    })
-}
-
-/// Pattern parser for match arms and let bindings
-fn pattern_parser<'a>() -> impl Parser<'a, &'a [Token], Pattern, extra::Err<Rich<'a, Token>>> + Clone
-{
-    recursive(|pattern| {
-        // Simple patterns (non-list, non-tuple)
-        let simple_pattern = choice((
-            // Wildcard: _ (must check before ident)
-            select! { Token::Ident(s) if s == "_" => Pattern::Wildcard },
-            // Literals
-            select! {
-                Token::Int(n) => Pattern::Literal(Box::new(Expr::Int(n))),
-                Token::BigInt(n) => Pattern::Literal(Box::new(Expr::BigInt(n))),
-                Token::Float(n) => Pattern::Literal(Box::new(Expr::Float(n))),
-                Token::True => Pattern::Literal(Box::new(Expr::Bool(true))),
-                Token::False => Pattern::Literal(Box::new(Expr::Bool(false))),
-                Token::String(s) => Pattern::Literal(Box::new(Expr::String(s))),
-            },
-            // Variable (must be last among simple patterns)
-            ident().map(Pattern::Var),
-        ));
-
-        // List pattern element: pattern or .. (rest marker with optional binding)
-        #[derive(Clone)]
-        enum ListPatternElement {
-            Pattern(Pattern),
-            Rest(Option<String>), // .. or name @ ..
-        }
-
-        let list_element = choice((
-            // name @ .. (rest with binding)
-            ident()
-                .then_ignore(just(Token::At))
-                .then_ignore(just(Token::DotDot))
-                .map(|name| ListPatternElement::Rest(Some(name))),
-            // bare ..
-            just(Token::DotDot).to(ListPatternElement::Rest(None)),
-            pattern.clone().map(ListPatternElement::Pattern),
-        ));
-
-        // List pattern: [], [a, b], [a, ..], [a, rest @ ..]
-        let list_pattern = list_element
-            .separated_by(just(Token::Comma))
-            .allow_trailing()
-            .collect::<Vec<_>>()
-            .delimited_by(just(Token::LBracket), just(Token::RBracket))
-            .try_map(|elements, span| {
-                // Check for .. and convert to appropriate ListPattern
-                let rest_pos = elements
-                    .iter()
-                    .position(|e| matches!(e, ListPatternElement::Rest(_)));
-
-                match rest_pos {
-                    None => {
-                        // No .., this is an exact pattern
-                        let patterns: Vec<Pattern> = elements
-                            .into_iter()
-                            .map(|e| match e {
-                                ListPatternElement::Pattern(p) => p,
-                                ListPatternElement::Rest(_) => unreachable!(),
-                            })
-                            .collect();
-                        if patterns.is_empty() {
-                            Ok(Pattern::List(ListPattern::Empty))
-                        } else {
-                            Ok(Pattern::List(ListPattern::Exact(patterns)))
-                        }
-                    }
-                    Some(pos) => {
-                        // Multiple .. not allowed
-                        if elements
-                            .iter()
-                            .filter(|e| matches!(e, ListPatternElement::Rest(_)))
-                            .count()
-                            > 1
-                        {
-                            return Err(Rich::custom(span, "only one .. allowed in list pattern"));
-                        }
-
-                        // Extract rest binding name
-                        let rest_binding = match &elements[pos] {
-                            ListPatternElement::Rest(name) => name.clone(),
-                            _ => unreachable!(),
-                        };
-
-                        // Split into before and after ..
-                        let before: Vec<Pattern> = elements[..pos]
-                            .iter()
-                            .filter_map(|e| match e {
-                                ListPatternElement::Pattern(p) => Some(p.clone()),
-                                ListPatternElement::Rest(_) => None,
-                            })
-                            .collect();
-
-                        let after: Vec<Pattern> = elements[pos + 1..]
-                            .iter()
-                            .filter_map(|e| match e {
-                                ListPatternElement::Pattern(p) => Some(p.clone()),
-                                ListPatternElement::Rest(_) => None,
-                            })
-                            .collect();
-
-                        if after.is_empty() {
-                            // [a, b, ..] or [a, b, rest @ ..] - prefix only
-                            Ok(Pattern::List(ListPattern::Prefix {
-                                patterns: before,
-                                rest_binding,
-                            }))
-                        } else if before.is_empty() {
-                            // [.., x, y] or [rest @ .., x, y] - suffix only
-                            Ok(Pattern::List(ListPattern::Suffix {
-                                patterns: after,
-                                rest_binding,
-                            }))
-                        } else {
-                            // [a, .., z] or [a, rest @ .., z] - prefix and suffix
-                            Ok(Pattern::List(ListPattern::PrefixSuffix {
-                                prefix: before,
-                                suffix: after,
-                                rest_binding,
-                            }))
-                        }
-                    }
-                }
-            });
-
-        // Tuple pattern element: pattern or .. (rest marker with optional binding)
-        #[derive(Clone)]
-        enum TuplePatternElement {
-            Pattern(Pattern),
-            Rest(Option<String>), // .. or name @ ..
-        }
-
-        let tuple_element = choice((
-            // name @ .. (rest with binding)
-            ident()
-                .then_ignore(just(Token::At))
-                .then_ignore(just(Token::DotDot))
-                .map(|name| TuplePatternElement::Rest(Some(name))),
-            // bare ..
-            just(Token::DotDot).to(TuplePatternElement::Rest(None)),
-            pattern.clone().map(TuplePatternElement::Pattern),
-        ));
-
-        // Tuple pattern: (), (a,), (a, b), (a, ..), (a, rest @ ..)
-        let tuple_pattern = tuple_element
-            .clone()
-            .separated_by(just(Token::Comma))
-            .allow_trailing()
-            .collect::<Vec<_>>()
-            .delimited_by(just(Token::LParen), just(Token::RParen))
-            .try_map(|elements, span| {
-                // Check for .. and convert to appropriate TuplePattern
-                let rest_pos = elements
-                    .iter()
-                    .position(|e| matches!(e, TuplePatternElement::Rest(_)));
-
-                // Check for multiple .. markers
-                if elements
-                    .iter()
-                    .filter(|e| matches!(e, TuplePatternElement::Rest(_)))
-                    .count()
-                    > 1
-                {
-                    return Err(Rich::custom(span, "only one .. allowed in tuple pattern"));
-                }
-
-                match rest_pos {
-                    None => {
-                        // No .., this is an exact pattern
-                        let patterns: Vec<Pattern> = elements
-                            .into_iter()
-                            .map(|e| match e {
-                                TuplePatternElement::Pattern(p) => p,
-                                TuplePatternElement::Rest(_) => unreachable!(),
-                            })
-                            .collect();
-                        if patterns.is_empty() {
-                            Ok(Pattern::Tuple(TuplePattern::Empty))
-                        } else {
-                            Ok(Pattern::Tuple(TuplePattern::Exact(patterns)))
-                        }
-                    }
-                    Some(pos) => {
-                        // Extract rest binding name
-                        let rest_binding = match &elements[pos] {
-                            TuplePatternElement::Rest(name) => name.clone(),
-                            _ => unreachable!(),
-                        };
-
-                        // Split into before and after ..
-                        let before: Vec<Pattern> = elements[..pos]
-                            .iter()
-                            .filter_map(|e| match e {
-                                TuplePatternElement::Pattern(p) => Some(p.clone()),
-                                TuplePatternElement::Rest(_) => None,
-                            })
-                            .collect();
-
-                        let after: Vec<Pattern> = elements[pos + 1..]
-                            .iter()
-                            .filter_map(|e| match e {
-                                TuplePatternElement::Pattern(p) => Some(p.clone()),
-                                TuplePatternElement::Rest(_) => None,
-                            })
-                            .collect();
-
-                        if after.is_empty() {
-                            // (a, b, ..) or (a, b, rest @ ..) - prefix only
-                            Ok(Pattern::Tuple(TuplePattern::Prefix {
-                                patterns: before,
-                                rest_binding,
-                            }))
-                        } else if before.is_empty() {
-                            // (.., x, y) or (rest @ .., x, y) - suffix only
-                            Ok(Pattern::Tuple(TuplePattern::Suffix {
-                                patterns: after,
-                                rest_binding,
-                            }))
-                        } else {
-                            // (a, .., z) or (a, rest @ .., z) - prefix and suffix
-                            Ok(Pattern::Tuple(TuplePattern::PrefixSuffix {
-                                prefix: before,
-                                suffix: after,
-                                rest_binding,
-                            }))
-                        }
-                    }
-                }
-            });
-
-        // Struct pattern field: `x` (shorthand for x: x) or `x: pattern`
-        #[derive(Clone)]
-        enum StructPatternField {
-            Field(StructFieldPattern),
-            Rest, // ..
-        }
-
-        let struct_field_pattern = choice((
-            // Error on name @ .. in struct patterns (not allowed)
-            ident()
-                .then_ignore(just(Token::At))
-                .then_ignore(just(Token::DotDot))
-                .try_map(|_, span| {
-                    Err(Rich::custom(
-                        span,
-                        "@ binding not allowed on struct rest pattern (..)",
-                    ))
-                }),
-            just(Token::DotDot).to(StructPatternField::Rest),
-            // Field with binding: x: pattern
-            ident()
-                .then(just(Token::Colon).ignore_then(pattern.clone()).or_not())
-                .map(|(field_name, pat)| {
-                    let binding_pattern = pat.unwrap_or_else(|| Pattern::Var(field_name.clone()));
-                    StructPatternField::Field(StructFieldPattern {
-                        field_name,
-                        pattern: Box::new(binding_pattern),
-                    })
-                }),
-        ));
-
-        // Turbofish type arguments in patterns: ::<Int, String>
-        let pattern_turbofish = just(Token::ColonColon).ignore_then(
-            type_annotation()
-                .separated_by(just(Token::Comma))
-                .at_least(1)
-                .collect::<Vec<_>>()
-                .delimited_by(just(Token::Lt), just(Token::Gt)),
-        );
-
-        // Helper to parse struct field patterns with rest support
-        let struct_fields_parser = struct_field_pattern
-            .clone()
-            .separated_by(just(Token::Comma))
-            .allow_trailing()
-            .collect::<Vec<_>>()
-            .delimited_by(just(Token::LBrace), just(Token::RBrace))
-            .try_map(|elements, span| {
-                let has_rest = elements.iter().any(|e| matches!(e, StructPatternField::Rest));
-
-                if elements
-                    .iter()
-                    .filter(|e| matches!(e, StructPatternField::Rest))
-                    .count()
-                    > 1
-                {
-                    return Err(Rich::custom(span, "only one .. allowed in struct pattern"));
-                }
-
-                let fields: Vec<StructFieldPattern> = elements
-                    .into_iter()
-                    .filter_map(|e| match e {
-                        StructPatternField::Field(f) => Some(f),
-                        StructPatternField::Rest => None,
-                    })
-                    .collect();
-
-                Ok((fields, has_rest))
-            });
-
-        // Helper to parse tuple pattern arguments (for call patterns)
-        let call_args_parser = tuple_element
-            .clone()
-            .separated_by(just(Token::Comma))
-            .allow_trailing()
-            .collect::<Vec<_>>()
-            .delimited_by(just(Token::LParen), just(Token::RParen))
-            .try_map(|elements, span| {
-                let rest_pos = elements
-                    .iter()
-                    .position(|e| matches!(e, TuplePatternElement::Rest(_)));
-
-                if elements
-                    .iter()
-                    .filter(|e| matches!(e, TuplePatternElement::Rest(_)))
-                    .count()
-                    > 1
-                {
-                    return Err(Rich::custom(span, "only one .. allowed in call pattern"));
-                }
-
-                match rest_pos {
-                    None => {
-                        let patterns: Vec<Pattern> = elements
-                            .into_iter()
-                            .map(|e| match e {
-                                TuplePatternElement::Pattern(p) => p,
-                                TuplePatternElement::Rest(_) => unreachable!(),
-                            })
-                            .collect();
-                        if patterns.is_empty() {
-                            Ok(TuplePattern::Empty)
-                        } else {
-                            Ok(TuplePattern::Exact(patterns))
-                        }
-                    }
-                    Some(pos) => {
-                        let rest_binding = match &elements[pos] {
-                            TuplePatternElement::Rest(name) => name.clone(),
-                            _ => unreachable!(),
-                        };
-
-                        let before: Vec<Pattern> = elements[..pos]
-                            .iter()
-                            .filter_map(|e| match e {
-                                TuplePatternElement::Pattern(p) => Some(p.clone()),
-                                TuplePatternElement::Rest(_) => None,
-                            })
-                            .collect();
-
-                        let after: Vec<Pattern> = elements[pos + 1..]
-                            .iter()
-                            .filter_map(|e| match e {
-                                TuplePatternElement::Pattern(p) => Some(p.clone()),
-                                TuplePatternElement::Rest(_) => None,
-                            })
-                            .collect();
-
-                        if after.is_empty() {
-                            Ok(TuplePattern::Prefix {
-                                patterns: before,
-                                rest_binding,
-                            })
-                        } else if before.is_empty() {
-                            Ok(TuplePattern::Suffix {
-                                patterns: after,
-                                rest_binding,
-                            })
-                        } else {
-                            Ok(TuplePattern::PrefixSuffix {
-                                prefix: before,
-                                suffix: after,
-                                rest_binding,
-                            })
-                        }
-                    }
-                }
-            });
-
-        // Struct pattern: Point { x }, types::Point { x, .. }, Msg::Move { x }
-        // Works for both struct types and enum struct variants
-        let struct_pattern = simple_path_parser()
-            .then(struct_fields_parser.clone())
-            .map(|(path, (fields, is_partial))| Pattern::Struct {
-                path,
-                fields,
-                is_partial,
-            });
-
-        // Call pattern: Option::Some(x), root::Result::Ok(v, ..)
-        // Requires a qualified path (2+ segments) followed by parenthesized args
-        let call_pattern = path_prefix_parser()
-            .then(
-                ident()
-                    .separated_by(just(Token::ColonColon))
-                    .at_least(2)
-                    .collect::<Vec<_>>(),
-            )
-            .then(pattern_turbofish.clone().or_not())
-            .then(call_args_parser)
-            .map(|(((prefix, segments), type_args), args)| {
-                let path = Path {
-                    prefix,
-                    segments,
-                    type_args,
-                };
-                Pattern::Call { path, args }
-            });
-
-        // Path pattern: Option::None, root::Color::Red (qualified path, no suffix)
-        // Must have 2+ segments OR have a turbofish to be a path pattern (not a variable)
-        let path_pattern = path_prefix_parser()
-            .then(
-                ident()
-                    .separated_by(just(Token::ColonColon))
-                    .at_least(2)
-                    .collect::<Vec<_>>(),
-            )
-            .then(pattern_turbofish.or_not())
-            .map(|((prefix, segments), type_args)| {
-                let path = Path {
-                    prefix,
-                    segments,
-                    type_args,
-                };
-                Pattern::Path(path)
-            });
-
-        // As pattern: name @ pattern (binds entire matched value to name)
-        // Note: name @ .. is handled separately in list/tuple element parsing
-        let as_pattern = ident()
-            .then_ignore(just(Token::At))
-            .then(choice((
-                list_pattern.clone(),
-                tuple_pattern.clone(),
-                call_pattern.clone(),
-                struct_pattern.clone(),
-                path_pattern.clone(),
-                simple_pattern.clone(),
-            )))
-            .map(|(name, inner)| Pattern::As {
-                name,
-                pattern: Box::new(inner),
-            });
-
-        // Order matters:
-        // - call_pattern must come before path_pattern (both require 2+ segments, but call has parens)
-        // - path_pattern must come before struct_pattern (path has no suffix)
-        // - struct_pattern has braces
-        // - as_pattern must come before simple_pattern to capture name @ ...
-        choice((
-            list_pattern,
-            tuple_pattern,
-            call_pattern,
-            struct_pattern,
-            path_pattern,
-            as_pattern,
-            simple_pattern,
-        ))
-    })
-}
-
-fn let_binding_parser<'a>(
-) -> impl Parser<'a, &'a [Token], LetBinding, extra::Err<Rich<'a, Token>>> {
-    just(Token::Let)
-        .ignore_then(pattern_parser())
-        .then(just(Token::Colon).ignore_then(type_annotation()).or_not())
-        .then_ignore(just(Token::Eq))
-        .then(expr_parser())
-        .try_map(|((pattern, type_annotation), value), span| {
-            // Type annotation only allowed on simple variable patterns
-            if type_annotation.is_some() && !matches!(pattern, Pattern::Var(_)) {
-                return Err(Rich::custom(
-                    span,
-                    "type annotations are only allowed on simple variable patterns",
-                ));
-            }
-            Ok(LetBinding {
-                pattern,
-                type_annotation,
-                value: Box::new(value),
-            })
-        })
-}
-
-fn item_parser<'a>() -> impl Parser<'a, &'a [Token], Item, extra::Err<Rich<'a, Token>>> {
-    // Type parameters: <T, U>
-    let type_params = ident()
-        .separated_by(just(Token::Comma))
-        .collect::<Vec<_>>()
-        .delimited_by(just(Token::Lt), just(Token::Gt))
-        .or_not()
-        .map(|opt| opt.unwrap_or_default());
-
-    // Parameter: name: Type
-    let param = pattern_parser()
-        .then_ignore(just(Token::Colon))
-        .then(type_annotation())
-        .map(|(pattern, typ)| Param { pattern, typ });
-
-    // Parameters: (x: Int, y: Int)
-    let params = param
-        .separated_by(just(Token::Comma))
-        .allow_trailing()
-        .collect::<Vec<_>>()
-        .delimited_by(just(Token::LParen), just(Token::RParen));
-
-    // Return type: -> Int
-    let return_type = just(Token::Arrow).ignore_then(type_annotation()).or_not();
-
-    // Body: { [let x = e;]* expr } OR expr
-    let body = choice((
-        // Braced body (block or simple expression)
-        just(Token::LBrace)
-            .ignore_then(
-                let_binding_parser()
-                    .then_ignore(just(Token::Semicolon))
-                    .repeated()
-                    .collect::<Vec<_>>(),
-            )
-            .then(expr_parser())
-            .then_ignore(just(Token::RBrace))
-            .map(|(bindings, result)| {
-                if bindings.is_empty() {
-                    result
-                } else {
-                    Expr::Block {
-                        bindings,
-                        result: Box::new(result),
-                    }
-                }
-            }),
-        // Non-braced expression (simple body)
-        expr_parser(),
-    ));
-
-    // fn name<T>(params) -> ReturnType { body }
-    let function_def = just(Token::Fn)
-        .ignore_then(ident())
-        .then(type_params.clone())
-        .then(params)
-        .then(return_type)
-        .then(body)
-        .map(|((((name, type_params), params), return_type), body)| {
-            Item::Function(FunctionDef {
-                name,
-                type_params,
-                params,
-                return_type,
-                body,
-            })
-        });
-
-    // Struct field: name: Type
-    let struct_field = ident()
-        .then_ignore(just(Token::Colon))
-        .then(type_annotation())
-        .map(|(name, typ)| StructFieldDef { name, typ });
-
-    // Struct fields: { field: Type, ... }
-    let struct_fields = struct_field
-        .separated_by(just(Token::Comma))
-        .allow_trailing()
-        .collect::<Vec<_>>()
-        .delimited_by(just(Token::LBrace), just(Token::RBrace));
-
-    // struct Name<T> { field: Type, ... }
-    let struct_def = just(Token::Struct)
-        .ignore_then(ident())
-        .then(type_params.clone())
-        .then(struct_fields.clone())
-        .map(|((name, type_params), fields)| {
-            Item::Struct(StructDef {
-                name,
-                type_params,
-                fields,
-            })
-        });
-
-    // Enum variant: Unit, Tuple(T, U), or Struct { field: Type }
-    // Try struct variant first (has braces), then tuple (has parens), then unit
-    let enum_variant_struct = ident()
-        .then(struct_fields.clone())
-        .map(|(name, fields)| EnumVariant {
-            name,
-            kind: EnumVariantKind::Struct(fields),
-        });
-
-    let enum_variant_tuple = ident()
-        .then(
-            type_annotation()
-                .separated_by(just(Token::Comma))
-                .allow_trailing()
-                .collect::<Vec<_>>()
-                .delimited_by(just(Token::LParen), just(Token::RParen)),
-        )
-        .map(|(name, types)| EnumVariant {
-            name,
-            kind: EnumVariantKind::Tuple(types),
-        });
-
-    let enum_variant_unit = ident().map(|name| EnumVariant {
-        name,
-        kind: EnumVariantKind::Unit,
-    });
-
-    let enum_variant = choice((enum_variant_struct, enum_variant_tuple, enum_variant_unit));
-
-    let enum_variants = enum_variant
-        .separated_by(just(Token::Comma))
-        .allow_trailing()
-        .collect::<Vec<_>>()
-        .delimited_by(just(Token::LBrace), just(Token::RBrace));
-
-    // enum Name<T> { Variant, Variant(T), Variant { field: Type } }
-    let enum_def = just(Token::Enum)
-        .ignore_then(ident())
-        .then(type_params.clone())
-        .then(enum_variants)
-        .map(|((name, type_params), variants)| {
-            Item::Enum(EnumDef {
-                name,
-                type_params,
-                variants,
-            })
-        });
-
-    // type Name<T> = TypeAnnotation
-    let type_alias_def = just(Token::Type)
-        .ignore_then(ident())
-        .then(type_params)
-        .then_ignore(just(Token::Eq))
-        .then(type_annotation())
-        .map(|((name, type_params), typ)| {
-            Item::TypeAlias(TypeAliasDef {
-                name,
-                type_params,
-                typ,
-            })
-        });
-
-    choice((function_def, struct_def, enum_def, type_alias_def))
-}
-
-fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, Token>>> {
-    recursive(|expr| {
-        let literal = select! {
-            Token::Int(n) => Expr::Int(n),
-            Token::BigInt(n) => Expr::BigInt(n),
-            Token::Float(n) => Expr::Float(n),
-            Token::True => Expr::Bool(true),
-            Token::False => Expr::Bool(false),
-            Token::String(s) => Expr::String(s),
-        };
-
-        // List literal: [expr, expr, ...]
-        let list_literal = expr
-            .clone()
-            .separated_by(just(Token::Comma))
-            .allow_trailing()
-            .collect::<Vec<_>>()
-            .delimited_by(just(Token::LBracket), just(Token::RBracket))
-            .map(Expr::List);
-
-        // Use the shared pattern parser for match arms
-        let pattern = pattern_parser();
-
-        // Let binding for use in match arm blocks (uses expr from recursive context)
-        let let_in_arm = just(Token::Let)
-            .ignore_then(pattern_parser())
-            .then(just(Token::Colon).ignore_then(type_annotation()).or_not())
-            .then_ignore(just(Token::Eq))
-            .then(expr.clone())
-            .try_map(|((pattern, type_annotation), value), span| {
-                // Type annotation only allowed on simple variable patterns
-                if type_annotation.is_some() && !matches!(pattern, Pattern::Var(_)) {
-                    return Err(Rich::custom(
-                        span,
-                        "type annotations are only allowed on simple variable patterns",
-                    ));
-                }
-                Ok(LetBinding {
-                    pattern,
-                    type_annotation,
-                    value: Box::new(value),
-                })
-            });
-
-        // Arm body: { [let x = e;]* expr } OR expr
-        let arm_body = choice((
-            // Braced body (block or simple expression)
-            just(Token::LBrace)
-                .ignore_then(
-                    let_in_arm
-                        .then_ignore(just(Token::Semicolon))
-                        .repeated()
-                        .collect::<Vec<_>>(),
-                )
-                .then(expr.clone())
-                .then_ignore(just(Token::RBrace))
-                .map(|(bindings, result)| {
-                    if bindings.is_empty() {
-                        result // { expr } → just the expression
-                    } else {
-                        Expr::Block {
-                            bindings,
-                            result: Box::new(result),
-                        }
-                    }
-                }),
-            // Non-braced expression (unchanged)
-            expr.clone(),
-        ));
-
-        // Match arm: pattern => arm_body
-        let match_arm = pattern
-            .then_ignore(just(Token::FatArrow))
-            .then(arm_body)
-            .map(|(pattern, result)| MatchArm { pattern, result });
-
-        // Match expression: match scrutinee { arms }
-        // Commas required between arms, trailing comma allowed
-        let match_expr = just(Token::Match)
-            .ignore_then(expr.clone())
-            .then(
-                match_arm
-                    .separated_by(just(Token::Comma))
-                    .allow_trailing()
-                    .at_least(1)
-                    .collect::<Vec<_>>()
-                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
-            )
-            .map(|(scrutinee, arms)| Expr::Match {
-                scrutinee: Box::new(scrutinee),
-                arms,
-            });
-
-        // Arguments: (expr, expr, ...)
-        let args = expr
-            .clone()
-            .separated_by(just(Token::Comma))
-            .allow_trailing()
-            .collect::<Vec<_>>()
-            .delimited_by(just(Token::LParen), just(Token::RParen));
-
-        // Struct constructor field: `x: expr` or `x` (shorthand for x: x)
-        let struct_field = ident()
-            .then(just(Token::Colon).ignore_then(expr.clone()).or_not())
-            .map(|(name, value)| {
-                let value = value.unwrap_or_else(|| Expr::Path(Path::simple(name.clone())));
-                (name, value)
-            });
-
-        // Struct constructor fields: { x: expr, y: expr }
-        let struct_fields = struct_field
-            .separated_by(just(Token::Comma))
-            .allow_trailing()
-            .collect::<Vec<_>>()
-            .delimited_by(just(Token::LBrace), just(Token::RBrace));
-
-        // Turbofish type arguments: ::<Int, String>
-        let turbofish = just(Token::ColonColon).ignore_then(
-            type_annotation()
-                .separated_by(just(Token::Comma))
-                .at_least(1)
-                .collect::<Vec<_>>()
-                .delimited_by(just(Token::Lt), just(Token::Gt)),
-        );
-
-        // Path parser: `foo` or `Foo::Bar` or `Option::None::<Int>` or `root::utils::foo`
-        let path = path_prefix_parser()
-            .then(
-                ident()
-                    .separated_by(just(Token::ColonColon))
-                    .at_least(1)
-                    .collect::<Vec<_>>(),
-            )
-            .then(turbofish.or_not())
-            .map(|((prefix, segments), type_args)| Path {
-                prefix,
-                segments,
-                type_args,
-            });
-
-        // What can follow a path
-        #[derive(Clone)]
-        enum PathSuffix {
-            Call(Vec<Expr>),
-            Struct(Vec<(String, Expr)>),
-        }
-
-        // Path expression: variable, function call, struct/enum constructor
-        let path_expr = path
-            .then(
-                choice((
-                    args.clone().map(PathSuffix::Call),
-                    struct_fields.clone().map(PathSuffix::Struct),
-                ))
-                .or_not(),
-            )
-            .map(|(path, suffix)| match suffix {
-                Some(PathSuffix::Call(args)) => Expr::Call { path, args },
-                Some(PathSuffix::Struct(fields)) => Expr::Struct { path, fields },
-                None => Expr::Path(path),
-            });
-
-        // Empty tuple: ()
-        let empty_tuple = just(Token::LParen)
-            .ignore_then(just(Token::RParen))
-            .to(Expr::Tuple(vec![]));
-
-        // Tuple or parenthesized expression: (expr) or (expr,) or (expr, expr, ...)
-        // - (expr) with no comma is a parenthesized expression
-        // - (expr,) with trailing comma is a single-element tuple
-        // - (expr, expr, ...) is a multi-element tuple
-        let paren_or_tuple = just(Token::LParen)
-            .ignore_then(expr.clone())
-            .then(
-                just(Token::Comma)
-                    .ignore_then(
-                        expr.clone()
-                            .separated_by(just(Token::Comma))
-                            .allow_trailing()
-                            .collect::<Vec<_>>(),
-                    )
-                    .or_not(),
-            )
-            .then_ignore(just(Token::RParen))
-            .map(|(first, rest)| match rest {
-                None => first, // (expr) - parenthesized expression
-                Some(mut more) => {
-                    // (expr,) or (expr, expr, ...) - tuple
-                    let mut elements = vec![first];
-                    elements.append(&mut more);
-                    Expr::Tuple(elements)
-                }
-            });
-
-        // Lambda parameter: name or name: Type
-        let lambda_param = pattern_parser()
-            .then(just(Token::Colon).ignore_then(type_annotation()).or_not())
-            .map(|(pattern, typ)| LambdaParam { pattern, typ });
-
-        // Lambda parameters: |x| or |x, y| or |x: Int|
-        let lambda_params = lambda_param
-            .separated_by(just(Token::Comma))
-            .allow_trailing()
-            .collect::<Vec<_>>()
-            .delimited_by(just(Token::Pipe), just(Token::Pipe));
-
-        // Lambda return type: -> Type (optional)
-        let lambda_return_type = just(Token::Arrow).ignore_then(type_annotation()).or_not();
-
-        // Lambda body: { [let x = e;]* expr } OR expr
-        // Note: we need to define let_in_lambda fresh here because let_in_arm
-        // was already moved when defining arm_body
-        let let_in_lambda = just(Token::Let)
-            .ignore_then(pattern_parser())
-            .then(just(Token::Colon).ignore_then(type_annotation()).or_not())
-            .then_ignore(just(Token::Eq))
-            .then(expr.clone())
-            .try_map(|((pattern, type_annotation), value), span| {
-                // Type annotation only allowed on simple variable patterns
-                if type_annotation.is_some() && !matches!(pattern, Pattern::Var(_)) {
-                    return Err(Rich::custom(
-                        span,
-                        "type annotations are only allowed on simple variable patterns",
-                    ));
-                }
-                Ok(LetBinding {
-                    pattern,
-                    type_annotation,
-                    value: Box::new(value),
-                })
-            });
-
-        let lambda_body = choice((
-            // Braced body (block or simple expression)
-            just(Token::LBrace)
-                .ignore_then(
-                    let_in_lambda
-                        .then_ignore(just(Token::Semicolon))
-                        .repeated()
-                        .collect::<Vec<_>>(),
-                )
-                .then(expr.clone())
-                .then_ignore(just(Token::RBrace))
-                .map(|(bindings, result)| {
-                    if bindings.is_empty() {
-                        result
-                    } else {
-                        Expr::Block {
-                            bindings,
-                            result: Box::new(result),
-                        }
-                    }
-                }),
-            // Non-braced expression (simple body)
-            expr.clone(),
-        ));
-
-        // Lambda expression: |params| [-> Type] body
-        let lambda = lambda_params
-            .then(lambda_return_type)
-            .then(lambda_body)
-            .map(|((params, return_type), body)| Expr::Lambda {
-                params,
-                return_type,
-                body: Box::new(body),
-            });
-
-        let atom = choice((
-            lambda,
-            literal,
-            list_literal,
-            match_expr,
-            path_expr,
-            empty_tuple,
-            paren_or_tuple,
-        ));
-
-        // Method calls and field access: expr.method(args) or expr.field
-        let method_args = expr
-            .clone()
-            .separated_by(just(Token::Comma))
-            .allow_trailing()
-            .collect::<Vec<_>>()
-            .delimited_by(just(Token::LParen), just(Token::RParen));
-
-        // What follows .ident: either (args) for method call, or nothing for field access
-        #[derive(Clone)]
-        enum DotSuffix {
-            MethodCall(String, Vec<Expr>),
-            FieldAccess(String),
-        }
-
-        let dot_suffix = just(Token::Dot)
-            .ignore_then(ident())
-            .then(method_args.or_not())
-            .map(|(name, args)| match args {
-                Some(args) => DotSuffix::MethodCall(name, args),
-                None => DotSuffix::FieldAccess(name),
-            });
-
-        let postfix = atom.foldl(
-            dot_suffix.repeated(),
-            |receiver, suffix| match suffix {
-                DotSuffix::MethodCall(method, args) => Expr::MethodCall {
-                    receiver: Box::new(receiver),
-                    method,
-                    args,
-                },
-                DotSuffix::FieldAccess(field) => Expr::FieldAccess {
-                    expr: Box::new(receiver),
-                    field,
-                },
-            },
-        );
-
-        let unary = just(Token::Minus)
-            .repeated()
-            .foldr(postfix, |_, e| Expr::UnaryOp {
-                op: UnaryOp::Neg,
-                expr: Box::new(e),
-            });
-
-        let op = |t: Token, op: BinOp| just(t).to(op);
-
-        let product = unary.clone().foldl(
-            choice((op(Token::Star, BinOp::Mul), op(Token::Slash, BinOp::Div)))
-                .then(unary)
-                .repeated(),
-            |left, (op, right)| Expr::BinOp {
-                op,
-                left: Box::new(left),
-                right: Box::new(right),
-            },
-        );
-
-        let sum = product.clone().foldl(
-            choice((op(Token::Plus, BinOp::Add), op(Token::Minus, BinOp::Sub)))
-                .then(product)
-                .repeated(),
-            |left, (op, right)| Expr::BinOp {
-                op,
-                left: Box::new(left),
-                right: Box::new(right),
-            },
-        );
-
-        // Comparison operators (lowest precedence)
-        sum.clone().foldl(
-            choice((
-                op(Token::EqEq, BinOp::Eq),
-                op(Token::Ne, BinOp::Ne),
-                op(Token::Le, BinOp::Le),
-                op(Token::Ge, BinOp::Ge),
-                op(Token::Lt, BinOp::Lt),
-                op(Token::Gt, BinOp::Gt),
-            ))
-            .then(sum)
-            .repeated(),
-            |left, (op, right)| Expr::BinOp {
-                op,
-                left: Box::new(left),
-                right: Box::new(right),
-            },
-        )
-    })
-}
-
-fn stmt_parser<'a>() -> impl Parser<'a, &'a [Token], Stmt, extra::Err<Rich<'a, Token>>> {
-    // Parse let binding or expression
-    choice((
-        let_binding_parser().map(Stmt::Let),
-        expr_parser().map(Stmt::Expr),
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use zoya_lexer::lex;
 
-    fn parse(tokens: Vec<Token>) -> Result<Expr, ParseError> {
+    use crate::expressions::expr_parser;
+
+    fn parse(tokens: Vec<Token>) -> Result<zoya_ast::Expr, ParseError> {
         expr_parser()
             .parse(&tokens)
             .into_result()
@@ -1223,10 +91,12 @@ mod tests {
             })
     }
 
-    fn parse_str(input: &str) -> Result<Expr, ParseError> {
+    fn parse_str(input: &str) -> Result<zoya_ast::Expr, ParseError> {
         let tokens = lex(input).expect("lexing failed");
         parse(tokens)
     }
+
+    use zoya_ast::{BinOp, Expr, Path, UnaryOp};
 
     #[test]
     fn test_parse_integer() {
@@ -1564,7 +434,7 @@ mod tests {
         );
     }
 
-    use zoya_ast::{FunctionDef, Item, Param, TypeAnnotation};
+    use zoya_ast::{FunctionDef, Item, Param, Pattern, TypeAnnotation};
 
     fn parse_item_str(input: &str) -> Result<Item, ParseError> {
         let tokens = lex(input).expect("lexing failed");
@@ -1686,11 +556,16 @@ mod tests {
                 return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
                 body: Expr::Call {
                     path: Path::simple("add".to_string()),
-                    args: vec![Expr::Path(Path::simple("x".to_string())), Expr::Path(Path::simple("x".to_string())),],
+                    args: vec![
+                        Expr::Path(Path::simple("x".to_string())),
+                        Expr::Path(Path::simple("x".to_string())),
+                    ],
                 },
             })
         );
     }
+
+    use zoya_ast::TuplePattern;
 
     #[test]
     fn test_parse_function_tuple_param() {
@@ -1866,6 +741,8 @@ mod tests {
         );
     }
 
+    use zoya_ast::Stmt;
+
     fn parse_input_str(input: &str) -> Result<(Vec<Item>, Vec<Stmt>), ParseError> {
         let tokens = lex(input).expect("lexing failed");
         parse_input(tokens)
@@ -1975,7 +852,9 @@ mod tests {
     fn test_parse_function_without_let_no_block() {
         // Without let statements, body should be a plain expression, not a block
         let item = parse_item_str("fn foo() { 42 }").unwrap();
-        let Item::Function(FunctionDef { body, .. }) = item else { panic!("expected function") };
+        let Item::Function(FunctionDef { body, .. }) = item else {
+            panic!("expected function")
+        };
         assert!(matches!(body, Expr::Int(42)));
     }
 
@@ -2035,11 +914,13 @@ mod tests {
     fn test_parse_function_no_braces_with_method_call() {
         // Method call expression body without braces
         let item = parse_item_str("fn double(x: Int) -> Int x * 2").unwrap();
-        let Item::Function(FunctionDef { body, .. }) = item else { panic!("expected function") };
+        let Item::Function(FunctionDef { body, .. }) = item else {
+            panic!("expected function")
+        };
         assert!(matches!(body, Expr::BinOp { op: BinOp::Mul, .. }));
     }
 
-    use zoya_ast::{MatchArm, Pattern};
+    use zoya_ast::MatchArm;
 
     #[test]
     fn test_parse_match_with_literals() {
@@ -2102,7 +983,9 @@ mod tests {
     #[test]
     fn test_parse_match_in_function() {
         let item = parse_item_str("fn f(x: Int) -> Int { match x { 0 => 0, n => n } }").unwrap();
-        let Item::Function(FunctionDef { body, .. }) = item else { panic!("expected function") };
+        let Item::Function(FunctionDef { body, .. }) = item else {
+            panic!("expected function")
+        };
         assert!(matches!(body, Expr::Match { .. }));
     }
 
@@ -2202,7 +1085,10 @@ mod tests {
     #[test]
     fn test_parse_list_multiple_elements() {
         let expr = parse_str("[1, 2, 3]").unwrap();
-        assert_eq!(expr, Expr::List(vec![Expr::Int(1), Expr::Int(2), Expr::Int(3)]));
+        assert_eq!(
+            expr,
+            Expr::List(vec![Expr::Int(1), Expr::Int(2), Expr::Int(3)])
+        );
     }
 
     #[test]
@@ -2222,6 +1108,8 @@ mod tests {
         let expr = parse_str("[1, 2,]").unwrap();
         assert_eq!(expr, Expr::List(vec![Expr::Int(1), Expr::Int(2)]));
     }
+
+    use zoya_ast::ListPattern;
 
     // List pattern tests
     #[test]
@@ -2253,7 +1141,11 @@ mod tests {
         let Expr::Match { arms, .. } = expr else {
             panic!("expected match expression")
         };
-        let Pattern::List(ListPattern::Prefix { patterns, rest_binding }) = &arms[0].pattern else {
+        let Pattern::List(ListPattern::Prefix {
+            patterns,
+            rest_binding,
+        }) = &arms[0].pattern
+        else {
             panic!("expected prefix list pattern")
         };
         assert_eq!(patterns.len(), 1);
@@ -2267,7 +1159,11 @@ mod tests {
         let Expr::Match { arms, .. } = expr else {
             panic!("expected match expression")
         };
-        let Pattern::List(ListPattern::Prefix { patterns, rest_binding }) = &arms[0].pattern else {
+        let Pattern::List(ListPattern::Prefix {
+            patterns,
+            rest_binding,
+        }) = &arms[0].pattern
+        else {
             panic!("expected prefix list pattern")
         };
         assert_eq!(patterns.len(), 2);
@@ -2296,7 +1192,11 @@ mod tests {
         let Expr::Match { arms, .. } = expr else {
             panic!("expected match expression")
         };
-        let Pattern::List(ListPattern::Suffix { patterns, rest_binding }) = &arms[0].pattern else {
+        let Pattern::List(ListPattern::Suffix {
+            patterns,
+            rest_binding,
+        }) = &arms[0].pattern
+        else {
             panic!("expected suffix list pattern")
         };
         assert_eq!(patterns.len(), 1);
@@ -2310,7 +1210,11 @@ mod tests {
         let Expr::Match { arms, .. } = expr else {
             panic!("expected match expression")
         };
-        let Pattern::List(ListPattern::Suffix { patterns, rest_binding }) = &arms[0].pattern else {
+        let Pattern::List(ListPattern::Suffix {
+            patterns,
+            rest_binding,
+        }) = &arms[0].pattern
+        else {
             panic!("expected suffix list pattern")
         };
         assert_eq!(patterns.len(), 2);
@@ -2367,7 +1271,9 @@ mod tests {
     #[test]
     fn test_parse_function_with_list_param() {
         let item = parse_item_str("fn len(xs: List<Int>) -> Int { 0 }").unwrap();
-        let Item::Function(FunctionDef { params, .. }) = item else { panic!("expected function") };
+        let Item::Function(FunctionDef { params, .. }) = item else {
+            panic!("expected function")
+        };
         assert!(matches!(
             &params[0].typ,
             TypeAnnotation::Parameterized(name, args)
@@ -2428,7 +1334,10 @@ mod tests {
         let Expr::Match { arms, .. } = expr else {
             panic!("expected match expression")
         };
-        let Pattern::Tuple(TuplePattern::Prefix { patterns, rest_binding }) = &arms[0].pattern
+        let Pattern::Tuple(TuplePattern::Prefix {
+            patterns,
+            rest_binding,
+        }) = &arms[0].pattern
         else {
             panic!("expected prefix tuple pattern")
         };
@@ -2443,7 +1352,10 @@ mod tests {
         let Expr::Match { arms, .. } = expr else {
             panic!("expected match expression")
         };
-        let Pattern::Tuple(TuplePattern::Suffix { patterns, rest_binding }) = &arms[0].pattern
+        let Pattern::Tuple(TuplePattern::Suffix {
+            patterns,
+            rest_binding,
+        }) = &arms[0].pattern
         else {
             panic!("expected suffix tuple pattern")
         };
@@ -2479,7 +1391,10 @@ mod tests {
         let Expr::Match { arms, .. } = expr else {
             panic!("expected match expression")
         };
-        assert!(matches!(&arms[0].pattern, Pattern::Tuple(TuplePattern::Empty)));
+        assert!(matches!(
+            &arms[0].pattern,
+            Pattern::Tuple(TuplePattern::Empty)
+        ));
     }
 
     // As pattern (@) tests
@@ -2502,7 +1417,11 @@ mod tests {
         let Expr::Match { arms, .. } = expr else {
             panic!("expected match expression")
         };
-        let Pattern::List(ListPattern::Prefix { patterns, rest_binding }) = &arms[0].pattern else {
+        let Pattern::List(ListPattern::Prefix {
+            patterns,
+            rest_binding,
+        }) = &arms[0].pattern
+        else {
             panic!("expected prefix list pattern with rest binding")
         };
         assert_eq!(patterns.len(), 1);
@@ -2516,7 +1435,11 @@ mod tests {
         let Expr::Match { arms, .. } = expr else {
             panic!("expected match expression")
         };
-        let Pattern::List(ListPattern::Suffix { patterns, rest_binding }) = &arms[0].pattern else {
+        let Pattern::List(ListPattern::Suffix {
+            patterns,
+            rest_binding,
+        }) = &arms[0].pattern
+        else {
             panic!("expected suffix list pattern with rest binding")
         };
         assert_eq!(patterns.len(), 1);
@@ -2530,7 +1453,10 @@ mod tests {
         let Expr::Match { arms, .. } = expr else {
             panic!("expected match expression")
         };
-        let Pattern::Tuple(TuplePattern::Prefix { patterns, rest_binding }) = &arms[0].pattern
+        let Pattern::Tuple(TuplePattern::Prefix {
+            patterns,
+            rest_binding,
+        }) = &arms[0].pattern
         else {
             panic!("expected prefix tuple pattern with rest binding")
         };
@@ -2824,15 +1750,21 @@ mod tests {
             panic!("expected nested function type")
         };
         assert_eq!(inner_params.len(), 1);
-        assert!(matches!(&inner_params[0], TypeAnnotation::Named(n) if n.as_simple() == Some("Int")));
-        assert!(matches!(inner_ret.as_ref(), TypeAnnotation::Named(n) if n.as_simple() == Some("Int")));
+        assert!(
+            matches!(&inner_params[0], TypeAnnotation::Named(n) if n.as_simple() == Some("Int"))
+        );
+        assert!(
+            matches!(inner_ret.as_ref(), TypeAnnotation::Named(n) if n.as_simple() == Some("Int"))
+        );
     }
 
     #[test]
     fn test_parse_function_param_with_function_type() {
         // fn apply(f: Int -> Int, x: Int) -> Int f(x)
         let item = parse_item_str("fn apply(f: Int -> Int, x: Int) -> Int f(x)").unwrap();
-        let Item::Function(func) = &item else { panic!("expected function") };
+        let Item::Function(func) = &item else {
+            panic!("expected function")
+        };
         assert_eq!(func.name, "apply");
         assert_eq!(func.params.len(), 2);
         assert!(matches!(
@@ -2848,7 +1780,9 @@ mod tests {
     #[test]
     fn test_parse_struct_simple() {
         let item = parse_item_str("struct Point { x: Int, y: Int }").unwrap();
-        let Item::Struct(s) = item else { panic!("expected struct") };
+        let Item::Struct(s) = item else {
+            panic!("expected struct")
+        };
         assert_eq!(s.name, "Point");
         assert_eq!(s.type_params, Vec::<String>::new());
         assert_eq!(s.fields.len(), 2);
@@ -2859,7 +1793,9 @@ mod tests {
     #[test]
     fn test_parse_struct_empty() {
         let item = parse_item_str("struct Empty {}").unwrap();
-        let Item::Struct(s) = item else { panic!("expected struct") };
+        let Item::Struct(s) = item else {
+            panic!("expected struct")
+        };
         assert_eq!(s.name, "Empty");
         assert_eq!(s.fields.len(), 0);
     }
@@ -2867,7 +1803,9 @@ mod tests {
     #[test]
     fn test_parse_struct_generic() {
         let item = parse_item_str("struct Pair<T, U> { first: T, second: U }").unwrap();
-        let Item::Struct(s) = item else { panic!("expected struct") };
+        let Item::Struct(s) = item else {
+            panic!("expected struct")
+        };
         assert_eq!(s.name, "Pair");
         assert_eq!(s.type_params, vec!["T", "U"]);
         assert_eq!(s.fields.len(), 2);
@@ -2994,11 +1932,12 @@ mod tests {
     fn test_parse_let_struct_pattern() {
         let (_, stmts) = parse_input_str("let Point { x, y } = p").unwrap();
         let Stmt::Let(LetBinding {
-            pattern: Pattern::Struct {
-                fields,
-                is_partial: false,
-                ..
-            },
+            pattern:
+                Pattern::Struct {
+                    fields,
+                    is_partial: false,
+                    ..
+                },
             ..
         }) = &stmts[0]
         else {
@@ -3056,6 +1995,8 @@ mod tests {
         let result = parse_input_str("let (a, b): (Int, Int) = x");
         assert!(result.is_err());
     }
+
+    use zoya_ast::TypeAliasDef;
 
     #[test]
     fn test_parse_type_alias_simple() {
@@ -3162,6 +2103,8 @@ mod tests {
 
     // ===== Enum definition tests =====
 
+    use zoya_ast::{EnumVariant, EnumVariantKind};
+
     #[test]
     fn test_parse_enum_unit_variants() {
         let item = parse_item_str("enum Color { Red, Green, Blue }").unwrap();
@@ -3170,9 +2113,15 @@ mod tests {
         };
         assert_eq!(e.name, "Color");
         assert_eq!(e.variants.len(), 3);
-        assert!(matches!(&e.variants[0], EnumVariant { name, kind: EnumVariantKind::Unit } if name == "Red"));
-        assert!(matches!(&e.variants[1], EnumVariant { name, kind: EnumVariantKind::Unit } if name == "Green"));
-        assert!(matches!(&e.variants[2], EnumVariant { name, kind: EnumVariantKind::Unit } if name == "Blue"));
+        assert!(
+            matches!(&e.variants[0], EnumVariant { name, kind: EnumVariantKind::Unit } if name == "Red")
+        );
+        assert!(
+            matches!(&e.variants[1], EnumVariant { name, kind: EnumVariantKind::Unit } if name == "Green")
+        );
+        assert!(
+            matches!(&e.variants[2], EnumVariant { name, kind: EnumVariantKind::Unit } if name == "Blue")
+        );
     }
 
     #[test]
@@ -3184,7 +2133,9 @@ mod tests {
         assert_eq!(e.name, "Option");
         assert_eq!(e.type_params, vec!["T"]);
         assert_eq!(e.variants.len(), 2);
-        assert!(matches!(&e.variants[0], EnumVariant { name, kind: EnumVariantKind::Unit } if name == "None"));
+        assert!(
+            matches!(&e.variants[0], EnumVariant { name, kind: EnumVariantKind::Unit } if name == "None")
+        );
         let EnumVariant {
             name,
             kind: EnumVariantKind::Tuple(types),
@@ -3229,10 +2180,9 @@ mod tests {
 
     #[test]
     fn test_parse_enum_mixed_variants() {
-        let item = parse_item_str(
-            "enum Event { Click, Move { x: Int, y: Int }, KeyPress(String) }",
-        )
-        .unwrap();
+        let item =
+            parse_item_str("enum Event { Click, Move { x: Int, y: Int }, KeyPress(String) }")
+                .unwrap();
         let Item::Enum(e) = item else {
             panic!("expected enum");
         };
@@ -3240,15 +2190,24 @@ mod tests {
         assert_eq!(e.variants.len(), 3);
         assert!(matches!(
             &e.variants[0],
-            EnumVariant { kind: EnumVariantKind::Unit, .. }
+            EnumVariant {
+                kind: EnumVariantKind::Unit,
+                ..
+            }
         ));
         assert!(matches!(
             &e.variants[1],
-            EnumVariant { kind: EnumVariantKind::Struct(_), .. }
+            EnumVariant {
+                kind: EnumVariantKind::Struct(_),
+                ..
+            }
         ));
         assert!(matches!(
             &e.variants[2],
-            EnumVariant { kind: EnumVariantKind::Tuple(_), .. }
+            EnumVariant {
+                kind: EnumVariantKind::Tuple(_),
+                ..
+            }
         ));
     }
 
@@ -3317,7 +2276,9 @@ mod tests {
         assert!(path.type_args.is_some());
         let type_args = path.type_args.as_ref().unwrap();
         assert_eq!(type_args.len(), 1);
-        assert!(matches!(&type_args[0], TypeAnnotation::Named(n) if n.as_simple() == Some("Int")));
+        assert!(
+            matches!(&type_args[0], TypeAnnotation::Named(n) if n.as_simple() == Some("Int"))
+        );
         assert!(matches!(args, TuplePattern::Exact(_)));
     }
 
@@ -3544,6 +2505,8 @@ mod tests {
     }
 
     // Path prefix tests
+
+    use zoya_ast::PathPrefix;
 
     #[test]
     fn test_parse_path_no_prefix() {
