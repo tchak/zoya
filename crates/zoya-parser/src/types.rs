@@ -48,11 +48,9 @@ pub(crate) fn type_annotation<'a>(
                     // (T) - parenthesized type for grouping (useful in function types)
                     first
                 }
-                Some(mut more) => {
+                Some(more) => {
                     // (T,) or (T1, T2, ...) - tuple type
-                    let mut elements = vec![first];
-                    elements.append(&mut more);
-                    TypeAnnotation::Tuple(elements)
+                    TypeAnnotation::Tuple(std::iter::once(first).chain(more).collect())
                 }
             });
 

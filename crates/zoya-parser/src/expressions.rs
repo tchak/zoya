@@ -1,9 +1,9 @@
 use chumsky::prelude::*;
 
-use zoya_ast::{BinOp, Expr, LambdaParam, LetBinding, MatchArm, Path, Pattern, UnaryOp};
+use zoya_ast::{BinOp, Expr, LambdaParam, LetBinding, MatchArm, Path, UnaryOp};
 use zoya_lexer::Token;
 
-use crate::helpers::{ident, path_prefix_parser};
+use crate::helpers::{ident, path_prefix_parser, validate_typed_pattern};
 use crate::patterns::pattern_parser;
 use crate::types::type_annotation;
 
@@ -38,13 +38,7 @@ pub(crate) fn expr_parser<'a>(
             .then_ignore(just(Token::Eq))
             .then(expr.clone())
             .try_map(|((pattern, type_annotation), value), span| {
-                // Type annotation only allowed on simple variable patterns
-                if type_annotation.is_some() && !matches!(pattern, Pattern::Var(_)) {
-                    return Err(Rich::custom(
-                        span,
-                        "type annotations are only allowed on simple variable patterns",
-                    ));
-                }
+                validate_typed_pattern(&pattern, &type_annotation, span)?;
                 Ok(LetBinding {
                     pattern,
                     type_annotation,
@@ -194,11 +188,9 @@ pub(crate) fn expr_parser<'a>(
             .then_ignore(just(Token::RParen))
             .map(|(first, rest)| match rest {
                 None => first, // (expr) - parenthesized expression
-                Some(mut more) => {
+                Some(more) => {
                     // (expr,) or (expr, expr, ...) - tuple
-                    let mut elements = vec![first];
-                    elements.append(&mut more);
-                    Expr::Tuple(elements)
+                    Expr::Tuple(std::iter::once(first).chain(more).collect())
                 }
             });
 
@@ -226,13 +218,7 @@ pub(crate) fn expr_parser<'a>(
             .then_ignore(just(Token::Eq))
             .then(expr.clone())
             .try_map(|((pattern, type_annotation), value), span| {
-                // Type annotation only allowed on simple variable patterns
-                if type_annotation.is_some() && !matches!(pattern, Pattern::Var(_)) {
-                    return Err(Rich::custom(
-                        span,
-                        "type annotations are only allowed on simple variable patterns",
-                    ));
-                }
+                validate_typed_pattern(&pattern, &type_annotation, span)?;
                 Ok(LetBinding {
                     pattern,
                     type_annotation,

@@ -19,7 +19,16 @@ pub struct ParseError {
     pub message: String,
 }
 
-/// Parse REPL input: items followed by statements (expressions or let bindings)
+/// Parse REPL input: items followed by statements.
+///
+/// This parser handles interactive input where definitions (type, function, etc.)
+/// can be followed by expressions or let bindings for evaluation.
+///
+/// # Arguments
+/// * `tokens` - Token stream from the lexer
+///
+/// # Returns
+/// Tuple of (items, statements) on success, or `ParseError` with diagnostics
 pub fn parse_input(tokens: Vec<Token>) -> Result<(Vec<Item>, Vec<Stmt>), ParseError> {
     let parser = item_parser()
         .repeated()
@@ -38,7 +47,15 @@ pub fn parse_input(tokens: Vec<Token>) -> Result<(Vec<Item>, Vec<Stmt>), ParseEr
         })
 }
 
-/// Parse a module file: mod declarations followed by items
+/// Parse a module file: mod declarations followed by items.
+///
+/// Module files can declare submodules and define items (types, functions, etc.).
+///
+/// # Arguments
+/// * `tokens` - Token stream from the lexer
+///
+/// # Returns
+/// `ModuleDef` containing module declarations and items on success, or `ParseError`
 pub fn parse_module(tokens: Vec<Token>) -> Result<ModuleDef, ParseError> {
     let parser = mod_decl_parser()
         .repeated()

@@ -3,7 +3,7 @@ use chumsky::prelude::*;
 use zoya_ast::{Expr, ListPattern, Path, Pattern, StructFieldPattern, TuplePattern};
 use zoya_lexer::Token;
 
-use crate::helpers::{ident, path_prefix_parser, simple_path_parser};
+use crate::helpers::{ident, path_prefix_parser, process_rest_elements, simple_path_parser, RestSplit};
 use crate::types::type_annotation;
 
 /// Pattern parser for match arms and let bindings
@@ -52,80 +52,35 @@ pub(crate) fn pattern_parser<'a>(
             .collect::<Vec<_>>()
             .delimited_by(just(Token::LBracket), just(Token::RBracket))
             .try_map(|elements, span| {
-                // Check for .. and convert to appropriate ListPattern
-                let rest_pos = elements
-                    .iter()
-                    .position(|e| matches!(e, ListPatternElement::Rest(_)));
+                let is_rest = |e: &ListPatternElement| match e {
+                    ListPatternElement::Rest(name) => Some(name.clone()),
+                    ListPatternElement::Pattern(_) => None,
+                };
+                let extract_pattern = |e: ListPatternElement| match e {
+                    ListPatternElement::Pattern(p) => p,
+                    // SAFETY: process_rest_elements filters out Rest elements
+                    ListPatternElement::Rest(_) => unreachable!(),
+                };
 
-                match rest_pos {
-                    None => {
-                        // No .., this is an exact pattern
-                        let patterns: Vec<Pattern> = elements
-                            .into_iter()
-                            .map(|e| match e {
-                                ListPatternElement::Pattern(p) => p,
-                                ListPatternElement::Rest(_) => unreachable!(),
-                            })
-                            .collect();
+                match process_rest_elements(elements, is_rest, span, "list")? {
+                    RestSplit::Exact(elements) => {
+                        let patterns: Vec<Pattern> = elements.into_iter().map(extract_pattern).collect();
                         if patterns.is_empty() {
                             Ok(Pattern::List(ListPattern::Empty))
                         } else {
                             Ok(Pattern::List(ListPattern::Exact(patterns)))
                         }
                     }
-                    Some(pos) => {
-                        // Multiple .. not allowed
-                        if elements
-                            .iter()
-                            .filter(|e| matches!(e, ListPatternElement::Rest(_)))
-                            .count()
-                            > 1
-                        {
-                            return Err(Rich::custom(span, "only one .. allowed in list pattern"));
-                        }
+                    RestSplit::WithRest { prefix, rest_binding, suffix } => {
+                        let prefix: Vec<Pattern> = prefix.into_iter().map(extract_pattern).collect();
+                        let suffix: Vec<Pattern> = suffix.into_iter().map(extract_pattern).collect();
 
-                        // Extract rest binding name
-                        let rest_binding = match &elements[pos] {
-                            ListPatternElement::Rest(name) => name.clone(),
-                            _ => unreachable!(),
-                        };
-
-                        // Split into before and after ..
-                        let before: Vec<Pattern> = elements[..pos]
-                            .iter()
-                            .filter_map(|e| match e {
-                                ListPatternElement::Pattern(p) => Some(p.clone()),
-                                ListPatternElement::Rest(_) => None,
-                            })
-                            .collect();
-
-                        let after: Vec<Pattern> = elements[pos + 1..]
-                            .iter()
-                            .filter_map(|e| match e {
-                                ListPatternElement::Pattern(p) => Some(p.clone()),
-                                ListPatternElement::Rest(_) => None,
-                            })
-                            .collect();
-
-                        if after.is_empty() {
-                            // [a, b, ..] or [a, b, rest @ ..] - prefix only
-                            Ok(Pattern::List(ListPattern::Prefix {
-                                patterns: before,
-                                rest_binding,
-                            }))
-                        } else if before.is_empty() {
-                            // [.., x, y] or [rest @ .., x, y] - suffix only
-                            Ok(Pattern::List(ListPattern::Suffix {
-                                patterns: after,
-                                rest_binding,
-                            }))
+                        if suffix.is_empty() {
+                            Ok(Pattern::List(ListPattern::Prefix { patterns: prefix, rest_binding }))
+                        } else if prefix.is_empty() {
+                            Ok(Pattern::List(ListPattern::Suffix { patterns: suffix, rest_binding }))
                         } else {
-                            // [a, .., z] or [a, rest @ .., z] - prefix and suffix
-                            Ok(Pattern::List(ListPattern::PrefixSuffix {
-                                prefix: before,
-                                suffix: after,
-                                rest_binding,
-                            }))
+                            Ok(Pattern::List(ListPattern::PrefixSuffix { prefix, suffix, rest_binding }))
                         }
                     }
                 }
@@ -157,80 +112,35 @@ pub(crate) fn pattern_parser<'a>(
             .collect::<Vec<_>>()
             .delimited_by(just(Token::LParen), just(Token::RParen))
             .try_map(|elements, span| {
-                // Check for .. and convert to appropriate TuplePattern
-                let rest_pos = elements
-                    .iter()
-                    .position(|e| matches!(e, TuplePatternElement::Rest(_)));
+                let is_rest = |e: &TuplePatternElement| match e {
+                    TuplePatternElement::Rest(name) => Some(name.clone()),
+                    TuplePatternElement::Pattern(_) => None,
+                };
+                let extract_pattern = |e: TuplePatternElement| match e {
+                    TuplePatternElement::Pattern(p) => p,
+                    // SAFETY: process_rest_elements filters out Rest elements
+                    TuplePatternElement::Rest(_) => unreachable!(),
+                };
 
-                // Check for multiple .. markers
-                if elements
-                    .iter()
-                    .filter(|e| matches!(e, TuplePatternElement::Rest(_)))
-                    .count()
-                    > 1
-                {
-                    return Err(Rich::custom(span, "only one .. allowed in tuple pattern"));
-                }
-
-                match rest_pos {
-                    None => {
-                        // No .., this is an exact pattern
-                        let patterns: Vec<Pattern> = elements
-                            .into_iter()
-                            .map(|e| match e {
-                                TuplePatternElement::Pattern(p) => p,
-                                TuplePatternElement::Rest(_) => unreachable!(),
-                            })
-                            .collect();
+                match process_rest_elements(elements, is_rest, span, "tuple")? {
+                    RestSplit::Exact(elements) => {
+                        let patterns: Vec<Pattern> = elements.into_iter().map(extract_pattern).collect();
                         if patterns.is_empty() {
                             Ok(Pattern::Tuple(TuplePattern::Empty))
                         } else {
                             Ok(Pattern::Tuple(TuplePattern::Exact(patterns)))
                         }
                     }
-                    Some(pos) => {
-                        // Extract rest binding name
-                        let rest_binding = match &elements[pos] {
-                            TuplePatternElement::Rest(name) => name.clone(),
-                            _ => unreachable!(),
-                        };
+                    RestSplit::WithRest { prefix, rest_binding, suffix } => {
+                        let prefix: Vec<Pattern> = prefix.into_iter().map(extract_pattern).collect();
+                        let suffix: Vec<Pattern> = suffix.into_iter().map(extract_pattern).collect();
 
-                        // Split into before and after ..
-                        let before: Vec<Pattern> = elements[..pos]
-                            .iter()
-                            .filter_map(|e| match e {
-                                TuplePatternElement::Pattern(p) => Some(p.clone()),
-                                TuplePatternElement::Rest(_) => None,
-                            })
-                            .collect();
-
-                        let after: Vec<Pattern> = elements[pos + 1..]
-                            .iter()
-                            .filter_map(|e| match e {
-                                TuplePatternElement::Pattern(p) => Some(p.clone()),
-                                TuplePatternElement::Rest(_) => None,
-                            })
-                            .collect();
-
-                        if after.is_empty() {
-                            // (a, b, ..) or (a, b, rest @ ..) - prefix only
-                            Ok(Pattern::Tuple(TuplePattern::Prefix {
-                                patterns: before,
-                                rest_binding,
-                            }))
-                        } else if before.is_empty() {
-                            // (.., x, y) or (rest @ .., x, y) - suffix only
-                            Ok(Pattern::Tuple(TuplePattern::Suffix {
-                                patterns: after,
-                                rest_binding,
-                            }))
+                        if suffix.is_empty() {
+                            Ok(Pattern::Tuple(TuplePattern::Prefix { patterns: prefix, rest_binding }))
+                        } else if prefix.is_empty() {
+                            Ok(Pattern::Tuple(TuplePattern::Suffix { patterns: suffix, rest_binding }))
                         } else {
-                            // (a, .., z) or (a, rest @ .., z) - prefix and suffix
-                            Ok(Pattern::Tuple(TuplePattern::PrefixSuffix {
-                                prefix: before,
-                                suffix: after,
-                                rest_binding,
-                            }))
+                            Ok(Pattern::Tuple(TuplePattern::PrefixSuffix { prefix, suffix, rest_binding }))
                         }
                     }
                 }
@@ -314,72 +224,35 @@ pub(crate) fn pattern_parser<'a>(
             .collect::<Vec<_>>()
             .delimited_by(just(Token::LParen), just(Token::RParen))
             .try_map(|elements, span| {
-                let rest_pos = elements
-                    .iter()
-                    .position(|e| matches!(e, TuplePatternElement::Rest(_)));
+                let is_rest = |e: &TuplePatternElement| match e {
+                    TuplePatternElement::Rest(name) => Some(name.clone()),
+                    TuplePatternElement::Pattern(_) => None,
+                };
+                let extract_pattern = |e: TuplePatternElement| match e {
+                    TuplePatternElement::Pattern(p) => p,
+                    // SAFETY: process_rest_elements filters out Rest elements
+                    TuplePatternElement::Rest(_) => unreachable!(),
+                };
 
-                if elements
-                    .iter()
-                    .filter(|e| matches!(e, TuplePatternElement::Rest(_)))
-                    .count()
-                    > 1
-                {
-                    return Err(Rich::custom(span, "only one .. allowed in call pattern"));
-                }
-
-                match rest_pos {
-                    None => {
-                        let patterns: Vec<Pattern> = elements
-                            .into_iter()
-                            .map(|e| match e {
-                                TuplePatternElement::Pattern(p) => p,
-                                TuplePatternElement::Rest(_) => unreachable!(),
-                            })
-                            .collect();
+                match process_rest_elements(elements, is_rest, span, "call")? {
+                    RestSplit::Exact(elements) => {
+                        let patterns: Vec<Pattern> = elements.into_iter().map(extract_pattern).collect();
                         if patterns.is_empty() {
                             Ok(TuplePattern::Empty)
                         } else {
                             Ok(TuplePattern::Exact(patterns))
                         }
                     }
-                    Some(pos) => {
-                        let rest_binding = match &elements[pos] {
-                            TuplePatternElement::Rest(name) => name.clone(),
-                            _ => unreachable!(),
-                        };
+                    RestSplit::WithRest { prefix, rest_binding, suffix } => {
+                        let prefix: Vec<Pattern> = prefix.into_iter().map(extract_pattern).collect();
+                        let suffix: Vec<Pattern> = suffix.into_iter().map(extract_pattern).collect();
 
-                        let before: Vec<Pattern> = elements[..pos]
-                            .iter()
-                            .filter_map(|e| match e {
-                                TuplePatternElement::Pattern(p) => Some(p.clone()),
-                                TuplePatternElement::Rest(_) => None,
-                            })
-                            .collect();
-
-                        let after: Vec<Pattern> = elements[pos + 1..]
-                            .iter()
-                            .filter_map(|e| match e {
-                                TuplePatternElement::Pattern(p) => Some(p.clone()),
-                                TuplePatternElement::Rest(_) => None,
-                            })
-                            .collect();
-
-                        if after.is_empty() {
-                            Ok(TuplePattern::Prefix {
-                                patterns: before,
-                                rest_binding,
-                            })
-                        } else if before.is_empty() {
-                            Ok(TuplePattern::Suffix {
-                                patterns: after,
-                                rest_binding,
-                            })
+                        if suffix.is_empty() {
+                            Ok(TuplePattern::Prefix { patterns: prefix, rest_binding })
+                        } else if prefix.is_empty() {
+                            Ok(TuplePattern::Suffix { patterns: suffix, rest_binding })
                         } else {
-                            Ok(TuplePattern::PrefixSuffix {
-                                prefix: before,
-                                suffix: after,
-                                rest_binding,
-                            })
+                            Ok(TuplePattern::PrefixSuffix { prefix, suffix, rest_binding })
                         }
                     }
                 }

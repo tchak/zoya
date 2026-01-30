@@ -1,9 +1,10 @@
 use chumsky::prelude::*;
 
-use zoya_ast::{LetBinding, Pattern, Stmt};
+use zoya_ast::{LetBinding, Stmt};
 use zoya_lexer::Token;
 
 use crate::expressions::expr_parser;
+use crate::helpers::validate_typed_pattern;
 use crate::patterns::pattern_parser;
 use crate::types::type_annotation;
 
@@ -15,13 +16,7 @@ pub(crate) fn let_binding_parser<'a>(
         .then_ignore(just(Token::Eq))
         .then(expr_parser())
         .try_map(|((pattern, type_annotation), value), span| {
-            // Type annotation only allowed on simple variable patterns
-            if type_annotation.is_some() && !matches!(pattern, Pattern::Var(_)) {
-                return Err(Rich::custom(
-                    span,
-                    "type annotations are only allowed on simple variable patterns",
-                ));
-            }
+            validate_typed_pattern(&pattern, &type_annotation, span)?;
             Ok(LetBinding {
                 pattern,
                 type_annotation,
