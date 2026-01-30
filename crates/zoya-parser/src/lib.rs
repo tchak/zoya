@@ -56,6 +56,42 @@ fn ident<'a>() -> impl Parser<'a, &'a [Token], String, extra::Err<Rich<'a, Token
     select! { Token::Ident(name) => name }
 }
 
+/// Parse a path prefix: root::, self::, super::, or none
+fn path_prefix_parser<'a>(
+) -> impl Parser<'a, &'a [Token], PathPrefix, extra::Err<Rich<'a, Token>>> + Clone {
+    choice((
+        just(Token::Root)
+            .then_ignore(just(Token::ColonColon))
+            .to(PathPrefix::Root),
+        just(Token::Self_)
+            .then_ignore(just(Token::ColonColon))
+            .to(PathPrefix::Self_),
+        just(Token::Super)
+            .then_ignore(just(Token::ColonColon))
+            .to(PathPrefix::Super),
+    ))
+    .or_not()
+    .map(|opt| opt.unwrap_or(PathPrefix::None))
+}
+
+/// Parse a simple path (no turbofish): prefix + ident segments
+/// Returns a Path with type_args = None
+fn simple_path_parser<'a>() -> impl Parser<'a, &'a [Token], Path, extra::Err<Rich<'a, Token>>> + Clone
+{
+    path_prefix_parser()
+        .then(
+            ident()
+                .separated_by(just(Token::ColonColon))
+                .at_least(1)
+                .collect::<Vec<_>>(),
+        )
+        .map(|(prefix, segments)| Path {
+            prefix,
+            segments,
+            type_args: None,
+        })
+}
+
 fn mod_decl_parser<'a>() -> impl Parser<'a, &'a [Token], ModDecl, extra::Err<Rich<'a, Token>>> + Clone
 {
     just(Token::Mod)
@@ -73,12 +109,12 @@ fn type_annotation<'a>() -> impl Parser<'a, &'a [Token], TypeAnnotation, extra::
             .collect::<Vec<_>>()
             .delimited_by(just(Token::Lt), just(Token::Gt));
 
-        // Named or parameterized type: Int, List<Int>
-        let named_type = ident()
+        // Named or parameterized type: Int, List<Int>, root::types::MyType<T>
+        let named_type = simple_path_parser()
             .then(type_params.or_not())
-            .map(|(name, params)| match params {
-                Some(params) => TypeAnnotation::Parameterized(Path::simple(name), params),
-                None => TypeAnnotation::Named(Path::simple(name)),
+            .map(|(path, params)| match params {
+                Some(params) => TypeAnnotation::Parameterized(path, params),
+                None => TypeAnnotation::Named(path),
             });
 
         // Empty tuple type: ()
@@ -399,8 +435,8 @@ fn pattern_parser<'a>() -> impl Parser<'a, &'a [Token], Pattern, extra::Err<Rich
                 }),
         ));
 
-        // Struct pattern: Point { x, y }, Point { x: a, .. }
-        let struct_pattern = ident()
+        // Struct pattern: Point { x, y }, Point { x: a, .. }, root::types::Point { x }
+        let struct_pattern = simple_path_parser()
             .then(
                 struct_field_pattern
                     .clone()
@@ -409,7 +445,7 @@ fn pattern_parser<'a>() -> impl Parser<'a, &'a [Token], Pattern, extra::Err<Rich
                     .collect::<Vec<_>>()
                     .delimited_by(just(Token::LBrace), just(Token::RBrace)),
             )
-            .try_map(|(name, elements), span| {
+            .try_map(|(path, elements), span| {
                 // Check for .. (rest marker)
                 let has_rest = elements.iter().any(|e| matches!(e, StructPatternField::Rest));
 
@@ -432,7 +468,6 @@ fn pattern_parser<'a>() -> impl Parser<'a, &'a [Token], Pattern, extra::Err<Rich
                     })
                     .collect();
 
-                let path = Path::simple(name);
                 if has_rest {
                     Ok(Pattern::Struct(StructPattern::Partial { path, fields }))
                 } else {
@@ -569,18 +604,23 @@ fn pattern_parser<'a>() -> impl Parser<'a, &'a [Token], Pattern, extra::Err<Rich
         );
 
         // Enum pattern: Enum::Variant, Enum::Variant::<T>, Enum::Variant(x), Enum::Variant { x }
-        let enum_pattern = ident()
-            .then_ignore(just(Token::ColonColon))
-            .then(ident())
+        // Also supports qualified paths: root::types::Option::Some, self::MyEnum::Variant
+        let enum_pattern = path_prefix_parser()
+            .then(
+                ident()
+                    .separated_by(just(Token::ColonColon))
+                    .at_least(2) // Must have at least EnumName::Variant
+                    .collect::<Vec<_>>(),
+            )
             .then(pattern_turbofish.or_not())
             .then(
                 choice((enum_tuple_pattern_fields, enum_struct_pattern_fields)).or_not(),
             )
-            .map(|(((enum_name, variant_name), type_args), fields)| {
+            .map(|(((prefix, segments), type_args), fields)| {
                 let fields = fields.unwrap_or(EnumPatternFields::Unit);
                 let path = Path {
-                    prefix: PathPrefix::None,
-                    segments: vec![enum_name, variant_name],
+                    prefix,
+                    segments,
                     type_args,
                 };
                 Pattern::Enum(EnumPattern { path, fields })
@@ -922,23 +962,8 @@ fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, T
                 .delimited_by(just(Token::Lt), just(Token::Gt)),
         );
 
-        // Path prefix: root::, self::, super::
-        let path_prefix = choice((
-            just(Token::Root)
-                .then_ignore(just(Token::ColonColon))
-                .to(PathPrefix::Root),
-            just(Token::Self_)
-                .then_ignore(just(Token::ColonColon))
-                .to(PathPrefix::Self_),
-            just(Token::Super)
-                .then_ignore(just(Token::ColonColon))
-                .to(PathPrefix::Super),
-        ))
-        .or_not()
-        .map(|opt| opt.unwrap_or(PathPrefix::None));
-
         // Path parser: `foo` or `Foo::Bar` or `Option::None::<Int>` or `root::utils::foo`
-        let path = path_prefix
+        let path = path_prefix_parser()
             .then(
                 ident()
                     .separated_by(just(Token::ColonColon))
@@ -3618,6 +3643,387 @@ mod tests {
                 assert_eq!(args.len(), 1);
             }
             _ => panic!("expected call"),
+        }
+    }
+
+    // Type annotation path prefix tests
+
+    #[test]
+    fn test_parse_type_annotation_qualified() {
+        let (items, _) = parse_input_str("fn foo(x: utils::MyType) -> Int { 0 }").unwrap();
+        match &items[0] {
+            Item::Function(f) => {
+                let param_type = &f.params[0].typ;
+                match param_type {
+                    TypeAnnotation::Named(path) => {
+                        assert_eq!(path.prefix, PathPrefix::None);
+                        assert_eq!(path.segments, vec!["utils", "MyType"]);
+                    }
+                    _ => panic!("expected named type"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_type_annotation_root_prefix() {
+        let (items, _) = parse_input_str("fn foo(x: root::types::MyType) -> Int { 0 }").unwrap();
+        match &items[0] {
+            Item::Function(f) => {
+                let param_type = &f.params[0].typ;
+                match param_type {
+                    TypeAnnotation::Named(path) => {
+                        assert_eq!(path.prefix, PathPrefix::Root);
+                        assert_eq!(path.segments, vec!["types", "MyType"]);
+                    }
+                    _ => panic!("expected named type"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_type_annotation_self_prefix() {
+        let (items, _) = parse_input_str("fn foo(x: self::MyType) -> Int { 0 }").unwrap();
+        match &items[0] {
+            Item::Function(f) => {
+                let param_type = &f.params[0].typ;
+                match param_type {
+                    TypeAnnotation::Named(path) => {
+                        assert_eq!(path.prefix, PathPrefix::Self_);
+                        assert_eq!(path.segments, vec!["MyType"]);
+                    }
+                    _ => panic!("expected named type"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_type_annotation_super_prefix() {
+        let (items, _) = parse_input_str("fn foo(x: super::parent::Type) -> Int { 0 }").unwrap();
+        match &items[0] {
+            Item::Function(f) => {
+                let param_type = &f.params[0].typ;
+                match param_type {
+                    TypeAnnotation::Named(path) => {
+                        assert_eq!(path.prefix, PathPrefix::Super);
+                        assert_eq!(path.segments, vec!["parent", "Type"]);
+                    }
+                    _ => panic!("expected named type"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_type_annotation_parameterized_qualified() {
+        let (items, _) =
+            parse_input_str("fn foo(x: root::types::Option<Int>) -> Int { 0 }").unwrap();
+        match &items[0] {
+            Item::Function(f) => {
+                let param_type = &f.params[0].typ;
+                match param_type {
+                    TypeAnnotation::Parameterized(path, params) => {
+                        assert_eq!(path.prefix, PathPrefix::Root);
+                        assert_eq!(path.segments, vec!["types", "Option"]);
+                        assert_eq!(params.len(), 1);
+                    }
+                    _ => panic!("expected parameterized type"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_type_annotation_deep_path() {
+        let (items, _) = parse_input_str("fn foo(x: root::a::b::c::MyType) -> Int { 0 }").unwrap();
+        match &items[0] {
+            Item::Function(f) => {
+                let param_type = &f.params[0].typ;
+                match param_type {
+                    TypeAnnotation::Named(path) => {
+                        assert_eq!(path.prefix, PathPrefix::Root);
+                        assert_eq!(path.segments, vec!["a", "b", "c", "MyType"]);
+                    }
+                    _ => panic!("expected named type"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // Struct pattern path prefix tests
+
+    #[test]
+    fn test_parse_struct_pattern_qualified_as_enum() {
+        // Paths with 2+ segments (no prefix) are parsed as enum patterns
+        // because we can't distinguish struct vs enum at parse time
+        let expr = parse_str("match x { types::Point { x, y } => x }").unwrap();
+        match expr {
+            Expr::Match { arms, .. } => {
+                match &arms[0].pattern {
+                    Pattern::Enum(EnumPattern { path, fields }) => {
+                        assert_eq!(path.prefix, PathPrefix::None);
+                        assert_eq!(path.segments, vec!["types", "Point"]);
+                        assert!(matches!(fields, EnumPatternFields::Struct { .. }));
+                    }
+                    _ => panic!("expected enum pattern (2-segment paths are parsed as enum)"),
+                }
+            }
+            _ => panic!("expected match"),
+        }
+    }
+
+    #[test]
+    fn test_parse_struct_pattern_root_prefix() {
+        // root::Point has prefix=Root with 1 segment, so it's a struct pattern
+        let expr = parse_str("match x { root::Point { x, y } => x }").unwrap();
+        match expr {
+            Expr::Match { arms, .. } => {
+                match &arms[0].pattern {
+                    Pattern::Struct(StructPattern::Exact { path, fields }) => {
+                        assert_eq!(path.prefix, PathPrefix::Root);
+                        assert_eq!(path.segments, vec!["Point"]);
+                        assert_eq!(fields.len(), 2);
+                    }
+                    _ => panic!("expected struct pattern"),
+                }
+            }
+            _ => panic!("expected match"),
+        }
+    }
+
+    #[test]
+    fn test_parse_struct_pattern_self_prefix() {
+        let expr = parse_str("match x { self::Point { x, .. } => x }").unwrap();
+        match expr {
+            Expr::Match { arms, .. } => {
+                match &arms[0].pattern {
+                    Pattern::Struct(StructPattern::Partial { path, fields }) => {
+                        assert_eq!(path.prefix, PathPrefix::Self_);
+                        assert_eq!(path.segments, vec!["Point"]);
+                        assert_eq!(fields.len(), 1);
+                    }
+                    _ => panic!("expected partial struct pattern"),
+                }
+            }
+            _ => panic!("expected match"),
+        }
+    }
+
+    #[test]
+    fn test_parse_struct_pattern_super_prefix() {
+        let expr = parse_str("match x { super::Point { x } => x }").unwrap();
+        match expr {
+            Expr::Match { arms, .. } => {
+                match &arms[0].pattern {
+                    Pattern::Struct(StructPattern::Exact { path, fields }) => {
+                        assert_eq!(path.prefix, PathPrefix::Super);
+                        assert_eq!(path.segments, vec!["Point"]);
+                        assert_eq!(fields.len(), 1);
+                    }
+                    _ => panic!("expected struct pattern"),
+                }
+            }
+            _ => panic!("expected match"),
+        }
+    }
+
+    // Enum pattern path prefix tests
+
+    #[test]
+    fn test_parse_enum_pattern_qualified() {
+        let expr = parse_str("match x { types::Option::Some(v) => v, types::Option::None => 0 }")
+            .unwrap();
+        match expr {
+            Expr::Match { arms, .. } => {
+                match &arms[0].pattern {
+                    Pattern::Enum(EnumPattern { path, fields }) => {
+                        assert_eq!(path.prefix, PathPrefix::None);
+                        assert_eq!(path.segments, vec!["types", "Option", "Some"]);
+                        assert!(matches!(fields, EnumPatternFields::Tuple { .. }));
+                    }
+                    _ => panic!("expected enum pattern"),
+                }
+                match &arms[1].pattern {
+                    Pattern::Enum(EnumPattern { path, fields }) => {
+                        assert_eq!(path.prefix, PathPrefix::None);
+                        assert_eq!(path.segments, vec!["types", "Option", "None"]);
+                        assert!(matches!(fields, EnumPatternFields::Unit));
+                    }
+                    _ => panic!("expected enum pattern"),
+                }
+            }
+            _ => panic!("expected match"),
+        }
+    }
+
+    #[test]
+    fn test_parse_enum_pattern_root_prefix() {
+        let expr = parse_str("match x { root::types::Result::Ok(v) => v, _ => 0 }").unwrap();
+        match expr {
+            Expr::Match { arms, .. } => {
+                match &arms[0].pattern {
+                    Pattern::Enum(EnumPattern { path, fields }) => {
+                        assert_eq!(path.prefix, PathPrefix::Root);
+                        assert_eq!(path.segments, vec!["types", "Result", "Ok"]);
+                        assert!(matches!(fields, EnumPatternFields::Tuple { .. }));
+                    }
+                    _ => panic!("expected enum pattern"),
+                }
+            }
+            _ => panic!("expected match"),
+        }
+    }
+
+    #[test]
+    fn test_parse_enum_pattern_self_prefix() {
+        let expr = parse_str("match x { self::Option::None => 0, _ => 1 }").unwrap();
+        match expr {
+            Expr::Match { arms, .. } => {
+                match &arms[0].pattern {
+                    Pattern::Enum(EnumPattern { path, fields }) => {
+                        assert_eq!(path.prefix, PathPrefix::Self_);
+                        assert_eq!(path.segments, vec!["Option", "None"]);
+                        assert!(matches!(fields, EnumPatternFields::Unit));
+                    }
+                    _ => panic!("expected enum pattern"),
+                }
+            }
+            _ => panic!("expected match"),
+        }
+    }
+
+    #[test]
+    fn test_parse_enum_pattern_super_prefix() {
+        let expr = parse_str("match x { super::parent::Color::Red => 1, _ => 0 }").unwrap();
+        match expr {
+            Expr::Match { arms, .. } => {
+                match &arms[0].pattern {
+                    Pattern::Enum(EnumPattern { path, fields }) => {
+                        assert_eq!(path.prefix, PathPrefix::Super);
+                        assert_eq!(path.segments, vec!["parent", "Color", "Red"]);
+                        assert!(matches!(fields, EnumPatternFields::Unit));
+                    }
+                    _ => panic!("expected enum pattern"),
+                }
+            }
+            _ => panic!("expected match"),
+        }
+    }
+
+    #[test]
+    fn test_parse_enum_pattern_struct_variant_qualified() {
+        let expr = parse_str("match x { root::Message::Move { x, y } => x, _ => 0 }").unwrap();
+        match expr {
+            Expr::Match { arms, .. } => {
+                match &arms[0].pattern {
+                    Pattern::Enum(EnumPattern { path, fields }) => {
+                        assert_eq!(path.prefix, PathPrefix::Root);
+                        assert_eq!(path.segments, vec!["Message", "Move"]);
+                        assert!(matches!(fields, EnumPatternFields::Struct { .. }));
+                    }
+                    _ => panic!("expected enum pattern"),
+                }
+            }
+            _ => panic!("expected match"),
+        }
+    }
+
+    #[test]
+    fn test_parse_enum_pattern_turbofish_qualified() {
+        let expr = parse_str("match x { root::Option::None::<Int> => 0, _ => 1 }").unwrap();
+        match expr {
+            Expr::Match { arms, .. } => {
+                match &arms[0].pattern {
+                    Pattern::Enum(EnumPattern { path, fields }) => {
+                        assert_eq!(path.prefix, PathPrefix::Root);
+                        assert_eq!(path.segments, vec!["Option", "None"]);
+                        assert!(path.type_args.is_some());
+                        assert_eq!(path.type_args.as_ref().unwrap().len(), 1);
+                        assert!(matches!(fields, EnumPatternFields::Unit));
+                    }
+                    _ => panic!("expected enum pattern"),
+                }
+            }
+            _ => panic!("expected match"),
+        }
+    }
+
+    #[test]
+    fn test_parse_enum_pattern_deep_path() {
+        let expr = parse_str("match x { root::a::b::Option::Some(v) => v, _ => 0 }").unwrap();
+        match expr {
+            Expr::Match { arms, .. } => {
+                match &arms[0].pattern {
+                    Pattern::Enum(EnumPattern { path, .. }) => {
+                        assert_eq!(path.prefix, PathPrefix::Root);
+                        assert_eq!(path.segments, vec!["a", "b", "Option", "Some"]);
+                    }
+                    _ => panic!("expected enum pattern"),
+                }
+            }
+            _ => panic!("expected match"),
+        }
+    }
+
+    // Expression struct constructor path prefix tests
+
+    #[test]
+    fn test_parse_struct_expr_root_prefix() {
+        let expr = parse_str("root::Point { x: 1, y: 2 }").unwrap();
+        match expr {
+            Expr::Struct { path, fields } => {
+                assert_eq!(path.prefix, PathPrefix::Root);
+                assert_eq!(path.segments, vec!["Point"]);
+                assert_eq!(fields.len(), 2);
+            }
+            _ => panic!("expected struct"),
+        }
+    }
+
+    #[test]
+    fn test_parse_struct_expr_self_prefix() {
+        let expr = parse_str("self::Point { x: 1 }").unwrap();
+        match expr {
+            Expr::Struct { path, fields } => {
+                assert_eq!(path.prefix, PathPrefix::Self_);
+                assert_eq!(path.segments, vec!["Point"]);
+                assert_eq!(fields.len(), 1);
+            }
+            _ => panic!("expected struct"),
+        }
+    }
+
+    #[test]
+    fn test_parse_struct_expr_super_prefix() {
+        let expr = parse_str("super::Point { x: 1 }").unwrap();
+        match expr {
+            Expr::Struct { path, fields } => {
+                assert_eq!(path.prefix, PathPrefix::Super);
+                assert_eq!(path.segments, vec!["Point"]);
+                assert_eq!(fields.len(), 1);
+            }
+            _ => panic!("expected struct"),
+        }
+    }
+
+    #[test]
+    fn test_parse_struct_expr_qualified() {
+        let expr = parse_str("types::shapes::Point { x: 1, y: 2 }").unwrap();
+        match expr {
+            Expr::Struct { path, fields } => {
+                assert_eq!(path.prefix, PathPrefix::None);
+                assert_eq!(path.segments, vec!["types", "shapes", "Point"]);
+                assert_eq!(fields.len(), 2);
+            }
+            _ => panic!("expected struct"),
         }
     }
 }
