@@ -1,9 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use zoya_ast::{
-    EnumPattern, EnumPatternFields, LetBinding, ListPattern, MatchArm, Pattern, StructPattern,
-    TuplePattern,
-};
+use zoya_ast::{LetBinding, ListPattern, MatchArm, Path, Pattern, TuplePattern};
 use zoya_ir::{
     EnumVariantType, QualifiedPath, Type, TypeError, TypeScheme, TypeVarId, TypedLetBinding,
     TypedMatchArm, TypedPattern,
@@ -474,126 +471,19 @@ pub fn check_pattern(
             }
         }
 
-        Pattern::Struct(struct_pattern) => {
-            // Get struct path and fields based on pattern variant
-            let (path, field_patterns, is_partial) = match struct_pattern {
-                StructPattern::Exact { path, fields } => (path, fields, false),
-                StructPattern::Partial { path, fields } => (path, fields, true),
-            };
+        // Path pattern: Option::None, root::Color::Red (unit enum variants)
+        Pattern::Path(path) => check_path_pattern(path, scrutinee_ty, env, ctx),
 
-            // Extract struct name from path (must be single segment for now)
-            let struct_name = path.as_simple().ok_or_else(|| TypeError {
-                message: format!("struct patterns don't support qualified paths yet: {}", path),
-            })?;
+        // Call pattern: Option::Some(x), root::Result::Ok(v) (tuple enum variants)
+        Pattern::Call { path, args } => check_call_pattern(path, args, scrutinee_ty, env, ctx),
 
-            // Unify scrutinee with the struct type
-            let struct_type = env.structs.get(struct_name).ok_or_else(|| TypeError {
-                message: format!("unknown struct in pattern: {}", struct_name),
-            })?;
-
-            // Create fresh type variables for generic parameters
-            let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
-            for &old_id in &struct_type.type_var_ids {
-                instantiation.insert(old_id, ctx.fresh_var());
-            }
-
-            // Build the expected struct type and unify with scrutinee
-            let type_args: Vec<Type> = struct_type
-                .type_var_ids
-                .iter()
-                .map(|id| instantiation[id].clone())
-                .collect();
-            let resolved_fields: Vec<(String, Type)> = struct_type
-                .fields
-                .iter()
-                .map(|(n, t)| (n.clone(), substitute_type_vars(t, &instantiation)))
-                .collect();
-            let expected_struct_ty = Type::Struct {
-                name: struct_name.to_string(),
-                type_args,
-                fields: resolved_fields,
-            };
-
-            ctx.unify(scrutinee_ty, &expected_struct_ty)
-                .map_err(|e| TypeError {
-                    message: format!(
-                        "struct pattern {} cannot match type {}: {}",
-                        struct_name,
-                        ctx.resolve(scrutinee_ty),
-                        e.message
-                    ),
-                })?;
-
-            // For exact patterns, verify all fields are covered
-            if !is_partial {
-                let expected_field_names: HashSet<&str> = struct_type
-                    .fields
-                    .iter()
-                    .map(|(n, _)| n.as_str())
-                    .collect();
-                let provided_field_names: HashSet<&str> = field_patterns
-                    .iter()
-                    .map(|f| f.field_name.as_str())
-                    .collect();
-
-                for expected in &expected_field_names {
-                    if !provided_field_names.contains(expected) {
-                        return Err(TypeError {
-                            message: format!(
-                                "missing field '{}' in struct pattern {} (use '..' for partial match)",
-                                expected, struct_name
-                            ),
-                        });
-                    }
-                }
-            }
-
-            // Check each field pattern
-            let mut all_bindings = HashMap::new();
-            let mut typed_fields = Vec::new();
-
-            for field_pattern in field_patterns {
-                // Find the field type
-                let (_, field_type) = struct_type
-                    .fields
-                    .iter()
-                    .find(|(n, _)| n == &field_pattern.field_name)
-                    .ok_or_else(|| TypeError {
-                        message: format!(
-                            "struct {} has no field '{}'",
-                            struct_name, field_pattern.field_name
-                        ),
-                    })?;
-
-                // Substitute type variables
-                let resolved_field_type = substitute_type_vars(field_type, &instantiation);
-                let resolved_field_type = ctx.resolve(&resolved_field_type);
-
-                // Recursively check the field pattern
-                let (typed_sub_pattern, sub_bindings) =
-                    check_pattern(&field_pattern.pattern, &resolved_field_type, env, ctx)?;
-                all_bindings.extend(sub_bindings);
-                typed_fields.push((field_pattern.field_name.clone(), typed_sub_pattern));
-            }
-
-            let typed_pattern = if is_partial {
-                TypedPattern::StructPartial {
-                    path: QualifiedPath::simple(struct_name.to_string()),
-                    fields: typed_fields,
-                }
-            } else {
-                TypedPattern::StructExact {
-                    path: QualifiedPath::simple(struct_name.to_string()),
-                    fields: typed_fields,
-                }
-            };
-
-            Ok((typed_pattern, all_bindings))
-        }
-
-        Pattern::Enum(enum_pattern) => {
-            check_enum_pattern(enum_pattern, scrutinee_ty, env, ctx)
-        }
+        // Struct pattern: Point { x }, Message::Move { x, .. }
+        // Works for both struct types and enum struct variants
+        Pattern::Struct {
+            path,
+            fields,
+            is_partial,
+        } => check_struct_pattern(path, fields, *is_partial, scrutinee_ty, env, ctx),
 
         Pattern::As { name, pattern } => {
             // Check variable name is snake_case
@@ -626,21 +516,19 @@ pub fn check_pattern(
     }
 }
 
-/// Check an enum pattern
-fn check_enum_pattern(
-    enum_pattern: &EnumPattern,
+/// Check a path pattern (unit enum variant): Option::None, root::Color::Red
+fn check_path_pattern(
+    path: &Path,
     scrutinee_ty: &Type,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
-    let EnumPattern { path, fields } = enum_pattern;
-
-    // Extract enum_name and variant_name from path
+    // Extract enum_name and variant_name from path (must have 2+ segments)
     let (enum_name, variant_name) = match path.segments.as_slice() {
         [e, v] => (e.as_str(), v.as_str()),
         _ => {
             return Err(TypeError {
-                message: format!("invalid enum pattern path: {}", path),
+                message: format!("invalid path pattern: {} (expected Enum::Variant)", path),
             });
         }
     };
@@ -650,7 +538,7 @@ fn check_enum_pattern(
         message: format!("unknown enum in pattern: {}", enum_name),
     })?;
 
-    // Find the variant
+    // Find the variant and verify it's a unit variant
     let variant_type = enum_type
         .variants
         .iter()
@@ -659,6 +547,15 @@ fn check_enum_pattern(
         .ok_or_else(|| TypeError {
             message: format!("enum {} has no variant {}", enum_name, variant_name),
         })?;
+
+    if !matches!(variant_type, EnumVariantType::Unit) {
+        return Err(TypeError {
+            message: format!(
+                "enum variant {}::{} is not a unit variant",
+                enum_name, variant_name
+            ),
+        });
+    }
 
     // Create fresh type variables for generic parameters
     let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
@@ -694,75 +591,363 @@ fn check_enum_pattern(
             ),
         })?;
 
-    // Check the pattern fields based on variant kind
-    match (fields, variant_type) {
-        (EnumPatternFields::Unit, EnumVariantType::Unit) => Ok((
-            TypedPattern::EnumUnit {
-                path: QualifiedPath::new(vec![
-                    enum_name.to_string(),
-                    variant_name.to_string(),
-                ]),
-            },
-            HashMap::new(),
-        )),
+    Ok((
+        TypedPattern::EnumUnit {
+            path: QualifiedPath::new(vec![enum_name.to_string(), variant_name.to_string()]),
+        },
+        HashMap::new(),
+    ))
+}
 
-        (EnumPatternFields::Tuple(tuple_pattern), EnumVariantType::Tuple(expected_types)) => {
-            let resolved_types: Vec<Type> = expected_types
-                .iter()
-                .map(|t| ctx.resolve(&substitute_type_vars(t, &instantiation)))
-                .collect();
+/// Check a call pattern (tuple enum variant): Option::Some(x), root::Result::Ok(v)
+fn check_call_pattern(
+    path: &Path,
+    args: &TuplePattern,
+    scrutinee_ty: &Type,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
+    // Extract enum_name and variant_name from path (must have 2+ segments)
+    let (enum_name, variant_name) = match path.segments.as_slice() {
+        [e, v] => (e.as_str(), v.as_str()),
+        _ => {
+            return Err(TypeError {
+                message: format!(
+                    "invalid call pattern path: {} (expected Enum::Variant)",
+                    path
+                ),
+            });
+        }
+    };
 
-            check_enum_tuple_pattern(
+    // Look up the enum definition
+    let enum_type = env.enums.get(enum_name).ok_or_else(|| TypeError {
+        message: format!("unknown enum in pattern: {}", enum_name),
+    })?;
+
+    // Find the variant and verify it's a tuple variant
+    let variant_type = enum_type
+        .variants
+        .iter()
+        .find(|(name, _)| name == variant_name)
+        .map(|(_, vt)| vt)
+        .ok_or_else(|| TypeError {
+            message: format!("enum {} has no variant {}", enum_name, variant_name),
+        })?;
+
+    let expected_types = match variant_type {
+        EnumVariantType::Tuple(types) => types,
+        _ => {
+            return Err(TypeError {
+                message: format!(
+                    "enum variant {}::{} is not a tuple variant",
+                    enum_name, variant_name
+                ),
+            });
+        }
+    };
+
+    // Create fresh type variables for generic parameters
+    let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
+    for &old_id in &enum_type.type_var_ids {
+        instantiation.insert(old_id, ctx.fresh_var());
+    }
+
+    // Build the expected enum type and unify with scrutinee
+    let type_args: Vec<Type> = enum_type
+        .type_var_ids
+        .iter()
+        .map(|id| instantiation[id].clone())
+        .collect();
+    let resolved_variants: Vec<(String, EnumVariantType)> = enum_type
+        .variants
+        .iter()
+        .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, &instantiation)))
+        .collect();
+    let expected_enum_ty = Type::Enum {
+        name: enum_name.to_string(),
+        type_args,
+        variants: resolved_variants,
+    };
+
+    ctx.unify(scrutinee_ty, &expected_enum_ty)
+        .map_err(|e| TypeError {
+            message: format!(
+                "enum pattern {}::{} cannot match type {}: {}",
                 enum_name,
                 variant_name,
-                tuple_pattern,
-                &resolved_types,
-                env,
-                ctx,
-            )
-        }
-
-        (
-            EnumPatternFields::Struct { fields, is_partial },
-            EnumVariantType::Struct(expected_fields),
-        ) => {
-            let resolved_fields: Vec<(String, Type)> = expected_fields
-                .iter()
-                .map(|(n, t)| (n.clone(), ctx.resolve(&substitute_type_vars(t, &instantiation))))
-                .collect();
-
-            check_enum_struct_pattern(
-                enum_name,
-                variant_name,
-                fields,
-                *is_partial,
-                &resolved_fields,
-                env,
-                ctx,
-            )
-        }
-
-        (EnumPatternFields::Unit, _) => Err(TypeError {
-            message: format!(
-                "enum variant {}::{} is not a unit variant",
-                enum_name, variant_name
+                ctx.resolve(scrutinee_ty),
+                e.message
             ),
-        }),
+        })?;
 
-        (EnumPatternFields::Tuple(_), _) => Err(TypeError {
-            message: format!(
-                "enum variant {}::{} is not a tuple variant",
-                enum_name, variant_name
-            ),
-        }),
+    // Resolve expected types with type variable substitution
+    let resolved_types: Vec<Type> = expected_types
+        .iter()
+        .map(|t| ctx.resolve(&substitute_type_vars(t, &instantiation)))
+        .collect();
 
-        (EnumPatternFields::Struct { .. }, _) => Err(TypeError {
+    check_enum_tuple_pattern(enum_name, variant_name, args, &resolved_types, env, ctx)
+}
+
+/// Check a struct pattern: Point { x }, Message::Move { x, .. }
+/// This handles both struct types and enum struct variants
+fn check_struct_pattern(
+    path: &Path,
+    field_patterns: &[zoya_ast::StructFieldPattern],
+    is_partial: bool,
+    scrutinee_ty: &Type,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
+    // Try to resolve as struct first (single-segment path), then as enum struct variant
+    match path.segments.as_slice() {
+        [name] => {
+            // Single-segment path: try as struct type
+            if let Some(struct_type) = env.structs.get(name.as_str()) {
+                return check_struct_type_pattern(
+                    name,
+                    struct_type,
+                    field_patterns,
+                    is_partial,
+                    scrutinee_ty,
+                    env,
+                    ctx,
+                );
+            }
+            // Not a known struct
+            Err(TypeError {
+                message: format!("unknown struct in pattern: {}", name),
+            })
+        }
+        [enum_name, variant_name] => {
+            // Two-segment path: try as enum struct variant
+            if let Some(enum_type) = env.enums.get(enum_name.as_str()) {
+                return check_enum_struct_variant_pattern(
+                    enum_name,
+                    variant_name,
+                    enum_type,
+                    field_patterns,
+                    is_partial,
+                    scrutinee_ty,
+                    env,
+                    ctx,
+                );
+            }
+            // Not a known enum - could also be module::Struct, but we don't support that yet
+            Err(TypeError {
+                message: format!(
+                    "unknown enum '{}' in pattern {}::{}",
+                    enum_name, enum_name, variant_name
+                ),
+            })
+        }
+        _ => Err(TypeError {
             message: format!(
-                "enum variant {}::{} is not a struct variant",
-                enum_name, variant_name
+                "invalid struct pattern path: {} (expected Name or Enum::Variant)",
+                path
             ),
         }),
     }
+}
+
+/// Check a struct type pattern: Point { x, y }
+fn check_struct_type_pattern(
+    struct_name: &str,
+    struct_type: &zoya_ir::StructType,
+    field_patterns: &[zoya_ast::StructFieldPattern],
+    is_partial: bool,
+    scrutinee_ty: &Type,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
+    // Create fresh type variables for generic parameters
+    let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
+    for &old_id in &struct_type.type_var_ids {
+        instantiation.insert(old_id, ctx.fresh_var());
+    }
+
+    // Build the expected struct type and unify with scrutinee
+    let type_args: Vec<Type> = struct_type
+        .type_var_ids
+        .iter()
+        .map(|id| instantiation[id].clone())
+        .collect();
+    let resolved_fields: Vec<(String, Type)> = struct_type
+        .fields
+        .iter()
+        .map(|(n, t)| (n.clone(), substitute_type_vars(t, &instantiation)))
+        .collect();
+    let expected_struct_ty = Type::Struct {
+        name: struct_name.to_string(),
+        type_args,
+        fields: resolved_fields,
+    };
+
+    ctx.unify(scrutinee_ty, &expected_struct_ty)
+        .map_err(|e| TypeError {
+            message: format!(
+                "struct pattern {} cannot match type {}: {}",
+                struct_name,
+                ctx.resolve(scrutinee_ty),
+                e.message
+            ),
+        })?;
+
+    // For exact patterns, verify all fields are covered
+    if !is_partial {
+        let expected_field_names: HashSet<&str> = struct_type
+            .fields
+            .iter()
+            .map(|(n, _)| n.as_str())
+            .collect();
+        let provided_field_names: HashSet<&str> = field_patterns
+            .iter()
+            .map(|f| f.field_name.as_str())
+            .collect();
+
+        for expected in &expected_field_names {
+            if !provided_field_names.contains(expected) {
+                return Err(TypeError {
+                    message: format!(
+                        "missing field '{}' in struct pattern {} (use '..' for partial match)",
+                        expected, struct_name
+                    ),
+                });
+            }
+        }
+    }
+
+    // Check each field pattern
+    let mut all_bindings = HashMap::new();
+    let mut typed_fields = Vec::new();
+
+    for field_pattern in field_patterns {
+        // Find the field type
+        let (_, field_type) = struct_type
+            .fields
+            .iter()
+            .find(|(n, _)| n == &field_pattern.field_name)
+            .ok_or_else(|| TypeError {
+                message: format!(
+                    "struct {} has no field '{}'",
+                    struct_name, field_pattern.field_name
+                ),
+            })?;
+
+        // Substitute type variables
+        let resolved_field_type = substitute_type_vars(field_type, &instantiation);
+        let resolved_field_type = ctx.resolve(&resolved_field_type);
+
+        // Recursively check the field pattern
+        let (typed_sub_pattern, sub_bindings) =
+            check_pattern(&field_pattern.pattern, &resolved_field_type, env, ctx)?;
+        all_bindings.extend(sub_bindings);
+        typed_fields.push((field_pattern.field_name.clone(), typed_sub_pattern));
+    }
+
+    let typed_pattern = if is_partial {
+        TypedPattern::StructPartial {
+            path: QualifiedPath::simple(struct_name.to_string()),
+            fields: typed_fields,
+        }
+    } else {
+        TypedPattern::StructExact {
+            path: QualifiedPath::simple(struct_name.to_string()),
+            fields: typed_fields,
+        }
+    };
+
+    Ok((typed_pattern, all_bindings))
+}
+
+/// Check an enum struct variant pattern: Message::Move { x, y }
+fn check_enum_struct_variant_pattern(
+    enum_name: &str,
+    variant_name: &str,
+    enum_type: &zoya_ir::EnumType,
+    field_patterns: &[zoya_ast::StructFieldPattern],
+    is_partial: bool,
+    scrutinee_ty: &Type,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
+    // Find the variant and verify it's a struct variant
+    let variant_type = enum_type
+        .variants
+        .iter()
+        .find(|(name, _)| name == variant_name)
+        .map(|(_, vt)| vt)
+        .ok_or_else(|| TypeError {
+            message: format!("enum {} has no variant {}", enum_name, variant_name),
+        })?;
+
+    let expected_fields = match variant_type {
+        EnumVariantType::Struct(fields) => fields,
+        _ => {
+            return Err(TypeError {
+                message: format!(
+                    "enum variant {}::{} is not a struct variant",
+                    enum_name, variant_name
+                ),
+            });
+        }
+    };
+
+    // Create fresh type variables for generic parameters
+    let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
+    for &old_id in &enum_type.type_var_ids {
+        instantiation.insert(old_id, ctx.fresh_var());
+    }
+
+    // Build the expected enum type and unify with scrutinee
+    let type_args: Vec<Type> = enum_type
+        .type_var_ids
+        .iter()
+        .map(|id| instantiation[id].clone())
+        .collect();
+    let resolved_variants: Vec<(String, EnumVariantType)> = enum_type
+        .variants
+        .iter()
+        .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, &instantiation)))
+        .collect();
+    let expected_enum_ty = Type::Enum {
+        name: enum_name.to_string(),
+        type_args,
+        variants: resolved_variants,
+    };
+
+    ctx.unify(scrutinee_ty, &expected_enum_ty)
+        .map_err(|e| TypeError {
+            message: format!(
+                "enum pattern {}::{} cannot match type {}: {}",
+                enum_name,
+                variant_name,
+                ctx.resolve(scrutinee_ty),
+                e.message
+            ),
+        })?;
+
+    // Resolve expected fields with type variable substitution
+    let resolved_fields: Vec<(String, Type)> = expected_fields
+        .iter()
+        .map(|(n, t)| {
+            (
+                n.clone(),
+                ctx.resolve(&substitute_type_vars(t, &instantiation)),
+            )
+        })
+        .collect();
+
+    check_enum_struct_pattern(
+        enum_name,
+        variant_name,
+        field_patterns,
+        is_partial,
+        &resolved_fields,
+        env,
+        ctx,
+    )
 }
 
 /// Check an enum tuple variant pattern
@@ -1099,11 +1284,7 @@ pub fn check_irrefutable(pattern: &Pattern) -> Result<(), String> {
             Ok(())
         }
 
-        Pattern::Struct(struct_pattern) => {
-            let fields = match struct_pattern {
-                StructPattern::Exact { fields, .. } => fields,
-                StructPattern::Partial { fields, .. } => fields,
-            };
+        Pattern::Struct { fields, .. } => {
             for field in fields {
                 check_irrefutable(&field.pattern)?;
             }
@@ -1117,7 +1298,8 @@ pub fn check_irrefutable(pattern: &Pattern) -> Result<(), String> {
         Pattern::List(_) => {
             Err("list patterns may not match (lists have dynamic length)".to_string())
         }
-        Pattern::Enum(_) => Err("enum patterns may not match all variants".to_string()),
+        Pattern::Path(_) => Err("enum patterns may not match all variants".to_string()),
+        Pattern::Call { .. } => Err("enum patterns may not match all variants".to_string()),
     }
 }
 
@@ -1740,7 +1922,7 @@ mod tests {
 
     #[test]
     fn test_struct_pattern_exact() {
-        let pattern = Pattern::Struct(StructPattern::Exact {
+        let pattern = Pattern::Struct {
             path: Path::simple("Point".to_string()),
             fields: vec![
                 StructFieldPattern {
@@ -1752,7 +1934,8 @@ mod tests {
                     pattern: Box::new(Pattern::Var("py".to_string())),
                 },
             ],
-        });
+            is_partial: false,
+        };
         let env = env_with_point();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Struct {
@@ -1770,7 +1953,7 @@ mod tests {
 
     #[test]
     fn test_struct_pattern_exact_missing_field() {
-        let pattern = Pattern::Struct(StructPattern::Exact {
+        let pattern = Pattern::Struct {
             path: Path::simple("Point".to_string()),
             fields: vec![
                 StructFieldPattern {
@@ -1779,7 +1962,8 @@ mod tests {
                 },
                 // Missing "y" field
             ],
-        });
+            is_partial: false,
+        };
         let env = env_with_point();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Struct {
@@ -1796,15 +1980,14 @@ mod tests {
 
     #[test]
     fn test_struct_pattern_partial() {
-        let pattern = Pattern::Struct(StructPattern::Partial {
+        let pattern = Pattern::Struct {
             path: Path::simple("Point".to_string()),
-            fields: vec![
-                StructFieldPattern {
-                    field_name: "x".to_string(),
-                    pattern: Box::new(Pattern::Var("px".to_string())),
-                },
-            ],
-        });
+            fields: vec![StructFieldPattern {
+                field_name: "x".to_string(),
+                pattern: Box::new(Pattern::Var("px".to_string())),
+            }],
+            is_partial: true,
+        };
         let env = env_with_point();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Struct {
@@ -1822,15 +2005,14 @@ mod tests {
 
     #[test]
     fn test_struct_pattern_unknown_field() {
-        let pattern = Pattern::Struct(StructPattern::Partial {
+        let pattern = Pattern::Struct {
             path: Path::simple("Point".to_string()),
-            fields: vec![
-                StructFieldPattern {
-                    field_name: "z".to_string(), // Point has no 'z' field
-                    pattern: Box::new(Pattern::Var("pz".to_string())),
-                },
-            ],
-        });
+            fields: vec![StructFieldPattern {
+                field_name: "z".to_string(), // Point has no 'z' field
+                pattern: Box::new(Pattern::Var("pz".to_string())),
+            }],
+            is_partial: true,
+        };
         let env = env_with_point();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Struct {
@@ -1846,10 +2028,11 @@ mod tests {
 
     #[test]
     fn test_struct_pattern_unknown_struct() {
-        let pattern = Pattern::Struct(StructPattern::Partial {
+        let pattern = Pattern::Struct {
             path: Path::simple("UnknownStruct".to_string()),
             fields: vec![],
-        });
+            is_partial: true,
+        };
         let mut ctx = UnifyCtx::new();
         let result = check_pattern(&pattern, &Type::Int, &default_env(), &mut ctx);
         assert!(result.is_err());
@@ -1901,13 +2084,11 @@ mod tests {
 
     #[test]
     fn test_enum_pattern_unit_variant() {
-        let pattern = Pattern::Enum(EnumPattern {
-            path: Path {
-                prefix: PathPrefix::None,
-                segments: vec!["Option".to_string(), "None".to_string()],
-                type_args: None,
-            },
-            fields: EnumPatternFields::Unit,
+        // Pattern::Path is used for unit enum variants
+        let pattern = Pattern::Path(Path {
+            prefix: PathPrefix::None,
+            segments: vec!["Option".to_string(), "None".to_string()],
+            type_args: None,
         });
         let env = env_with_option();
         let mut ctx = UnifyCtx::new();
@@ -1928,16 +2109,15 @@ mod tests {
 
     #[test]
     fn test_enum_pattern_tuple_variant() {
-        let pattern = Pattern::Enum(EnumPattern {
+        // Pattern::Call is used for tuple enum variants
+        let pattern = Pattern::Call {
             path: Path {
                 prefix: PathPrefix::None,
                 segments: vec!["Option".to_string(), "Some".to_string()],
                 type_args: None,
             },
-            fields: EnumPatternFields::Tuple(TuplePattern::Exact(vec![
-                Pattern::Var("value".to_string()),
-            ])),
-        });
+            args: TuplePattern::Exact(vec![Pattern::Var("value".to_string())]),
+        };
         let env = env_with_option();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
@@ -1956,26 +2136,25 @@ mod tests {
 
     #[test]
     fn test_enum_pattern_struct_variant() {
-        let pattern = Pattern::Enum(EnumPattern {
+        // Pattern::Struct with a qualified path is used for enum struct variants
+        let pattern = Pattern::Struct {
             path: Path {
                 prefix: PathPrefix::None,
                 segments: vec!["Message".to_string(), "Move".to_string()],
                 type_args: None,
             },
-            fields: EnumPatternFields::Struct {
-                fields: vec![
-                    StructFieldPattern {
-                        field_name: "x".to_string(),
-                        pattern: Box::new(Pattern::Var("px".to_string())),
-                    },
-                    StructFieldPattern {
-                        field_name: "y".to_string(),
-                        pattern: Box::new(Pattern::Var("py".to_string())),
-                    },
-                ],
-                is_partial: false,
-            },
-        });
+            fields: vec![
+                StructFieldPattern {
+                    field_name: "x".to_string(),
+                    pattern: Box::new(Pattern::Var("px".to_string())),
+                },
+                StructFieldPattern {
+                    field_name: "y".to_string(),
+                    pattern: Box::new(Pattern::Var("py".to_string())),
+                },
+            ],
+            is_partial: false,
+        };
         let env = env_with_message();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
@@ -1983,11 +2162,17 @@ mod tests {
             type_args: vec![],
             variants: vec![
                 ("Quit".to_string(), EnumVariantType::Unit),
-                ("Move".to_string(), EnumVariantType::Struct(vec![
-                    ("x".to_string(), Type::Int),
-                    ("y".to_string(), Type::Int),
-                ])),
-                ("Write".to_string(), EnumVariantType::Tuple(vec![Type::String])),
+                (
+                    "Move".to_string(),
+                    EnumVariantType::Struct(vec![
+                        ("x".to_string(), Type::Int),
+                        ("y".to_string(), Type::Int),
+                    ]),
+                ),
+                (
+                    "Write".to_string(),
+                    EnumVariantType::Tuple(vec![Type::String]),
+                ),
             ],
         };
         let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
@@ -1999,22 +2184,18 @@ mod tests {
 
     #[test]
     fn test_enum_pattern_struct_variant_partial() {
-        let pattern = Pattern::Enum(EnumPattern {
+        let pattern = Pattern::Struct {
             path: Path {
                 prefix: PathPrefix::None,
                 segments: vec!["Message".to_string(), "Move".to_string()],
                 type_args: None,
             },
-            fields: EnumPatternFields::Struct {
-                fields: vec![
-                    StructFieldPattern {
-                        field_name: "x".to_string(),
-                        pattern: Box::new(Pattern::Var("px".to_string())),
-                    },
-                ],
-                is_partial: true,
-            },
-        });
+            fields: vec![StructFieldPattern {
+                field_name: "x".to_string(),
+                pattern: Box::new(Pattern::Var("px".to_string())),
+            }],
+            is_partial: true,
+        };
         let env = env_with_message();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
@@ -2022,11 +2203,17 @@ mod tests {
             type_args: vec![],
             variants: vec![
                 ("Quit".to_string(), EnumVariantType::Unit),
-                ("Move".to_string(), EnumVariantType::Struct(vec![
-                    ("x".to_string(), Type::Int),
-                    ("y".to_string(), Type::Int),
-                ])),
-                ("Write".to_string(), EnumVariantType::Tuple(vec![Type::String])),
+                (
+                    "Move".to_string(),
+                    EnumVariantType::Struct(vec![
+                        ("x".to_string(), Type::Int),
+                        ("y".to_string(), Type::Int),
+                    ]),
+                ),
+                (
+                    "Write".to_string(),
+                    EnumVariantType::Tuple(vec![Type::String]),
+                ),
             ],
         };
         let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
@@ -2035,23 +2222,21 @@ mod tests {
 
     #[test]
     fn test_enum_pattern_struct_variant_missing_field() {
-        let pattern = Pattern::Enum(EnumPattern {
+        let pattern = Pattern::Struct {
             path: Path {
                 prefix: PathPrefix::None,
                 segments: vec!["Message".to_string(), "Move".to_string()],
                 type_args: None,
             },
-            fields: EnumPatternFields::Struct {
-                fields: vec![
-                    StructFieldPattern {
-                        field_name: "x".to_string(),
-                        pattern: Box::new(Pattern::Var("px".to_string())),
-                    },
-                    // Missing "y" field
-                ],
-                is_partial: false,
-            },
-        });
+            fields: vec![
+                StructFieldPattern {
+                    field_name: "x".to_string(),
+                    pattern: Box::new(Pattern::Var("px".to_string())),
+                },
+                // Missing "y" field
+            ],
+            is_partial: false,
+        };
         let env = env_with_message();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
@@ -2059,11 +2244,17 @@ mod tests {
             type_args: vec![],
             variants: vec![
                 ("Quit".to_string(), EnumVariantType::Unit),
-                ("Move".to_string(), EnumVariantType::Struct(vec![
-                    ("x".to_string(), Type::Int),
-                    ("y".to_string(), Type::Int),
-                ])),
-                ("Write".to_string(), EnumVariantType::Tuple(vec![Type::String])),
+                (
+                    "Move".to_string(),
+                    EnumVariantType::Struct(vec![
+                        ("x".to_string(), Type::Int),
+                        ("y".to_string(), Type::Int),
+                    ]),
+                ),
+                (
+                    "Write".to_string(),
+                    EnumVariantType::Tuple(vec![Type::String]),
+                ),
             ],
         };
         let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
@@ -2074,14 +2265,11 @@ mod tests {
 
     #[test]
     fn test_enum_pattern_kind_mismatch_unit_vs_tuple() {
-        // Try to match a tuple variant with a unit pattern
-        let pattern = Pattern::Enum(EnumPattern {
-            path: Path {
-                prefix: PathPrefix::None,
-                segments: vec!["Option".to_string(), "Some".to_string()],
-                type_args: None,
-            },
-            fields: EnumPatternFields::Unit,
+        // Try to match a tuple variant with a unit pattern (Pattern::Path)
+        let pattern = Pattern::Path(Path {
+            prefix: PathPrefix::None,
+            segments: vec!["Option".to_string(), "Some".to_string()],
+            type_args: None,
         });
         let env = env_with_option();
         let mut ctx = UnifyCtx::new();
@@ -2101,17 +2289,15 @@ mod tests {
 
     #[test]
     fn test_enum_pattern_kind_mismatch_tuple_vs_unit() {
-        // Try to match a unit variant with a tuple pattern
-        let pattern = Pattern::Enum(EnumPattern {
+        // Try to match a unit variant with a tuple pattern (Pattern::Call)
+        let pattern = Pattern::Call {
             path: Path {
                 prefix: PathPrefix::None,
                 segments: vec!["Option".to_string(), "None".to_string()],
                 type_args: None,
             },
-            fields: EnumPatternFields::Tuple(TuplePattern::Exact(vec![
-                Pattern::Var("x".to_string()),
-            ])),
-        });
+            args: TuplePattern::Exact(vec![Pattern::Var("x".to_string())]),
+        };
         let env = env_with_option();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
@@ -2130,18 +2316,16 @@ mod tests {
 
     #[test]
     fn test_enum_pattern_kind_mismatch_struct_vs_tuple() {
-        // Try to match a tuple variant with a struct pattern
-        let pattern = Pattern::Enum(EnumPattern {
+        // Try to match a tuple variant with a struct pattern (Pattern::Struct)
+        let pattern = Pattern::Struct {
             path: Path {
                 prefix: PathPrefix::None,
                 segments: vec!["Message".to_string(), "Write".to_string()],
                 type_args: None,
             },
-            fields: EnumPatternFields::Struct {
-                fields: vec![],
-                is_partial: true,
-            },
-        });
+            fields: vec![],
+            is_partial: true,
+        };
         let env = env_with_message();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
@@ -2149,11 +2333,17 @@ mod tests {
             type_args: vec![],
             variants: vec![
                 ("Quit".to_string(), EnumVariantType::Unit),
-                ("Move".to_string(), EnumVariantType::Struct(vec![
-                    ("x".to_string(), Type::Int),
-                    ("y".to_string(), Type::Int),
-                ])),
-                ("Write".to_string(), EnumVariantType::Tuple(vec![Type::String])),
+                (
+                    "Move".to_string(),
+                    EnumVariantType::Struct(vec![
+                        ("x".to_string(), Type::Int),
+                        ("y".to_string(), Type::Int),
+                    ]),
+                ),
+                (
+                    "Write".to_string(),
+                    EnumVariantType::Tuple(vec![Type::String]),
+                ),
             ],
         };
         let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
@@ -2164,13 +2354,10 @@ mod tests {
 
     #[test]
     fn test_enum_pattern_unknown_enum() {
-        let pattern = Pattern::Enum(EnumPattern {
-            path: Path {
-                prefix: PathPrefix::None,
-                segments: vec!["UnknownEnum".to_string(), "Variant".to_string()],
-                type_args: None,
-            },
-            fields: EnumPatternFields::Unit,
+        let pattern = Pattern::Path(Path {
+            prefix: PathPrefix::None,
+            segments: vec!["UnknownEnum".to_string(), "Variant".to_string()],
+            type_args: None,
         });
         let mut ctx = UnifyCtx::new();
         let result = check_pattern(&pattern, &Type::Int, &default_env(), &mut ctx);
@@ -2181,13 +2368,10 @@ mod tests {
 
     #[test]
     fn test_enum_pattern_unknown_variant() {
-        let pattern = Pattern::Enum(EnumPattern {
-            path: Path {
-                prefix: PathPrefix::None,
-                segments: vec!["Option".to_string(), "Unknown".to_string()],
-                type_args: None,
-            },
-            fields: EnumPatternFields::Unit,
+        let pattern = Pattern::Path(Path {
+            prefix: PathPrefix::None,
+            segments: vec!["Option".to_string(), "Unknown".to_string()],
+            type_args: None,
         });
         let env = env_with_option();
         let mut ctx = UnifyCtx::new();
@@ -2207,15 +2391,17 @@ mod tests {
 
     #[test]
     fn test_enum_pattern_invalid_path() {
-        let pattern = Pattern::Enum(EnumPattern {
+        // Single-segment path is treated as struct, not enum
+        let pattern = Pattern::Struct {
             path: Path::simple("JustOneName".to_string()),
-            fields: EnumPatternFields::Unit,
-        });
+            fields: vec![],
+            is_partial: true,
+        };
         let mut ctx = UnifyCtx::new();
         let result = check_pattern(&pattern, &Type::Int, &default_env(), &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("invalid enum pattern path"));
+        assert!(err.message.contains("unknown struct in pattern"));
     }
 
     // ========================================================================
@@ -2322,29 +2508,27 @@ mod tests {
 
     #[test]
     fn test_irrefutable_struct() {
-        let pattern = Pattern::Struct(StructPattern::Exact {
+        let pattern = Pattern::Struct {
             path: Path::simple("Point".to_string()),
-            fields: vec![
-                StructFieldPattern {
-                    field_name: "x".to_string(),
-                    pattern: Box::new(Pattern::Var("px".to_string())),
-                },
-            ],
-        });
+            fields: vec![StructFieldPattern {
+                field_name: "x".to_string(),
+                pattern: Box::new(Pattern::Var("px".to_string())),
+            }],
+            is_partial: false,
+        };
         assert!(check_irrefutable(&pattern).is_ok());
     }
 
     #[test]
     fn test_irrefutable_struct_refutable_field() {
-        let pattern = Pattern::Struct(StructPattern::Exact {
+        let pattern = Pattern::Struct {
             path: Path::simple("Point".to_string()),
-            fields: vec![
-                StructFieldPattern {
-                    field_name: "x".to_string(),
-                    pattern: Box::new(Pattern::Literal(Box::new(Expr::Int(0)))),
-                },
-            ],
-        });
+            fields: vec![StructFieldPattern {
+                field_name: "x".to_string(),
+                pattern: Box::new(Pattern::Literal(Box::new(Expr::Int(0)))),
+            }],
+            is_partial: false,
+        };
         assert!(check_irrefutable(&pattern).is_err());
     }
 
@@ -2383,15 +2567,27 @@ mod tests {
     }
 
     #[test]
-    fn test_refutable_enum() {
-        let pattern = Pattern::Enum(EnumPattern {
+    fn test_refutable_path_pattern() {
+        let pattern = Pattern::Path(Path {
+            prefix: PathPrefix::None,
+            segments: vec!["Option".to_string(), "None".to_string()],
+            type_args: None,
+        });
+        let result = check_irrefutable(&pattern);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("enum patterns may not match"));
+    }
+
+    #[test]
+    fn test_refutable_call_pattern() {
+        let pattern = Pattern::Call {
             path: Path {
                 prefix: PathPrefix::None,
-                segments: vec!["Option".to_string(), "None".to_string()],
+                segments: vec!["Option".to_string(), "Some".to_string()],
                 type_args: None,
             },
-            fields: EnumPatternFields::Unit,
-        });
+            args: TuplePattern::Exact(vec![Pattern::Var("x".to_string())]),
+        };
         let result = check_irrefutable(&pattern);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("enum patterns may not match"));
@@ -2419,84 +2615,93 @@ mod tests {
 
     #[test]
     fn test_enum_tuple_pattern_prefix() {
-        let pattern = Pattern::Enum(EnumPattern {
+        let pattern = Pattern::Call {
             path: Path {
                 prefix: PathPrefix::None,
                 segments: vec!["Data".to_string(), "Triple".to_string()],
                 type_args: None,
             },
-            fields: EnumPatternFields::Tuple(TuplePattern::Prefix {
+            args: TuplePattern::Prefix {
                 patterns: vec![Pattern::Var("first".to_string())],
                 rest_binding: Some("rest".to_string()),
-            }),
-        });
+            },
+        };
         let env = env_with_multi_tuple_enum();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
             name: "Data".to_string(),
             type_args: vec![],
-            variants: vec![
-                ("Triple".to_string(), EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool])),
-            ],
+            variants: vec![(
+                "Triple".to_string(),
+                EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool]),
+            )],
         };
         let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("first"), Some(&Type::Int));
-        assert_eq!(bindings.get("rest"), Some(&Type::Tuple(vec![Type::String, Type::Bool])));
+        assert_eq!(
+            bindings.get("rest"),
+            Some(&Type::Tuple(vec![Type::String, Type::Bool]))
+        );
     }
 
     #[test]
     fn test_enum_tuple_pattern_suffix() {
-        let pattern = Pattern::Enum(EnumPattern {
+        let pattern = Pattern::Call {
             path: Path {
                 prefix: PathPrefix::None,
                 segments: vec!["Data".to_string(), "Triple".to_string()],
                 type_args: None,
             },
-            fields: EnumPatternFields::Tuple(TuplePattern::Suffix {
+            args: TuplePattern::Suffix {
                 patterns: vec![Pattern::Var("last".to_string())],
                 rest_binding: Some("init".to_string()),
-            }),
-        });
+            },
+        };
         let env = env_with_multi_tuple_enum();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
             name: "Data".to_string(),
             type_args: vec![],
-            variants: vec![
-                ("Triple".to_string(), EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool])),
-            ],
+            variants: vec![(
+                "Triple".to_string(),
+                EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool]),
+            )],
         };
         let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("last"), Some(&Type::Bool));
-        assert_eq!(bindings.get("init"), Some(&Type::Tuple(vec![Type::Int, Type::String])));
+        assert_eq!(
+            bindings.get("init"),
+            Some(&Type::Tuple(vec![Type::Int, Type::String]))
+        );
     }
 
     #[test]
     fn test_enum_tuple_pattern_prefix_suffix() {
-        let pattern = Pattern::Enum(EnumPattern {
+        let pattern = Pattern::Call {
             path: Path {
                 prefix: PathPrefix::None,
                 segments: vec!["Data".to_string(), "Triple".to_string()],
                 type_args: None,
             },
-            fields: EnumPatternFields::Tuple(TuplePattern::PrefixSuffix {
+            args: TuplePattern::PrefixSuffix {
                 prefix: vec![Pattern::Var("first".to_string())],
                 suffix: vec![Pattern::Var("last".to_string())],
                 rest_binding: Some("middle".to_string()),
-            }),
-        });
+            },
+        };
         let env = env_with_multi_tuple_enum();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
             name: "Data".to_string(),
             type_args: vec![],
-            variants: vec![
-                ("Triple".to_string(), EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool])),
-            ],
+            variants: vec![(
+                "Triple".to_string(),
+                EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool]),
+            )],
         };
         let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
         assert!(result.is_ok());
@@ -2508,27 +2713,28 @@ mod tests {
 
     #[test]
     fn test_enum_tuple_pattern_too_many_elements() {
-        let pattern = Pattern::Enum(EnumPattern {
+        let pattern = Pattern::Call {
             path: Path {
                 prefix: PathPrefix::None,
                 segments: vec!["Data".to_string(), "Triple".to_string()],
                 type_args: None,
             },
-            fields: EnumPatternFields::Tuple(TuplePattern::Exact(vec![
+            args: TuplePattern::Exact(vec![
                 Pattern::Var("a".to_string()),
                 Pattern::Var("b".to_string()),
                 Pattern::Var("c".to_string()),
                 Pattern::Var("d".to_string()), // Too many!
-            ])),
-        });
+            ]),
+        };
         let env = env_with_multi_tuple_enum();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
             name: "Data".to_string(),
             type_args: vec![],
-            variants: vec![
-                ("Triple".to_string(), EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool])),
-            ],
+            variants: vec![(
+                "Triple".to_string(),
+                EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool]),
+            )],
         };
         let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
         assert!(result.is_err());
@@ -2538,22 +2744,23 @@ mod tests {
 
     #[test]
     fn test_enum_tuple_pattern_empty_on_nonempty() {
-        let pattern = Pattern::Enum(EnumPattern {
+        let pattern = Pattern::Call {
             path: Path {
                 prefix: PathPrefix::None,
                 segments: vec!["Data".to_string(), "Triple".to_string()],
                 type_args: None,
             },
-            fields: EnumPatternFields::Tuple(TuplePattern::Empty),
-        });
+            args: TuplePattern::Empty,
+        };
         let env = env_with_multi_tuple_enum();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
             name: "Data".to_string(),
             type_args: vec![],
-            variants: vec![
-                ("Triple".to_string(), EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool])),
-            ],
+            variants: vec![(
+                "Triple".to_string(),
+                EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool]),
+            )],
         };
         let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
         assert!(result.is_err());

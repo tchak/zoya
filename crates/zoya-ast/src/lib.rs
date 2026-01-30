@@ -225,32 +225,26 @@ pub enum Pattern {
     Wildcard,              // _ (matches all)
     List(ListPattern),     // [], [a, b], [x, ..]
     Tuple(TuplePattern),   // (), (a, b), (x, ..)
-    Struct(StructPattern), // Point { x, y }, Point { x: px, .. }
-    Enum(EnumPattern),     // Option::Some(x), Option::None, Message::Move { x, .. }
+
+    // Unified path-based patterns (like expressions)
+    /// Path pattern for unit constructors: `Option::None`, `root::Color::Red`
+    Path(Path),
+    /// Call pattern for tuple constructors: `Option::Some(x)`, `root::Result::Ok(v)`
+    Call {
+        path: Path,
+        args: TuplePattern, // Reuse TuplePattern for rest support
+    },
+    /// Struct pattern: `Point { x }`, `Message::Move { x, .. }`
+    /// Works for both struct types and enum struct variants - type checker resolves which
+    Struct {
+        path: Path,
+        fields: Vec<StructFieldPattern>,
+        is_partial: bool,
+    },
+
     As {
         name: String,          // n @ pattern - binds entire matched value to `n`
         pattern: Box<Pattern>,
-    },
-}
-
-/// Enum pattern: `Option::Some(x)`, `Option::None`, `Message::Move { x, .. }`
-#[derive(Debug, Clone, PartialEq)]
-pub struct EnumPattern {
-    pub path: Path,
-    pub fields: EnumPatternFields,
-}
-
-/// Fields in an enum pattern
-#[derive(Debug, Clone, PartialEq)]
-pub enum EnumPatternFields {
-    /// Unit variant: `Option::None`
-    Unit,
-    /// Tuple variant: `Option::Some(x)` or `Pair(a, b)`, reusing TuplePattern for rest support
-    Tuple(TuplePattern),
-    /// Struct variant: `Move { x, y }` or `Move { x, .. }`
-    Struct {
-        fields: Vec<StructFieldPattern>,
-        is_partial: bool,
     },
 }
 
@@ -259,21 +253,6 @@ pub enum EnumPatternFields {
 pub struct StructFieldPattern {
     pub field_name: String,   // the struct field being matched
     pub pattern: Box<Pattern>, // the pattern for this field (Var(same_name) for shorthand)
-}
-
-/// Struct pattern variants
-#[derive(Debug, Clone, PartialEq)]
-pub enum StructPattern {
-    /// `Point { x, y }` - exact field match (all fields must be present)
-    Exact {
-        path: Path,
-        fields: Vec<StructFieldPattern>,
-    },
-    /// `Point { x, .. }` - partial match with rest (some fields can be omitted)
-    Partial {
-        path: Path,
-        fields: Vec<StructFieldPattern>,
-    },
 }
 
 /// List pattern variants

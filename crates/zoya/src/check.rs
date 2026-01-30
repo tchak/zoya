@@ -3157,23 +3157,21 @@ mod tests {
     }
 
     #[test]
-    fn test_let_enum_pattern_rejected() {
-        use zoya_ast::{EnumPattern, EnumPatternFields, Pattern, TuplePattern};
+    fn test_let_call_pattern_rejected() {
+        use zoya_ast::{Pattern, TuplePattern};
         let mut env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
         let items: Vec<Item> = vec![];
         // Don't need to set up actual enum type - irrefutability check happens before type checking
         let stmts = vec![Stmt::Let(LetBinding {
-            pattern: Pattern::Enum(EnumPattern {
+            pattern: Pattern::Call {
                 path: Path {
                     prefix: PathPrefix::None,
                     segments: vec!["Option".to_string(), "Some".to_string()],
                     type_args: None,
                 },
-                fields: EnumPatternFields::Tuple(TuplePattern::Exact(vec![Pattern::Var(
-                    "x".to_string(),
-                )])),
-            }),
+                args: TuplePattern::Exact(vec![Pattern::Var("x".to_string())]),
+            },
             type_annotation: None,
             value: Box::new(Expr::Int(42)), // Doesn't matter, will fail at irrefutability check first
         })];
