@@ -12,7 +12,7 @@ pub fn execute(path: &Path) -> Result<(), EvalError> {
         .map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?;
 
     // Type check entire module tree
-    let mut env = TypeEnv::with_builtins();
+    let mut env = TypeEnv::default();
     let mut ctx = UnifyCtx::new();
     let checked_tree = check_module_tree(&tree, &mut env, &mut ctx)
         .map_err(|e| EvalError::RuntimeError(e.to_string()))?;

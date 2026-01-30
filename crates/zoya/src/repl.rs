@@ -150,7 +150,7 @@ impl State {
         })?;
 
         Ok(State {
-            type_env: TypeEnv::with_builtins(),
+            type_env: TypeEnv::default(),
             runtime,
             context,
         })

@@ -8,7 +8,7 @@ pub fn execute(path: &Path) -> Result<(), String> {
     let tree = zoya_loader::load_modules(path).map_err(|e| format!("error: {}", e))?;
 
     // Type check entire module tree
-    let mut env = TypeEnv::with_builtins();
+    let mut env = TypeEnv::default();
     let mut ctx = UnifyCtx::new();
     check_module_tree(&tree, &mut env, &mut ctx).map_err(|e| format!("error: {}", e))?;
 

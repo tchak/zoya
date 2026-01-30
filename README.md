@@ -114,8 +114,6 @@ Zoya has the following built-in types:
 | `(T, U, ...)` | `(1, "hello")`, `()`, `(42,)` |
 | `T -> U` | `Int -> Bool`, `(Int, Int) -> Int` |
 
-Built-in generic types: `Option<T>` and `Result<T, E>`.
-
 ### Functions
 
 ```zoya

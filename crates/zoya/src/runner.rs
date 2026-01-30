@@ -13,7 +13,7 @@ pub fn run(source: &str) -> Result<Value, EvalError> {
     let items = module_def.items;
 
     // Type-check all items
-    let mut env = TypeEnv::with_builtins();
+    let mut env = TypeEnv::default();
     let mut ctx = UnifyCtx::new();
     let checked_items =
         check_items(&items, &mut env, &mut ctx).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
@@ -1768,6 +1768,7 @@ mod tests {
     #[test]
     fn test_turbofish_unit_variant() {
         let source = r#"
+            enum Option<T> { None, Some(T) }
             fn main() -> Int {
                 let x = Option::None::<Int>;
                 match x {
@@ -1783,6 +1784,7 @@ mod tests {
     #[test]
     fn test_turbofish_tuple_variant() {
         let source = r#"
+            enum Option<T> { None, Some(T) }
             fn main() -> Int {
                 let x = Option::Some::<Int>(42);
                 match x {
@@ -1810,6 +1812,7 @@ mod tests {
     #[test]
     fn test_turbofish_multiple_type_args() {
         let source = r#"
+            enum Result<T, E> { Ok(T), Err(E) }
             fn main() -> Int {
                 let x = Result::Ok::<Int, String>(42);
                 match x {
@@ -1841,6 +1844,7 @@ mod tests {
     #[test]
     fn test_as_pattern_with_enum() {
         let source = r#"
+            enum Option<T> { None, Some(T) }
             fn main() -> Int {
                 let opt = Option::Some(10);
                 match opt {

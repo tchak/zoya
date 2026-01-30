@@ -21,7 +21,7 @@ use zoya_loader::{ModulePath, ModuleTree};
 
 pub use unify::UnifyCtx;
 
-pub use builtin::{builtin_enums, builtin_method, is_numeric_type};
+pub use builtin::{builtin_method, is_numeric_type};
 pub use definition::{enum_type_from_def, function_type_from_def, struct_type_from_def, type_alias_from_def};
 pub use naming::{is_pascal_case, is_snake_case, to_pascal_case, to_snake_case};
 pub use pattern::{check_irrefutable, check_let_binding, check_match_arm, check_pattern};
@@ -43,14 +43,6 @@ pub struct TypeEnv {
 }
 
 impl TypeEnv {
-    /// Create a TypeEnv with built-in types (Option, Result)
-    pub fn with_builtins() -> Self {
-        TypeEnv {
-            enums: builtin_enums(),
-            ..Default::default()
-        }
-    }
-
     pub fn with_locals(&self, locals: HashMap<String, TypeScheme>) -> Self {
         TypeEnv {
             functions: self.functions.clone(),
@@ -3221,7 +3213,7 @@ mod tests {
                 body: Expr::Int(42),
             }),
         ];
-        let mut env = TypeEnv::with_builtins();
+        let mut env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
         let result = check_items(&items, &mut env, &mut ctx);
         assert!(result.is_ok());
@@ -3254,7 +3246,7 @@ mod tests {
                 body: Expr::Tuple(vec![Expr::Int(1), Expr::Bool(true)]),
             }),
         ];
-        let mut env = TypeEnv::with_builtins();
+        let mut env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
         let result = check_items(&items, &mut env, &mut ctx);
         assert!(result.is_ok());
@@ -3268,7 +3260,7 @@ mod tests {
             type_params: vec![],
             typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
         })];
-        let mut env = TypeEnv::with_builtins();
+        let mut env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
         let result = check_items(&items, &mut env, &mut ctx);
         assert!(result.is_err());
@@ -3299,7 +3291,7 @@ mod tests {
                 body: Expr::Tuple(vec![Expr::Int(1), Expr::Int(2)]),
             }),
         ];
-        let mut env = TypeEnv::with_builtins();
+        let mut env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
         let result = check_items(&items, &mut env, &mut ctx);
         assert!(result.is_err());
