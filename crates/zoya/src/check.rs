@@ -1710,7 +1710,7 @@ pub fn check_stmts(
                     env.locals.insert(name, scheme);
                 }
 
-                checked_stmts.push(CheckedStmt::Let(typed_binding));
+                checked_stmts.push(CheckedStmt::Let(Box::new(typed_binding)));
             }
         }
     }

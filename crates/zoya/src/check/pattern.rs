@@ -862,6 +862,7 @@ fn check_struct_type_pattern(
 }
 
 /// Check an enum struct variant pattern: Message::Move { x, y }
+#[allow(clippy::too_many_arguments)]
 fn check_enum_struct_variant_pattern(
     enum_name: &str,
     variant_name: &str,

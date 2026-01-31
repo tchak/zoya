@@ -42,7 +42,7 @@ pub enum CheckedItem {
 #[derive(Debug, Clone, PartialEq)]
 pub enum CheckedStmt {
     Expr(TypedExpr),
-    Let(TypedLetBinding),
+    Let(Box<TypedLetBinding>),
 }
 
 /// Typed function definition
