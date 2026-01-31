@@ -64,6 +64,34 @@ impl TypeEnv {
         }
         set
     }
+
+    /// Look up a function by name, trying both simple and qualified (root::name) forms
+    pub fn get_function(&self, name: &str) -> Option<&FunctionType> {
+        self.functions
+            .get(name)
+            .or_else(|| self.functions.get(&format!("root::{}", name)))
+    }
+
+    /// Look up a struct by name, trying both simple and qualified (root::name) forms
+    pub fn get_struct(&self, name: &str) -> Option<&StructType> {
+        self.structs
+            .get(name)
+            .or_else(|| self.structs.get(&format!("root::{}", name)))
+    }
+
+    /// Look up an enum by name, trying both simple and qualified (root::name) forms
+    pub fn get_enum(&self, name: &str) -> Option<&EnumType> {
+        self.enums
+            .get(name)
+            .or_else(|| self.enums.get(&format!("root::{}", name)))
+    }
+
+    /// Look up a type alias by name, trying both simple and qualified (root::name) forms
+    pub fn get_type_alias(&self, name: &str) -> Option<&TypeAliasType> {
+        self.type_aliases
+            .get(name)
+            .or_else(|| self.type_aliases.get(&format!("root::{}", name)))
+    }
 }
 
 /// Check a function definition and return a typed function
@@ -189,7 +217,7 @@ fn check_path_expr(path: &Path, env: &TypeEnv, ctx: &mut UnifyCtx) -> Result<Typ
         }
         // Two segments: must be Enum::Variant (unit variant)
         [enum_name, variant_name] => {
-            let enum_type = env.enums.get(enum_name).ok_or_else(|| TypeError {
+            let enum_type = env.get_enum(enum_name).ok_or_else(|| TypeError {
                 message: format!("unknown enum: {}", enum_name),
             })?;
 
@@ -324,7 +352,7 @@ fn check_simple_call(
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
     // First, try to look up as a named function
-    if let Some(func_type) = env.functions.get(func) {
+    if let Some(func_type) = env.get_function(func) {
         // Check argument count
         if args.len() != func_type.params.len() {
             return Err(TypeError {
@@ -478,7 +506,7 @@ fn check_enum_tuple_construct(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    let enum_type = env.enums.get(enum_name).ok_or_else(|| TypeError {
+    let enum_type = env.get_enum(enum_name).ok_or_else(|| TypeError {
         message: format!("unknown enum: {}", enum_name),
     })?;
 
@@ -1000,7 +1028,7 @@ fn check_struct_construct(
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
     // Look up the struct definition
-    let struct_type = env.structs.get(name).ok_or_else(|| TypeError {
+    let struct_type = env.get_struct(name).ok_or_else(|| TypeError {
         message: format!("unknown struct: {}", name),
     })?;
 
@@ -1106,7 +1134,7 @@ fn check_enum_struct_construct(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    let enum_type = env.enums.get(enum_name).ok_or_else(|| TypeError {
+    let enum_type = env.get_enum(enum_name).ok_or_else(|| TypeError {
         message: format!("unknown enum: {}", enum_name),
     })?;
 

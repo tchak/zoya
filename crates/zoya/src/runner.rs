@@ -1,25 +1,29 @@
-use crate::check::{check_items, TypeEnv, UnifyCtx};
-use zoya_codegen::{codegen_items, prelude};
+use crate::check::{check_module_tree, TypeEnv, UnifyCtx};
 use crate::eval::{self, EvalError, Value};
+use zoya_codegen::{codegen_module_tree, prelude};
 use zoya_ir::CheckedItem;
+use zoya_loader::{load_modules_with, MemorySource};
 
 /// Run Zoya source code and return the result
 pub fn run(source: &str) -> Result<Value, EvalError> {
-    // Lex and parse
-    let tokens = zoya_lexer::lex(source).map_err(|e| EvalError::RuntimeError(e.message))?;
-    let module_def =
-        zoya_parser::parse_module(tokens).map_err(|e| EvalError::RuntimeError(e.message))?;
-    // Note: mod declarations are ignored for string-based execution
-    let items = module_def.items;
+    // Load module using memory source
+    let mem_source = MemorySource::new().with_module("root", source);
+    let tree = load_modules_with(&mem_source, &"root".to_string())
+        .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
 
-    // Type-check all items
+    // Type check module tree
     let mut env = TypeEnv::default();
     let mut ctx = UnifyCtx::new();
-    let checked_items =
-        check_items(&items, &mut env, &mut ctx).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+    let checked_tree = check_module_tree(&tree, &mut env, &mut ctx)
+        .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
 
-    // Find and validate main function
-    let main_func = checked_items
+    // Find main in root module
+    let root_module = checked_tree
+        .root()
+        .ok_or_else(|| EvalError::RuntimeError("root module not found".to_string()))?;
+
+    let main_func = root_module
+        .items
         .iter()
         .find_map(|item| match item {
             CheckedItem::Function(f) if f.name == "main" => Some(f.as_ref()),
@@ -37,7 +41,7 @@ pub fn run(source: &str) -> Result<Value, EvalError> {
     let mut js_code = String::new();
     js_code.push_str(prelude());
     js_code.push('\n');
-    js_code.push_str(&codegen_items(&checked_items));
+    js_code.push_str(&codegen_module_tree(&checked_tree));
     js_code.push_str("$main()");
 
     // Execute

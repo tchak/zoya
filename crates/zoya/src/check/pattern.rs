@@ -534,7 +534,7 @@ fn check_path_pattern(
     };
 
     // Look up the enum definition
-    let enum_type = env.enums.get(enum_name).ok_or_else(|| TypeError {
+    let enum_type = env.get_enum(enum_name).ok_or_else(|| TypeError {
         message: format!("unknown enum in pattern: {}", enum_name),
     })?;
 
@@ -621,7 +621,7 @@ fn check_call_pattern(
     };
 
     // Look up the enum definition
-    let enum_type = env.enums.get(enum_name).ok_or_else(|| TypeError {
+    let enum_type = env.get_enum(enum_name).ok_or_else(|| TypeError {
         message: format!("unknown enum in pattern: {}", enum_name),
     })?;
 
@@ -704,7 +704,7 @@ fn check_struct_pattern(
     match path.segments.as_slice() {
         [name] => {
             // Single-segment path: try as struct type
-            if let Some(struct_type) = env.structs.get(name.as_str()) {
+            if let Some(struct_type) = env.get_struct(name.as_str()) {
                 return check_struct_type_pattern(
                     name,
                     struct_type,
@@ -722,7 +722,7 @@ fn check_struct_pattern(
         }
         [enum_name, variant_name] => {
             // Two-segment path: try as enum struct variant
-            if let Some(enum_type) = env.enums.get(enum_name.as_str()) {
+            if let Some(enum_type) = env.get_enum(enum_name.as_str()) {
                 return check_enum_struct_variant_pattern(
                     enum_name,
                     variant_name,

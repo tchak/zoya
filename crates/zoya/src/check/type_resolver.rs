@@ -31,7 +31,7 @@ pub fn resolve_type_annotation(
                 Ok(Type::String)
             } else if let Some(&id) = type_param_map.get(name) {
                 Ok(Type::Var(id))
-            } else if let Some(struct_def) = env.structs.get(name) {
+            } else if let Some(struct_def) = env.get_struct(name) {
                 // Non-generic struct reference
                 if !struct_def.type_params.is_empty() {
                     return Err(TypeError {
@@ -48,7 +48,7 @@ pub fn resolve_type_annotation(
                     type_args: vec![],
                     fields: struct_def.fields.clone(),
                 })
-            } else if let Some(enum_def) = env.enums.get(name) {
+            } else if let Some(enum_def) = env.get_enum(name) {
                 // Non-generic enum reference
                 if !enum_def.type_params.is_empty() {
                     return Err(TypeError {
@@ -65,7 +65,7 @@ pub fn resolve_type_annotation(
                     type_args: vec![],
                     variants: enum_def.variants.clone(),
                 })
-            } else if let Some(alias_def) = env.type_aliases.get(name) {
+            } else if let Some(alias_def) = env.get_type_alias(name) {
                 // Non-generic type alias reference
                 if !alias_def.type_params.is_empty() {
                     return Err(TypeError {
@@ -97,7 +97,7 @@ pub fn resolve_type_annotation(
                 }
                 let elem_type = resolve_type_annotation(&params[0], type_param_map, env)?;
                 Ok(Type::List(Box::new(elem_type)))
-            } else if let Some(struct_def) = env.structs.get(name) {
+            } else if let Some(struct_def) = env.get_struct(name) {
                 // Generic struct reference
                 if params.len() != struct_def.type_params.len() {
                     return Err(TypeError {
@@ -128,7 +128,7 @@ pub fn resolve_type_annotation(
                     type_args,
                     fields,
                 })
-            } else if let Some(enum_def) = env.enums.get(name) {
+            } else if let Some(enum_def) = env.get_enum(name) {
                 // Generic enum reference
                 if params.len() != enum_def.type_params.len() {
                     return Err(TypeError {
@@ -159,7 +159,7 @@ pub fn resolve_type_annotation(
                     type_args,
                     variants,
                 })
-            } else if let Some(alias_def) = env.type_aliases.get(name) {
+            } else if let Some(alias_def) = env.get_type_alias(name) {
                 // Generic type alias reference
                 if params.len() != alias_def.type_params.len() {
                     return Err(TypeError {
