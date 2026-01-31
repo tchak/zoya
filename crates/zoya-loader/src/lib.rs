@@ -1,7 +1,255 @@
 use std::collections::{HashMap, HashSet};
+use std::fmt::{Debug, Display};
 use std::path::{Path, PathBuf};
 
 use zoya_ast::Item;
+
+// ============================================================================
+// Path Wrapper (PathBuf with Display)
+// ============================================================================
+
+/// A wrapper around PathBuf that implements Display
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FilePath(pub PathBuf);
+
+impl FilePath {
+    pub fn new(path: impl AsRef<Path>) -> Self {
+        Self(path.as_ref().to_path_buf())
+    }
+
+    pub fn as_path(&self) -> &Path {
+        &self.0
+    }
+
+    pub fn join(&self, path: impl AsRef<Path>) -> Self {
+        Self(self.0.join(path))
+    }
+
+    pub fn parent(&self) -> Option<&Path> {
+        self.0.parent()
+    }
+
+    pub fn file_stem(&self) -> Option<&std::ffi::OsStr> {
+        self.0.file_stem()
+    }
+
+    pub fn file_name(&self) -> Option<&std::ffi::OsStr> {
+        self.0.file_name()
+    }
+
+    pub fn exists(&self) -> bool {
+        self.0.exists()
+    }
+}
+
+impl Display for FilePath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0.display())
+    }
+}
+
+impl From<PathBuf> for FilePath {
+    fn from(path: PathBuf) -> Self {
+        Self(path)
+    }
+}
+
+impl From<&Path> for FilePath {
+    fn from(path: &Path) -> Self {
+        Self(path.to_path_buf())
+    }
+}
+
+impl AsRef<Path> for FilePath {
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
+
+// ============================================================================
+// Source Error Types
+// ============================================================================
+
+/// Error kind for source operations
+#[derive(Debug, Clone, PartialEq)]
+pub enum SourceErrorKind {
+    NotFound,
+    PermissionDenied,
+    IoError,
+    Other,
+}
+
+/// Error from a module source operation
+#[derive(Debug, Clone, PartialEq)]
+pub struct SourceError {
+    pub kind: SourceErrorKind,
+    pub message: String,
+}
+
+impl SourceError {
+    pub fn not_found(message: impl Into<String>) -> Self {
+        Self {
+            kind: SourceErrorKind::NotFound,
+            message: message.into(),
+        }
+    }
+
+    pub fn io_error(message: impl Into<String>) -> Self {
+        Self {
+            kind: SourceErrorKind::IoError,
+            message: message.into(),
+        }
+    }
+}
+
+impl Display for SourceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for SourceError {}
+
+// ============================================================================
+// ModuleSource Trait
+// ============================================================================
+
+/// Trait for abstracting module source backends (filesystem, memory, etc.)
+pub trait ModuleSource {
+    /// The path type used by this source (e.g., PathBuf for filesystem, String for memory)
+    type Path: Clone + Debug + Display;
+
+    /// Read the source code at the given path
+    fn read(&self, path: &Self::Path) -> Result<String, SourceError>;
+
+    /// Check if a module exists at the given path
+    fn exists(&self, path: &Self::Path) -> bool;
+
+    /// Resolve the path for a submodule given the current module's logical path and the submodule name
+    fn resolve_submodule(&self, module_path: &ModulePath, mod_name: &str) -> Self::Path;
+}
+
+// ============================================================================
+// Filesystem Source
+// ============================================================================
+
+/// Filesystem-based module source
+pub struct FsSource {
+    base_dir: PathBuf,
+}
+
+impl FsSource {
+    /// Create a new FsSource with the given base directory
+    pub fn new(base_dir: impl AsRef<Path>) -> Self {
+        Self {
+            base_dir: base_dir.as_ref().to_path_buf(),
+        }
+    }
+
+    /// Create a new FsSource from a file path, using its parent directory as base
+    pub fn from_file(file_path: &Path) -> Self {
+        let base_dir = file_path.parent().unwrap_or(Path::new(".")).to_path_buf();
+        Self { base_dir }
+    }
+
+    /// Get the base directory
+    pub fn base_dir(&self) -> &Path {
+        &self.base_dir
+    }
+}
+
+impl ModuleSource for FsSource {
+    type Path = FilePath;
+
+    fn read(&self, path: &Self::Path) -> Result<String, SourceError> {
+        std::fs::read_to_string(&path.0).map_err(|e| {
+            let kind = match e.kind() {
+                std::io::ErrorKind::NotFound => SourceErrorKind::NotFound,
+                std::io::ErrorKind::PermissionDenied => SourceErrorKind::PermissionDenied,
+                _ => SourceErrorKind::IoError,
+            };
+            SourceError {
+                kind,
+                message: e.to_string(),
+            }
+        })
+    }
+
+    fn exists(&self, path: &Self::Path) -> bool {
+        path.exists()
+    }
+
+    fn resolve_submodule(&self, module_path: &ModulePath, mod_name: &str) -> Self::Path {
+        // Build path from base_dir using module path segments (skipping "root")
+        let mut path = self.base_dir.clone();
+        for segment in &module_path.0[1..] {
+            // Skip "root"
+            path.push(segment);
+        }
+        path.push(format!("{}.zoya", mod_name));
+        FilePath::new(path)
+    }
+}
+
+// ============================================================================
+// Memory Source
+// ============================================================================
+
+/// In-memory module source for testing
+pub struct MemorySource {
+    modules: HashMap<String, String>,
+}
+
+impl MemorySource {
+    /// Create a new empty MemorySource
+    pub fn new() -> Self {
+        Self {
+            modules: HashMap::new(),
+        }
+    }
+
+    /// Add a module with the given path and source
+    pub fn with_module(mut self, path: impl Into<String>, source: impl Into<String>) -> Self {
+        self.modules.insert(path.into(), source.into());
+        self
+    }
+
+    /// Add a module with the given path and source (mutable version)
+    pub fn add_module(&mut self, path: impl Into<String>, source: impl Into<String>) {
+        self.modules.insert(path.into(), source.into());
+    }
+}
+
+impl Default for MemorySource {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ModuleSource for MemorySource {
+    type Path = String;
+
+    fn read(&self, path: &Self::Path) -> Result<String, SourceError> {
+        self.modules
+            .get(path)
+            .cloned()
+            .ok_or_else(|| SourceError::not_found(format!("module not found: {}", path)))
+    }
+
+    fn exists(&self, path: &Self::Path) -> bool {
+        self.modules.contains_key(path)
+    }
+
+    fn resolve_submodule(&self, module_path: &ModulePath, mod_name: &str) -> Self::Path {
+        // Build path from module path segments (skipping "root")
+        let segments: Vec<&str> = module_path.0[1..].iter().map(|s| s.as_str()).collect();
+        if segments.is_empty() {
+            mod_name.to_string()
+        } else {
+            format!("{}/{}", segments.join("/"), mod_name)
+        }
+    }
+}
 
 /// Module path: root is `["root"]`, `utils::helpers` is `["root", "utils", "helpers"]`
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -74,91 +322,94 @@ impl ModuleTree {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum LoaderError {
+pub enum LoaderError<P: Clone + Debug + Display = FilePath> {
     ModuleNotFound {
         mod_name: String,
-        expected_path: PathBuf,
+        expected_path: P,
     },
     DuplicateMod {
         mod_name: String,
     },
-    IoError {
-        path: PathBuf,
-        message: String,
+    SourceError {
+        path: P,
+        error: SourceError,
     },
     LexError {
-        path: PathBuf,
+        path: P,
         message: String,
     },
     ParseError {
-        path: PathBuf,
+        path: P,
         message: String,
     },
 }
 
-impl std::fmt::Display for LoaderError {
+impl<P: Clone + Debug + Display> std::fmt::Display for LoaderError<P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             LoaderError::ModuleNotFound {
                 mod_name,
                 expected_path,
             } => {
-                write!(
-                    f,
-                    "module '{}' not found at '{}'",
-                    mod_name,
-                    expected_path.display()
-                )
+                write!(f, "module '{}' not found at '{}'", mod_name, expected_path)
             }
             LoaderError::DuplicateMod { mod_name } => {
                 write!(f, "duplicate module declaration: '{}'", mod_name)
             }
-            LoaderError::IoError { path, message } => {
-                write!(f, "failed to read '{}': {}", path.display(), message)
+            LoaderError::SourceError { path, error } => {
+                write!(f, "failed to read '{}': {}", path, error)
             }
             LoaderError::LexError { path, message } => {
-                write!(f, "lexer error in '{}': {}", path.display(), message)
+                write!(f, "lexer error in '{}': {}", path, message)
             }
             LoaderError::ParseError { path, message } => {
-                write!(f, "parse error in '{}': {}", path.display(), message)
+                write!(f, "parse error in '{}': {}", path, message)
             }
         }
     }
 }
 
-impl std::error::Error for LoaderError {}
+impl<P: Clone + Debug + Display> std::error::Error for LoaderError<P> {}
 
-/// Load module tree starting from root file
-pub fn load_modules(path: &Path) -> Result<ModuleTree, LoaderError> {
+/// Load module tree starting from root file (convenience wrapper for filesystem)
+pub fn load_modules(path: &Path) -> Result<ModuleTree, LoaderError<FilePath>> {
+    let source = FsSource::from_file(path);
+    load_modules_with(&source, &FilePath::new(path))
+}
+
+/// Load module tree using a generic module source
+pub fn load_modules_with<S: ModuleSource>(
+    source: &S,
+    root_path: &S::Path,
+) -> Result<ModuleTree, LoaderError<S::Path>> {
     let mut tree = ModuleTree {
         modules: HashMap::new(),
     };
-    let base_dir = path.parent().unwrap_or(Path::new("."));
-    load_module_recursive(path, ModulePath::root(), base_dir, &mut tree)?;
+    load_module_recursive(source, root_path, ModulePath::root(), &mut tree)?;
     Ok(tree)
 }
 
-fn load_module_recursive(
-    file_path: &Path,
+fn load_module_recursive<S: ModuleSource>(
+    source: &S,
+    file_path: &S::Path,
     module_path: ModulePath,
-    base_dir: &Path,
     tree: &mut ModuleTree,
-) -> Result<(), LoaderError> {
+) -> Result<(), LoaderError<S::Path>> {
     // Read file
-    let source = std::fs::read_to_string(file_path).map_err(|e| LoaderError::IoError {
-        path: file_path.to_path_buf(),
-        message: e.to_string(),
+    let content = source.read(file_path).map_err(|e| LoaderError::SourceError {
+        path: file_path.clone(),
+        error: e,
     })?;
 
     // Lex
-    let tokens = zoya_lexer::lex(&source).map_err(|e| LoaderError::LexError {
-        path: file_path.to_path_buf(),
+    let tokens = zoya_lexer::lex(&content).map_err(|e| LoaderError::LexError {
+        path: file_path.clone(),
         message: e.message,
     })?;
 
     // Parse
     let module_def = zoya_parser::parse_module(tokens).map_err(|e| LoaderError::ParseError {
-        path: file_path.to_path_buf(),
+        path: file_path.clone(),
         message: e.message,
     })?;
 
@@ -180,8 +431,8 @@ fn load_module_recursive(
         let child_path = module_path.child(&mod_decl.name);
         children.insert(mod_decl.name.clone(), child_path.clone());
 
-        let submodule_file = compute_module_file_path(base_dir, &module_path, &mod_decl.name);
-        if !submodule_file.exists() {
+        let submodule_file = source.resolve_submodule(&module_path, &mod_decl.name);
+        if !source.exists(&submodule_file) {
             return Err(LoaderError::ModuleNotFound {
                 mod_name: mod_decl.name.clone(),
                 expected_path: submodule_file,
@@ -202,34 +453,12 @@ fn load_module_recursive(
 
     // Recursively load submodules
     for (submodule_file, child_path) in submodules {
-        load_module_recursive(&submodule_file, child_path, base_dir, tree)?;
+        load_module_recursive(source, &submodule_file, child_path, tree)?;
     }
 
     Ok(())
 }
 
-/// Get path segments for filesystem resolution (strips "root" prefix)
-/// Panics if path is not a local module (doesn't start with "root")
-fn filesystem_segments(path: &ModulePath) -> &[String] {
-    assert!(
-        path.0.first().map(|s| s.as_str()) == Some("root"),
-        "filesystem_segments called on non-local path: {}",
-        path
-    );
-    &path.0[1..]
-}
-
-/// Compute file path for a submodule
-/// - `mod foo` in root -> `base_dir/foo.zoya`
-/// - `mod bar` in `utils` -> `base_dir/utils/bar.zoya`
-fn compute_module_file_path(base_dir: &Path, parent_module: &ModulePath, mod_name: &str) -> PathBuf {
-    let mut path = base_dir.to_path_buf();
-    for segment in filesystem_segments(parent_module) {
-        path.push(segment);
-    }
-    path.push(format!("{}.zoya", mod_name));
-    path
-}
 
 #[cfg(test)]
 mod tests {
@@ -276,33 +505,64 @@ mod tests {
         assert_eq!(path.to_string(), "root::a::b::c");
     }
 
-    // === File path computation tests ===
+    // === FsSource tests ===
 
     #[test]
-    fn test_compute_module_file_path_root() {
-        let base = Path::new("/project");
-        let path = compute_module_file_path(base, &ModulePath::root(), "foo");
-        assert_eq!(path, PathBuf::from("/project/foo.zoya"));
+    fn test_fs_source_resolve_submodule_root() {
+        let source = FsSource::new("/project");
+        let root_path = ModulePath::root();
+        let submodule = source.resolve_submodule(&root_path, "foo");
+        assert_eq!(submodule, FilePath::new("/project/foo.zoya"));
     }
 
     #[test]
-    fn test_compute_module_file_path_nested() {
-        let base = Path::new("/project");
-        let utils = ModulePath(vec!["root".to_string(), "utils".to_string()]);
-        let path = compute_module_file_path(base, &utils, "bar");
-        assert_eq!(path, PathBuf::from("/project/utils/bar.zoya"));
+    fn test_fs_source_resolve_submodule_nested() {
+        let source = FsSource::new("/project");
+        let utils_path = ModulePath::root().child("utils");
+        let submodule = source.resolve_submodule(&utils_path, "bar");
+        assert_eq!(submodule, FilePath::new("/project/utils/bar.zoya"));
     }
 
     #[test]
-    fn test_compute_module_file_path_deeply_nested() {
-        let base = Path::new("/project");
-        let helpers = ModulePath(vec![
-            "root".to_string(),
-            "utils".to_string(),
-            "helpers".to_string(),
-        ]);
-        let path = compute_module_file_path(base, &helpers, "baz");
-        assert_eq!(path, PathBuf::from("/project/utils/helpers/baz.zoya"));
+    fn test_fs_source_resolve_submodule_deeply_nested() {
+        let source = FsSource::new("/project");
+        let helpers_path = ModulePath::root().child("utils").child("helpers");
+        let submodule = source.resolve_submodule(&helpers_path, "baz");
+        assert_eq!(submodule, FilePath::new("/project/utils/helpers/baz.zoya"));
+    }
+
+    // === MemorySource tests ===
+
+    #[test]
+    fn test_memory_source_read() {
+        let source = MemorySource::new()
+            .with_module("root", "fn main() -> Int { 42 }");
+
+        assert!(source.exists(&"root".to_string()));
+        assert!(!source.exists(&"missing".to_string()));
+
+        let content = source.read(&"root".to_string()).unwrap();
+        assert_eq!(content, "fn main() -> Int { 42 }");
+
+        let err = source.read(&"missing".to_string()).unwrap_err();
+        assert_eq!(err.kind, SourceErrorKind::NotFound);
+    }
+
+    #[test]
+    fn test_memory_source_resolve_submodule() {
+        let source = MemorySource::new();
+
+        // Root level
+        let root_path = ModulePath::root();
+        assert_eq!(source.resolve_submodule(&root_path, "utils"), "utils");
+
+        // Nested (utils module looking for helpers)
+        let utils_path = ModulePath::root().child("utils");
+        assert_eq!(source.resolve_submodule(&utils_path, "helpers"), "utils/helpers");
+
+        // Deeply nested
+        let helpers_path = ModulePath::root().child("utils").child("helpers");
+        assert_eq!(source.resolve_submodule(&helpers_path, "deep"), "utils/helpers/deep");
     }
 }
 
@@ -320,7 +580,7 @@ mod integration_tests {
         fs::write(path, content).unwrap();
     }
 
-    // === Basic loading tests ===
+    // === Basic loading tests (filesystem) ===
 
     #[test]
     fn test_load_single_file_no_mods() {
@@ -475,7 +735,7 @@ mod integration_tests {
         let dir = TempDir::new().unwrap();
         let result = load_modules(&dir.path().join("nonexistent.zoya"));
 
-        assert!(matches!(result, Err(LoaderError::IoError { .. })));
+        assert!(matches!(result, Err(LoaderError::SourceError { .. })));
     }
 
     #[test]
@@ -518,5 +778,82 @@ mod integration_tests {
                 "nonexistent".to_string()
             ]))
             .is_none());
+    }
+
+    // === MemorySource integration tests ===
+
+    #[test]
+    fn test_memory_source_load_single_module() {
+        let source = MemorySource::new()
+            .with_module("root", "fn foo() -> Int 42");
+
+        let tree = load_modules_with(&source, &"root".to_string()).unwrap();
+
+        assert_eq!(tree.modules.len(), 1);
+        let root = tree.root().unwrap();
+        assert!(root.path.is_root());
+        assert!(root.children.is_empty());
+        assert_eq!(root.items.len(), 1);
+    }
+
+    #[test]
+    fn test_memory_source_load_with_submodule() {
+        let source = MemorySource::new()
+            .with_module("root", "mod utils\nfn main() -> Int 42")
+            .with_module("utils", "fn helper() -> Int 10");
+
+        let tree = load_modules_with(&source, &"root".to_string()).unwrap();
+
+        assert_eq!(tree.modules.len(), 2);
+
+        let root = tree.root().unwrap();
+        assert_eq!(root.children.len(), 1);
+        assert!(root.children.contains_key("utils"));
+        assert_eq!(root.items.len(), 1);
+
+        let utils_path = ModulePath(vec!["root".to_string(), "utils".to_string()]);
+        let utils = tree.get(&utils_path).unwrap();
+        assert_eq!(utils.items.len(), 1);
+    }
+
+    #[test]
+    fn test_memory_source_load_nested_modules() {
+        let source = MemorySource::new()
+            .with_module("root", "mod utils")
+            .with_module("utils", "mod helpers")
+            .with_module("utils/helpers", "fn deep_fn() -> Int 42");
+
+        let tree = load_modules_with(&source, &"root".to_string()).unwrap();
+
+        assert_eq!(tree.modules.len(), 3);
+
+        let helpers_path = ModulePath(vec![
+            "root".to_string(),
+            "utils".to_string(),
+            "helpers".to_string(),
+        ]);
+        let helpers = tree.get(&helpers_path).unwrap();
+        assert_eq!(helpers.items.len(), 1);
+    }
+
+    #[test]
+    fn test_memory_source_error_module_not_found() {
+        let source = MemorySource::new()
+            .with_module("root", "mod missing");
+
+        let result = load_modules_with(&source, &"root".to_string());
+
+        assert!(
+            matches!(result, Err(LoaderError::ModuleNotFound { mod_name, .. }) if mod_name == "missing")
+        );
+    }
+
+    #[test]
+    fn test_memory_source_error_source_not_found() {
+        let source = MemorySource::new();
+
+        let result = load_modules_with(&source, &"nonexistent".to_string());
+
+        assert!(matches!(result, Err(LoaderError::SourceError { .. })));
     }
 }
