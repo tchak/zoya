@@ -13,9 +13,9 @@ use zoya_ast::{
     BinOp, Expr, FunctionDef, Item, LetBinding, MatchArm, Path, Stmt, TypeAnnotation, UnaryOp,
 };
 use zoya_ir::{
-    CheckedItem, CheckedModule, CheckedModuleTree, CheckedStmt, EnumType, EnumVariantType,
-    FunctionType, QualifiedPath, StructType, Type, TypeAliasType, TypeError, TypeScheme,
-    TypeVarId, TypedEnumConstructFields, TypedExpr, TypedFunction,
+    CheckedItem, CheckedModule, CheckedModuleTree, CheckedStmt, Definition, EnumType,
+    EnumVariantType, FunctionType, QualifiedPath, StructType, Type, TypeAliasType, TypeError,
+    TypeScheme, TypeVarId, TypedEnumConstructFields, TypedExpr, TypedFunction,
 };
 use zoya_loader::{ModulePath, ModuleTree};
 
@@ -30,14 +30,8 @@ pub use type_resolver::resolve_type_annotation;
 /// Type environment for checking expressions
 #[derive(Debug, Clone, Default)]
 pub struct TypeEnv {
-    /// Function signatures
-    pub functions: HashMap<String, FunctionType>,
-    /// Struct type definitions
-    pub structs: HashMap<String, StructType>,
-    /// Enum type definitions
-    pub enums: HashMap<String, EnumType>,
-    /// Type alias definitions
-    pub type_aliases: HashMap<String, TypeAliasType>,
+    /// All named definitions (functions, structs, enums, type aliases) in a unified namespace
+    pub definitions: HashMap<String, Definition>,
     /// Local variable types (type schemes for let polymorphism)
     pub locals: HashMap<String, TypeScheme>,
 }
@@ -45,10 +39,7 @@ pub struct TypeEnv {
 impl TypeEnv {
     pub fn with_locals(&self, locals: HashMap<String, TypeScheme>) -> Self {
         TypeEnv {
-            functions: self.functions.clone(),
-            structs: self.structs.clone(),
-            enums: self.enums.clone(),
-            type_aliases: self.type_aliases.clone(),
+            definitions: self.definitions.clone(),
             locals,
         }
     }
@@ -65,32 +56,38 @@ impl TypeEnv {
         set
     }
 
+    /// Generic lookup for any definition by name
+    pub fn get(&self, name: &str) -> Option<&Definition> {
+        self.definitions
+            .get(name)
+            .or_else(|| self.definitions.get(&format!("root::{}", name)))
+    }
+
+    /// Register a definition in the environment.
+    /// Currently allows overwrites (needed for REPL redefinition).
+    /// Future: add collision detection for different definition kinds.
+    pub fn register(&mut self, name: String, def: Definition) {
+        self.definitions.insert(name, def);
+    }
+
     /// Look up a function by name, trying both simple and qualified (root::name) forms
     pub fn get_function(&self, name: &str) -> Option<&FunctionType> {
-        self.functions
-            .get(name)
-            .or_else(|| self.functions.get(&format!("root::{}", name)))
+        self.get(name).and_then(Definition::as_function)
     }
 
     /// Look up a struct by name, trying both simple and qualified (root::name) forms
     pub fn get_struct(&self, name: &str) -> Option<&StructType> {
-        self.structs
-            .get(name)
-            .or_else(|| self.structs.get(&format!("root::{}", name)))
+        self.get(name).and_then(Definition::as_struct)
     }
 
     /// Look up an enum by name, trying both simple and qualified (root::name) forms
     pub fn get_enum(&self, name: &str) -> Option<&EnumType> {
-        self.enums
-            .get(name)
-            .or_else(|| self.enums.get(&format!("root::{}", name)))
+        self.get(name).and_then(Definition::as_enum)
     }
 
     /// Look up a type alias by name, trying both simple and qualified (root::name) forms
     pub fn get_type_alias(&self, name: &str) -> Option<&TypeAliasType> {
-        self.type_aliases
-            .get(name)
-            .or_else(|| self.type_aliases.get(&format!("root::{}", name)))
+        self.get(name).and_then(Definition::as_type_alias)
     }
 }
 
@@ -1462,14 +1459,14 @@ fn register_module_declarations(
                     type_var_ids.push(id);
                 }
             }
-            env.structs.insert(
+            env.register(
                 qualified_name,
-                StructType {
+                Definition::Struct(StructType {
                     name: def.name.clone(),
                     type_params: def.type_params.clone(),
                     type_var_ids,
                     fields: vec![],
-                },
+                }),
             );
         }
         if let Item::Enum(def) = item {
@@ -1481,14 +1478,14 @@ fn register_module_declarations(
                     type_var_ids.push(id);
                 }
             }
-            env.enums.insert(
+            env.register(
                 qualified_name,
-                EnumType {
+                Definition::Enum(EnumType {
                     name: def.name.clone(),
                     type_params: def.type_params.clone(),
                     type_var_ids,
                     variants: vec![],
-                },
+                }),
             );
         }
     }
@@ -1498,7 +1495,7 @@ fn register_module_declarations(
         if let Item::Struct(def) = item {
             let qualified_name = resolution::qualified_name(current_module, &def.name);
             let struct_type = struct_type_from_def(def, env, ctx)?;
-            env.structs.insert(qualified_name, struct_type);
+            env.register(qualified_name, Definition::Struct(struct_type));
         }
     }
 
@@ -1507,7 +1504,7 @@ fn register_module_declarations(
         if let Item::Enum(def) = item {
             let qualified_name = resolution::qualified_name(current_module, &def.name);
             let enum_type = enum_type_from_def(def, env, ctx)?;
-            env.enums.insert(qualified_name, enum_type);
+            env.register(qualified_name, Definition::Enum(enum_type));
         }
     }
 
@@ -1516,7 +1513,7 @@ fn register_module_declarations(
         if let Item::TypeAlias(def) = item {
             let qualified_name = resolution::qualified_name(current_module, &def.name);
             let alias_type = type_alias_from_def(def, env, ctx)?;
-            env.type_aliases.insert(qualified_name, alias_type);
+            env.register(qualified_name, Definition::TypeAlias(alias_type));
         }
     }
 
@@ -1525,7 +1522,7 @@ fn register_module_declarations(
         if let Item::Function(func) = item {
             let qualified_name = resolution::qualified_name(current_module, &func.name);
             let func_type = function_type_from_def(func, env, ctx)?;
-            env.functions.insert(qualified_name, func_type);
+            env.register(qualified_name, Definition::Function(func_type));
         }
     }
 
@@ -1594,14 +1591,14 @@ pub fn check_items(
                     type_var_ids.push(id);
                 }
             }
-            env.structs.insert(
+            env.register(
                 def.name.clone(),
-                StructType {
+                Definition::Struct(StructType {
                     name: def.name.clone(),
                     type_params: def.type_params.clone(),
                     type_var_ids,
                     fields: vec![], // placeholder
-                },
+                }),
             );
         }
         if let Item::Enum(def) = item {
@@ -1613,14 +1610,14 @@ pub fn check_items(
                     type_var_ids.push(id);
                 }
             }
-            env.enums.insert(
+            env.register(
                 def.name.clone(),
-                EnumType {
+                Definition::Enum(EnumType {
                     name: def.name.clone(),
                     type_params: def.type_params.clone(),
                     type_var_ids,
                     variants: vec![], // placeholder
-                },
+                }),
             );
         }
     }
@@ -1629,7 +1626,7 @@ pub fn check_items(
     for item in items {
         if let Item::Struct(def) = item {
             let struct_type = struct_type_from_def(def, env, ctx)?;
-            env.structs.insert(def.name.clone(), struct_type);
+            env.register(def.name.clone(), Definition::Struct(struct_type));
         }
     }
 
@@ -1637,7 +1634,7 @@ pub fn check_items(
     for item in items {
         if let Item::Enum(def) = item {
             let enum_type = enum_type_from_def(def, env, ctx)?;
-            env.enums.insert(def.name.clone(), enum_type);
+            env.register(def.name.clone(), Definition::Enum(enum_type));
         }
     }
 
@@ -1645,7 +1642,7 @@ pub fn check_items(
     for item in items {
         if let Item::TypeAlias(def) = item {
             let alias_type = type_alias_from_def(def, env, ctx)?;
-            env.type_aliases.insert(def.name.clone(), alias_type);
+            env.register(def.name.clone(), Definition::TypeAlias(alias_type));
         }
     }
 
@@ -1653,7 +1650,7 @@ pub fn check_items(
     for item in items {
         if let Item::Function(func) = item {
             let func_type = function_type_from_def(func, env, ctx)?;
-            env.functions.insert(func.name.clone(), func_type);
+            env.register(func.name.clone(), Definition::Function(func_type));
         }
     }
 
@@ -1954,14 +1951,14 @@ mod tests {
     #[test]
     fn test_check_function_call() {
         let mut env = TypeEnv::default();
-        env.functions.insert(
+        env.register(
             "square".to_string(),
-            FunctionType {
+            Definition::Function(FunctionType {
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![Type::Int],
                 return_type: Type::Int,
-            },
+            }),
         );
 
         let mut ctx = UnifyCtx::new();
@@ -1976,14 +1973,14 @@ mod tests {
     #[test]
     fn test_check_function_call_wrong_arg_type() {
         let mut env = TypeEnv::default();
-        env.functions.insert(
+        env.register(
             "square".to_string(),
-            FunctionType {
+            Definition::Function(FunctionType {
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![Type::Int],
                 return_type: Type::Int,
-            },
+            }),
         );
 
         let mut ctx = UnifyCtx::new();
@@ -1999,14 +1996,14 @@ mod tests {
     #[test]
     fn test_check_function_call_wrong_arity() {
         let mut env = TypeEnv::default();
-        env.functions.insert(
+        env.register(
             "add".to_string(),
-            FunctionType {
+            Definition::Function(FunctionType {
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![Type::Int, Type::Int],
                 return_type: Type::Int,
-            },
+            }),
         );
 
         let mut ctx = UnifyCtx::new();
@@ -2026,14 +2023,14 @@ mod tests {
         let t_id = if let Type::Var(id) = t_var { id } else { panic!() };
 
         let mut env = TypeEnv::default();
-        env.functions.insert(
+        env.register(
             "identity".to_string(),
-            FunctionType {
+            Definition::Function(FunctionType {
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![t_id],
                 params: vec![Type::Var(t_id)],
                 return_type: Type::Var(t_id),
-            },
+            }),
         );
 
         // identity(42) should return Int
@@ -2052,14 +2049,14 @@ mod tests {
         let t_id = if let Type::Var(id) = t_var { id } else { panic!() };
 
         let mut env = TypeEnv::default();
-        env.functions.insert(
+        env.register(
             "identity".to_string(),
-            FunctionType {
+            Definition::Function(FunctionType {
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![t_id],
                 params: vec![Type::Var(t_id)],
                 return_type: Type::Var(t_id),
-            },
+            }),
         );
 
         // identity(3.14) should return Float
@@ -2118,14 +2115,14 @@ mod tests {
     #[test]
     fn test_check_function_def_with_call() {
         let mut env = TypeEnv::default();
-        env.functions.insert(
+        env.register(
             "add".to_string(),
-            FunctionType {
+            Definition::Function(FunctionType {
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![Type::Int, Type::Int],
                 return_type: Type::Int,
-            },
+            }),
         );
 
         let mut ctx = UnifyCtx::new();
@@ -2352,7 +2349,7 @@ mod tests {
         assert!(checked_stmts.is_empty());
         assert!(matches!(checked_items[0], CheckedItem::Function(_)));
         // Function should be added to env
-        assert!(env.functions.contains_key("foo"));
+        assert!(env.get_function("foo").is_some());
     }
 
     #[test]
@@ -3525,9 +3522,9 @@ mod tests {
 
     fn env_with_point_struct() -> TypeEnv {
         let mut env = TypeEnv::default();
-        env.structs.insert(
+        env.register(
             "Point".to_string(),
-            StructType {
+            Definition::Struct(StructType {
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -3535,7 +3532,7 @@ mod tests {
                     ("x".to_string(), Type::Int),
                     ("y".to_string(), Type::Int),
                 ],
-            },
+            }),
         );
         env
     }
@@ -3632,9 +3629,9 @@ mod tests {
 
     fn env_with_message_enum() -> TypeEnv {
         let mut env = TypeEnv::default();
-        env.enums.insert(
+        env.register(
             "Message".to_string(),
-            EnumType {
+            Definition::Enum(EnumType {
                 name: "Message".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -3646,7 +3643,7 @@ mod tests {
                     ])),
                     ("Write".to_string(), EnumVariantType::Tuple(vec![Type::String])),
                 ],
-            },
+            }),
         );
         env
     }
@@ -3935,14 +3932,14 @@ mod tests {
         let t_id = if let Type::Var(id) = t_var { id } else { panic!() };
 
         let mut env = TypeEnv::default();
-        env.functions.insert(
+        env.register(
             "identity".to_string(),
-            FunctionType {
+            Definition::Function(FunctionType {
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![t_id],
                 params: vec![Type::Var(t_id)],
                 return_type: Type::Var(t_id),
-            },
+            }),
         );
 
         // identity::<Int>(42)
@@ -3965,14 +3962,14 @@ mod tests {
         let t_id = if let Type::Var(id) = t_var { id } else { panic!() };
 
         let mut env = TypeEnv::default();
-        env.functions.insert(
+        env.register(
             "identity".to_string(),
-            FunctionType {
+            Definition::Function(FunctionType {
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![t_id],
                 params: vec![Type::Var(t_id)],
                 return_type: Type::Var(t_id),
-            },
+            }),
         );
 
         // identity::<Int, String>(42) - wrong number of type args

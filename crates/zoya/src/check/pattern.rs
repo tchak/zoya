@@ -1351,7 +1351,7 @@ pub fn check_let_binding(
 mod tests {
     use super::*;
     use zoya_ast::{Expr, Path, PathPrefix, StructFieldPattern};
-    use zoya_ir::{EnumType, StructType};
+    use zoya_ir::{Definition, EnumType, StructType};
 
     fn default_env() -> TypeEnv {
         TypeEnv::default()
@@ -1905,9 +1905,9 @@ mod tests {
 
     fn env_with_point() -> TypeEnv {
         let mut env = TypeEnv::default();
-        env.structs.insert(
+        env.register(
             "Point".to_string(),
-            StructType {
+            Definition::Struct(StructType {
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -1915,7 +1915,7 @@ mod tests {
                     ("x".to_string(), Type::Int),
                     ("y".to_string(), Type::Int),
                 ],
-            },
+            }),
         );
         env
     }
@@ -2046,9 +2046,9 @@ mod tests {
 
     fn env_with_option() -> TypeEnv {
         let mut env = TypeEnv::default();
-        env.enums.insert(
+        env.register(
             "Option".to_string(),
-            EnumType {
+            Definition::Enum(EnumType {
                 name: "Option".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
@@ -2056,16 +2056,16 @@ mod tests {
                     ("None".to_string(), EnumVariantType::Unit),
                     ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Var(TypeVarId(1))])),
                 ],
-            },
+            }),
         );
         env
     }
 
     fn env_with_message() -> TypeEnv {
         let mut env = TypeEnv::default();
-        env.enums.insert(
+        env.register(
             "Message".to_string(),
-            EnumType {
+            Definition::Enum(EnumType {
                 name: "Message".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -2077,7 +2077,7 @@ mod tests {
                     ])),
                     ("Write".to_string(), EnumVariantType::Tuple(vec![Type::String])),
                 ],
-            },
+            }),
         );
         env
     }
@@ -2599,16 +2599,16 @@ mod tests {
 
     fn env_with_multi_tuple_enum() -> TypeEnv {
         let mut env = TypeEnv::default();
-        env.enums.insert(
+        env.register(
             "Data".to_string(),
-            EnumType {
+            Definition::Enum(EnumType {
                 name: "Data".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
                 variants: vec![
                     ("Triple".to_string(), EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool])),
                 ],
-            },
+            }),
         );
         env
     }

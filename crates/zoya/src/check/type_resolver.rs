@@ -212,7 +212,7 @@ pub fn resolve_type_annotation(
 mod tests {
     use super::*;
     use zoya_ast::{Path, PathPrefix, TypeAnnotation};
-    use zoya_ir::{EnumType, EnumVariantType, StructType, TypeAliasType};
+    use zoya_ir::{Definition, EnumType, EnumVariantType, StructType, TypeAliasType};
 
     fn empty_env() -> TypeEnv {
         TypeEnv::default()
@@ -406,9 +406,9 @@ mod tests {
     #[test]
     fn test_resolve_non_generic_struct() {
         let mut env = empty_env();
-        env.structs.insert(
+        env.register(
             "Point".to_string(),
-            StructType {
+            Definition::Struct(StructType {
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -416,7 +416,7 @@ mod tests {
                     ("x".to_string(), Type::Int),
                     ("y".to_string(), Type::Int),
                 ],
-            },
+            }),
         );
 
         let annotation = TypeAnnotation::Named(Path::simple("Point".to_string()));
@@ -435,14 +435,14 @@ mod tests {
     #[test]
     fn test_resolve_struct_requires_type_args() {
         let mut env = empty_env();
-        env.structs.insert(
+        env.register(
             "Container".to_string(),
-            StructType {
+            Definition::Struct(StructType {
                 name: "Container".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
                 fields: vec![("value".to_string(), Type::Var(TypeVarId(1)))],
-            },
+            }),
         );
 
         let annotation = TypeAnnotation::Named(Path::simple("Container".to_string()));
@@ -455,9 +455,9 @@ mod tests {
     #[test]
     fn test_resolve_struct_wrong_type_arg_count() {
         let mut env = empty_env();
-        env.structs.insert(
+        env.register(
             "Pair".to_string(),
-            StructType {
+            Definition::Struct(StructType {
                 name: "Pair".to_string(),
                 type_params: vec!["A".to_string(), "B".to_string()],
                 type_var_ids: vec![TypeVarId(1), TypeVarId(2)],
@@ -465,7 +465,7 @@ mod tests {
                     ("first".to_string(), Type::Var(TypeVarId(1))),
                     ("second".to_string(), Type::Var(TypeVarId(2))),
                 ],
-            },
+            }),
         );
 
         // Too few type args
@@ -482,14 +482,14 @@ mod tests {
     #[test]
     fn test_resolve_generic_struct_with_type_args() {
         let mut env = empty_env();
-        env.structs.insert(
+        env.register(
             "Container".to_string(),
-            StructType {
+            Definition::Struct(StructType {
                 name: "Container".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
                 fields: vec![("value".to_string(), Type::Var(TypeVarId(1)))],
-            },
+            }),
         );
 
         let annotation = TypeAnnotation::Parameterized(
@@ -516,9 +516,9 @@ mod tests {
     #[test]
     fn test_resolve_non_generic_enum() {
         let mut env = empty_env();
-        env.enums.insert(
+        env.register(
             "Status".to_string(),
-            EnumType {
+            Definition::Enum(EnumType {
                 name: "Status".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -526,7 +526,7 @@ mod tests {
                     ("Ok".to_string(), EnumVariantType::Unit),
                     ("Error".to_string(), EnumVariantType::Unit),
                 ],
-            },
+            }),
         );
 
         let annotation = TypeAnnotation::Named(Path::simple("Status".to_string()));
@@ -545,9 +545,9 @@ mod tests {
     #[test]
     fn test_resolve_enum_requires_type_args() {
         let mut env = empty_env();
-        env.enums.insert(
+        env.register(
             "Option".to_string(),
-            EnumType {
+            Definition::Enum(EnumType {
                 name: "Option".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
@@ -555,7 +555,7 @@ mod tests {
                     ("None".to_string(), EnumVariantType::Unit),
                     ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Var(TypeVarId(1))])),
                 ],
-            },
+            }),
         );
 
         let annotation = TypeAnnotation::Named(Path::simple("Option".to_string()));
@@ -568,9 +568,9 @@ mod tests {
     #[test]
     fn test_resolve_enum_wrong_type_arg_count() {
         let mut env = empty_env();
-        env.enums.insert(
+        env.register(
             "Result".to_string(),
-            EnumType {
+            Definition::Enum(EnumType {
                 name: "Result".to_string(),
                 type_params: vec!["T".to_string(), "E".to_string()],
                 type_var_ids: vec![TypeVarId(1), TypeVarId(2)],
@@ -578,7 +578,7 @@ mod tests {
                     ("Ok".to_string(), EnumVariantType::Tuple(vec![Type::Var(TypeVarId(1))])),
                     ("Err".to_string(), EnumVariantType::Tuple(vec![Type::Var(TypeVarId(2))])),
                 ],
-            },
+            }),
         );
 
         // Too many type args
@@ -599,9 +599,9 @@ mod tests {
     #[test]
     fn test_resolve_generic_enum_with_type_args() {
         let mut env = empty_env();
-        env.enums.insert(
+        env.register(
             "Option".to_string(),
-            EnumType {
+            Definition::Enum(EnumType {
                 name: "Option".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
@@ -609,7 +609,7 @@ mod tests {
                     ("None".to_string(), EnumVariantType::Unit),
                     ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Var(TypeVarId(1))])),
                 ],
-            },
+            }),
         );
 
         let annotation = TypeAnnotation::Parameterized(
@@ -636,14 +636,14 @@ mod tests {
     #[test]
     fn test_resolve_non_generic_type_alias() {
         let mut env = empty_env();
-        env.type_aliases.insert(
+        env.register(
             "IntList".to_string(),
-            TypeAliasType {
+            Definition::TypeAlias(TypeAliasType {
                 name: "IntList".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
                 typ: Type::List(Box::new(Type::Int)),
-            },
+            }),
         );
 
         let annotation = TypeAnnotation::Named(Path::simple("IntList".to_string()));
@@ -655,14 +655,14 @@ mod tests {
     #[test]
     fn test_resolve_type_alias_requires_type_args() {
         let mut env = empty_env();
-        env.type_aliases.insert(
+        env.register(
             "MyList".to_string(),
-            TypeAliasType {
+            Definition::TypeAlias(TypeAliasType {
                 name: "MyList".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
                 typ: Type::List(Box::new(Type::Var(TypeVarId(1)))),
-            },
+            }),
         );
 
         let annotation = TypeAnnotation::Named(Path::simple("MyList".to_string()));
@@ -675,14 +675,14 @@ mod tests {
     #[test]
     fn test_resolve_type_alias_wrong_type_arg_count() {
         let mut env = empty_env();
-        env.type_aliases.insert(
+        env.register(
             "MyPair".to_string(),
-            TypeAliasType {
+            Definition::TypeAlias(TypeAliasType {
                 name: "MyPair".to_string(),
                 type_params: vec!["A".to_string(), "B".to_string()],
                 type_var_ids: vec![TypeVarId(1), TypeVarId(2)],
                 typ: Type::Tuple(vec![Type::Var(TypeVarId(1)), Type::Var(TypeVarId(2))]),
-            },
+            }),
         );
 
         let annotation = TypeAnnotation::Parameterized(
@@ -698,14 +698,14 @@ mod tests {
     #[test]
     fn test_resolve_generic_type_alias_with_type_args() {
         let mut env = empty_env();
-        env.type_aliases.insert(
+        env.register(
             "MyList".to_string(),
-            TypeAliasType {
+            Definition::TypeAlias(TypeAliasType {
                 name: "MyList".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
                 typ: Type::List(Box::new(Type::Var(TypeVarId(1)))),
-            },
+            }),
         );
 
         let annotation = TypeAnnotation::Parameterized(

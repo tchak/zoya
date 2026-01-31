@@ -149,6 +149,54 @@ pub struct TypeAliasType {
     pub typ: Type,
 }
 
+/// A named definition in the global namespace
+#[derive(Debug, Clone, PartialEq)]
+pub enum Definition {
+    Function(FunctionType),
+    Struct(StructType),
+    Enum(EnumType),
+    TypeAlias(TypeAliasType),
+}
+
+impl Definition {
+    pub fn as_function(&self) -> Option<&FunctionType> {
+        match self {
+            Definition::Function(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub fn as_struct(&self) -> Option<&StructType> {
+        match self {
+            Definition::Struct(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn as_enum(&self) -> Option<&EnumType> {
+        match self {
+            Definition::Enum(e) => Some(e),
+            _ => None,
+        }
+    }
+
+    pub fn as_type_alias(&self) -> Option<&TypeAliasType> {
+        match self {
+            Definition::TypeAlias(a) => Some(a),
+            _ => None,
+        }
+    }
+
+    pub fn kind_name(&self) -> &'static str {
+        match self {
+            Definition::Function(_) => "function",
+            Definition::Struct(_) => "struct",
+            Definition::Enum(_) => "enum",
+            Definition::TypeAlias(_) => "type alias",
+        }
+    }
+}
+
 /// Type scheme for polymorphic values (let polymorphism)
 /// Represents: forall a1..an. T
 #[derive(Debug, Clone, PartialEq)]
