@@ -12,8 +12,9 @@ zoya-ast = { path = "../zoya-ast" }
 zoya-codegen = { path = "../zoya-codegen" }
 zoya-ir = { path = "../zoya-ir" }
 zoya-lexer = { path = "../zoya-lexer" }
-zoya-parser = { path = "../zoya-parser" }
 zoya-loader = { path = "../zoya-loader" }
+zoya-module = { path = "../zoya-module" }
+zoya-parser = { path = "../zoya-parser" }
 clap = { version = "4", features = ["derive"] }
 rquickjs = { version = "0.9", features = ["bindgen"] }
 rustyline = "14"

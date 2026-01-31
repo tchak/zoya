@@ -1193,6 +1193,7 @@ dependencies = [
  "zoya-ir",
  "zoya-lexer",
  "zoya-loader",
+ "zoya-module",
  "zoya-parser",
 ]
 
@@ -1213,7 +1214,7 @@ name = "zoya-ir"
 version = "0.1.0"
 dependencies = [
  "zoya-ast",
- "zoya-loader",
+ "zoya-module",
 ]
 
 [[package]]
@@ -1230,7 +1231,15 @@ dependencies = [
  "tempfile",
  "zoya-ast",
  "zoya-lexer",
+ "zoya-module",
  "zoya-parser",
+]
+
+[[package]]
+name = "zoya-module"
+version = "0.1.0"
+dependencies = [
+ "zoya-ast",
 ]
 
 [[package]]

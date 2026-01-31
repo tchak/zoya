@@ -301,12 +301,12 @@ pub struct CheckedModule {
 /// The complete checked module tree
 #[derive(Debug, Clone, PartialEq)]
 pub struct CheckedModuleTree {
-    pub modules: std::collections::HashMap<zoya_loader::ModulePath, CheckedModule>,
+    pub modules: std::collections::HashMap<zoya_module::ModulePath, CheckedModule>,
 }
 
 impl CheckedModuleTree {
     /// Get the root module
     pub fn root(&self) -> Option<&CheckedModule> {
-        self.modules.get(&zoya_loader::ModulePath::root())
+        self.modules.get(&zoya_module::ModulePath::root())
     }
 }
