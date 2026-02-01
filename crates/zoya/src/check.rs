@@ -10,13 +10,17 @@ mod usefulness;
 use std::collections::{HashMap, HashSet};
 
 use zoya_ast::{
-    BinOp, Expr, FunctionDef, Item, LetBinding, MatchArm, Path, Stmt, TypeAnnotation, UnaryOp,
+    BinOp, Expr, FunctionDef, Item, LetBinding, MatchArm, Path, TypeAnnotation, UnaryOp,
 };
+#[cfg(test)]
+use zoya_ast::Stmt;
 use zoya_ir::{
-    CheckedItem, CheckedModule, CheckedModuleTree, CheckedStmt, Definition, EnumType,
+    CheckedItem, CheckedModule, CheckedModuleTree, Definition, EnumType,
     EnumVariantType, FunctionType, QualifiedPath, StructType, Type, TypeAliasType, TypeError,
     TypeScheme, TypeVarId, TypedEnumConstructFields, TypedExpr, TypedFunction,
 };
+#[cfg(test)]
+use zoya_ir::CheckedStmt;
 use zoya_loader::{ModulePath, ModuleTree};
 
 pub use unify::UnifyCtx;
@@ -1573,8 +1577,10 @@ fn check_function_in_module(
     check_function(func, env, ctx)
 }
 
-/// Check a file's items (functions, structs, and enums), returning checked items
-pub fn check_items(
+/// Check a file's items (functions, structs, and enums), returning checked items.
+/// Only used in tests - the REPL uses check_module_tree instead.
+#[cfg(test)]
+fn check_items(
     items: &[Item],
     env: &mut TypeEnv,
     ctx: &mut UnifyCtx,
@@ -1682,7 +1688,9 @@ pub fn check_items(
 
 /// Check REPL statements, returning checked statements.
 /// Items should be checked separately with check_items.
-pub fn check_stmts(
+/// Only used in tests - the REPL uses check_module_tree instead.
+#[cfg(test)]
+fn check_stmts(
     stmts: &[Stmt],
     env: &mut TypeEnv,
     ctx: &mut UnifyCtx,

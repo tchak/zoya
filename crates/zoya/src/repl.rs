@@ -1,12 +1,15 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
-use crate::check::{check_items, check_stmts, TypeEnv, UnifyCtx};
-use zoya_codegen::{codegen, codegen_items, codegen_let, prelude};
+use crate::check::{check_module_tree, TypeEnv, UnifyCtx};
 use crate::eval::{self, Context, Value};
-use zoya_ir::{CheckedItem, CheckedStmt, Type, TypedPattern};
+use zoya_ast::{Expr, FunctionDef, Item, LetBinding, Stmt};
+use zoya_codegen::{codegen_module_tree, prelude};
+use zoya_ir::{CheckedItem, CheckedModuleTree, Type, TypedExpr, TypedPattern};
+use zoya_module::{Module, ModulePath, ModuleTree};
 
 /// Extract all variable bindings from a typed pattern.
 /// Returns a list of (name, type) pairs for each bound variable.
@@ -127,10 +130,22 @@ pub enum ReplResult {
     Expression(Value),
 }
 
-/// REPL state that accumulates function and struct definitions
+/// A block to be evaluated: accumulated lets + an optional expression
+struct EvalBlock {
+    /// All let bindings (accumulated + new) for this block
+    bindings: Vec<LetBinding>,
+    /// The expression to evaluate (None if this is just for accumulating lets)
+    expr: Option<Expr>,
+}
+
+/// REPL state that accumulates definitions across evaluations
 pub struct State {
-    /// Type environment
-    type_env: TypeEnv,
+    /// Accumulated items (functions, structs, enums, type aliases)
+    accumulated_items: Vec<Item>,
+    /// Accumulated let bindings from REPL input
+    accumulated_lets: Vec<LetBinding>,
+    /// Counter for synthetic run function names
+    run_counter: usize,
     /// QuickJS runtime (kept alive for context)
     #[allow(dead_code)]
     runtime: rquickjs::Runtime,
@@ -150,7 +165,9 @@ impl State {
         })?;
 
         Ok(State {
-            type_env: TypeEnv::default(),
+            accumulated_items: Vec::new(),
+            accumulated_lets: Vec::new(),
+            run_counter: 0,
             runtime,
             context,
         })
@@ -170,73 +187,207 @@ impl State {
             return Ok(vec![]);
         }
 
-        // Type-check all items and statements
+        // Partition statements into blocks for evaluation
+        let (blocks, new_lets) = partition_into_blocks(&self.accumulated_lets, &stmts);
+
+        // Create synthetic run functions for each block
+        // Use __repl_run_ prefix which is valid snake_case and unlikely to conflict with user code
+        let mut run_function_names = Vec::new();
+        let mut run_functions = Vec::new();
+        for block in &blocks {
+            let name = format!("__repl_run_{}", self.run_counter);
+            self.run_counter += 1;
+            run_functions.push(create_run_function(&name, block));
+            run_function_names.push(name);
+        }
+
+        // Build module tree with accumulated items + new items + run functions
+        let mut all_items = self.accumulated_items.clone();
+        all_items.extend(items.clone());
+        all_items.extend(run_functions);
+
+        let tree = build_repl_module(all_items);
+
+        // Type check the module tree
+        let mut env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let checked_items =
-            check_items(&items, &mut self.type_env, &mut ctx).map_err(|e| e.to_string())?;
-        let checked_stmts =
-            check_stmts(&stmts, &mut self.type_env, &mut ctx).map_err(|e| e.to_string())?;
+        let checked_tree =
+            check_module_tree(&tree, &mut env, &mut ctx).map_err(|e| e.to_string())?;
 
-        // Execute each checked item and statement, collect results
-        let mut results = Vec::new();
+        // Generate JavaScript code
+        let js_code = codegen_module_tree(&checked_tree);
 
-        // Generate and eval all functions at once
-        let js_code = codegen_items(&checked_items);
+        // Execute generated JS to define all functions
         if !js_code.is_empty() {
             self.context.with(|ctx| {
-                ctx.eval::<(), _>(js_code)
+                ctx.eval::<(), _>(js_code.clone())
                     .map_err(|e| format!("JS error: {}", e))
             })?;
         }
 
-        // Collect results for all items
-        for item in checked_items {
+        // Collect results
+        let mut results = Vec::new();
+
+        // First, report item definitions
+        for item in &items {
             match item {
-                CheckedItem::Function(f) => {
+                Item::Function(f) => {
                     results.push(ReplResult::FunctionDefined(f.name.clone()));
                 }
-                CheckedItem::Struct(s) => {
+                Item::Struct(s) => {
                     results.push(ReplResult::StructDefined(s.name.clone()));
                 }
-                CheckedItem::Enum(e) => {
+                Item::Enum(e) => {
                     results.push(ReplResult::EnumDefined(e.name.clone()));
                 }
-                CheckedItem::TypeAlias(t) => {
+                Item::TypeAlias(t) => {
                     results.push(ReplResult::TypeAliasDefined(t.name.clone()));
                 }
             }
         }
 
-        // Process statements
-        for stmt in checked_stmts {
-            match stmt {
-                CheckedStmt::Expr(typed_expr) => {
-                    let js_code = codegen(&typed_expr);
-                    let result_type = typed_expr.ty();
+        // Process each run function to get results
+        for run_name in &run_function_names {
+            // Find typed function in checked tree to get return type
+            let typed_fn = find_typed_function(&checked_tree, run_name)
+                .ok_or_else(|| format!("Internal error: run function {} not found", run_name))?;
 
-                    let value = self.context.with(|ctx| {
-                        eval::eval(&ctx, js_code, result_type).map_err(|e| e.to_string())
-                    })?;
+            // Call the function (codegen prefixes with $)
+            let js_call = format!("${}()", run_name);
+            let value = self.context.with(|ctx| {
+                eval::eval(&ctx, js_call, typed_fn.return_type.clone())
+                    .map_err(|e| e.to_string())
+            })?;
 
-                    results.push(ReplResult::Expression(value));
+            // If unit type, this was a let-only block
+            if typed_fn.return_type == Type::Tuple(vec![]) {
+                // Extract the LAST binding from the function body (the one just added)
+                let all_bindings = extract_bindings_from_typed_expr(&typed_fn.body);
+                if let Some(last_binding) = all_bindings.last() {
+                    results.push(ReplResult::LetBinding {
+                        bindings: last_binding.clone(),
+                    });
                 }
-                CheckedStmt::Let(typed_binding) => {
-                    let bindings = extract_bindings(&typed_binding.pattern);
-                    let js_code = codegen_let(&typed_binding);
-
-                    // Define variable in QuickJS context
-                    self.context.with(|ctx| {
-                        ctx.eval::<(), _>(js_code)
-                            .map_err(|e| format!("JS error: {}", e))
-                    })?;
-
-                    results.push(ReplResult::LetBinding { bindings });
-                }
+            } else {
+                // We have an expression result
+                results.push(ReplResult::Expression(value));
             }
+        }
+
+        // Update accumulated state
+        self.accumulated_items.extend(items);
+        self.accumulated_lets = new_lets;
+
+        // If no blocks were created, we need to report let bindings from stmts directly
+        if blocks.is_empty() && !stmts.is_empty() {
+            // This shouldn't happen since partition_into_blocks always creates blocks for stmts
         }
 
         Ok(results)
     }
+}
+
+/// Partition statements into evaluation blocks.
+/// Each new let binding gets its own let-only block for reporting purposes.
+/// Each expression gets a block with all accumulated lets up to that point.
+/// Returns (blocks, updated_accumulated_lets).
+fn partition_into_blocks(
+    accumulated_lets: &[LetBinding],
+    stmts: &[Stmt],
+) -> (Vec<EvalBlock>, Vec<LetBinding>) {
+    let mut blocks = Vec::new();
+    let mut current_lets: Vec<LetBinding> = accumulated_lets.to_vec();
+
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let(binding) => {
+                // Add to current lets
+                current_lets.push(binding.clone());
+                // Create a let-only block to report this binding
+                blocks.push(EvalBlock {
+                    bindings: current_lets.clone(),
+                    expr: None,
+                });
+            }
+            Stmt::Expr(expr) => {
+                // Create a block with all current lets + this expression
+                blocks.push(EvalBlock {
+                    bindings: current_lets.clone(),
+                    expr: Some(expr.clone()),
+                });
+            }
+        }
+    }
+
+    (blocks, current_lets)
+}
+
+/// Create a synthetic function for evaluating a block.
+fn create_run_function(name: &str, block: &EvalBlock) -> Item {
+    let body = if let Some(ref expr) = block.expr {
+        // Block with expression: { let x = ...; let y = ...; expr }
+        Expr::Block {
+            bindings: block.bindings.clone(),
+            result: Box::new(expr.clone()),
+        }
+    } else {
+        // Let-only block: { let x = ...; () }
+        Expr::Block {
+            bindings: block.bindings.clone(),
+            result: Box::new(Expr::Tuple(vec![])),
+        }
+    };
+
+    Item::Function(FunctionDef {
+        name: name.to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: None, // inferred
+        body,
+    })
+}
+
+/// Build a ModuleTree with a single root module containing the given items.
+fn build_repl_module(items: Vec<Item>) -> ModuleTree {
+    let module = Module {
+        items,
+        path: ModulePath::root(),
+        children: HashMap::new(),
+    };
+    let mut modules = HashMap::new();
+    modules.insert(ModulePath::root(), module);
+    ModuleTree { modules }
+}
+
+/// Find a typed function by name in the checked module tree.
+fn find_typed_function<'a>(
+    tree: &'a CheckedModuleTree,
+    name: &str,
+) -> Option<&'a zoya_ir::TypedFunction> {
+    let root = tree.root()?;
+    for item in &root.items {
+        if let CheckedItem::Function(f) = item
+            && f.name == name
+        {
+            return Some(f);
+        }
+    }
+    None
+}
+
+/// Extract binding information from a typed expression (for let-only blocks).
+/// Returns a list of binding groups, where each group is from a single let statement.
+fn extract_bindings_from_typed_expr(expr: &TypedExpr) -> Vec<Vec<(String, Type)>> {
+    let mut result = Vec::new();
+    if let TypedExpr::Block { bindings, .. } = expr {
+        for binding in bindings {
+            let binding_info = extract_bindings(&binding.pattern);
+            if !binding_info.is_empty() {
+                result.push(binding_info);
+            }
+        }
+    }
+    result
 }
 
 /// Get path to history file
