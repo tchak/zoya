@@ -18,11 +18,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Start the interactive REPL or run a file
+    /// Run a file
     Run {
-        /// Optional file to execute
-        file: Option<PathBuf>,
+        /// File to execute
+        file: PathBuf,
     },
+    /// Start the interactive REPL
+    Repl,
     /// Type-check a file without executing
     Check {
         /// File to type-check
@@ -42,13 +44,13 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Command::Run { file: Some(path) }) => {
-            if let Err(e) = commands::run::execute(&path) {
+        Some(Command::Run { file }) => {
+            if let Err(e) = commands::run::execute(&file) {
                 eprintln!("Error: {e}");
                 std::process::exit(1);
             }
         }
-        Some(Command::Run { file: None }) => repl::run(),
+        Some(Command::Repl) => repl::run(),
         Some(Command::Check { file }) => {
             if let Err(e) = commands::check::execute(&file) {
                 eprintln!("{}", e);
