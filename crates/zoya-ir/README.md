@@ -12,7 +12,7 @@ This crate defines the type-checked IR produced by the type checker, including:
 ## Usage
 
 ```rust
-use zoya_ir::{Type, TypedExpr, CheckedItem, CheckedStmt};
+use zoya_ir::{Type, TypedExpr, CheckedItem};
 ```
 
 ## Dependencies

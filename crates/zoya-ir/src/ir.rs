@@ -38,13 +38,6 @@ pub enum CheckedItem {
     TypeAlias(TypeAliasDef), // Type aliases are transparent, passed through as-is
 }
 
-/// Type-checked statement result for REPL (expression or let binding)
-#[derive(Debug, Clone, PartialEq)]
-pub enum CheckedStmt {
-    Expr(TypedExpr),
-    Let(Box<TypedLetBinding>),
-}
-
 /// Typed function definition
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedFunction {
