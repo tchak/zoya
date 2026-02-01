@@ -58,9 +58,7 @@ impl TypeEnv {
 
     /// Generic lookup for any definition by name
     pub fn get(&self, name: &str) -> Option<&Definition> {
-        self.definitions
-            .get(name)
-            .or_else(|| self.definitions.get(&format!("root::{}", name)))
+        self.definitions.get(name)
     }
 
     /// Register a definition in the environment.
@@ -70,22 +68,22 @@ impl TypeEnv {
         self.definitions.insert(name, def);
     }
 
-    /// Look up a function by name, trying both simple and qualified (root::name) forms
+    /// Look up a function by name
     pub fn get_function(&self, name: &str) -> Option<&FunctionType> {
         self.get(name).and_then(Definition::as_function)
     }
 
-    /// Look up a struct by name, trying both simple and qualified (root::name) forms
+    /// Look up a struct by name
     pub fn get_struct(&self, name: &str) -> Option<&StructType> {
         self.get(name).and_then(Definition::as_struct)
     }
 
-    /// Look up an enum by name, trying both simple and qualified (root::name) forms
+    /// Look up an enum by name
     pub fn get_enum(&self, name: &str) -> Option<&EnumType> {
         self.get(name).and_then(Definition::as_enum)
     }
 
-    /// Look up a type alias by name, trying both simple and qualified (root::name) forms
+    /// Look up a type alias by name
     pub fn get_type_alias(&self, name: &str) -> Option<&TypeAliasType> {
         self.get(name).and_then(Definition::as_type_alias)
     }
@@ -94,6 +92,7 @@ impl TypeEnv {
 /// Check a function definition and return a typed function
 fn check_function(
     func: &FunctionDef,
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedFunction, TypeError> {
@@ -137,10 +136,10 @@ fn check_function(
             message: format!("refutable pattern in function parameter: {}", msg),
         })?;
 
-        let ty = resolve_type_annotation(&param.typ, &type_param_map, env)?;
+        let ty = resolve_type_annotation(&param.typ, &type_param_map, current_module, env)?;
 
         // Type-check the pattern against the parameter type
-        let (typed_pattern, bindings) = check_pattern(&param.pattern, &ty, env, ctx)?;
+        let (typed_pattern, bindings) = check_pattern(&param.pattern, &ty, current_module, env, ctx)?;
 
         // Add all pattern bindings to locals
         for (name, var_ty) in bindings {
@@ -154,12 +153,12 @@ fn check_function(
     let body_env = env.with_locals(locals);
 
     // Check the body
-    let typed_body = check_with_env(&func.body, &body_env, ctx)?;
+    let typed_body = check_with_env(&func.body, current_module, &body_env, ctx)?;
     let body_type = ctx.resolve(&typed_body.ty());
 
     // Determine return type
     let return_type = if let Some(ref annotation) = func.return_type {
-        let declared_return = resolve_type_annotation(annotation, &type_param_map, env)?;
+        let declared_return = resolve_type_annotation(annotation, &type_param_map, current_module, env)?;
         // Unify body type with declared return type
         ctx.unify(&body_type, &declared_return).map_err(|e| TypeError {
             message: format!(
@@ -190,7 +189,7 @@ fn check_function(
 
 /// Check a variable reference
 /// Check a path expression (variable or unit enum variant)
-fn check_path_expr(path: &Path, env: &TypeEnv, ctx: &mut UnifyCtx) -> Result<TypedExpr, TypeError> {
+fn check_path_expr(path: &Path, current_module: &ModulePath, env: &TypeEnv, ctx: &mut UnifyCtx) -> Result<TypedExpr, TypeError> {
     match path.segments.as_slice() {
         // Single segment: must be a variable
         [name] => {
@@ -214,7 +213,8 @@ fn check_path_expr(path: &Path, env: &TypeEnv, ctx: &mut UnifyCtx) -> Result<Typ
         }
         // Two segments: must be Enum::Variant (unit variant)
         [enum_name, variant_name] => {
-            let enum_type = env.get_enum(enum_name).ok_or_else(|| TypeError {
+            let qualified = resolution::qualified_name(current_module, enum_name);
+            let enum_type = env.get_enum(&qualified).ok_or_else(|| TypeError {
                 message: format!("unknown enum: {}", enum_name),
             })?;
 
@@ -254,7 +254,7 @@ fn check_path_expr(path: &Path, env: &TypeEnv, ctx: &mut UnifyCtx) -> Result<Typ
                 // Resolve type annotations to Types
                 let resolved: Vec<Type> = type_args
                     .iter()
-                    .map(|ann| resolve_type_annotation(ann, &HashMap::new(), env))
+                    .map(|ann| resolve_type_annotation(ann, &HashMap::new(), current_module, env))
                     .collect::<Result<_, _>>()?;
                 // Build substitution map from explicit types
                 enum_type
@@ -324,15 +324,16 @@ fn check_path_expr(path: &Path, env: &TypeEnv, ctx: &mut UnifyCtx) -> Result<Typ
 fn check_path_call(
     path: &Path,
     args: &[Expr],
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
     match path.segments.as_slice() {
         // Single segment: function or lambda call
-        [func] => check_simple_call(func, &path.type_args, args, env, ctx),
+        [func] => check_simple_call(func, &path.type_args, args, current_module, env, ctx),
         // Two segments: Enum::Variant(args)
         [enum_name, variant_name] => {
-            check_enum_tuple_construct(enum_name, variant_name, &path.type_args, args, env, ctx)
+            check_enum_tuple_construct(enum_name, variant_name, &path.type_args, args, current_module, env, ctx)
         }
         _ => Err(TypeError {
             message: format!("unknown path: {}", path),
@@ -345,11 +346,13 @@ fn check_simple_call(
     func: &str,
     explicit_type_args: &Option<Vec<TypeAnnotation>>,
     args: &[Expr],
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
     // First, try to look up as a named function
-    if let Some(func_type) = env.get_function(func) {
+    let qualified = resolution::qualified_name(current_module, func);
+    if let Some(func_type) = env.get_function(&qualified) {
         // Check argument count
         if args.len() != func_type.params.len() {
             return Err(TypeError {
@@ -378,7 +381,7 @@ fn check_simple_call(
             // Resolve type annotations to Types
             let resolved: Vec<Type> = type_args
                 .iter()
-                .map(|ann| resolve_type_annotation(ann, &HashMap::new(), env))
+                .map(|ann| resolve_type_annotation(ann, &HashMap::new(), current_module, env))
                 .collect::<Result<_, _>>()?;
             // Build substitution map from explicit types
             func_type
@@ -407,7 +410,7 @@ fn check_simple_call(
         // Type check arguments and unify with parameter types
         let mut typed_args = Vec::new();
         for (arg, param_type) in args.iter().zip(instantiated_params.iter()) {
-            let typed_arg = check_with_env(arg, env, ctx)?;
+            let typed_arg = check_with_env(arg, current_module, env, ctx)?;
             let arg_type = typed_arg.ty();
 
             // Unify argument type with parameter type
@@ -459,7 +462,7 @@ fn check_simple_call(
             // Type check arguments and unify with parameter types
             let mut typed_args = Vec::new();
             for (arg, param_type) in args.iter().zip(params.iter()) {
-                let typed_arg = check_with_env(arg, env, ctx)?;
+                let typed_arg = check_with_env(arg, current_module, env, ctx)?;
                 let arg_type = typed_arg.ty();
 
                 ctx.unify(&arg_type, param_type).map_err(|e| TypeError {
@@ -500,10 +503,12 @@ fn check_enum_tuple_construct(
     variant_name: &str,
     explicit_type_args: &Option<Vec<TypeAnnotation>>,
     args: &[Expr],
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    let enum_type = env.get_enum(enum_name).ok_or_else(|| TypeError {
+    let qualified = resolution::qualified_name(current_module, enum_name);
+    let enum_type = env.get_enum(&qualified).ok_or_else(|| TypeError {
         message: format!("unknown enum: {}", enum_name),
     })?;
 
@@ -565,7 +570,7 @@ fn check_enum_tuple_construct(
         // Resolve type annotations to Types
         let resolved: Vec<Type> = type_args
             .iter()
-            .map(|ann| resolve_type_annotation(ann, &HashMap::new(), env))
+            .map(|ann| resolve_type_annotation(ann, &HashMap::new(), current_module, env))
             .collect::<Result<_, _>>()?;
         // Build substitution map from explicit types
         enum_type
@@ -586,7 +591,7 @@ fn check_enum_tuple_construct(
     let mut typed_exprs = Vec::new();
     for (expr, expected) in args.iter().zip(expected_types.iter()) {
         let expected_type = substitute_type_vars(expected, &instantiation);
-        let typed_expr = check_with_env(expr, env, ctx)?;
+        let typed_expr = check_with_env(expr, current_module, env, ctx)?;
         let actual_type = typed_expr.ty();
 
         ctx.unify(&actual_type, &expected_type).map_err(|e| TypeError {
@@ -647,10 +652,11 @@ fn check_enum_tuple_construct(
 fn check_unary_op(
     op: UnaryOp,
     expr: &Expr,
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    let typed_expr = check_with_env(expr, env, ctx)?;
+    let typed_expr = check_with_env(expr, current_module, env, ctx)?;
     let ty = typed_expr.ty();
     match op {
         UnaryOp::Neg => {
@@ -678,11 +684,12 @@ fn check_bin_op(
     op: BinOp,
     left: &Expr,
     right: &Expr,
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    let typed_left = check_with_env(left, env, ctx)?;
-    let typed_right = check_with_env(right, env, ctx)?;
+    let typed_left = check_with_env(left, current_module, env, ctx)?;
+    let typed_right = check_with_env(right, current_module, env, ctx)?;
     let left_ty = typed_left.ty();
     let right_ty = typed_right.ty();
 
@@ -725,6 +732,7 @@ fn check_bin_op(
 fn check_block(
     bindings: &[LetBinding],
     result: &Expr,
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
@@ -733,7 +741,7 @@ fn check_block(
     let mut typed_bindings = Vec::new();
 
     for binding in bindings {
-        let (typed_binding, pattern_bindings) = check_let_binding(binding, &block_env, ctx)?;
+        let (typed_binding, pattern_bindings) = check_let_binding(binding, current_module, &block_env, ctx)?;
 
         // Check if we should generalize (let polymorphism)
         // Only generalize syntactic values (lambdas, literals, variables)
@@ -756,7 +764,7 @@ fn check_block(
     }
 
     // Type-check the result expression with all bindings in scope
-    let typed_result = check_with_env(result, &block_env, ctx)?;
+    let typed_result = check_with_env(result, current_module, &block_env, ctx)?;
 
     Ok(TypedExpr::Block {
         bindings: typed_bindings,
@@ -768,10 +776,11 @@ fn check_block(
 fn check_match_expr(
     scrutinee: &Expr,
     arms: &[MatchArm],
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    let typed_scrutinee = check_with_env(scrutinee, env, ctx)?;
+    let typed_scrutinee = check_with_env(scrutinee, current_module, env, ctx)?;
     let scrutinee_ty = typed_scrutinee.ty();
 
     if arms.is_empty() {
@@ -784,7 +793,7 @@ fn check_match_expr(
     let mut result_ty: Option<Type> = None;
 
     for arm in arms {
-        let typed_arm = check_match_arm(arm, &scrutinee_ty, env, ctx)?;
+        let typed_arm = check_match_arm(arm, &scrutinee_ty, current_module, env, ctx)?;
         let arm_ty = typed_arm.result.ty();
 
         // Unify all arm result types
@@ -821,10 +830,11 @@ fn check_method_call(
     receiver: &Expr,
     method: &str,
     args: &[Expr],
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    let typed_receiver = check_with_env(receiver, env, ctx)?;
+    let typed_receiver = check_with_env(receiver, current_module, env, ctx)?;
     let receiver_ty = ctx.resolve(&typed_receiver.ty());
 
     // Look up the method signature
@@ -848,7 +858,7 @@ fn check_method_call(
     // Type check arguments
     let mut typed_args = Vec::new();
     for (arg, param_ty) in args.iter().zip(param_types.iter()) {
-        let typed_arg = check_with_env(arg, env, ctx)?;
+        let typed_arg = check_with_env(arg, current_module, env, ctx)?;
         let arg_ty = typed_arg.ty();
 
         ctx.unify(&arg_ty, param_ty).map_err(|e| TypeError {
@@ -875,6 +885,7 @@ fn check_method_call(
 /// Check a list literal expression
 fn check_list_expr(
     elements: &[Expr],
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
@@ -887,13 +898,13 @@ fn check_list_expr(
         })
     } else {
         // Non-empty list: infer element type from first element
-        let first_typed = check_with_env(&elements[0], env, ctx)?;
+        let first_typed = check_with_env(&elements[0], current_module, env, ctx)?;
         let elem_ty = first_typed.ty();
         let mut typed_elements = vec![first_typed];
 
         // Check remaining elements unify with first element's type
         for elem in &elements[1..] {
-            let typed = check_with_env(elem, env, ctx)?;
+            let typed = check_with_env(elem, current_module, env, ctx)?;
             ctx.unify(&typed.ty(), &elem_ty).map_err(|e| TypeError {
                 message: format!("list element type mismatch: {}", e.message),
             })?;
@@ -910,6 +921,7 @@ fn check_list_expr(
 /// Check a tuple literal expression
 fn check_tuple_expr(
     elements: &[Expr],
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
@@ -917,7 +929,7 @@ fn check_tuple_expr(
     let mut element_types = Vec::new();
 
     for elem in elements {
-        let typed = check_with_env(elem, env, ctx)?;
+        let typed = check_with_env(elem, current_module, env, ctx)?;
         element_types.push(typed.ty());
         typed_elements.push(typed);
     }
@@ -933,6 +945,7 @@ fn check_lambda(
     params: &[zoya_ast::LambdaParam],
     return_type: &Option<TypeAnnotation>,
     body: &Expr,
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
@@ -947,12 +960,12 @@ fn check_lambda(
         })?;
 
         let param_ty = match &param.typ {
-            Some(annotation) => resolve_type_annotation(annotation, &HashMap::new(), env)?,
+            Some(annotation) => resolve_type_annotation(annotation, &HashMap::new(), current_module, env)?,
             None => ctx.fresh_var(),
         };
 
         // Type-check the pattern against the parameter type
-        let (typed_pattern, bindings) = check_pattern(&param.pattern, &param_ty, env, ctx)?;
+        let (typed_pattern, bindings) = check_pattern(&param.pattern, &param_ty, current_module, env, ctx)?;
 
         // Add all pattern bindings to the lambda environment
         for (name, var_ty) in bindings {
@@ -964,12 +977,12 @@ fn check_lambda(
     }
 
     // Check the body in the extended environment
-    let typed_body = check_with_env(body, &lambda_env, ctx)?;
+    let typed_body = check_with_env(body, current_module, &lambda_env, ctx)?;
     let body_ty = typed_body.ty();
 
     // If return type is annotated, unify with body type
     let resolved_return = if let Some(annotation) = return_type {
-        let declared_return = resolve_type_annotation(annotation, &HashMap::new(), env)?;
+        let declared_return = resolve_type_annotation(annotation, &HashMap::new(), current_module, env)?;
         ctx.unify(&body_ty, &declared_return).map_err(|e| TypeError {
             message: format!(
                 "lambda body type {} doesn't match declared return type {}: {}",
@@ -1001,15 +1014,16 @@ fn check_lambda(
 fn check_path_struct(
     path: &Path,
     fields: &[(String, Expr)],
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
     match path.segments.as_slice() {
         // Single segment: struct construction
-        [name] => check_struct_construct(name, fields, env, ctx),
+        [name] => check_struct_construct(name, fields, current_module, env, ctx),
         // Two segments: Enum::Variant { fields }
         [enum_name, variant_name] => {
-            check_enum_struct_construct(enum_name, variant_name, fields, env, ctx)
+            check_enum_struct_construct(enum_name, variant_name, fields, current_module, env, ctx)
         }
         _ => Err(TypeError {
             message: format!("unknown path: {}", path),
@@ -1021,11 +1035,13 @@ fn check_path_struct(
 fn check_struct_construct(
     name: &str,
     fields: &[(String, Expr)],
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
     // Look up the struct definition
-    let struct_type = env.get_struct(name).ok_or_else(|| TypeError {
+    let qualified = resolution::qualified_name(current_module, name);
+    let struct_type = env.get_struct(&qualified).ok_or_else(|| TypeError {
         message: format!("unknown struct: {}", name),
     })?;
 
@@ -1074,7 +1090,7 @@ fn check_struct_construct(
         let expected_type = substitute_type_vars(field_type, &instantiation);
 
         // Type-check the field expression
-        let typed_expr = check_with_env(field_expr, env, ctx)?;
+        let typed_expr = check_with_env(field_expr, current_module, env, ctx)?;
         let actual_type = typed_expr.ty();
 
         // Unify with expected type
@@ -1128,10 +1144,12 @@ fn check_enum_struct_construct(
     enum_name: &str,
     variant_name: &str,
     provided_fields: &[(String, Expr)],
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    let enum_type = env.get_enum(enum_name).ok_or_else(|| TypeError {
+    let qualified = resolution::qualified_name(current_module, enum_name);
+    let enum_type = env.get_enum(&qualified).ok_or_else(|| TypeError {
         message: format!("unknown enum: {}", enum_name),
     })?;
 
@@ -1205,7 +1223,7 @@ fn check_enum_struct_construct(
             .unwrap();
 
         let expected_type = substitute_type_vars(field_type, &instantiation);
-        let typed_expr = check_with_env(field_expr, env, ctx)?;
+        let typed_expr = check_with_env(field_expr, current_module, env, ctx)?;
         let actual_type = typed_expr.ty();
 
         ctx.unify(&actual_type, &expected_type)
@@ -1271,10 +1289,11 @@ fn check_enum_struct_construct(
 fn check_field_access(
     expr: &Expr,
     field: &str,
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    let typed_expr = check_with_env(expr, env, ctx)?;
+    let typed_expr = check_with_env(expr, current_module, env, ctx)?;
     let expr_ty = ctx.resolve(&typed_expr.ty());
 
     match &expr_ty {
@@ -1305,6 +1324,7 @@ fn check_field_access(
 /// Check an expression with a type environment
 fn check_with_env(
     expr: &Expr,
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
@@ -1314,26 +1334,26 @@ fn check_with_env(
         Expr::Float(n) => Ok(TypedExpr::Float(*n)),
         Expr::Bool(b) => Ok(TypedExpr::Bool(*b)),
         Expr::String(s) => Ok(TypedExpr::String(s.clone())),
-        Expr::Path(path) => check_path_expr(path, env, ctx),
-        Expr::Call { path, args } => check_path_call(path, args, env, ctx),
-        Expr::UnaryOp { op, expr } => check_unary_op(*op, expr, env, ctx),
-        Expr::BinOp { op, left, right } => check_bin_op(*op, left, right, env, ctx),
-        Expr::Block { bindings, result } => check_block(bindings, result, env, ctx),
-        Expr::Match { scrutinee, arms } => check_match_expr(scrutinee, arms, env, ctx),
+        Expr::Path(path) => check_path_expr(path, current_module, env, ctx),
+        Expr::Call { path, args } => check_path_call(path, args, current_module, env, ctx),
+        Expr::UnaryOp { op, expr } => check_unary_op(*op, expr, current_module, env, ctx),
+        Expr::BinOp { op, left, right } => check_bin_op(*op, left, right, current_module, env, ctx),
+        Expr::Block { bindings, result } => check_block(bindings, result, current_module, env, ctx),
+        Expr::Match { scrutinee, arms } => check_match_expr(scrutinee, arms, current_module, env, ctx),
         Expr::MethodCall {
             receiver,
             method,
             args,
-        } => check_method_call(receiver, method, args, env, ctx),
-        Expr::List(elements) => check_list_expr(elements, env, ctx),
-        Expr::Tuple(elements) => check_tuple_expr(elements, env, ctx),
+        } => check_method_call(receiver, method, args, current_module, env, ctx),
+        Expr::List(elements) => check_list_expr(elements, current_module, env, ctx),
+        Expr::Tuple(elements) => check_tuple_expr(elements, current_module, env, ctx),
         Expr::Lambda {
             params,
             return_type,
             body,
-        } => check_lambda(params, return_type, body, env, ctx),
-        Expr::Struct { path, fields } => check_path_struct(path, fields, env, ctx),
-        Expr::FieldAccess { expr, field } => check_field_access(expr, field, env, ctx),
+        } => check_lambda(params, return_type, body, current_module, env, ctx),
+        Expr::Struct { path, fields } => check_path_struct(path, fields, current_module, env, ctx),
+        Expr::FieldAccess { expr, field } => check_field_access(expr, field, current_module, env, ctx),
     }
 }
 
@@ -1493,7 +1513,7 @@ fn register_module_declarations(
     for item in items {
         if let Item::Struct(def) = item {
             let qualified_name = resolution::qualified_name(current_module, &def.name);
-            let struct_type = struct_type_from_def(def, env, ctx)?;
+            let struct_type = struct_type_from_def(def, current_module, env, ctx)?;
             env.register(qualified_name, Definition::Struct(struct_type));
         }
     }
@@ -1502,7 +1522,7 @@ fn register_module_declarations(
     for item in items {
         if let Item::Enum(def) = item {
             let qualified_name = resolution::qualified_name(current_module, &def.name);
-            let enum_type = enum_type_from_def(def, env, ctx)?;
+            let enum_type = enum_type_from_def(def, current_module, env, ctx)?;
             env.register(qualified_name, Definition::Enum(enum_type));
         }
     }
@@ -1511,7 +1531,7 @@ fn register_module_declarations(
     for item in items {
         if let Item::TypeAlias(def) = item {
             let qualified_name = resolution::qualified_name(current_module, &def.name);
-            let alias_type = type_alias_from_def(def, env, ctx)?;
+            let alias_type = type_alias_from_def(def, current_module, env, ctx)?;
             env.register(qualified_name, Definition::TypeAlias(alias_type));
         }
     }
@@ -1520,7 +1540,7 @@ fn register_module_declarations(
     for item in items {
         if let Item::Function(func) = item {
             let qualified_name = resolution::qualified_name(current_module, &func.name);
-            let func_type = function_type_from_def(func, env, ctx)?;
+            let func_type = function_type_from_def(func, current_module, env, ctx)?;
             env.register(qualified_name, Definition::Function(func_type));
         }
     }
@@ -1563,13 +1583,11 @@ fn check_module_bodies(
 /// Check a function definition within a specific module context.
 fn check_function_in_module(
     func: &FunctionDef,
-    _current_module: &ModulePath,
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedFunction, TypeError> {
-    // For now, delegate to existing check_function
-    // In the future, this will use current_module for path resolution
-    check_function(func, env, ctx)
+    check_function(func, current_module, env, ctx)
 }
 
 #[cfg(test)]
@@ -1581,7 +1599,7 @@ mod tests {
 
     fn check(expr: &Expr) -> Result<TypedExpr, TypeError> {
         let mut ctx = UnifyCtx::new();
-        check_with_env(expr, &TypeEnv::default(), &mut ctx)
+        check_with_env(expr, &ModulePath::root(), &TypeEnv::default(), &mut ctx)
     }
 
     /// Build a test module from items only.
@@ -1813,7 +1831,7 @@ mod tests {
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Path(Path::simple("x".to_string()));
-        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -1822,7 +1840,7 @@ mod tests {
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Path(Path::simple("x".to_string()));
-        let result = check_with_env(&expr, &env, &mut ctx);
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("unknown variable"));
     }
@@ -1839,7 +1857,7 @@ mod tests {
             left: Box::new(Expr::Path(Path::simple("x".to_string()))),
             right: Box::new(Expr::Path(Path::simple("y".to_string()))),
         };
-        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -1847,7 +1865,7 @@ mod tests {
     fn test_check_function_call() {
         let mut env = TypeEnv::default();
         env.register(
-            "square".to_string(),
+            "root::square".to_string(),
             Definition::Function(FunctionType {
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -1861,7 +1879,7 @@ mod tests {
             path: Path::simple("square".to_string()),
             args: vec![Expr::Int(5)],
         };
-        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -1869,7 +1887,7 @@ mod tests {
     fn test_check_function_call_wrong_arg_type() {
         let mut env = TypeEnv::default();
         env.register(
-            "square".to_string(),
+            "root::square".to_string(),
             Definition::Function(FunctionType {
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -1883,7 +1901,7 @@ mod tests {
             path: Path::simple("square".to_string()),
             args: vec![Expr::Float(5.0)],
         };
-        let result = check_with_env(&expr, &env, &mut ctx);
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("type mismatch"));
     }
@@ -1892,7 +1910,7 @@ mod tests {
     fn test_check_function_call_wrong_arity() {
         let mut env = TypeEnv::default();
         env.register(
-            "add".to_string(),
+            "root::add".to_string(),
             Definition::Function(FunctionType {
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -1906,7 +1924,7 @@ mod tests {
             path: Path::simple("add".to_string()),
             args: vec![Expr::Int(1)],
         };
-        let result = check_with_env(&expr, &env, &mut ctx);
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("expects 2 arguments"));
     }
@@ -1919,7 +1937,7 @@ mod tests {
 
         let mut env = TypeEnv::default();
         env.register(
-            "identity".to_string(),
+            "root::identity".to_string(),
             Definition::Function(FunctionType {
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![t_id],
@@ -1933,7 +1951,7 @@ mod tests {
             path: Path::simple("identity".to_string()),
             args: vec![Expr::Int(42)],
         };
-        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -1945,7 +1963,7 @@ mod tests {
 
         let mut env = TypeEnv::default();
         env.register(
-            "identity".to_string(),
+            "root::identity".to_string(),
             Definition::Function(FunctionType {
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![t_id],
@@ -1959,7 +1977,7 @@ mod tests {
             path: Path::simple("identity".to_string()),
             args: vec![Expr::Float(3.14)],
         };
-        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Float);
     }
 
@@ -1982,7 +2000,7 @@ mod tests {
             },
         };
 
-        let result = check_function(&func, &env, &mut ctx).unwrap();
+        let result = check_function(&func, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.name, "double");
         assert_eq!(result.return_type, Type::Int);
     }
@@ -2002,7 +2020,7 @@ mod tests {
             body: Expr::Path(Path::simple("x".to_string())), // Returns Int, not Float
         };
 
-        let result = check_function(&func, &env, &mut ctx);
+        let result = check_function(&func, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("declares return type"));
     }
@@ -2011,7 +2029,7 @@ mod tests {
     fn test_check_function_def_with_call() {
         let mut env = TypeEnv::default();
         env.register(
-            "add".to_string(),
+            "root::add".to_string(),
             Definition::Function(FunctionType {
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -2035,7 +2053,7 @@ mod tests {
             },
         };
 
-        let result = check_function(&func, &env, &mut ctx).unwrap();
+        let result = check_function(&func, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.return_type, Type::Int);
     }
 
@@ -2060,7 +2078,7 @@ mod tests {
         };
 
         let env = TypeEnv::default();
-        let ft = function_type_from_def(&func, &env, &mut ctx).unwrap();
+        let ft = function_type_from_def(&func, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(ft.params, vec![Type::Int, Type::Int]);
         assert_eq!(ft.return_type, Type::Int);
     }
@@ -2080,7 +2098,7 @@ mod tests {
         };
 
         let env = TypeEnv::default();
-        let ft = function_type_from_def(&func, &env, &mut ctx).unwrap();
+        let ft = function_type_from_def(&func, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(ft.type_params, vec!["T".to_string()]);
         assert_eq!(ft.type_var_ids.len(), 1);
         // Params and return type should use the same type variable
@@ -2416,7 +2434,7 @@ mod tests {
                 },
             ],
         };
-        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::String);
     }
 
@@ -2439,7 +2457,7 @@ mod tests {
                 },
             ],
         };
-        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -2460,7 +2478,7 @@ mod tests {
                 },
             }],
         };
-        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -2477,7 +2495,7 @@ mod tests {
                 result: Expr::Int(1),
             }],
         };
-        let result = check_with_env(&expr, &env, &mut ctx);
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("does not match scrutinee"));
     }
@@ -2501,7 +2519,7 @@ mod tests {
                 },
             ],
         };
-        let result = check_with_env(&expr, &env, &mut ctx);
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("different types"));
     }
@@ -3313,7 +3331,7 @@ mod tests {
             path: Path::simple("f".to_string()),
             args: vec![Expr::Int(42)],
         };
-        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::String);
     }
 
@@ -3327,7 +3345,7 @@ mod tests {
             path: Path::simple("x".to_string()),
             args: vec![Expr::Int(1)],
         };
-        let result = check_with_env(&expr, &env, &mut ctx);
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("is not a function"));
@@ -3353,7 +3371,7 @@ mod tests {
             },
             args: vec![Expr::Int(42)],
         };
-        let result = check_with_env(&expr, &env, &mut ctx);
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("cannot use turbofish on lambda"));
@@ -3375,7 +3393,7 @@ mod tests {
             path: Path::simple("f".to_string()),
             args: vec![Expr::Int(42)], // Only 1 arg, needs 2
         };
-        let result = check_with_env(&expr, &env, &mut ctx);
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("expects 2 arguments"));
@@ -3390,7 +3408,7 @@ mod tests {
     fn env_with_point_struct() -> TypeEnv {
         let mut env = TypeEnv::default();
         env.register(
-            "Point".to_string(),
+            "root::Point".to_string(),
             Definition::Struct(StructType {
                 name: "Point".to_string(),
                 type_params: vec![],
@@ -3415,7 +3433,7 @@ mod tests {
                 ("y".to_string(), Expr::Int(20)),
             ],
         };
-        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         match result.ty() {
             Type::Struct { name, .. } => assert_eq!(name, "Point"),
             _ => panic!("Expected struct type"),
@@ -3433,7 +3451,7 @@ mod tests {
                 // Missing y field
             ],
         };
-        let result = check_with_env(&expr, &env, &mut ctx);
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("missing field 'y'"));
@@ -3451,7 +3469,7 @@ mod tests {
                 ("z".to_string(), Expr::Int(30)), // Extra field
             ],
         };
-        let result = check_with_env(&expr, &env, &mut ctx);
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("unknown field 'z'"));
@@ -3468,7 +3486,7 @@ mod tests {
                 ("y".to_string(), Expr::String("wrong".to_string())), // Wrong type
             ],
         };
-        let result = check_with_env(&expr, &env, &mut ctx);
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("field 'y'") && err.message.contains("expects type"));
@@ -3482,7 +3500,7 @@ mod tests {
             path: Path::simple("UnknownStruct".to_string()),
             fields: vec![],
         };
-        let result = check_with_env(&expr, &env, &mut ctx);
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("unknown struct"));
@@ -3497,7 +3515,7 @@ mod tests {
     fn env_with_message_enum() -> TypeEnv {
         let mut env = TypeEnv::default();
         env.register(
-            "Message".to_string(),
+            "root::Message".to_string(),
             Definition::Enum(EnumType {
                 name: "Message".to_string(),
                 type_params: vec![],
@@ -3527,7 +3545,7 @@ mod tests {
             },
             args: vec![Expr::String("hello".to_string())],
         };
-        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         match result.ty() {
             Type::Enum { name, .. } => assert_eq!(name, "Message"),
             _ => panic!("Expected enum type"),
@@ -3546,7 +3564,7 @@ mod tests {
             },
             args: vec![Expr::Int(1)], // Quit is a unit variant
         };
-        let result = check_with_env(&expr, &env, &mut ctx);
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("unit variant"));
@@ -3564,7 +3582,7 @@ mod tests {
             },
             args: vec![Expr::Int(1), Expr::Int(2)], // Move is a struct variant
         };
-        let result = check_with_env(&expr, &env, &mut ctx);
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("struct variant"));
@@ -3585,7 +3603,7 @@ mod tests {
                 ("y".to_string(), Expr::Int(20)),
             ],
         };
-        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         match result.ty() {
             Type::Enum { name, .. } => assert_eq!(name, "Message"),
             _ => panic!("Expected enum type"),
@@ -3606,7 +3624,7 @@ mod tests {
                 ("x".to_string(), Expr::Int(10)),
             ],
         };
-        let result = check_with_env(&expr, &env, &mut ctx);
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("unit variant"));
@@ -3626,7 +3644,7 @@ mod tests {
                 ("msg".to_string(), Expr::String("hi".to_string())),
             ],
         };
-        let result = check_with_env(&expr, &env, &mut ctx);
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("tuple variant"));
@@ -3647,7 +3665,7 @@ mod tests {
                 // Missing y
             ],
         };
-        let result = check_with_env(&expr, &env, &mut ctx);
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("missing field 'y'"));
@@ -3669,7 +3687,7 @@ mod tests {
                 ("z".to_string(), Expr::Int(30)), // Unknown
             ],
         };
-        let result = check_with_env(&expr, &env, &mut ctx);
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("unknown field 'z'"));
@@ -3690,7 +3708,7 @@ mod tests {
                 ("y".to_string(), Expr::String("wrong".to_string())), // Wrong type
             ],
         };
-        let result = check_with_env(&expr, &env, &mut ctx);
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("field 'y'") && err.message.contains("expects"));
@@ -3711,7 +3729,7 @@ mod tests {
             return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
             body: Expr::Int(42),
         };
-        let result = check_function(&func, &env, &mut ctx);
+        let result = check_function(&func, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("should be snake_case"));
@@ -3731,7 +3749,7 @@ mod tests {
             return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
             body: Expr::Path(Path::simple("x".to_string())),
         };
-        let result = check_function(&func, &env, &mut ctx);
+        let result = check_function(&func, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("type parameter") && err.message.contains("should be PascalCase"));
@@ -3751,7 +3769,7 @@ mod tests {
             return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
             body: Expr::Int(0),
         };
-        let result = check_function(&func, &env, &mut ctx);
+        let result = check_function(&func, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("refutable pattern in function parameter"));
@@ -3784,7 +3802,7 @@ mod tests {
                 },
             ],
         };
-        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -3800,7 +3818,7 @@ mod tests {
 
         let mut env = TypeEnv::default();
         env.register(
-            "identity".to_string(),
+            "root::identity".to_string(),
             Definition::Function(FunctionType {
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![t_id],
@@ -3818,7 +3836,7 @@ mod tests {
             },
             args: vec![Expr::Int(42)],
         };
-        let result = check_with_env(&expr, &env, &mut ctx).unwrap();
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -3830,7 +3848,7 @@ mod tests {
 
         let mut env = TypeEnv::default();
         env.register(
-            "identity".to_string(),
+            "root::identity".to_string(),
             Definition::Function(FunctionType {
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![t_id],
@@ -3851,7 +3869,7 @@ mod tests {
             },
             args: vec![Expr::Int(42)],
         };
-        let result = check_with_env(&expr, &env, &mut ctx);
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("expects 1 type argument(s), got 2"));
@@ -3872,7 +3890,7 @@ mod tests {
             segments: vec!["x".to_string()],
             type_args: Some(vec![TypeAnnotation::Named(Path::simple("Int".to_string()))]),
         });
-        let result = check_with_env(&expr, &env, &mut ctx);
+        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("cannot use turbofish on variable"));

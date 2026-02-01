@@ -4,6 +4,7 @@ use zoya_ast::{EnumDef, FunctionDef, StructDef, TypeAliasDef};
 use zoya_ir::{
     EnumType, EnumVariantType, FunctionType, StructType, Type, TypeAliasType, TypeError,
 };
+use zoya_loader::ModulePath;
 use super::unify::UnifyCtx;
 
 use super::naming::{is_pascal_case, to_pascal_case};
@@ -14,6 +15,7 @@ use super::TypeEnv;
 /// Uses a separate UnifyCtx to create fresh type variables for the signature.
 pub fn function_type_from_def(
     func: &FunctionDef,
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<FunctionType, TypeError> {
@@ -30,12 +32,12 @@ pub fn function_type_from_def(
 
     let mut param_types = Vec::new();
     for param in &func.params {
-        let ty = resolve_type_annotation(&param.typ, &type_param_map, env)?;
+        let ty = resolve_type_annotation(&param.typ, &type_param_map, current_module, env)?;
         param_types.push(ty);
     }
 
     let return_type = if let Some(ref annotation) = func.return_type {
-        resolve_type_annotation(annotation, &type_param_map, env)?
+        resolve_type_annotation(annotation, &type_param_map, current_module, env)?
     } else {
         // Create a fresh type variable for inferred return type
         ctx.fresh_var()
@@ -52,6 +54,7 @@ pub fn function_type_from_def(
 /// Extract struct type from a struct definition (for adding to env).
 pub fn struct_type_from_def(
     def: &StructDef,
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<StructType, TypeError> {
@@ -90,7 +93,7 @@ pub fn struct_type_from_def(
     // Resolve field types
     let mut fields = Vec::new();
     for field in &def.fields {
-        let ty = resolve_type_annotation(&field.typ, &type_param_map, env)?;
+        let ty = resolve_type_annotation(&field.typ, &type_param_map, current_module, env)?;
         fields.push((field.name.clone(), ty));
     }
 
@@ -105,6 +108,7 @@ pub fn struct_type_from_def(
 /// Extract enum type from an enum definition (for adding to env).
 pub fn enum_type_from_def(
     def: &EnumDef,
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<EnumType, TypeError> {
@@ -158,7 +162,7 @@ pub fn enum_type_from_def(
             zoya_ast::EnumVariantKind::Tuple(types) => {
                 let resolved_types = types
                     .iter()
-                    .map(|t| resolve_type_annotation(t, &type_param_map, env))
+                    .map(|t| resolve_type_annotation(t, &type_param_map, current_module, env))
                     .collect::<Result<Vec<_>, _>>()?;
                 EnumVariantType::Tuple(resolved_types)
             }
@@ -166,7 +170,7 @@ pub fn enum_type_from_def(
                 let resolved_fields = fields
                     .iter()
                     .map(|f| {
-                        let ty = resolve_type_annotation(&f.typ, &type_param_map, env)?;
+                        let ty = resolve_type_annotation(&f.typ, &type_param_map, current_module, env)?;
                         Ok((f.name.clone(), ty))
                     })
                     .collect::<Result<Vec<_>, TypeError>>()?;
@@ -187,6 +191,7 @@ pub fn enum_type_from_def(
 /// Extract type alias from a type alias definition (for adding to env).
 pub fn type_alias_from_def(
     def: &TypeAliasDef,
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypeAliasType, TypeError> {
@@ -223,7 +228,7 @@ pub fn type_alias_from_def(
     }
 
     // Resolve the underlying type
-    let typ = resolve_type_annotation(&def.typ, &type_param_map, env)?;
+    let typ = resolve_type_annotation(&def.typ, &type_param_map, current_module, env)?;
 
     Ok(TypeAliasType {
         name: def.name.clone(),
@@ -237,6 +242,10 @@ pub fn type_alias_from_def(
 mod tests {
     use super::*;
     use zoya_ast::{EnumVariant, EnumVariantKind, Path, StructFieldDef, TypeAnnotation};
+
+    fn root() -> ModulePath {
+        ModulePath::root()
+    }
 
     // ========================================================================
     // struct_type_from_def tests
@@ -256,7 +265,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = struct_type_from_def(&def, &env, &mut ctx);
+        let result = struct_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_ok());
         assert_eq!(result.unwrap().name, "Point");
     }
@@ -270,7 +279,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = struct_type_from_def(&def, &env, &mut ctx);
+        let result = struct_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("should be PascalCase"));
@@ -286,7 +295,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = struct_type_from_def(&def, &env, &mut ctx);
+        let result = struct_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("should be PascalCase"));
@@ -302,7 +311,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = struct_type_from_def(&def, &env, &mut ctx);
+        let result = struct_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("type parameter"));
@@ -318,7 +327,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = struct_type_from_def(&def, &env, &mut ctx);
+        let result = struct_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("type parameter 'my_type'"));
@@ -339,7 +348,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = struct_type_from_def(&def, &env, &mut ctx);
+        let result = struct_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_ok());
         let st = result.unwrap();
         assert_eq!(st.type_params.len(), 2);
@@ -368,7 +377,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = enum_type_from_def(&def, &env, &mut ctx);
+        let result = enum_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_ok());
         assert_eq!(result.unwrap().name, "Option");
     }
@@ -382,7 +391,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = enum_type_from_def(&def, &env, &mut ctx);
+        let result = enum_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("enum name 'option'"));
@@ -398,7 +407,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = enum_type_from_def(&def, &env, &mut ctx);
+        let result = enum_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("MyEnum"));
@@ -413,7 +422,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = enum_type_from_def(&def, &env, &mut ctx);
+        let result = enum_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("type parameter 'ok_type'"));
@@ -433,7 +442,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = enum_type_from_def(&def, &env, &mut ctx);
+        let result = enum_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("enum variant 'ok'"));
@@ -454,7 +463,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = enum_type_from_def(&def, &env, &mut ctx);
+        let result = enum_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("NotFound"));
@@ -478,7 +487,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = enum_type_from_def(&def, &env, &mut ctx);
+        let result = enum_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_ok());
         let et = result.unwrap();
         assert_eq!(et.variants.len(), 2);
@@ -507,7 +516,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = enum_type_from_def(&def, &env, &mut ctx);
+        let result = enum_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_ok());
         let et = result.unwrap();
         assert!(matches!(&et.variants[0].1, EnumVariantType::Tuple(v) if v.len() == 1));
@@ -546,7 +555,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = enum_type_from_def(&def, &env, &mut ctx);
+        let result = enum_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_ok());
         let et = result.unwrap();
         assert!(matches!(&et.variants[0].1, EnumVariantType::Struct(f) if f.len() == 1));
@@ -567,7 +576,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = enum_type_from_def(&def, &env, &mut ctx);
+        let result = enum_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("unknown type"));
@@ -592,7 +601,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = enum_type_from_def(&def, &env, &mut ctx);
+        let result = enum_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("unknown type"));
@@ -614,7 +623,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = type_alias_from_def(&def, &env, &mut ctx);
+        let result = type_alias_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_ok());
         assert_eq!(result.unwrap().name, "IntList");
     }
@@ -628,7 +637,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = type_alias_from_def(&def, &env, &mut ctx);
+        let result = type_alias_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("type alias name 'intList'"));
@@ -644,7 +653,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = type_alias_from_def(&def, &env, &mut ctx);
+        let result = type_alias_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("IntList"));
@@ -659,7 +668,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = type_alias_from_def(&def, &env, &mut ctx);
+        let result = type_alias_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("type parameter 'elem_type'"));
@@ -677,7 +686,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = type_alias_from_def(&def, &env, &mut ctx);
+        let result = type_alias_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_ok());
         let ta = result.unwrap();
         assert_eq!(ta.type_params.len(), 2);
@@ -693,7 +702,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = type_alias_from_def(&def, &env, &mut ctx);
+        let result = type_alias_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("unknown type"));
@@ -723,7 +732,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = function_type_from_def(&func, &env, &mut ctx);
+        let result = function_type_from_def(&func, &root(), &env, &mut ctx);
         assert!(result.is_ok());
         let ft = result.unwrap();
         assert_eq!(ft.params.len(), 2);
@@ -748,7 +757,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = function_type_from_def(&func, &env, &mut ctx);
+        let result = function_type_from_def(&func, &root(), &env, &mut ctx);
         assert!(result.is_ok());
         let ft = result.unwrap();
         assert_eq!(ft.type_params.len(), 1);
@@ -769,7 +778,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = function_type_from_def(&func, &env, &mut ctx);
+        let result = function_type_from_def(&func, &root(), &env, &mut ctx);
         assert!(result.is_ok());
         let ft = result.unwrap();
         // Should have a fresh type variable for return type
@@ -792,7 +801,7 @@ mod tests {
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = function_type_from_def(&func, &env, &mut ctx);
+        let result = function_type_from_def(&func, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("unknown type"));

@@ -2,15 +2,18 @@ use std::collections::HashMap;
 
 use zoya_ast::TypeAnnotation;
 use zoya_ir::{Type, TypeError, TypeVarId};
+use zoya_loader::ModulePath;
 
-use super::{substitute_type_vars, substitute_variant_type_vars, TypeEnv};
+use super::{resolution, substitute_type_vars, substitute_variant_type_vars, TypeEnv};
 
 /// Resolve a type annotation to a concrete Type.
 /// `type_param_map` maps source-level type parameter names (like "T") to TypeVarIds.
+/// `current_module` is the module context for name resolution.
 /// `env` provides access to struct definitions for struct type resolution.
 pub fn resolve_type_annotation(
     annotation: &TypeAnnotation,
     type_param_map: &HashMap<String, TypeVarId>,
+    current_module: &ModulePath,
     env: &TypeEnv,
 ) -> Result<Type, TypeError> {
     match annotation {
@@ -31,57 +34,60 @@ pub fn resolve_type_annotation(
                 Ok(Type::String)
             } else if let Some(&id) = type_param_map.get(name) {
                 Ok(Type::Var(id))
-            } else if let Some(struct_def) = env.get_struct(name) {
-                // Non-generic struct reference
-                if !struct_def.type_params.is_empty() {
-                    return Err(TypeError {
-                        message: format!(
-                            "struct {} requires {} type argument(s)",
-                            name,
-                            struct_def.type_params.len()
-                        ),
-                    });
-                }
-                // Non-generic struct: use fields as-is
-                Ok(Type::Struct {
-                    name: name.to_string(),
-                    type_args: vec![],
-                    fields: struct_def.fields.clone(),
-                })
-            } else if let Some(enum_def) = env.get_enum(name) {
-                // Non-generic enum reference
-                if !enum_def.type_params.is_empty() {
-                    return Err(TypeError {
-                        message: format!(
-                            "enum {} requires {} type argument(s)",
-                            name,
-                            enum_def.type_params.len()
-                        ),
-                    });
-                }
-                // Non-generic enum: use variants as-is
-                Ok(Type::Enum {
-                    name: name.to_string(),
-                    type_args: vec![],
-                    variants: enum_def.variants.clone(),
-                })
-            } else if let Some(alias_def) = env.get_type_alias(name) {
-                // Non-generic type alias reference
-                if !alias_def.type_params.is_empty() {
-                    return Err(TypeError {
-                        message: format!(
-                            "type alias {} requires {} type argument(s)",
-                            name,
-                            alias_def.type_params.len()
-                        ),
-                    });
-                }
-                // Non-generic alias: return the underlying type as-is
-                Ok(alias_def.typ.clone())
             } else {
-                Err(TypeError {
-                    message: format!("unknown type: {}", name),
-                })
+                let qualified = resolution::qualified_name(current_module, name);
+                if let Some(struct_def) = env.get_struct(&qualified) {
+                    // Non-generic struct reference
+                    if !struct_def.type_params.is_empty() {
+                        return Err(TypeError {
+                            message: format!(
+                                "struct {} requires {} type argument(s)",
+                                name,
+                                struct_def.type_params.len()
+                            ),
+                        });
+                    }
+                    // Non-generic struct: use fields as-is
+                    Ok(Type::Struct {
+                        name: name.to_string(),
+                        type_args: vec![],
+                        fields: struct_def.fields.clone(),
+                    })
+                } else if let Some(enum_def) = env.get_enum(&qualified) {
+                    // Non-generic enum reference
+                    if !enum_def.type_params.is_empty() {
+                        return Err(TypeError {
+                            message: format!(
+                                "enum {} requires {} type argument(s)",
+                                name,
+                                enum_def.type_params.len()
+                            ),
+                        });
+                    }
+                    // Non-generic enum: use variants as-is
+                    Ok(Type::Enum {
+                        name: name.to_string(),
+                        type_args: vec![],
+                        variants: enum_def.variants.clone(),
+                    })
+                } else if let Some(alias_def) = env.get_type_alias(&qualified) {
+                    // Non-generic type alias reference
+                    if !alias_def.type_params.is_empty() {
+                        return Err(TypeError {
+                            message: format!(
+                                "type alias {} requires {} type argument(s)",
+                                name,
+                                alias_def.type_params.len()
+                            ),
+                        });
+                    }
+                    // Non-generic alias: return the underlying type as-is
+                    Ok(alias_def.typ.clone())
+                } else {
+                    Err(TypeError {
+                        message: format!("unknown type: {}", name),
+                    })
+                }
             }
         }
         TypeAnnotation::Parameterized(path, params) => {
@@ -95,111 +101,114 @@ pub fn resolve_type_annotation(
                         message: "List requires exactly one type parameter".to_string(),
                     });
                 }
-                let elem_type = resolve_type_annotation(&params[0], type_param_map, env)?;
+                let elem_type = resolve_type_annotation(&params[0], type_param_map, current_module, env)?;
                 Ok(Type::List(Box::new(elem_type)))
-            } else if let Some(struct_def) = env.get_struct(name) {
-                // Generic struct reference
-                if params.len() != struct_def.type_params.len() {
-                    return Err(TypeError {
-                        message: format!(
-                            "struct {} expects {} type argument(s), got {}",
-                            name,
-                            struct_def.type_params.len(),
-                            params.len()
-                        ),
-                    });
-                }
-                let type_args = params
-                    .iter()
-                    .map(|p| resolve_type_annotation(p, type_param_map, env))
-                    .collect::<Result<Vec<_>, _>>()?;
-                // Substitute type args into field types
-                let mut subst = HashMap::new();
-                for (id, arg) in struct_def.type_var_ids.iter().zip(type_args.iter()) {
-                    subst.insert(*id, arg.clone());
-                }
-                let fields = struct_def
-                    .fields
-                    .iter()
-                    .map(|(n, t)| (n.clone(), substitute_type_vars(t, &subst)))
-                    .collect();
-                Ok(Type::Struct {
-                    name: name.to_string(),
-                    type_args,
-                    fields,
-                })
-            } else if let Some(enum_def) = env.get_enum(name) {
-                // Generic enum reference
-                if params.len() != enum_def.type_params.len() {
-                    return Err(TypeError {
-                        message: format!(
-                            "enum {} expects {} type argument(s), got {}",
-                            name,
-                            enum_def.type_params.len(),
-                            params.len()
-                        ),
-                    });
-                }
-                let type_args = params
-                    .iter()
-                    .map(|p| resolve_type_annotation(p, type_param_map, env))
-                    .collect::<Result<Vec<_>, _>>()?;
-                // Substitute type args into variant types
-                let mut subst = HashMap::new();
-                for (id, arg) in enum_def.type_var_ids.iter().zip(type_args.iter()) {
-                    subst.insert(*id, arg.clone());
-                }
-                let variants = enum_def
-                    .variants
-                    .iter()
-                    .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, &subst)))
-                    .collect();
-                Ok(Type::Enum {
-                    name: name.to_string(),
-                    type_args,
-                    variants,
-                })
-            } else if let Some(alias_def) = env.get_type_alias(name) {
-                // Generic type alias reference
-                if params.len() != alias_def.type_params.len() {
-                    return Err(TypeError {
-                        message: format!(
-                            "type alias {} expects {} type argument(s), got {}",
-                            name,
-                            alias_def.type_params.len(),
-                            params.len()
-                        ),
-                    });
-                }
-                let type_args = params
-                    .iter()
-                    .map(|p| resolve_type_annotation(p, type_param_map, env))
-                    .collect::<Result<Vec<_>, _>>()?;
-                // Substitute type args into the underlying type
-                let mut subst = HashMap::new();
-                for (id, arg) in alias_def.type_var_ids.iter().zip(type_args.iter()) {
-                    subst.insert(*id, arg.clone());
-                }
-                Ok(substitute_type_vars(&alias_def.typ, &subst))
             } else {
-                Err(TypeError {
-                    message: format!("unknown parameterized type: {}", name),
-                })
+                let qualified = resolution::qualified_name(current_module, name);
+                if let Some(struct_def) = env.get_struct(&qualified) {
+                    // Generic struct reference
+                    if params.len() != struct_def.type_params.len() {
+                        return Err(TypeError {
+                            message: format!(
+                                "struct {} expects {} type argument(s), got {}",
+                                name,
+                                struct_def.type_params.len(),
+                                params.len()
+                            ),
+                        });
+                    }
+                    let type_args = params
+                        .iter()
+                        .map(|p| resolve_type_annotation(p, type_param_map, current_module, env))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    // Substitute type args into field types
+                    let mut subst = HashMap::new();
+                    for (id, arg) in struct_def.type_var_ids.iter().zip(type_args.iter()) {
+                        subst.insert(*id, arg.clone());
+                    }
+                    let fields = struct_def
+                        .fields
+                        .iter()
+                        .map(|(n, t)| (n.clone(), substitute_type_vars(t, &subst)))
+                        .collect();
+                    Ok(Type::Struct {
+                        name: name.to_string(),
+                        type_args,
+                        fields,
+                    })
+                } else if let Some(enum_def) = env.get_enum(&qualified) {
+                    // Generic enum reference
+                    if params.len() != enum_def.type_params.len() {
+                        return Err(TypeError {
+                            message: format!(
+                                "enum {} expects {} type argument(s), got {}",
+                                name,
+                                enum_def.type_params.len(),
+                                params.len()
+                            ),
+                        });
+                    }
+                    let type_args = params
+                        .iter()
+                        .map(|p| resolve_type_annotation(p, type_param_map, current_module, env))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    // Substitute type args into variant types
+                    let mut subst = HashMap::new();
+                    for (id, arg) in enum_def.type_var_ids.iter().zip(type_args.iter()) {
+                        subst.insert(*id, arg.clone());
+                    }
+                    let variants = enum_def
+                        .variants
+                        .iter()
+                        .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, &subst)))
+                        .collect();
+                    Ok(Type::Enum {
+                        name: name.to_string(),
+                        type_args,
+                        variants,
+                    })
+                } else if let Some(alias_def) = env.get_type_alias(&qualified) {
+                    // Generic type alias reference
+                    if params.len() != alias_def.type_params.len() {
+                        return Err(TypeError {
+                            message: format!(
+                                "type alias {} expects {} type argument(s), got {}",
+                                name,
+                                alias_def.type_params.len(),
+                                params.len()
+                            ),
+                        });
+                    }
+                    let type_args = params
+                        .iter()
+                        .map(|p| resolve_type_annotation(p, type_param_map, current_module, env))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    // Substitute type args into the underlying type
+                    let mut subst = HashMap::new();
+                    for (id, arg) in alias_def.type_var_ids.iter().zip(type_args.iter()) {
+                        subst.insert(*id, arg.clone());
+                    }
+                    Ok(substitute_type_vars(&alias_def.typ, &subst))
+                } else {
+                    Err(TypeError {
+                        message: format!("unknown parameterized type: {}", name),
+                    })
+                }
             }
         }
         TypeAnnotation::Tuple(params) => {
             let mut types = Vec::new();
             for param in params {
-                types.push(resolve_type_annotation(param, type_param_map, env)?);
+                types.push(resolve_type_annotation(param, type_param_map, current_module, env)?);
             }
             Ok(Type::Tuple(types))
         }
         TypeAnnotation::Function(params, ret) => {
             let mut param_types = Vec::new();
             for param in params {
-                param_types.push(resolve_type_annotation(param, type_param_map, env)?);
+                param_types.push(resolve_type_annotation(param, type_param_map, current_module, env)?);
             }
-            let ret_type = resolve_type_annotation(ret, type_param_map, env)?;
+            let ret_type = resolve_type_annotation(ret, type_param_map, current_module, env)?;
             Ok(Type::Function {
                 params: param_types,
                 ret: Box::new(ret_type),
@@ -222,6 +231,10 @@ mod tests {
         HashMap::new()
     }
 
+    fn root() -> ModulePath {
+        ModulePath::root()
+    }
+
     // ========================================================================
     // Basic type resolution tests
     // ========================================================================
@@ -229,7 +242,7 @@ mod tests {
     #[test]
     fn test_resolve_int() {
         let annotation = TypeAnnotation::Named(Path::simple("Int".to_string()));
-        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Type::Int);
     }
@@ -237,7 +250,7 @@ mod tests {
     #[test]
     fn test_resolve_bigint() {
         let annotation = TypeAnnotation::Named(Path::simple("BigInt".to_string()));
-        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Type::BigInt);
     }
@@ -245,7 +258,7 @@ mod tests {
     #[test]
     fn test_resolve_float() {
         let annotation = TypeAnnotation::Named(Path::simple("Float".to_string()));
-        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Type::Float);
     }
@@ -253,7 +266,7 @@ mod tests {
     #[test]
     fn test_resolve_bool() {
         let annotation = TypeAnnotation::Named(Path::simple("Bool".to_string()));
-        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Type::Bool);
     }
@@ -261,7 +274,7 @@ mod tests {
     #[test]
     fn test_resolve_string() {
         let annotation = TypeAnnotation::Named(Path::simple("String".to_string()));
-        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Type::String);
     }
@@ -273,7 +286,7 @@ mod tests {
     #[test]
     fn test_resolve_unknown_type() {
         let annotation = TypeAnnotation::Named(Path::simple("UnknownType".to_string()));
-        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("unknown type"));
@@ -286,7 +299,7 @@ mod tests {
             Path::simple("UnknownGeneric".to_string()),
             vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
         );
-        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("unknown parameterized type"));
@@ -303,7 +316,7 @@ mod tests {
             segments: vec!["Module".to_string(), "Type".to_string()],
             type_args: None,
         });
-        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("qualified type paths not yet supported"));
@@ -319,7 +332,7 @@ mod tests {
             },
             vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
         );
-        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("qualified type paths not yet supported"));
@@ -335,7 +348,7 @@ mod tests {
         type_param_map.insert("T".to_string(), TypeVarId(42));
 
         let annotation = TypeAnnotation::Named(Path::simple("T".to_string()));
-        let result = resolve_type_annotation(&annotation, &type_param_map, &empty_env());
+        let result = resolve_type_annotation(&annotation, &type_param_map, &root(), &empty_env());
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Type::Var(TypeVarId(42)));
     }
@@ -350,7 +363,7 @@ mod tests {
             Path::simple("List".to_string()),
             vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
         );
-        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Type::List(Box::new(Type::Int)));
     }
@@ -361,7 +374,7 @@ mod tests {
             Path::simple("List".to_string()),
             vec![],
         );
-        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("List requires exactly one type parameter"));
@@ -376,7 +389,7 @@ mod tests {
                 TypeAnnotation::Named(Path::simple("String".to_string())),
             ],
         );
-        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("List requires exactly one type parameter"));
@@ -391,7 +404,7 @@ mod tests {
                 vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
             )],
         );
-        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_ok());
         assert_eq!(
             result.unwrap(),
@@ -407,7 +420,7 @@ mod tests {
     fn test_resolve_non_generic_struct() {
         let mut env = empty_env();
         env.register(
-            "Point".to_string(),
+            "root::Point".to_string(),
             Definition::Struct(StructType {
                 name: "Point".to_string(),
                 type_params: vec![],
@@ -420,7 +433,7 @@ mod tests {
         );
 
         let annotation = TypeAnnotation::Named(Path::simple("Point".to_string()));
-        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &env);
         assert!(result.is_ok());
         match result.unwrap() {
             Type::Struct { name, type_args, fields } => {
@@ -436,7 +449,7 @@ mod tests {
     fn test_resolve_struct_requires_type_args() {
         let mut env = empty_env();
         env.register(
-            "Container".to_string(),
+            "root::Container".to_string(),
             Definition::Struct(StructType {
                 name: "Container".to_string(),
                 type_params: vec!["T".to_string()],
@@ -446,7 +459,7 @@ mod tests {
         );
 
         let annotation = TypeAnnotation::Named(Path::simple("Container".to_string()));
-        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &env);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("struct Container requires 1 type argument"));
@@ -456,7 +469,7 @@ mod tests {
     fn test_resolve_struct_wrong_type_arg_count() {
         let mut env = empty_env();
         env.register(
-            "Pair".to_string(),
+            "root::Pair".to_string(),
             Definition::Struct(StructType {
                 name: "Pair".to_string(),
                 type_params: vec!["A".to_string(), "B".to_string()],
@@ -473,7 +486,7 @@ mod tests {
             Path::simple("Pair".to_string()),
             vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
         );
-        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &env);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("struct Pair expects 2 type argument(s), got 1"));
@@ -483,7 +496,7 @@ mod tests {
     fn test_resolve_generic_struct_with_type_args() {
         let mut env = empty_env();
         env.register(
-            "Container".to_string(),
+            "root::Container".to_string(),
             Definition::Struct(StructType {
                 name: "Container".to_string(),
                 type_params: vec!["T".to_string()],
@@ -496,7 +509,7 @@ mod tests {
             Path::simple("Container".to_string()),
             vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
         );
-        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &env);
         assert!(result.is_ok());
         match result.unwrap() {
             Type::Struct { name, type_args, fields } => {
@@ -517,7 +530,7 @@ mod tests {
     fn test_resolve_non_generic_enum() {
         let mut env = empty_env();
         env.register(
-            "Status".to_string(),
+            "root::Status".to_string(),
             Definition::Enum(EnumType {
                 name: "Status".to_string(),
                 type_params: vec![],
@@ -530,7 +543,7 @@ mod tests {
         );
 
         let annotation = TypeAnnotation::Named(Path::simple("Status".to_string()));
-        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &env);
         assert!(result.is_ok());
         match result.unwrap() {
             Type::Enum { name, type_args, variants } => {
@@ -546,7 +559,7 @@ mod tests {
     fn test_resolve_enum_requires_type_args() {
         let mut env = empty_env();
         env.register(
-            "Option".to_string(),
+            "root::Option".to_string(),
             Definition::Enum(EnumType {
                 name: "Option".to_string(),
                 type_params: vec!["T".to_string()],
@@ -559,7 +572,7 @@ mod tests {
         );
 
         let annotation = TypeAnnotation::Named(Path::simple("Option".to_string()));
-        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &env);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("enum Option requires 1 type argument"));
@@ -569,7 +582,7 @@ mod tests {
     fn test_resolve_enum_wrong_type_arg_count() {
         let mut env = empty_env();
         env.register(
-            "Result".to_string(),
+            "root::Result".to_string(),
             Definition::Enum(EnumType {
                 name: "Result".to_string(),
                 type_params: vec!["T".to_string(), "E".to_string()],
@@ -590,7 +603,7 @@ mod tests {
                 TypeAnnotation::Named(Path::simple("Bool".to_string())),
             ],
         );
-        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &env);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("enum Result expects 2 type argument(s), got 3"));
@@ -600,7 +613,7 @@ mod tests {
     fn test_resolve_generic_enum_with_type_args() {
         let mut env = empty_env();
         env.register(
-            "Option".to_string(),
+            "root::Option".to_string(),
             Definition::Enum(EnumType {
                 name: "Option".to_string(),
                 type_params: vec!["T".to_string()],
@@ -616,7 +629,7 @@ mod tests {
             Path::simple("Option".to_string()),
             vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
         );
-        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &env);
         assert!(result.is_ok());
         match result.unwrap() {
             Type::Enum { name, type_args, variants } => {
@@ -637,7 +650,7 @@ mod tests {
     fn test_resolve_non_generic_type_alias() {
         let mut env = empty_env();
         env.register(
-            "IntList".to_string(),
+            "root::IntList".to_string(),
             Definition::TypeAlias(TypeAliasType {
                 name: "IntList".to_string(),
                 type_params: vec![],
@@ -647,7 +660,7 @@ mod tests {
         );
 
         let annotation = TypeAnnotation::Named(Path::simple("IntList".to_string()));
-        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &env);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Type::List(Box::new(Type::Int)));
     }
@@ -656,7 +669,7 @@ mod tests {
     fn test_resolve_type_alias_requires_type_args() {
         let mut env = empty_env();
         env.register(
-            "MyList".to_string(),
+            "root::MyList".to_string(),
             Definition::TypeAlias(TypeAliasType {
                 name: "MyList".to_string(),
                 type_params: vec!["T".to_string()],
@@ -666,7 +679,7 @@ mod tests {
         );
 
         let annotation = TypeAnnotation::Named(Path::simple("MyList".to_string()));
-        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &env);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("type alias MyList requires 1 type argument"));
@@ -676,7 +689,7 @@ mod tests {
     fn test_resolve_type_alias_wrong_type_arg_count() {
         let mut env = empty_env();
         env.register(
-            "MyPair".to_string(),
+            "root::MyPair".to_string(),
             Definition::TypeAlias(TypeAliasType {
                 name: "MyPair".to_string(),
                 type_params: vec!["A".to_string(), "B".to_string()],
@@ -689,7 +702,7 @@ mod tests {
             Path::simple("MyPair".to_string()),
             vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
         );
-        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &env);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("type alias MyPair expects 2 type argument(s), got 1"));
@@ -699,7 +712,7 @@ mod tests {
     fn test_resolve_generic_type_alias_with_type_args() {
         let mut env = empty_env();
         env.register(
-            "MyList".to_string(),
+            "root::MyList".to_string(),
             Definition::TypeAlias(TypeAliasType {
                 name: "MyList".to_string(),
                 type_params: vec!["T".to_string()],
@@ -712,7 +725,7 @@ mod tests {
             Path::simple("MyList".to_string()),
             vec![TypeAnnotation::Named(Path::simple("String".to_string()))],
         );
-        let result = resolve_type_annotation(&annotation, &empty_map(), &env);
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &env);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Type::List(Box::new(Type::String)));
     }
@@ -724,7 +737,7 @@ mod tests {
     #[test]
     fn test_resolve_empty_tuple() {
         let annotation = TypeAnnotation::Tuple(vec![]);
-        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Type::Tuple(vec![]));
     }
@@ -736,7 +749,7 @@ mod tests {
             TypeAnnotation::Named(Path::simple("String".to_string())),
             TypeAnnotation::Named(Path::simple("Bool".to_string())),
         ]);
-        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_ok());
         assert_eq!(
             result.unwrap(),
@@ -753,7 +766,7 @@ mod tests {
                 TypeAnnotation::Named(Path::simple("Bool".to_string())),
             ]),
         ]);
-        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_ok());
         assert_eq!(
             result.unwrap(),
@@ -774,7 +787,7 @@ mod tests {
             vec![],
             Box::new(TypeAnnotation::Named(Path::simple("Int".to_string()))),
         );
-        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_ok());
         match result.unwrap() {
             Type::Function { params, ret } => {
@@ -794,7 +807,7 @@ mod tests {
             ],
             Box::new(TypeAnnotation::Named(Path::simple("Bool".to_string()))),
         );
-        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_ok());
         match result.unwrap() {
             Type::Function { params, ret } => {
@@ -815,7 +828,7 @@ mod tests {
             )],
             Box::new(TypeAnnotation::Named(Path::simple("String".to_string()))),
         );
-        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_ok());
         match result.unwrap() {
             Type::Function { params, ret } => {
@@ -842,7 +855,7 @@ mod tests {
             vec![TypeAnnotation::Named(Path::simple("T".to_string()))],
             Box::new(TypeAnnotation::Named(Path::simple("T".to_string()))),
         );
-        let result = resolve_type_annotation(&annotation, &type_param_map, &empty_env());
+        let result = resolve_type_annotation(&annotation, &type_param_map, &root(), &empty_env());
         assert!(result.is_ok());
         match result.unwrap() {
             Type::Function { params, ret } => {
@@ -866,7 +879,7 @@ mod tests {
                 TypeAnnotation::Named(Path::simple("String".to_string())),
             ])],
         );
-        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_ok());
         assert_eq!(
             result.unwrap(),
@@ -883,7 +896,7 @@ mod tests {
                 vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
             )),
         );
-        let result = resolve_type_annotation(&annotation, &empty_map(), &empty_env());
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_ok());
         match result.unwrap() {
             Type::Function { params, ret } => {

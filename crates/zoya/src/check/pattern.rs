@@ -5,9 +5,11 @@ use zoya_ir::{
     EnumVariantType, QualifiedPath, Type, TypeError, TypeScheme, TypeVarId, TypedLetBinding,
     TypedMatchArm, TypedPattern,
 };
+use zoya_loader::ModulePath;
 use super::unify::UnifyCtx;
 
 use super::naming::{is_snake_case, to_snake_case};
+use super::resolution;
 use super::type_resolver::resolve_type_annotation;
 use super::{check_with_env, substitute_type_vars, substitute_variant_type_vars, TypeEnv};
 
@@ -15,13 +17,14 @@ use super::{check_with_env, substitute_type_vars, substitute_variant_type_vars, 
 pub fn check_patterns_against_elem(
     patterns: &[Pattern],
     elem_ty: &Type,
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(Vec<TypedPattern>, HashMap<String, Type>), TypeError> {
     let mut typed_patterns = Vec::new();
     let mut all_bindings = HashMap::new();
     for pat in patterns {
-        let (typed_pat, bindings) = check_pattern(pat, elem_ty, env, ctx)?;
+        let (typed_pat, bindings) = check_pattern(pat, elem_ty, current_module, env, ctx)?;
         typed_patterns.push(typed_pat);
         all_bindings.extend(bindings);
     }
@@ -32,13 +35,14 @@ pub fn check_patterns_against_elem(
 pub fn check_patterns_against_types(
     patterns: &[Pattern],
     types: &[Type],
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(Vec<TypedPattern>, HashMap<String, Type>), TypeError> {
     let mut typed_patterns = Vec::new();
     let mut all_bindings = HashMap::new();
     for (pat, ty) in patterns.iter().zip(types.iter()) {
-        let (typed_pat, bindings) = check_pattern(pat, ty, env, ctx)?;
+        let (typed_pat, bindings) = check_pattern(pat, ty, current_module, env, ctx)?;
         typed_patterns.push(typed_pat);
         all_bindings.extend(bindings);
     }
@@ -49,12 +53,13 @@ pub fn check_patterns_against_types(
 pub fn check_pattern(
     pattern: &Pattern,
     scrutinee_ty: &Type,
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
     match pattern {
         Pattern::Literal(expr) => {
-            let typed = check_with_env(expr, env, ctx)?;
+            let typed = check_with_env(expr, current_module, env, ctx)?;
             let lit_ty = typed.ty();
 
             // Unify literal type with scrutinee type
@@ -110,7 +115,7 @@ pub fn check_pattern(
 
                 ListPattern::Exact(patterns) => {
                     let (typed_patterns, bindings) =
-                        check_patterns_against_elem(patterns, &resolved_elem, env, ctx)?;
+                        check_patterns_against_elem(patterns, &resolved_elem, current_module, env, ctx)?;
                     Ok((
                         TypedPattern::ListExact {
                             patterns: typed_patterns,
@@ -125,7 +130,7 @@ pub fn check_pattern(
                     rest_binding,
                 } => {
                     let (typed_patterns, mut bindings) =
-                        check_patterns_against_elem(patterns, &resolved_elem, env, ctx)?;
+                        check_patterns_against_elem(patterns, &resolved_elem, current_module, env, ctx)?;
 
                     // Handle rest binding: rest @ .. binds to List<T>
                     let rest_binding_with_type = if let Some(name) = rest_binding {
@@ -160,7 +165,7 @@ pub fn check_pattern(
                     rest_binding,
                 } => {
                     let (typed_patterns, mut bindings) =
-                        check_patterns_against_elem(patterns, &resolved_elem, env, ctx)?;
+                        check_patterns_against_elem(patterns, &resolved_elem, current_module, env, ctx)?;
 
                     // Handle rest binding
                     let rest_binding_with_type = if let Some(name) = rest_binding {
@@ -196,9 +201,9 @@ pub fn check_pattern(
                     rest_binding,
                 } => {
                     let (prefix_typed, mut bindings) =
-                        check_patterns_against_elem(prefix, &resolved_elem, env, ctx)?;
+                        check_patterns_against_elem(prefix, &resolved_elem, current_module, env, ctx)?;
                     let (suffix_typed, suffix_bindings) =
-                        check_patterns_against_elem(suffix, &resolved_elem, env, ctx)?;
+                        check_patterns_against_elem(suffix, &resolved_elem, current_module, env, ctx)?;
                     bindings.extend(suffix_bindings);
 
                     // Handle rest binding
@@ -309,7 +314,7 @@ pub fn check_pattern(
                     }
 
                     let (typed_patterns, bindings) =
-                        check_patterns_against_types(patterns, &tuple_types, env, ctx)?;
+                        check_patterns_against_types(patterns, &tuple_types, current_module, env, ctx)?;
                     Ok((
                         TypedPattern::TupleExact {
                             patterns: typed_patterns,
@@ -334,7 +339,7 @@ pub fn check_pattern(
                     }
 
                     let (typed_patterns, mut bindings) =
-                        check_patterns_against_types(patterns, &tuple_types, env, ctx)?;
+                        check_patterns_against_types(patterns, &tuple_types, current_module, env, ctx)?;
 
                     // Handle rest binding: rest @ .. binds to tuple of remaining elements
                     let rest_binding_with_type = if let Some(name) = rest_binding {
@@ -382,7 +387,7 @@ pub fn check_pattern(
                     // Suffix patterns match from the end
                     let start_idx = tuple_types.len() - patterns.len();
                     let (typed_patterns, mut bindings) =
-                        check_patterns_against_types(patterns, &tuple_types[start_idx..], env, ctx)?;
+                        check_patterns_against_types(patterns, &tuple_types[start_idx..], current_module, env, ctx)?;
 
                     // Handle rest binding: rest @ .. binds to tuple of leading elements
                     let rest_binding_with_type = if let Some(name) = rest_binding {
@@ -431,12 +436,12 @@ pub fn check_pattern(
 
                     // Prefix patterns match from the start
                     let (prefix_typed, mut bindings) =
-                        check_patterns_against_types(prefix, &tuple_types, env, ctx)?;
+                        check_patterns_against_types(prefix, &tuple_types, current_module, env, ctx)?;
 
                     // Suffix patterns match from the end
                     let suffix_start = tuple_types.len() - suffix.len();
                     let (suffix_typed, suffix_bindings) =
-                        check_patterns_against_types(suffix, &tuple_types[suffix_start..], env, ctx)?;
+                        check_patterns_against_types(suffix, &tuple_types[suffix_start..], current_module, env, ctx)?;
                     bindings.extend(suffix_bindings);
 
                     // Handle rest binding: rest @ .. binds to tuple of middle elements
@@ -472,10 +477,10 @@ pub fn check_pattern(
         }
 
         // Path pattern: Option::None, root::Color::Red (unit enum variants)
-        Pattern::Path(path) => check_path_pattern(path, scrutinee_ty, env, ctx),
+        Pattern::Path(path) => check_path_pattern(path, scrutinee_ty, current_module, env, ctx),
 
         // Call pattern: Option::Some(x), root::Result::Ok(v) (tuple enum variants)
-        Pattern::Call { path, args } => check_call_pattern(path, args, scrutinee_ty, env, ctx),
+        Pattern::Call { path, args } => check_call_pattern(path, args, scrutinee_ty, current_module, env, ctx),
 
         // Struct pattern: Point { x }, Message::Move { x, .. }
         // Works for both struct types and enum struct variants
@@ -483,7 +488,7 @@ pub fn check_pattern(
             path,
             fields,
             is_partial,
-        } => check_struct_pattern(path, fields, *is_partial, scrutinee_ty, env, ctx),
+        } => check_struct_pattern(path, fields, *is_partial, scrutinee_ty, current_module, env, ctx),
 
         Pattern::As { name, pattern } => {
             // Check variable name is snake_case
@@ -498,7 +503,7 @@ pub fn check_pattern(
             }
 
             // Recursively check the inner pattern
-            let (typed_pattern, mut bindings) = check_pattern(pattern, scrutinee_ty, env, ctx)?;
+            let (typed_pattern, mut bindings) = check_pattern(pattern, scrutinee_ty, current_module, env, ctx)?;
 
             // Add binding for the entire matched value
             let resolved_ty = ctx.resolve(scrutinee_ty);
@@ -520,6 +525,7 @@ pub fn check_pattern(
 fn check_path_pattern(
     path: &Path,
     scrutinee_ty: &Type,
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
@@ -534,7 +540,8 @@ fn check_path_pattern(
     };
 
     // Look up the enum definition
-    let enum_type = env.get_enum(enum_name).ok_or_else(|| TypeError {
+    let qualified = resolution::qualified_name(current_module, enum_name);
+    let enum_type = env.get_enum(&qualified).ok_or_else(|| TypeError {
         message: format!("unknown enum in pattern: {}", enum_name),
     })?;
 
@@ -604,6 +611,7 @@ fn check_call_pattern(
     path: &Path,
     args: &TuplePattern,
     scrutinee_ty: &Type,
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
@@ -621,7 +629,8 @@ fn check_call_pattern(
     };
 
     // Look up the enum definition
-    let enum_type = env.get_enum(enum_name).ok_or_else(|| TypeError {
+    let qualified = resolution::qualified_name(current_module, enum_name);
+    let enum_type = env.get_enum(&qualified).ok_or_else(|| TypeError {
         message: format!("unknown enum in pattern: {}", enum_name),
     })?;
 
@@ -687,7 +696,7 @@ fn check_call_pattern(
         .map(|t| ctx.resolve(&substitute_type_vars(t, &instantiation)))
         .collect();
 
-    check_enum_tuple_pattern(enum_name, variant_name, args, &resolved_types, env, ctx)
+    check_enum_tuple_pattern(enum_name, variant_name, args, &resolved_types, current_module, env, ctx)
 }
 
 /// Check a struct pattern: Point { x }, Message::Move { x, .. }
@@ -697,6 +706,7 @@ fn check_struct_pattern(
     field_patterns: &[zoya_ast::StructFieldPattern],
     is_partial: bool,
     scrutinee_ty: &Type,
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
@@ -704,13 +714,15 @@ fn check_struct_pattern(
     match path.segments.as_slice() {
         [name] => {
             // Single-segment path: try as struct type
-            if let Some(struct_type) = env.get_struct(name.as_str()) {
+            let qualified = resolution::qualified_name(current_module, name);
+            if let Some(struct_type) = env.get_struct(&qualified) {
                 return check_struct_type_pattern(
                     name,
                     struct_type,
                     field_patterns,
                     is_partial,
                     scrutinee_ty,
+                    current_module,
                     env,
                     ctx,
                 );
@@ -722,7 +734,8 @@ fn check_struct_pattern(
         }
         [enum_name, variant_name] => {
             // Two-segment path: try as enum struct variant
-            if let Some(enum_type) = env.get_enum(enum_name.as_str()) {
+            let qualified = resolution::qualified_name(current_module, enum_name);
+            if let Some(enum_type) = env.get_enum(&qualified) {
                 return check_enum_struct_variant_pattern(
                     enum_name,
                     variant_name,
@@ -730,6 +743,7 @@ fn check_struct_pattern(
                     field_patterns,
                     is_partial,
                     scrutinee_ty,
+                    current_module,
                     env,
                     ctx,
                 );
@@ -758,6 +772,7 @@ fn check_struct_type_pattern(
     field_patterns: &[zoya_ast::StructFieldPattern],
     is_partial: bool,
     scrutinee_ty: &Type,
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
@@ -841,7 +856,7 @@ fn check_struct_type_pattern(
 
         // Recursively check the field pattern
         let (typed_sub_pattern, sub_bindings) =
-            check_pattern(&field_pattern.pattern, &resolved_field_type, env, ctx)?;
+            check_pattern(&field_pattern.pattern, &resolved_field_type, current_module, env, ctx)?;
         all_bindings.extend(sub_bindings);
         typed_fields.push((field_pattern.field_name.clone(), typed_sub_pattern));
     }
@@ -870,6 +885,7 @@ fn check_enum_struct_variant_pattern(
     field_patterns: &[zoya_ast::StructFieldPattern],
     is_partial: bool,
     scrutinee_ty: &Type,
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
@@ -946,6 +962,7 @@ fn check_enum_struct_variant_pattern(
         field_patterns,
         is_partial,
         &resolved_fields,
+        current_module,
         env,
         ctx,
     )
@@ -957,6 +974,7 @@ fn check_enum_tuple_pattern(
     variant_name: &str,
     tuple_pattern: &TuplePattern,
     expected_types: &[Type],
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
@@ -998,7 +1016,7 @@ fn check_enum_tuple_pattern(
                 });
             }
             let (typed_patterns, bindings) =
-                check_patterns_against_types(patterns, expected_types, env, ctx)?;
+                check_patterns_against_types(patterns, expected_types, current_module, env, ctx)?;
             Ok((
                 TypedPattern::EnumTupleExact {
                     path: QualifiedPath::new(vec![
@@ -1028,7 +1046,7 @@ fn check_enum_tuple_pattern(
                 });
             }
             let (typed_patterns, mut bindings) =
-                check_patterns_against_types(patterns, expected_types, env, ctx)?;
+                check_patterns_against_types(patterns, expected_types, current_module, env, ctx)?;
 
             // Handle rest binding: rest @ .. binds to tuple of remaining elements
             let rest_binding_with_type = if let Some(name) = rest_binding {
@@ -1080,7 +1098,7 @@ fn check_enum_tuple_pattern(
             }
             let start_idx = total_fields - patterns.len();
             let (typed_patterns, mut bindings) =
-                check_patterns_against_types(patterns, &expected_types[start_idx..], env, ctx)?;
+                check_patterns_against_types(patterns, &expected_types[start_idx..], current_module, env, ctx)?;
 
             // Handle rest binding: rest @ .. binds to tuple of leading elements
             let rest_binding_with_type = if let Some(name) = rest_binding {
@@ -1130,10 +1148,10 @@ fn check_enum_tuple_pattern(
                 });
             }
             let (prefix_typed, mut bindings) =
-                check_patterns_against_types(prefix, expected_types, env, ctx)?;
+                check_patterns_against_types(prefix, expected_types, current_module, env, ctx)?;
             let suffix_start = total_fields - suffix.len();
             let (suffix_typed, suffix_bindings) =
-                check_patterns_against_types(suffix, &expected_types[suffix_start..], env, ctx)?;
+                check_patterns_against_types(suffix, &expected_types[suffix_start..], current_module, env, ctx)?;
             bindings.extend(suffix_bindings);
 
             // Handle rest binding: rest @ .. binds to tuple of middle elements
@@ -1179,6 +1197,7 @@ fn check_enum_struct_pattern(
     field_patterns: &[zoya_ast::StructFieldPattern],
     is_partial: bool,
     expected_fields: &[(String, Type)],
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
@@ -1219,7 +1238,7 @@ fn check_enum_struct_pattern(
 
         // Recursively check the field pattern
         let (typed_sub_pattern, sub_bindings) =
-            check_pattern(&field_pattern.pattern, field_type, env, ctx)?;
+            check_pattern(&field_pattern.pattern, field_type, current_module, env, ctx)?;
         all_bindings.extend(sub_bindings);
         typed_fields.push((field_pattern.field_name.clone(), typed_sub_pattern));
     }
@@ -1243,10 +1262,11 @@ fn check_enum_struct_pattern(
 pub fn check_match_arm(
     arm: &MatchArm,
     scrutinee_ty: &Type,
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedMatchArm, TypeError> {
-    let (typed_pattern, bindings) = check_pattern(&arm.pattern, scrutinee_ty, env, ctx)?;
+    let (typed_pattern, bindings) = check_pattern(&arm.pattern, scrutinee_ty, current_module, env, ctx)?;
 
     // Create arm environment with pattern bindings
     let mut arm_env = env.clone();
@@ -1254,7 +1274,7 @@ pub fn check_match_arm(
         .locals
         .extend(bindings.into_iter().map(|(n, ty)| (n, TypeScheme::mono(ty))));
 
-    let typed_result = check_with_env(&arm.result, &arm_env, ctx)?;
+    let typed_result = check_with_env(&arm.result, current_module, &arm_env, ctx)?;
 
     Ok(TypedMatchArm {
         pattern: typed_pattern,
@@ -1307,6 +1327,7 @@ pub fn check_irrefutable(pattern: &Pattern) -> Result<(), String> {
 /// Check a let binding and return a typed let binding plus the bindings it introduces.
 pub fn check_let_binding(
     binding: &LetBinding,
+    current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedLetBinding, HashMap<String, Type>), TypeError> {
@@ -1316,12 +1337,12 @@ pub fn check_let_binding(
     })?;
 
     // Type check the value
-    let typed_value = check_with_env(&binding.value, env, ctx)?;
+    let typed_value = check_with_env(&binding.value, current_module, env, ctx)?;
     let inferred_type = typed_value.ty();
 
     // If type annotation exists (only allowed on simple Var patterns), unify with inferred type
     let binding_type = if let Some(ref annotation) = binding.type_annotation {
-        let declared_type = resolve_type_annotation(annotation, &HashMap::new(), env)?;
+        let declared_type = resolve_type_annotation(annotation, &HashMap::new(), current_module, env)?;
         ctx.unify(&inferred_type, &declared_type).map_err(|e| TypeError {
             message: format!(
                 "let binding declares type {} but value has type {}: {}",
@@ -1336,7 +1357,7 @@ pub fn check_let_binding(
     };
 
     // Type check the pattern against the value type
-    let (typed_pattern, bindings) = check_pattern(&binding.pattern, &binding_type, env, ctx)?;
+    let (typed_pattern, bindings) = check_pattern(&binding.pattern, &binding_type, current_module, env, ctx)?;
 
     Ok((
         TypedLetBinding {
@@ -1366,7 +1387,7 @@ mod tests {
     fn test_pattern_var_snake_case() {
         let pattern = Pattern::Var("my_var".to_string());
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Int, &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Int, &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_ok());
         let (typed, bindings) = result.unwrap();
         assert!(matches!(typed, TypedPattern::Var { .. }));
@@ -1377,7 +1398,7 @@ mod tests {
     fn test_pattern_var_invalid_pascal_case() {
         let pattern = Pattern::Var("MyVar".to_string());
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Int, &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Int, &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("should be snake_case"));
@@ -1388,7 +1409,7 @@ mod tests {
     fn test_pattern_var_underscore_prefix() {
         let pattern = Pattern::Var("_unused".to_string());
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::String, &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::String, &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_ok());
     }
 
@@ -1400,7 +1421,7 @@ mod tests {
     fn test_pattern_wildcard() {
         let pattern = Pattern::Wildcard;
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Int, &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Int, &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_ok());
         let (typed, bindings) = result.unwrap();
         assert!(matches!(typed, TypedPattern::Wildcard));
@@ -1415,7 +1436,7 @@ mod tests {
     fn test_pattern_literal_int() {
         let pattern = Pattern::Literal(Box::new(Expr::Int(42)));
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Int, &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Int, &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_ok());
     }
 
@@ -1423,7 +1444,7 @@ mod tests {
     fn test_pattern_literal_type_mismatch() {
         let pattern = Pattern::Literal(Box::new(Expr::Int(42)));
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::String, &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::String, &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("pattern type"));
@@ -1438,7 +1459,7 @@ mod tests {
     fn test_list_pattern_empty() {
         let pattern = Pattern::List(ListPattern::Empty);
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::List(Box::new(Type::Int)), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::List(Box::new(Type::Int)), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_ok());
         let (typed, bindings) = result.unwrap();
         assert!(matches!(typed, TypedPattern::ListEmpty));
@@ -1456,7 +1477,7 @@ mod tests {
             Pattern::Var("b".to_string()),
         ]));
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::List(Box::new(Type::Int)), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::List(Box::new(Type::Int)), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_ok());
         let (typed, bindings) = result.unwrap();
         assert!(matches!(typed, TypedPattern::ListExact { len: 2, .. }));
@@ -1476,7 +1497,7 @@ mod tests {
             rest_binding: None,
         });
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::List(Box::new(Type::Int)), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::List(Box::new(Type::Int)), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_ok());
         let (typed, bindings) = result.unwrap();
         assert!(matches!(typed, TypedPattern::ListPrefix { min_len: 1, .. }));
@@ -1490,7 +1511,7 @@ mod tests {
             rest_binding: Some("tail".to_string()),
         });
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::List(Box::new(Type::Int)), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::List(Box::new(Type::Int)), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("head"), Some(&Type::Int));
@@ -1504,7 +1525,7 @@ mod tests {
             rest_binding: Some("InvalidName".to_string()),
         });
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::List(Box::new(Type::Int)), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::List(Box::new(Type::Int)), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("should be snake_case"));
@@ -1521,7 +1542,7 @@ mod tests {
             rest_binding: None,
         });
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::List(Box::new(Type::String)), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::List(Box::new(Type::String)), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_ok());
         let (typed, bindings) = result.unwrap();
         assert!(matches!(typed, TypedPattern::ListSuffix { min_len: 1, .. }));
@@ -1535,7 +1556,7 @@ mod tests {
             rest_binding: Some("init".to_string()),
         });
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::List(Box::new(Type::Int)), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::List(Box::new(Type::Int)), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("last"), Some(&Type::Int));
@@ -1549,7 +1570,7 @@ mod tests {
             rest_binding: Some("BadName".to_string()),
         });
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::List(Box::new(Type::Int)), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::List(Box::new(Type::Int)), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_err());
     }
 
@@ -1565,7 +1586,7 @@ mod tests {
             rest_binding: None,
         });
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::List(Box::new(Type::Int)), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::List(Box::new(Type::Int)), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_ok());
         let (typed, bindings) = result.unwrap();
         assert!(matches!(typed, TypedPattern::ListPrefixSuffix { min_len: 2, .. }));
@@ -1581,7 +1602,7 @@ mod tests {
             rest_binding: Some("middle".to_string()),
         });
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::List(Box::new(Type::Int)), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::List(Box::new(Type::Int)), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("middle"), Some(&Type::List(Box::new(Type::Int))));
@@ -1595,7 +1616,7 @@ mod tests {
             rest_binding: Some("BadMiddle".to_string()),
         });
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::List(Box::new(Type::Int)), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::List(Box::new(Type::Int)), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_err());
     }
 
@@ -1607,7 +1628,7 @@ mod tests {
     fn test_list_pattern_non_list_scrutinee() {
         let pattern = Pattern::List(ListPattern::Empty);
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Int, &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Int, &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("list pattern cannot match type"));
@@ -1621,7 +1642,7 @@ mod tests {
     fn test_tuple_pattern_empty() {
         let pattern = Pattern::Tuple(TuplePattern::Empty);
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Tuple(vec![]), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Tuple(vec![]), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_ok());
         assert!(matches!(result.unwrap().0, TypedPattern::TupleEmpty));
     }
@@ -1630,7 +1651,7 @@ mod tests {
     fn test_tuple_pattern_empty_mismatch() {
         let pattern = Pattern::Tuple(TuplePattern::Empty);
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int]), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int]), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("empty tuple pattern cannot match"));
@@ -1647,7 +1668,7 @@ mod tests {
             Pattern::Var("y".to_string()),
         ]));
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::String]), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::String]), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_ok());
         let (typed, bindings) = result.unwrap();
         assert!(matches!(typed, TypedPattern::TupleExact { len: 2, .. }));
@@ -1663,7 +1684,7 @@ mod tests {
             Pattern::Var("z".to_string()),
         ]));
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::Int]), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::Int]), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("tuple pattern has 3 elements but tuple has 2"));
@@ -1680,7 +1701,7 @@ mod tests {
             rest_binding: None,
         });
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::String, Type::Bool]), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::String, Type::Bool]), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_ok());
         let (typed, bindings) = result.unwrap();
         assert!(matches!(typed, TypedPattern::TuplePrefix { total_len: 3, .. }));
@@ -1694,7 +1715,7 @@ mod tests {
             rest_binding: Some("rest".to_string()),
         });
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::String, Type::Bool]), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::String, Type::Bool]), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("first"), Some(&Type::Int));
@@ -1712,7 +1733,7 @@ mod tests {
             rest_binding: None,
         });
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::Int]), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::Int]), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("prefix elements"));
@@ -1725,7 +1746,7 @@ mod tests {
             rest_binding: Some("BadName".to_string()),
         });
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::String]), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::String]), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_err());
     }
 
@@ -1740,7 +1761,7 @@ mod tests {
             rest_binding: None,
         });
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::String, Type::Bool]), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::String, Type::Bool]), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_ok());
         let (typed, bindings) = result.unwrap();
         assert!(matches!(typed, TypedPattern::TupleSuffix { total_len: 3, .. }));
@@ -1754,7 +1775,7 @@ mod tests {
             rest_binding: Some("init".to_string()),
         });
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::String, Type::Bool]), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::String, Type::Bool]), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("last"), Some(&Type::Bool));
@@ -1772,7 +1793,7 @@ mod tests {
             rest_binding: None,
         });
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::Int]), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::Int]), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("suffix elements"));
@@ -1785,7 +1806,7 @@ mod tests {
             rest_binding: Some("BadInit".to_string()),
         });
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::String]), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::String]), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_err());
     }
 
@@ -1801,7 +1822,7 @@ mod tests {
             rest_binding: None,
         });
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::String, Type::Bool]), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::String, Type::Bool]), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_ok());
         let (typed, bindings) = result.unwrap();
         assert!(matches!(typed, TypedPattern::TuplePrefixSuffix { total_len: 3, .. }));
@@ -1817,7 +1838,7 @@ mod tests {
             rest_binding: Some("middle".to_string()),
         });
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::String, Type::Float, Type::Bool]), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::String, Type::Float, Type::Bool]), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("first"), Some(&Type::Int));
@@ -1833,7 +1854,7 @@ mod tests {
             rest_binding: None,
         });
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::Int, Type::Int]), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::Int, Type::Int]), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("4 elements but tuple has only 3"));
@@ -1847,7 +1868,7 @@ mod tests {
             rest_binding: Some("BadMiddle".to_string()),
         });
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::String, Type::Bool]), &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Tuple(vec![Type::Int, Type::String, Type::Bool]), &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_err());
     }
 
@@ -1863,7 +1884,7 @@ mod tests {
         ]));
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = ctx.fresh_var();
-        let result = check_pattern(&pattern, &scrutinee_ty, &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_ok());
         // The scrutinee should be unified to a tuple type
         let resolved = ctx.resolve(&scrutinee_ty);
@@ -1878,7 +1899,7 @@ mod tests {
         });
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = ctx.fresh_var();
-        let result = check_pattern(&pattern, &scrutinee_ty, &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("cannot infer tuple type"));
@@ -1894,7 +1915,7 @@ mod tests {
             Pattern::Var("x".to_string()),
         ]));
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Int, &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Int, &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("tuple pattern cannot match type"));
@@ -1907,7 +1928,7 @@ mod tests {
     fn env_with_point() -> TypeEnv {
         let mut env = TypeEnv::default();
         env.register(
-            "Point".to_string(),
+            "root::Point".to_string(),
             Definition::Struct(StructType {
                 name: "Point".to_string(),
                 type_params: vec![],
@@ -1944,7 +1965,7 @@ mod tests {
             type_args: vec![],
             fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_ok());
         let (typed, bindings) = result.unwrap();
         assert!(matches!(typed, TypedPattern::StructExact { .. }));
@@ -1972,7 +1993,7 @@ mod tests {
             type_args: vec![],
             fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("missing field 'y'"));
@@ -1996,7 +2017,7 @@ mod tests {
             type_args: vec![],
             fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_ok());
         let (typed, bindings) = result.unwrap();
         assert!(matches!(typed, TypedPattern::StructPartial { .. }));
@@ -2021,7 +2042,7 @@ mod tests {
             type_args: vec![],
             fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("struct Point has no field 'z'"));
@@ -2035,7 +2056,7 @@ mod tests {
             is_partial: true,
         };
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Int, &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Int, &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("unknown struct in pattern"));
@@ -2048,7 +2069,7 @@ mod tests {
     fn env_with_option() -> TypeEnv {
         let mut env = TypeEnv::default();
         env.register(
-            "Option".to_string(),
+            "root::Option".to_string(),
             Definition::Enum(EnumType {
                 name: "Option".to_string(),
                 type_params: vec!["T".to_string()],
@@ -2065,7 +2086,7 @@ mod tests {
     fn env_with_message() -> TypeEnv {
         let mut env = TypeEnv::default();
         env.register(
-            "Message".to_string(),
+            "root::Message".to_string(),
             Definition::Enum(EnumType {
                 name: "Message".to_string(),
                 type_params: vec![],
@@ -2101,7 +2122,7 @@ mod tests {
                 ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Int])),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_ok());
         let (typed, bindings) = result.unwrap();
         assert!(matches!(typed, TypedPattern::EnumUnit { .. }));
@@ -2129,7 +2150,7 @@ mod tests {
                 ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Int])),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("value"), Some(&Type::Int));
@@ -2176,7 +2197,7 @@ mod tests {
                 ),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("px"), Some(&Type::Int));
@@ -2217,7 +2238,7 @@ mod tests {
                 ),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_ok());
     }
 
@@ -2258,7 +2279,7 @@ mod tests {
                 ),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("missing field 'y'"));
@@ -2282,7 +2303,7 @@ mod tests {
                 ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Int])),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("is not a unit variant"));
@@ -2309,7 +2330,7 @@ mod tests {
                 ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Int])),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("is not a tuple variant"));
@@ -2347,7 +2368,7 @@ mod tests {
                 ),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("is not a struct variant"));
@@ -2361,7 +2382,7 @@ mod tests {
             type_args: None,
         });
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Int, &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Int, &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("unknown enum in pattern"));
@@ -2384,7 +2405,7 @@ mod tests {
                 ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Int])),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("enum Option has no variant Unknown"));
@@ -2399,7 +2420,7 @@ mod tests {
             is_partial: true,
         };
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Int, &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Int, &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("unknown struct in pattern"));
@@ -2420,7 +2441,7 @@ mod tests {
         };
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Tuple(vec![Type::Int, Type::String]);
-        let result = check_pattern(&pattern, &scrutinee_ty, &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("whole"), Some(&Type::Tuple(vec![Type::Int, Type::String])));
@@ -2435,7 +2456,7 @@ mod tests {
             pattern: Box::new(Pattern::Var("x".to_string())),
         };
         let mut ctx = UnifyCtx::new();
-        let result = check_pattern(&pattern, &Type::Int, &default_env(), &mut ctx);
+        let result = check_pattern(&pattern, &Type::Int, &ModulePath::root(), &default_env(), &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("should be snake_case"));
@@ -2601,7 +2622,7 @@ mod tests {
     fn env_with_multi_tuple_enum() -> TypeEnv {
         let mut env = TypeEnv::default();
         env.register(
-            "Data".to_string(),
+            "root::Data".to_string(),
             Definition::Enum(EnumType {
                 name: "Data".to_string(),
                 type_params: vec![],
@@ -2637,7 +2658,7 @@ mod tests {
                 EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool]),
             )],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("first"), Some(&Type::Int));
@@ -2670,7 +2691,7 @@ mod tests {
                 EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool]),
             )],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("last"), Some(&Type::Bool));
@@ -2704,7 +2725,7 @@ mod tests {
                 EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool]),
             )],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("first"), Some(&Type::Int));
@@ -2737,7 +2758,7 @@ mod tests {
                 EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool]),
             )],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("3 field(s) but pattern has 4"));
@@ -2763,7 +2784,7 @@ mod tests {
                 EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool]),
             )],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("empty pattern not allowed"));
