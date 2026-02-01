@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::check::{check_module_tree, TypeEnv, UnifyCtx};
+use crate::check::check_module_tree;
 use zoya_codegen::{codegen_module_tree, prelude};
 
 /// Compile a file to JavaScript without executing
@@ -9,10 +9,7 @@ pub fn execute(path: &Path, output: Option<&Path>) -> Result<(), String> {
     let tree = zoya_loader::load_modules(path).map_err(|e| format!("error: {}", e))?;
 
     // Type check entire module tree
-    let mut env = TypeEnv::default();
-    let mut ctx = UnifyCtx::new();
-    let checked_tree =
-        check_module_tree(&tree, &mut env, &mut ctx).map_err(|e| format!("error: {}", e))?;
+    let checked_tree = check_module_tree(&tree).map_err(|e| format!("error: {}", e))?;
 
     // Generate JS code
     let mut js_code = String::new();

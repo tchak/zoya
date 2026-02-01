@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::check::{check_module_tree, TypeEnv, UnifyCtx};
+use crate::check::check_module_tree;
 use crate::eval::{self, EvalError};
 use zoya_codegen::{codegen_module_tree, prelude};
 use zoya_ir::CheckedItem;
@@ -12,10 +12,8 @@ pub fn execute(path: &Path) -> Result<(), EvalError> {
         .map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?;
 
     // Type check entire module tree
-    let mut env = TypeEnv::default();
-    let mut ctx = UnifyCtx::new();
-    let checked_tree = check_module_tree(&tree, &mut env, &mut ctx)
-        .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+    let checked_tree =
+        check_module_tree(&tree).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
 
     // Find main function in root module
     let root_module = checked_tree

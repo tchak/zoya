@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::check::{check_module_tree, TypeEnv, UnifyCtx};
+use crate::check::check_module_tree;
 
 /// Type-check a file without executing it
 pub fn execute(path: &Path) -> Result<(), String> {
@@ -8,9 +8,7 @@ pub fn execute(path: &Path) -> Result<(), String> {
     let tree = zoya_loader::load_modules(path).map_err(|e| format!("error: {}", e))?;
 
     // Type check entire module tree
-    let mut env = TypeEnv::default();
-    let mut ctx = UnifyCtx::new();
-    check_module_tree(&tree, &mut env, &mut ctx).map_err(|e| format!("error: {}", e))?;
+    check_module_tree(&tree).map_err(|e| format!("error: {}", e))?;
 
     // Success
     eprintln!("✓ Type checking passed: {}", path.display());

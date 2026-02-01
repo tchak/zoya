@@ -1410,11 +1410,10 @@ fn is_syntactic_value(expr: &Expr) -> bool {
 /// This performs multi-module type checking:
 /// 1. Register all declarations from all modules
 /// 2. Type-check all function bodies with module context for path resolution
-pub fn check_module_tree(
-    tree: &ModuleTree,
-    env: &mut TypeEnv,
-    ctx: &mut UnifyCtx,
-) -> Result<CheckedModuleTree, TypeError> {
+pub fn check_module_tree(tree: &ModuleTree) -> Result<CheckedModuleTree, TypeError> {
+    let mut env = TypeEnv::default();
+    let mut ctx = UnifyCtx::new();
+
     // Phase 1: Register ALL declarations from ALL modules
     // Process modules in dependency order (parents before children)
     let mut module_paths: Vec<_> = tree.modules.keys().cloned().collect();
@@ -1422,7 +1421,7 @@ pub fn check_module_tree(
 
     for path in &module_paths {
         if let Some(module) = tree.modules.get(path) {
-            register_module_declarations(&module.items, path, env, ctx)?;
+            register_module_declarations(&module.items, path, &mut env, &mut ctx)?;
         }
     }
 
@@ -1430,7 +1429,7 @@ pub fn check_module_tree(
     let mut checked_modules = HashMap::new();
     for path in &module_paths {
         if let Some(module) = tree.modules.get(path) {
-            let checked = check_module_bodies(&module.items, path, env, ctx)?;
+            let checked = check_module_bodies(&module.items, path, &env, &mut ctx)?;
             checked_modules.insert(path.clone(), checked);
         }
     }
@@ -2220,8 +2219,6 @@ mod tests {
 
     #[test]
     fn test_check_repl_function_def() {
-        let mut env = TypeEnv::default();
-        let mut ctx = UnifyCtx::new();
         let items = vec![Item::Function(FunctionDef {
             name: "foo".to_string(),
             type_params: vec![],
@@ -2230,18 +2227,14 @@ mod tests {
             body: Expr::Int(42),
         })];
         let tree = build_test_module(items);
-        let checked_tree = check_module_tree(&tree, &mut env, &mut ctx).unwrap();
+        let checked_tree = check_module_tree(&tree).unwrap();
         let root = checked_tree.root().unwrap();
         assert_eq!(root.items.len(), 1);
         assert!(matches!(root.items[0], CheckedItem::Function(_)));
-        // Function should be added to env (with qualified name)
-        assert!(env.get_function("foo").is_some());
     }
 
     #[test]
     fn test_check_repl_function_then_call() {
-        let mut env = TypeEnv::default();
-        let mut ctx = UnifyCtx::new();
         let items = vec![Item::Function(FunctionDef {
             name: "double".to_string(),
             type_params: vec![],
@@ -2261,7 +2254,7 @@ mod tests {
             args: vec![Expr::Int(5)],
         };
         let tree = build_test_module_with_expr(items, test_expr);
-        let checked_tree = check_module_tree(&tree, &mut env, &mut ctx).unwrap();
+        let checked_tree = check_module_tree(&tree).unwrap();
         let root = checked_tree.root().unwrap();
         // double + __test
         assert_eq!(root.items.len(), 2);
@@ -2273,8 +2266,6 @@ mod tests {
 
     #[test]
     fn test_check_repl_let_binding() {
-        let mut env = TypeEnv::default();
-        let mut ctx = UnifyCtx::new();
         let test_expr = Expr::Block {
             bindings: vec![LetBinding {
                 pattern: Pattern::Var("x".to_string()),
@@ -2284,7 +2275,7 @@ mod tests {
             result: Box::new(Expr::Tuple(vec![])),
         };
         let tree = build_test_module_with_expr(vec![], test_expr);
-        let checked_tree = check_module_tree(&tree, &mut env, &mut ctx).unwrap();
+        let checked_tree = check_module_tree(&tree).unwrap();
         let root = checked_tree.root().unwrap();
         // Only the __test function should be present
         assert_eq!(root.items.len(), 1);
@@ -2296,8 +2287,6 @@ mod tests {
 
     #[test]
     fn test_check_repl_let_then_use() {
-        let mut env = TypeEnv::default();
-        let mut ctx = UnifyCtx::new();
         let test_expr = Expr::Block {
             bindings: vec![LetBinding {
                 pattern: Pattern::Var("x".to_string()),
@@ -2311,7 +2300,7 @@ mod tests {
             }),
         };
         let tree = build_test_module_with_expr(vec![], test_expr);
-        let checked_tree = check_module_tree(&tree, &mut env, &mut ctx).unwrap();
+        let checked_tree = check_module_tree(&tree).unwrap();
         let root = checked_tree.root().unwrap();
         // Only __test function
         assert_eq!(root.items.len(), 1);
@@ -2322,8 +2311,6 @@ mod tests {
 
     #[test]
     fn test_check_let_with_type_annotation() {
-        let mut env = TypeEnv::default();
-        let mut ctx = UnifyCtx::new();
         let test_expr = Expr::Block {
             bindings: vec![LetBinding {
                 pattern: Pattern::Var("x".to_string()),
@@ -2333,7 +2320,7 @@ mod tests {
             result: Box::new(Expr::Tuple(vec![])),
         };
         let tree = build_test_module_with_expr(vec![], test_expr);
-        let checked_tree = check_module_tree(&tree, &mut env, &mut ctx).unwrap();
+        let checked_tree = check_module_tree(&tree).unwrap();
         let root = checked_tree.root().unwrap();
         // Only __test function
         assert_eq!(root.items.len(), 1);
@@ -2343,8 +2330,6 @@ mod tests {
 
     #[test]
     fn test_check_let_type_mismatch() {
-        let mut env = TypeEnv::default();
-        let mut ctx = UnifyCtx::new();
         let test_expr = Expr::Block {
             bindings: vec![LetBinding {
                 pattern: Pattern::Var("x".to_string()),
@@ -2354,7 +2339,7 @@ mod tests {
             result: Box::new(Expr::Tuple(vec![])),
         };
         let tree = build_test_module_with_expr(vec![], test_expr);
-        let result = check_module_tree(&tree, &mut env, &mut ctx);
+        let result = check_module_tree(&tree);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("declares type"));
     }
@@ -2743,8 +2728,6 @@ mod tests {
         // fn caller() -> Int callee()
         // fn callee() -> Int 42
         // Should succeed - caller can reference callee defined later
-        let mut env = TypeEnv::default();
-        let mut ctx = UnifyCtx::new();
         let items = vec![
             Item::Function(FunctionDef {
                 name: "caller".to_string(),
@@ -2765,7 +2748,7 @@ mod tests {
             }),
         ];
         let tree = build_test_module(items);
-        let result = check_module_tree(&tree, &mut env, &mut ctx);
+        let result = check_module_tree(&tree);
         assert!(result.is_ok(), "Forward reference should succeed: {:?}", result.err());
         let checked_tree = result.unwrap();
         let root = checked_tree.root().unwrap();
@@ -2780,7 +2763,6 @@ mod tests {
         // fn is_even(n) -> Bool { match n { 0 => true, _ => is_odd(n-1) } }
         // fn is_odd(n) -> Bool { match n { 0 => false, _ => is_even(n-1) } }
         // Should succeed - both see each other
-        let mut env = TypeEnv::default();
         let items = vec![
             Item::Function(FunctionDef {
                 name: "is_even".to_string(),
@@ -2841,9 +2823,8 @@ mod tests {
                 },
             }),
         ];
-        let mut ctx = UnifyCtx::new();
         let tree = build_test_module(items);
-        let result = check_module_tree(&tree, &mut env, &mut ctx);
+        let result = check_module_tree(&tree);
         assert!(result.is_ok(), "Mutual recursion should succeed: {:?}", result.err());
     }
 
@@ -2852,7 +2833,6 @@ mod tests {
         // Items: fn f2() -> Int f1()  (forward ref), fn f1() -> Int 42
         // Test expr: { let x = 1; x + 1 }
         // Items are processed before test expr; forward refs work
-        let mut env = TypeEnv::default();
         let items = vec![
             Item::Function(FunctionDef {
                 name: "f2".to_string(),
@@ -2884,9 +2864,8 @@ mod tests {
                 right: Box::new(Expr::Int(1)),
             }),
         };
-        let mut ctx = UnifyCtx::new();
         let tree = build_test_module_with_expr(items, test_expr);
-        let result = check_module_tree(&tree, &mut env, &mut ctx);
+        let result = check_module_tree(&tree);
         assert!(result.is_ok(), "Mixed items and expr should succeed: {:?}", result.err());
         let checked_tree = result.unwrap();
         let root = checked_tree.root().unwrap();
@@ -2904,8 +2883,6 @@ mod tests {
     fn test_check_repl_let_not_visible_in_function() {
         // fn bad() -> Int x
         // Should fail: "undefined variable 'x'" (x is not defined anywhere)
-        let mut env = TypeEnv::default();
-        let mut ctx = UnifyCtx::new();
         let items = vec![Item::Function(FunctionDef {
             name: "bad".to_string(),
             type_params: vec![],
@@ -2914,7 +2891,7 @@ mod tests {
             body: Expr::Path(Path::simple("x".to_string())),
         })];
         let tree = build_test_module(items);
-        let result = check_module_tree(&tree, &mut env, &mut ctx);
+        let result = check_module_tree(&tree);
         assert!(result.is_err(), "Unknown variable should fail, but got: {:?}", result);
         let err_msg = result.unwrap_err().message;
         assert!(
@@ -2927,7 +2904,6 @@ mod tests {
     fn test_check_repl_self_recursion() {
         // fn factorial(n) -> Int { match n { 0 => 1, _ => n * factorial(n-1) } }
         // Should succeed
-        let mut env = TypeEnv::default();
         let items = vec![Item::Function(FunctionDef {
             name: "factorial".to_string(),
             type_params: vec![],
@@ -2961,9 +2937,8 @@ mod tests {
                 ],
             },
         })];
-        let mut ctx = UnifyCtx::new();
         let tree = build_test_module(items);
-        let result = check_module_tree(&tree, &mut env, &mut ctx);
+        let result = check_module_tree(&tree);
         assert!(result.is_ok(), "Self-recursion should succeed: {:?}", result.err());
     }
 
@@ -3040,8 +3015,6 @@ mod tests {
 
     #[test]
     fn test_let_literal_pattern_rejected() {
-        let mut env = TypeEnv::default();
-        let mut ctx = UnifyCtx::new();
         let test_expr = Expr::Block {
             bindings: vec![LetBinding {
                 pattern: Pattern::Literal(Box::new(Expr::Int(42))),
@@ -3051,7 +3024,7 @@ mod tests {
             result: Box::new(Expr::Tuple(vec![])),
         };
         let tree = build_test_module_with_expr(vec![], test_expr);
-        let result = check_module_tree(&tree, &mut env, &mut ctx);
+        let result = check_module_tree(&tree);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("refutable"));
     }
@@ -3059,8 +3032,6 @@ mod tests {
     #[test]
     fn test_let_list_pattern_rejected() {
         use zoya_ast::ListPattern;
-        let mut env = TypeEnv::default();
-        let mut ctx = UnifyCtx::new();
         let test_expr = Expr::Block {
             bindings: vec![LetBinding {
                 pattern: Pattern::List(ListPattern::Exact(vec![Pattern::Var("x".to_string())])),
@@ -3070,7 +3041,7 @@ mod tests {
             result: Box::new(Expr::Tuple(vec![])),
         };
         let tree = build_test_module_with_expr(vec![], test_expr);
-        let result = check_module_tree(&tree, &mut env, &mut ctx);
+        let result = check_module_tree(&tree);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("refutable"));
     }
@@ -3078,8 +3049,6 @@ mod tests {
     #[test]
     fn test_let_call_pattern_rejected() {
         use zoya_ast::TuplePattern;
-        let mut env = TypeEnv::default();
-        let mut ctx = UnifyCtx::new();
         // Don't need to set up actual enum type - irrefutability check happens before type checking
         let test_expr = Expr::Block {
             bindings: vec![LetBinding {
@@ -3097,7 +3066,7 @@ mod tests {
             result: Box::new(Expr::Tuple(vec![])),
         };
         let tree = build_test_module_with_expr(vec![], test_expr);
-        let result = check_module_tree(&tree, &mut env, &mut ctx);
+        let result = check_module_tree(&tree);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("refutable"));
     }
@@ -3105,8 +3074,6 @@ mod tests {
     #[test]
     fn test_let_tuple_pattern_irrefutable() {
         use zoya_ast::TuplePattern;
-        let mut env = TypeEnv::default();
-        let mut ctx = UnifyCtx::new();
         let test_expr = Expr::Block {
             bindings: vec![LetBinding {
                 pattern: Pattern::Tuple(TuplePattern::Exact(vec![
@@ -3119,7 +3086,7 @@ mod tests {
             result: Box::new(Expr::Tuple(vec![])),
         };
         let tree = build_test_module_with_expr(vec![], test_expr);
-        let result = check_module_tree(&tree, &mut env, &mut ctx);
+        let result = check_module_tree(&tree);
         // Type checking should succeed
         assert!(result.is_ok());
     }
@@ -3142,10 +3109,8 @@ mod tests {
                 body: Expr::Int(42),
             }),
         ];
-        let mut env = TypeEnv::default();
-        let mut ctx = UnifyCtx::new();
         let tree = build_test_module(items);
-        let result = check_module_tree(&tree, &mut env, &mut ctx);
+        let result = check_module_tree(&tree);
         assert!(result.is_ok());
     }
 
@@ -3176,10 +3141,8 @@ mod tests {
                 body: Expr::Tuple(vec![Expr::Int(1), Expr::Bool(true)]),
             }),
         ];
-        let mut env = TypeEnv::default();
-        let mut ctx = UnifyCtx::new();
         let tree = build_test_module(items);
-        let result = check_module_tree(&tree, &mut env, &mut ctx);
+        let result = check_module_tree(&tree);
         assert!(result.is_ok());
     }
 
@@ -3191,10 +3154,8 @@ mod tests {
             type_params: vec![],
             typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
         })];
-        let mut env = TypeEnv::default();
-        let mut ctx = UnifyCtx::new();
         let tree = build_test_module(items);
-        let result = check_module_tree(&tree, &mut env, &mut ctx);
+        let result = check_module_tree(&tree);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("PascalCase"));
     }
@@ -3223,10 +3184,8 @@ mod tests {
                 body: Expr::Tuple(vec![Expr::Int(1), Expr::Int(2)]),
             }),
         ];
-        let mut env = TypeEnv::default();
-        let mut ctx = UnifyCtx::new();
         let tree = build_test_module(items);
-        let result = check_module_tree(&tree, &mut env, &mut ctx);
+        let result = check_module_tree(&tree);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("type argument"));
     }
