@@ -12,15 +12,11 @@ use std::collections::{HashMap, HashSet};
 use zoya_ast::{
     BinOp, Expr, FunctionDef, Item, LetBinding, MatchArm, Path, TypeAnnotation, UnaryOp,
 };
-#[cfg(test)]
-use zoya_ast::Stmt;
 use zoya_ir::{
     CheckedItem, CheckedModule, CheckedModuleTree, Definition, EnumType,
     EnumVariantType, FunctionType, QualifiedPath, StructType, Type, TypeAliasType, TypeError,
     TypeScheme, TypeVarId, TypedEnumConstructFields, TypedExpr, TypedFunction,
 };
-#[cfg(test)]
-use zoya_ir::CheckedStmt;
 use zoya_loader::{ModulePath, ModuleTree};
 
 pub use unify::UnifyCtx;
@@ -1577,164 +1573,72 @@ fn check_function_in_module(
     check_function(func, env, ctx)
 }
 
-/// Check a file's items (functions, structs, and enums), returning checked items.
-/// Only used in tests - the REPL uses check_module_tree instead.
-#[cfg(test)]
-fn check_items(
-    items: &[Item],
-    env: &mut TypeEnv,
-    ctx: &mut UnifyCtx,
-) -> Result<Vec<CheckedItem>, TypeError> {
-    // Phase 1a: Register all struct names with placeholder types
-    // This allows structs to reference each other
-    for item in items {
-        if let Item::Struct(def) = item {
-            // Register with empty fields first - will fill in later
-            let mut type_var_ids = Vec::new();
-            for _ in &def.type_params {
-                let var = ctx.fresh_var();
-                if let Type::Var(id) = var {
-                    type_var_ids.push(id);
-                }
-            }
-            env.register(
-                def.name.clone(),
-                Definition::Struct(StructType {
-                    name: def.name.clone(),
-                    type_params: def.type_params.clone(),
-                    type_var_ids,
-                    fields: vec![], // placeholder
-                }),
-            );
-        }
-        if let Item::Enum(def) = item {
-            // Register with empty variants first - will fill in later
-            let mut type_var_ids = Vec::new();
-            for _ in &def.type_params {
-                let var = ctx.fresh_var();
-                if let Type::Var(id) = var {
-                    type_var_ids.push(id);
-                }
-            }
-            env.register(
-                def.name.clone(),
-                Definition::Enum(EnumType {
-                    name: def.name.clone(),
-                    type_params: def.type_params.clone(),
-                    type_var_ids,
-                    variants: vec![], // placeholder
-                }),
-            );
-        }
-    }
-
-    // Phase 1b: Now resolve all struct field types
-    for item in items {
-        if let Item::Struct(def) = item {
-            let struct_type = struct_type_from_def(def, env, ctx)?;
-            env.register(def.name.clone(), Definition::Struct(struct_type));
-        }
-    }
-
-    // Phase 1c: Now resolve all enum variant types
-    for item in items {
-        if let Item::Enum(def) = item {
-            let enum_type = enum_type_from_def(def, env, ctx)?;
-            env.register(def.name.clone(), Definition::Enum(enum_type));
-        }
-    }
-
-    // Phase 1d: Register all type aliases (now struct/enum types are available)
-    for item in items {
-        if let Item::TypeAlias(def) = item {
-            let alias_type = type_alias_from_def(def, env, ctx)?;
-            env.register(def.name.clone(), Definition::TypeAlias(alias_type));
-        }
-    }
-
-    // Phase 2: Register all function signatures (now struct/enum/alias types are available)
-    for item in items {
-        if let Item::Function(func) = item {
-            let func_type = function_type_from_def(func, env, ctx)?;
-            env.register(func.name.clone(), Definition::Function(func_type));
-        }
-    }
-
-    // Phase 3: Type-check all items
-    let mut checked_items = Vec::new();
-    for item in items {
-        match item {
-            Item::Function(func) => {
-                let typed = check_function(func, env, ctx)?;
-                checked_items.push(CheckedItem::Function(Box::new(typed)));
-            }
-            Item::Struct(def) => {
-                // Structs are just passed through (already registered in env)
-                checked_items.push(CheckedItem::Struct(def.clone()));
-            }
-            Item::Enum(def) => {
-                // Enums are just passed through (already registered in env)
-                checked_items.push(CheckedItem::Enum(def.clone()));
-            }
-            Item::TypeAlias(def) => {
-                // Type aliases are just passed through (already registered in env)
-                checked_items.push(CheckedItem::TypeAlias(def.clone()));
-            }
-        }
-    }
-
-    Ok(checked_items)
-}
-
-/// Check REPL statements, returning checked statements.
-/// Items should be checked separately with check_items.
-/// Only used in tests - the REPL uses check_module_tree instead.
-#[cfg(test)]
-fn check_stmts(
-    stmts: &[Stmt],
-    env: &mut TypeEnv,
-    ctx: &mut UnifyCtx,
-) -> Result<Vec<CheckedStmt>, TypeError> {
-    let mut checked_stmts: Vec<CheckedStmt> = Vec::new();
-
-    for stmt in stmts {
-        match stmt {
-            Stmt::Expr(expr) => {
-                let typed_expr = check_with_env(expr, env, ctx)?;
-                checked_stmts.push(CheckedStmt::Expr(typed_expr));
-            }
-            Stmt::Let(binding) => {
-                let (typed_binding, pattern_bindings) = check_let_binding(binding, env, ctx)?;
-
-                // Apply let polymorphism (value restriction) to each bound variable
-                let should_generalize = is_syntactic_value(&binding.value);
-                for (name, ty) in pattern_bindings {
-                    let scheme = if should_generalize {
-                        let fixed_vars = env.free_vars(ctx);
-                        ctx.generalize(&ty, &fixed_vars)
-                    } else {
-                        TypeScheme::mono(ty)
-                    };
-                    env.locals.insert(name, scheme);
-                }
-
-                checked_stmts.push(CheckedStmt::Let(Box::new(typed_binding)));
-            }
-        }
-    }
-
-    Ok(checked_stmts)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zoya_ast::{BinOp, PathPrefix, TypeAliasDef};
+    use zoya_ast::{BinOp, PathPrefix, Stmt, TypeAliasDef};
     use zoya_ir::Type;
+    use zoya_module::{Module, ModuleTree};
 
     fn check(expr: &Expr) -> Result<TypedExpr, TypeError> {
         let mut ctx = UnifyCtx::new();
         check_with_env(expr, &TypeEnv::default(), &mut ctx)
+    }
+
+    /// Build a test module from items and statements.
+    /// Statements are wrapped in a synthetic `__test` function using Expr::Block.
+    fn build_test_module(items: Vec<Item>, stmts: Vec<Stmt>) -> ModuleTree {
+        use zoya_module::ModulePath;
+
+        let mut all_items = items;
+
+        if !stmts.is_empty() {
+            // Separate let bindings from expressions
+            let mut bindings = Vec::new();
+            let mut result_expr = None;
+
+            for stmt in stmts {
+                match stmt {
+                    Stmt::Let(binding) => bindings.push(binding),
+                    Stmt::Expr(expr) => result_expr = Some(expr),
+                }
+            }
+
+            // Create synthetic test function
+            let body = Expr::Block {
+                bindings,
+                result: Box::new(result_expr.unwrap_or(Expr::Tuple(vec![]))),
+            };
+
+            all_items.push(Item::Function(FunctionDef {
+                name: "__test".to_string(),
+                type_params: vec![],
+                params: vec![],
+                return_type: None,
+                body,
+            }));
+        }
+
+        let module = Module {
+            items: all_items,
+            path: ModulePath::root(),
+            children: HashMap::new(),
+        };
+        let mut modules = HashMap::new();
+        modules.insert(ModulePath::root(), module);
+        ModuleTree { modules }
+    }
+
+    /// Find the `__test` function from checked items
+    fn find_test_function(items: &[CheckedItem]) -> Option<&TypedFunction> {
+        for item in items {
+            if let CheckedItem::Function(f) = item {
+                if f.name == "__test" {
+                    return Some(f);
+                }
+            }
+        }
+        None
     }
 
     #[test]
@@ -2329,14 +2233,14 @@ mod tests {
         let mut ctx = UnifyCtx::new();
         let items: Vec<Item> = vec![];
         let stmts = vec![Stmt::Expr(Expr::Int(42))];
-        let checked_items = check_items(&items, &mut env, &mut ctx).unwrap();
-        let checked_stmts = check_stmts(&stmts, &mut env, &mut ctx).unwrap();
-        assert!(checked_items.is_empty());
-        assert_eq!(checked_stmts.len(), 1);
-        assert!(matches!(
-            checked_stmts[0],
-            CheckedStmt::Expr(TypedExpr::Int(42))
-        ));
+        let tree = build_test_module(items, stmts);
+        let checked_tree = check_module_tree(&tree, &mut env, &mut ctx).unwrap();
+        let root = checked_tree.root().unwrap();
+        // Only the __test function should be present
+        assert_eq!(root.items.len(), 1);
+        let test_fn = find_test_function(&root.items).unwrap();
+        // The expression becomes the return value of __test
+        assert_eq!(test_fn.return_type, Type::Int);
     }
 
     #[test]
@@ -2351,12 +2255,12 @@ mod tests {
             body: Expr::Int(42),
         })];
         let stmts: Vec<Stmt> = vec![];
-        let checked_items = check_items(&items, &mut env, &mut ctx).unwrap();
-        let checked_stmts = check_stmts(&stmts, &mut env, &mut ctx).unwrap();
-        assert_eq!(checked_items.len(), 1);
-        assert!(checked_stmts.is_empty());
-        assert!(matches!(checked_items[0], CheckedItem::Function(_)));
-        // Function should be added to env
+        let tree = build_test_module(items, stmts);
+        let checked_tree = check_module_tree(&tree, &mut env, &mut ctx).unwrap();
+        let root = checked_tree.root().unwrap();
+        assert_eq!(root.items.len(), 1);
+        assert!(matches!(root.items[0], CheckedItem::Function(_)));
+        // Function should be added to env (with qualified name)
         assert!(env.get_function("foo").is_some());
     }
 
@@ -2382,12 +2286,15 @@ mod tests {
             path: Path::simple("double".to_string()),
             args: vec![Expr::Int(5)],
         })];
-        let checked_items = check_items(&items, &mut env, &mut ctx).unwrap();
-        let checked_stmts = check_stmts(&stmts, &mut env, &mut ctx).unwrap();
-        assert_eq!(checked_items.len(), 1);
-        assert_eq!(checked_stmts.len(), 1);
-        assert!(matches!(checked_items[0], CheckedItem::Function(_)));
-        assert!(matches!(checked_stmts[0], CheckedStmt::Expr(_)));
+        let tree = build_test_module(items, stmts);
+        let checked_tree = check_module_tree(&tree, &mut env, &mut ctx).unwrap();
+        let root = checked_tree.root().unwrap();
+        // double + __test
+        assert_eq!(root.items.len(), 2);
+        assert!(matches!(root.items[0], CheckedItem::Function(_)));
+        let test_fn = find_test_function(&root.items).unwrap();
+        // The call expression becomes the return value of __test (returns Int)
+        assert_eq!(test_fn.return_type, Type::Int);
     }
 
     #[test]
@@ -2400,14 +2307,15 @@ mod tests {
             type_annotation: None,
             value: Box::new(Expr::Int(42)),
         })];
-        let checked_items = check_items(&items, &mut env, &mut ctx).unwrap();
-        let checked_stmts = check_stmts(&stmts, &mut env, &mut ctx).unwrap();
-        assert!(checked_items.is_empty());
-        assert_eq!(checked_stmts.len(), 1);
-        assert!(matches!(checked_stmts[0], CheckedStmt::Let(_)));
-        // Variable should be added to env (generalized since it's a syntactic value)
-        let scheme = env.locals.get("x").expect("x should be in locals");
-        assert_eq!(scheme.ty, Type::Int);
+        let tree = build_test_module(items, stmts);
+        let checked_tree = check_module_tree(&tree, &mut env, &mut ctx).unwrap();
+        let root = checked_tree.root().unwrap();
+        // Only the __test function should be present
+        assert_eq!(root.items.len(), 1);
+        let test_fn = find_test_function(&root.items).unwrap();
+        // The __test function body is a block with the let binding
+        // Since there's no result expression, the return type is Unit
+        assert_eq!(test_fn.return_type, Type::Tuple(vec![]));
     }
 
     #[test]
@@ -2427,12 +2335,14 @@ mod tests {
                 right: Box::new(Expr::Int(1)),
             }),
         ];
-        let checked_items = check_items(&items, &mut env, &mut ctx).unwrap();
-        let checked_stmts = check_stmts(&stmts, &mut env, &mut ctx).unwrap();
-        assert!(checked_items.is_empty());
-        assert_eq!(checked_stmts.len(), 2);
-        assert!(matches!(checked_stmts[0], CheckedStmt::Let(_)));
-        assert!(matches!(checked_stmts[1], CheckedStmt::Expr(_)));
+        let tree = build_test_module(items, stmts);
+        let checked_tree = check_module_tree(&tree, &mut env, &mut ctx).unwrap();
+        let root = checked_tree.root().unwrap();
+        // Only __test function
+        assert_eq!(root.items.len(), 1);
+        let test_fn = find_test_function(&root.items).unwrap();
+        // The expression x + 1 returns Int
+        assert_eq!(test_fn.return_type, Type::Int);
     }
 
     #[test]
@@ -2445,12 +2355,13 @@ mod tests {
             type_annotation: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
             value: Box::new(Expr::Int(42)),
         })];
-        let _ = check_items(&items, &mut env, &mut ctx).unwrap();
-        let checked_stmts = check_stmts(&stmts, &mut env, &mut ctx).unwrap();
-        assert_eq!(checked_stmts.len(), 1);
-        // Variable should be generalized since it's a syntactic value
-        let scheme = env.locals.get("x").expect("x should be in locals");
-        assert_eq!(scheme.ty, Type::Int);
+        let tree = build_test_module(items, stmts);
+        let checked_tree = check_module_tree(&tree, &mut env, &mut ctx).unwrap();
+        let root = checked_tree.root().unwrap();
+        // Only __test function
+        assert_eq!(root.items.len(), 1);
+        // Type checking succeeded
+        assert!(find_test_function(&root.items).is_some());
     }
 
     #[test]
@@ -2463,8 +2374,8 @@ mod tests {
             type_annotation: Some(TypeAnnotation::Named(Path::simple("Float".to_string()))),
             value: Box::new(Expr::Int(42)),
         })];
-        let _ = check_items(&items, &mut env, &mut ctx).unwrap();
-        let result = check_stmts(&stmts, &mut env, &mut ctx);
+        let tree = build_test_module(items, stmts);
+        let result = check_module_tree(&tree, &mut env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("declares type"));
     }
@@ -2875,15 +2786,15 @@ mod tests {
             }),
         ];
         let stmts: Vec<Stmt> = vec![];
-        let result = check_items(&items, &mut env, &mut ctx);
+        let tree = build_test_module(items, stmts);
+        let result = check_module_tree(&tree, &mut env, &mut ctx);
         assert!(result.is_ok(), "Forward reference should succeed: {:?}", result.err());
-        let checked_items = result.unwrap();
-        let checked_stmts = check_stmts(&stmts, &mut env, &mut ctx).unwrap();
-        assert_eq!(checked_items.len(), 2);
-        assert!(checked_stmts.is_empty());
+        let checked_tree = result.unwrap();
+        let root = checked_tree.root().unwrap();
+        assert_eq!(root.items.len(), 2);
         // Both should be functions
-        assert!(matches!(checked_items[0], CheckedItem::Function(_)));
-        assert!(matches!(checked_items[1], CheckedItem::Function(_)));
+        assert!(matches!(root.items[0], CheckedItem::Function(_)));
+        assert!(matches!(root.items[1], CheckedItem::Function(_)));
     }
 
     #[test]
@@ -2953,7 +2864,9 @@ mod tests {
             }),
         ];
         let mut ctx = UnifyCtx::new();
-        let result = check_items(&items, &mut env, &mut ctx);
+        let stmts: Vec<Stmt> = vec![];
+        let tree = build_test_module(items, stmts);
+        let result = check_module_tree(&tree, &mut env, &mut ctx);
         assert!(result.is_ok(), "Mutual recursion should succeed: {:?}", result.err());
     }
 
@@ -2995,18 +2908,19 @@ mod tests {
             }),
         ];
         let mut ctx = UnifyCtx::new();
-        let result = check_items(&items, &mut env, &mut ctx);
+        let tree = build_test_module(items, stmts);
+        let result = check_module_tree(&tree, &mut env, &mut ctx);
         assert!(result.is_ok(), "Mixed items and stmts should succeed: {:?}", result.err());
-        let checked_items = result.unwrap();
-        let checked_stmts = check_stmts(&stmts, &mut env, &mut ctx).unwrap();
-        assert_eq!(checked_items.len(), 2);
-        assert_eq!(checked_stmts.len(), 2);
-        // Verify items
-        assert!(matches!(checked_items[0], CheckedItem::Function(_)));
-        assert!(matches!(checked_items[1], CheckedItem::Function(_)));
-        // Verify stmts
-        assert!(matches!(checked_stmts[0], CheckedStmt::Let(_)));
-        assert!(matches!(checked_stmts[1], CheckedStmt::Expr(_)));
+        let checked_tree = result.unwrap();
+        let root = checked_tree.root().unwrap();
+        // f2 + f1 + __test = 3 functions
+        assert_eq!(root.items.len(), 3);
+        // Verify items (f2, f1)
+        assert!(matches!(root.items[0], CheckedItem::Function(_)));
+        assert!(matches!(root.items[1], CheckedItem::Function(_)));
+        // Verify __test function has the correct return type
+        let test_fn = find_test_function(&root.items).unwrap();
+        assert_eq!(test_fn.return_type, Type::Int);
     }
 
     #[test]
@@ -3023,9 +2937,11 @@ mod tests {
             return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
             body: Expr::Path(Path::simple("x".to_string())),
         })];
-        // Note: the let statement would add x to env, but check_items runs first
-        // and fails because x is referenced in function body before any stmts are checked
-        let result = check_items(&items, &mut env, &mut ctx);
+        // Note: the let statement would add x to env, but function is checked first
+        // and fails because x is referenced in function body
+        let stmts: Vec<Stmt> = vec![];
+        let tree = build_test_module(items, stmts);
+        let result = check_module_tree(&tree, &mut env, &mut ctx);
         assert!(result.is_err(), "Let should not be visible in function, but got: {:?}", result);
         let err_msg = result.unwrap_err().message;
         assert!(
@@ -3073,7 +2989,9 @@ mod tests {
             },
         })];
         let mut ctx = UnifyCtx::new();
-        let result = check_items(&items, &mut env, &mut ctx);
+        let stmts: Vec<Stmt> = vec![];
+        let tree = build_test_module(items, stmts);
+        let result = check_module_tree(&tree, &mut env, &mut ctx);
         assert!(result.is_ok(), "Self-recursion should succeed: {:?}", result.err());
     }
 
@@ -3158,8 +3076,8 @@ mod tests {
             type_annotation: None,
             value: Box::new(Expr::Int(42)),
         })];
-        let _ = check_items(&items, &mut env, &mut ctx).unwrap();
-        let result = check_stmts(&stmts, &mut env, &mut ctx);
+        let tree = build_test_module(items, stmts);
+        let result = check_module_tree(&tree, &mut env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("refutable"));
     }
@@ -3175,8 +3093,8 @@ mod tests {
             type_annotation: None,
             value: Box::new(Expr::List(vec![Expr::Int(1)])),
         })];
-        let _ = check_items(&items, &mut env, &mut ctx).unwrap();
-        let result = check_stmts(&stmts, &mut env, &mut ctx);
+        let tree = build_test_module(items, stmts);
+        let result = check_module_tree(&tree, &mut env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("refutable"));
     }
@@ -3200,8 +3118,8 @@ mod tests {
             type_annotation: None,
             value: Box::new(Expr::Int(42)), // Doesn't matter, will fail at irrefutability check first
         })];
-        let _ = check_items(&items, &mut env, &mut ctx).unwrap();
-        let result = check_stmts(&stmts, &mut env, &mut ctx);
+        let tree = build_test_module(items, stmts);
+        let result = check_module_tree(&tree, &mut env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("refutable"));
     }
@@ -3220,12 +3138,10 @@ mod tests {
             type_annotation: None,
             value: Box::new(Expr::Tuple(vec![Expr::Int(1), Expr::Int(2)])),
         })];
-        let _ = check_items(&items, &mut env, &mut ctx).unwrap();
-        let result = check_stmts(&stmts, &mut env, &mut ctx);
+        let tree = build_test_module(items, stmts);
+        let result = check_module_tree(&tree, &mut env, &mut ctx);
+        // Type checking should succeed
         assert!(result.is_ok());
-        // Both a and b should be in the environment
-        assert!(env.locals.contains_key("a"));
-        assert!(env.locals.contains_key("b"));
     }
 
     #[test]
@@ -3248,7 +3164,9 @@ mod tests {
         ];
         let mut env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = check_items(&items, &mut env, &mut ctx);
+        let stmts: Vec<Stmt> = vec![];
+        let tree = build_test_module(items, stmts);
+        let result = check_module_tree(&tree, &mut env, &mut ctx);
         assert!(result.is_ok());
     }
 
@@ -3281,7 +3199,9 @@ mod tests {
         ];
         let mut env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = check_items(&items, &mut env, &mut ctx);
+        let stmts: Vec<Stmt> = vec![];
+        let tree = build_test_module(items, stmts);
+        let result = check_module_tree(&tree, &mut env, &mut ctx);
         assert!(result.is_ok());
     }
 
@@ -3295,7 +3215,9 @@ mod tests {
         })];
         let mut env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = check_items(&items, &mut env, &mut ctx);
+        let stmts: Vec<Stmt> = vec![];
+        let tree = build_test_module(items, stmts);
+        let result = check_module_tree(&tree, &mut env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("PascalCase"));
     }
@@ -3326,7 +3248,9 @@ mod tests {
         ];
         let mut env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
-        let result = check_items(&items, &mut env, &mut ctx);
+        let stmts: Vec<Stmt> = vec![];
+        let tree = build_test_module(items, stmts);
+        let result = check_module_tree(&tree, &mut env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("type argument"));
     }
