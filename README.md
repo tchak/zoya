@@ -53,6 +53,8 @@ Zoya is organized as a Cargo workspace with multiple crates:
 | [zoya-codegen](crates/zoya-codegen) | JavaScript code generation |
 | [zoya-ir](crates/zoya-ir) | Typed IR and type definitions |
 | [zoya-lexer](crates/zoya-lexer) | Tokenizer (logos) |
+| [zoya-loader](crates/zoya-loader) | Module file loading |
+| [zoya-module](crates/zoya-module) | Module data structures |
 | [zoya-parser](crates/zoya-parser) | Parser (chumsky) |
 
 ## Usage
@@ -62,7 +64,7 @@ Zoya is organized as a Cargo workspace with multiple crates:
 Start an interactive session:
 
 ```bash
-zoya run
+zoya repl
 ```
 
 ```

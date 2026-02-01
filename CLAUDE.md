@@ -23,13 +23,15 @@ crates/
 ├── zoya-codegen/      # JavaScript code generation
 ├── zoya-ir/           # Typed IR and type definitions
 ├── zoya-lexer/        # Tokenizer (logos)
+├── zoya-loader/       # Module file loading
+├── zoya-module/       # Module data structures
 └── zoya-parser/       # Parser (chumsky)
 ```
 
 ## Commands
 
 ```bash
-cargo run -p zoya -- run              # REPL
+cargo run -p zoya -- repl             # REPL
 cargo run -p zoya -- run file.zoya    # Run file
 cargo run -p zoya -- check file.zoya  # Type-check only
 cargo run -p zoya -- build file.zoya  # Compile to JS
@@ -77,6 +79,8 @@ New features need tests at each pipeline stage:
 |-------|-------|
 | `zoya-lexer` | Token recognition |
 | `zoya-parser` | AST structure |
+| `zoya-module` | Module path operations |
+| `zoya-loader` | Module loading and resolution |
 | `zoya` (check) | Type checking pass/fail |
 | `zoya-codegen` | Generated JS correctness |
 | `zoya` (runner) | End-to-end execution |

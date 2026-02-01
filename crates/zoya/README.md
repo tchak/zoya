@@ -15,7 +15,7 @@ This is the main binary crate that provides the `zoya` CLI tool.
 ## Commands
 
 ```bash
-zoya run              # Start REPL
+zoya repl             # Start REPL
 zoya run file.zoya    # Execute a file
 zoya check file.zoya  # Type-check only
 zoya build file.zoya  # Compile to JavaScript
@@ -27,6 +27,7 @@ zoya build file.zoya  # Compile to JavaScript
 - [zoya-codegen](../zoya-codegen) - JavaScript code generation
 - [zoya-ir](../zoya-ir) - Typed IR and type definitions
 - [zoya-lexer](../zoya-lexer) - Tokenizer
+- [zoya-loader](../zoya-loader) - Module file loading
 - [zoya-parser](../zoya-parser) - Parser
 - [clap](https://github.com/clap-rs/clap) - CLI argument parsing
 - [rquickjs](https://github.com/deliro/rquickjs) - JavaScript runtime
