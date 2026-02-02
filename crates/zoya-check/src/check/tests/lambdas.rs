@@ -1,0 +1,189 @@
+use zoya_ast::{BinOp, Expr, LambdaParam, Path, PathPrefix, Pattern, TuplePattern, TypeAnnotation};
+use zoya_ir::{Type, TypeScheme};
+use zoya_module::ModulePath;
+
+use crate::check::{check_expr, TypeEnv};
+use crate::unify::UnifyCtx;
+
+use super::check_expr_with_env;
+
+#[test]
+fn test_check_lambda_basic() {
+    let expr = Expr::Lambda {
+        params: vec![LambdaParam {
+            pattern: Pattern::Var("x".to_string()),
+            typ: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+        }],
+        return_type: None,
+        body: Box::new(Expr::Path(Path::simple("x".to_string()))),
+    };
+    let result = check_expr_with_env(&expr).unwrap();
+    match result.ty() {
+        Type::Function { params, ret } => {
+            assert_eq!(params, vec![Type::Int]);
+            assert_eq!(*ret, Type::Int);
+        }
+        _ => panic!("Expected function type"),
+    }
+}
+
+#[test]
+fn test_check_lambda_with_return_type() {
+    let expr = Expr::Lambda {
+        params: vec![LambdaParam {
+            pattern: Pattern::Var("x".to_string()),
+            typ: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+        }],
+        return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+        body: Box::new(Expr::Path(Path::simple("x".to_string()))),
+    };
+    let result = check_expr_with_env(&expr).unwrap();
+    match result.ty() {
+        Type::Function { params, ret } => {
+            assert_eq!(params, vec![Type::Int]);
+            assert_eq!(*ret, Type::Int);
+        }
+        _ => panic!("Expected function type"),
+    }
+}
+
+#[test]
+fn test_check_lambda_return_type_mismatch() {
+    let expr = Expr::Lambda {
+        params: vec![LambdaParam {
+            pattern: Pattern::Var("x".to_string()),
+            typ: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+        }],
+        return_type: Some(TypeAnnotation::Named(Path::simple("String".to_string()))),
+        body: Box::new(Expr::Path(Path::simple("x".to_string()))),
+    };
+    let result = check_expr_with_env(&expr);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.message.contains("lambda body type") || err.message.contains("doesn't match declared return type"));
+}
+
+#[test]
+fn test_check_lambda_refutable_param_error() {
+    // Lambda with literal pattern (refutable) should fail
+    let expr = Expr::Lambda {
+        params: vec![LambdaParam {
+            pattern: Pattern::Literal(Box::new(Expr::Int(42))),
+            typ: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+        }],
+        return_type: None,
+        body: Box::new(Expr::Int(1)),
+    };
+    let result = check_expr_with_env(&expr);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.message.contains("refutable pattern in lambda parameter"));
+}
+
+#[test]
+fn test_check_lambda_tuple_param() {
+    let expr = Expr::Lambda {
+        params: vec![LambdaParam {
+            pattern: Pattern::Tuple(TuplePattern::Exact(vec![
+                Pattern::Var("x".to_string()),
+                Pattern::Var("y".to_string()),
+            ])),
+            typ: Some(TypeAnnotation::Tuple(vec![
+                TypeAnnotation::Named(Path::simple("Int".to_string())),
+                TypeAnnotation::Named(Path::simple("Int".to_string())),
+            ])),
+        }],
+        return_type: None,
+        body: Box::new(Expr::BinOp {
+            op: BinOp::Add,
+            left: Box::new(Expr::Path(Path::simple("x".to_string()))),
+            right: Box::new(Expr::Path(Path::simple("y".to_string()))),
+        }),
+    };
+    let result = check_expr_with_env(&expr).unwrap();
+    assert!(matches!(result.ty(), Type::Function { .. }));
+}
+
+#[test]
+fn test_call_lambda_variable() {
+    let mut env = TypeEnv::default();
+    env.locals.insert(
+        "f".to_string(),
+        TypeScheme::mono(Type::Function {
+            params: vec![Type::Int],
+            ret: Box::new(Type::String),
+        }),
+    );
+
+    let mut ctx = UnifyCtx::new();
+    let expr = Expr::Call {
+        path: Path::simple("f".to_string()),
+        args: vec![Expr::Int(42)],
+    };
+    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+    assert_eq!(result.ty(), Type::String);
+}
+
+#[test]
+fn test_call_non_function_error() {
+    let mut env = TypeEnv::default();
+    env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
+
+    let mut ctx = UnifyCtx::new();
+    let expr = Expr::Call {
+        path: Path::simple("x".to_string()),
+        args: vec![Expr::Int(1)],
+    };
+    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.message.contains("is not a function"));
+}
+
+#[test]
+fn test_turbofish_on_lambda_error() {
+    let mut env = TypeEnv::default();
+    env.locals.insert(
+        "f".to_string(),
+        TypeScheme::mono(Type::Function {
+            params: vec![Type::Int],
+            ret: Box::new(Type::Int),
+        }),
+    );
+
+    let mut ctx = UnifyCtx::new();
+    let expr = Expr::Call {
+        path: Path {
+            prefix: PathPrefix::None,
+            segments: vec!["f".to_string()],
+            type_args: Some(vec![TypeAnnotation::Named(Path::simple("Int".to_string()))]),
+        },
+        args: vec![Expr::Int(42)],
+    };
+    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.message.contains("cannot use turbofish on lambda"));
+}
+
+#[test]
+fn test_call_lambda_wrong_arity() {
+    let mut env = TypeEnv::default();
+    env.locals.insert(
+        "f".to_string(),
+        TypeScheme::mono(Type::Function {
+            params: vec![Type::Int, Type::Int],
+            ret: Box::new(Type::Int),
+        }),
+    );
+
+    let mut ctx = UnifyCtx::new();
+    let expr = Expr::Call {
+        path: Path::simple("f".to_string()),
+        args: vec![Expr::Int(42)], // Only 1 arg, needs 2
+    };
+    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.message.contains("expects 2 arguments"));
+}
