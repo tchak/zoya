@@ -3,8 +3,10 @@
 //! Path resolution is purely structural - no TypeEnv lookup needed.
 //! The actual lookup happens after resolution.
 
+use std::collections::HashMap;
+
 use zoya_ast::{Path, PathPrefix};
-use zoya_ir::TypeError;
+use zoya_ir::{Definition, EnumType, EnumVariantType, TypeError, TypeScheme};
 use zoya_module::ModulePath;
 
 /// Resolve an AST path to a fully qualified module path string.
@@ -70,6 +72,176 @@ fn resolve_relative_path(path: &Path, current_module: &ModulePath) -> Result<Str
 /// Format a full qualified name from a module path and item name.
 pub fn qualified_name(module: &ModulePath, name: &str) -> String {
     format!("{}::{}", module, name)
+}
+
+/// Result of resolving a path in expression context
+#[derive(Debug)]
+pub enum ResolvedPath<'a> {
+    /// Local variable from env.locals
+    Local {
+        name: String,
+        scheme: &'a TypeScheme,
+    },
+    /// Top-level definition (function, struct, enum, type alias)
+    Definition {
+        qualified_name: String,
+        def: &'a Definition,
+    },
+    /// Enum variant (nested inside enum definition)
+    EnumVariant {
+        qualified_name: String,
+        def: &'a EnumType,
+        variant: (String, &'a EnumVariantType),
+    },
+}
+
+/// Resolve a path in expression context.
+///
+/// This handles:
+/// 1. Single-segment paths without prefix: check locals first, then definitions
+/// 2. Multi-segment paths: resolve as qualified name, then try as enum variant
+/// 3. Paths with prefixes (root::, self::, super::)
+pub fn resolve_expr_path<'a>(
+    path: &Path,
+    current_module: &ModulePath,
+    locals: &'a HashMap<String, TypeScheme>,
+    definitions: &'a HashMap<String, Definition>,
+) -> Result<ResolvedPath<'a>, TypeError> {
+    // Single-segment path with no prefix: check locals first
+    if path.prefix == PathPrefix::None && path.segments.len() == 1 {
+        let name = &path.segments[0];
+        if let Some(scheme) = locals.get(name) {
+            return Ok(ResolvedPath::Local {
+                name: name.clone(),
+                scheme,
+            });
+        }
+    }
+
+    // Resolve the full path
+    let qualified = resolve_path(path, current_module)?;
+
+    // Try exact match in definitions
+    if let Some(def) = definitions.get(&qualified) {
+        return Ok(ResolvedPath::Definition {
+            qualified_name: qualified,
+            def,
+        });
+    }
+
+    // If path has 2+ segments, try interpreting last segment as enum variant
+    // E.g., "Option::Some" -> look up "Option" as enum, then "Some" as variant
+    // E.g., "root::module::Option::Some" -> look up "root::module::Option", then "Some"
+    if path.segments.len() >= 2 {
+        // Try to split off the last segment as variant name
+        let variant_name = path.segments.last().unwrap();
+
+        // Build the enum path (all segments except last)
+        let enum_path = Path {
+            prefix: path.prefix,
+            segments: path.segments[..path.segments.len() - 1].to_vec(),
+            type_args: None,
+        };
+        let qualified_name = resolve_path(&enum_path, current_module)?;
+
+        if let Some(Definition::Enum(def)) = definitions.get(&qualified_name) {
+            // Find the variant
+            if let Some((_, variant)) = def.variants.iter().find(|(name, _)| name == variant_name) {
+                return Ok(ResolvedPath::EnumVariant {
+                    qualified_name,
+                    def,
+                    variant: (variant_name.clone(), variant),
+                });
+            }
+            // Enum exists but variant doesn't
+            return Err(TypeError {
+                message: format!(
+                    "enum '{}' has no variant '{}'",
+                    enum_path
+                        .segments
+                        .last()
+                        .unwrap_or(&"<unknown>".to_string()),
+                    variant_name
+                ),
+            });
+        }
+    }
+
+    // Nothing found - generate appropriate error
+    if path.segments.len() == 1 {
+        Err(TypeError {
+            message: format!("unknown identifier: {}", path.segments[0]),
+        })
+    } else {
+        Err(TypeError {
+            message: format!("unknown path: {}", path),
+        })
+    }
+}
+
+/// Resolve a path in pattern context (no locals, only definitions and enum variants).
+///
+/// This is similar to `resolve_expr_path` but doesn't check locals since patterns
+/// don't have access to local variables.
+pub fn resolve_pattern_path<'a>(
+    path: &Path,
+    current_module: &ModulePath,
+    definitions: &'a HashMap<String, Definition>,
+) -> Result<ResolvedPath<'a>, TypeError> {
+    // Resolve the full path
+    let qualified = resolve_path(path, current_module)?;
+
+    // Try exact match in definitions
+    if let Some(def) = definitions.get(&qualified) {
+        return Ok(ResolvedPath::Definition {
+            qualified_name: qualified,
+            def,
+        });
+    }
+
+    // If path has 2+ segments, try interpreting last segment as enum variant
+    if path.segments.len() >= 2 {
+        let variant_name = path.segments.last().unwrap();
+
+        // Build the enum path (all segments except last)
+        let enum_path = Path {
+            prefix: path.prefix,
+            segments: path.segments[..path.segments.len() - 1].to_vec(),
+            type_args: None,
+        };
+        let qualified_name = resolve_path(&enum_path, current_module)?;
+
+        if let Some(Definition::Enum(def)) = definitions.get(&qualified_name) {
+            if let Some((_, variant)) = def.variants.iter().find(|(name, _)| name == variant_name) {
+                return Ok(ResolvedPath::EnumVariant {
+                    qualified_name,
+                    def,
+                    variant: (variant_name.clone(), variant),
+                });
+            }
+            return Err(TypeError {
+                message: format!(
+                    "enum '{}' has no variant '{}'",
+                    enum_path
+                        .segments
+                        .last()
+                        .unwrap_or(&"<unknown>".to_string()),
+                    variant_name
+                ),
+            });
+        }
+    }
+
+    // Nothing found
+    if path.segments.len() == 1 {
+        Err(TypeError {
+            message: format!("unknown identifier: {}", path.segments[0]),
+        })
+    } else {
+        Err(TypeError {
+            message: format!("unknown path: {}", path),
+        })
+    }
 }
 
 #[cfg(test)]

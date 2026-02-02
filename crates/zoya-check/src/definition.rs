@@ -579,7 +579,7 @@ mod tests {
         let result = enum_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("unknown type"));
+        assert!(err.message.contains("unknown identifier"));
     }
 
     #[test]
@@ -604,7 +604,7 @@ mod tests {
         let result = enum_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("unknown type"));
+        assert!(err.message.contains("unknown identifier"));
     }
 
     // ========================================================================
@@ -705,7 +705,7 @@ mod tests {
         let result = type_alias_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("unknown type"));
+        assert!(err.message.contains("unknown identifier"));
     }
 
     // ========================================================================
@@ -804,6 +804,6 @@ mod tests {
         let result = function_type_from_def(&func, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("unknown type"));
+        assert!(err.message.contains("unknown identifier"));
     }
 }

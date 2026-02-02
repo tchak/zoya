@@ -459,7 +459,7 @@ fn test_check_module_with_test_expr() {
 #[test]
 fn test_check_undefined_variable_error() {
     // fn bad() -> Int x
-    // Should fail: "undefined variable 'x'" (x is not defined anywhere)
+    // Should fail: "unknown identifier 'x'" (x is not defined anywhere)
     let items = vec![Item::Function(FunctionDef {
         name: "bad".to_string(),
         type_params: vec![],
@@ -472,8 +472,8 @@ fn test_check_undefined_variable_error() {
     assert!(result.is_err(), "Unknown variable should fail, but got: {:?}", result);
     let err_msg = result.unwrap_err().message;
     assert!(
-        err_msg.contains("unknown variable"),
-        "Expected 'unknown variable' but got: {}", err_msg
+        err_msg.contains("unknown identifier"),
+        "Expected 'unknown identifier' but got: {}", err_msg
     );
 }
 

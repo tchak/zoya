@@ -103,5 +103,5 @@ fn test_struct_construct_unknown_struct() {
     let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("unknown struct"));
+    assert!(err.message.contains("unknown identifier"));
 }

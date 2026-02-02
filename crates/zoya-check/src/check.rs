@@ -4,17 +4,19 @@ use zoya_ast::{
     BinOp, Expr, FunctionDef, Item, LetBinding, MatchArm, Path, TypeAnnotation, UnaryOp,
 };
 use zoya_ir::{
-    CheckedItem, CheckedModule, CheckedModuleTree, Definition, EnumType,
-    EnumVariantType, FunctionType, QualifiedPath, StructType, Type, TypeAliasType, TypeError,
-    TypeScheme, TypeVarId, TypedEnumConstructFields, TypedExpr, TypedFunction,
+    CheckedItem, CheckedModule, CheckedModuleTree, Definition, EnumType, EnumVariantType,
+    FunctionType, QualifiedPath, StructType, Type, TypeError, TypeScheme, TypeVarId,
+    TypedEnumConstructFields, TypedExpr, TypedFunction,
 };
 use zoya_module::{ModulePath, ModuleTree};
 
 use crate::builtin::{builtin_method, is_numeric_type};
-use crate::definition::{enum_type_from_def, function_type_from_def, struct_type_from_def, type_alias_from_def};
+use crate::definition::{
+    enum_type_from_def, function_type_from_def, struct_type_from_def, type_alias_from_def,
+};
 use crate::naming::{is_pascal_case, is_snake_case, to_pascal_case, to_snake_case};
 use crate::pattern::{check_irrefutable, check_let_binding, check_match_arm, check_pattern};
-use crate::resolution;
+use crate::resolution::{self, ResolvedPath};
 use crate::type_resolver::resolve_type_annotation;
 use crate::unify::UnifyCtx;
 use crate::usefulness;
@@ -48,36 +50,11 @@ impl TypeEnv {
         set
     }
 
-    /// Generic lookup for any definition by name
-    pub fn get(&self, name: &str) -> Option<&Definition> {
-        self.definitions.get(name)
-    }
-
     /// Register a definition in the environment.
     /// Currently allows overwrites (needed for REPL redefinition).
     /// Future: add collision detection for different definition kinds.
     pub fn register(&mut self, name: String, def: Definition) {
         self.definitions.insert(name, def);
-    }
-
-    /// Look up a function by name
-    pub fn get_function(&self, name: &str) -> Option<&FunctionType> {
-        self.get(name).and_then(Definition::as_function)
-    }
-
-    /// Look up a struct by name
-    pub fn get_struct(&self, name: &str) -> Option<&StructType> {
-        self.get(name).and_then(Definition::as_struct)
-    }
-
-    /// Look up an enum by name
-    pub fn get_enum(&self, name: &str) -> Option<&EnumType> {
-        self.get(name).and_then(Definition::as_enum)
-    }
-
-    /// Look up a type alias by name
-    pub fn get_type_alias(&self, name: &str) -> Option<&TypeAliasType> {
-        self.get(name).and_then(Definition::as_type_alias)
     }
 }
 
@@ -131,7 +108,8 @@ fn check_function(
         let ty = resolve_type_annotation(&param.typ, &type_param_map, current_module, env)?;
 
         // Type-check the pattern against the parameter type
-        let (typed_pattern, bindings) = check_pattern(&param.pattern, &ty, current_module, env, ctx)?;
+        let (typed_pattern, bindings) =
+            check_pattern(&param.pattern, &ty, current_module, env, ctx)?;
 
         // Add all pattern bindings to locals
         for (name, var_ty) in bindings {
@@ -150,17 +128,19 @@ fn check_function(
 
     // Determine return type
     let return_type = if let Some(ref annotation) = func.return_type {
-        let declared_return = resolve_type_annotation(annotation, &type_param_map, current_module, env)?;
+        let declared_return =
+            resolve_type_annotation(annotation, &type_param_map, current_module, env)?;
         // Unify body type with declared return type
-        ctx.unify(&body_type, &declared_return).map_err(|e| TypeError {
-            message: format!(
-                "function '{}' declares return type {} but body has type {}: {}",
-                func.name,
-                ctx.resolve(&declared_return),
-                body_type,
-                e.message
-            ),
-        })?;
+        ctx.unify(&body_type, &declared_return)
+            .map_err(|e| TypeError {
+                message: format!(
+                    "function '{}' declares return type {} but body has type {}: {}",
+                    func.name,
+                    ctx.resolve(&declared_return),
+                    body_type,
+                    e.message
+                ),
+            })?;
         ctx.resolve(&declared_return)
     } else {
         // Infer return type from body
@@ -179,66 +159,56 @@ fn check_function(
 // Expression type checking helper functions
 // ============================================================================
 
-/// Check a variable reference
 /// Check a path expression (variable or unit enum variant)
-fn check_path_expr(path: &Path, current_module: &ModulePath, env: &TypeEnv, ctx: &mut UnifyCtx) -> Result<TypedExpr, TypeError> {
-    match path.segments.as_slice() {
-        // Single segment: must be a variable
-        [name] => {
+fn check_path_expr(
+    path: &Path,
+    current_module: &ModulePath,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
+    let resolved =
+        resolution::resolve_expr_path(path, current_module, &env.locals, &env.definitions)?;
+
+    match resolved {
+        ResolvedPath::Local { name, scheme } => {
             // Variables cannot have turbofish
             if path.type_args.is_some() {
                 return Err(TypeError {
                     message: format!("cannot use turbofish on variable '{}'", name),
                 });
             }
-            if let Some(scheme) = env.locals.get(name) {
-                let ty = ctx.instantiate(scheme);
-                Ok(TypedExpr::Var {
-                    path: QualifiedPath::simple(name.to_string()),
-                    ty: ctx.resolve(&ty),
-                })
-            } else {
-                Err(TypeError {
-                    message: format!("unknown variable: {}", name),
-                })
-            }
+            let ty = ctx.instantiate(scheme);
+            Ok(TypedExpr::Var {
+                path: QualifiedPath::simple(name),
+                ty: ctx.resolve(&ty),
+            })
         }
-        // Two segments: must be Enum::Variant (unit variant)
-        [enum_name, variant_name] => {
-            let qualified = resolution::qualified_name(current_module, enum_name);
-            let enum_type = env.get_enum(&qualified).ok_or_else(|| TypeError {
-                message: format!("unknown enum: {}", enum_name),
-            })?;
-
-            let variant_type = enum_type
-                .variants
-                .iter()
-                .find(|(name, _)| name == variant_name)
-                .map(|(_, vt)| vt)
-                .ok_or_else(|| TypeError {
-                    message: format!("enum {} has no variant {}", enum_name, variant_name),
-                })?;
-
+        ResolvedPath::EnumVariant {
+            def,
+            variant: (variant_name, variant),
+            ..
+        } => {
             // Must be a unit variant when used as a bare path
-            if !matches!(variant_type, EnumVariantType::Unit) {
+            if !matches!(variant, EnumVariantType::Unit) {
                 return Err(TypeError {
                     message: format!(
                         "enum variant {}::{} requires arguments",
-                        enum_name, variant_name
+                        def.name, variant_name
                     ),
                 });
             }
 
             // Handle explicit type arguments (turbofish) or create fresh type variables
-            let instantiation: HashMap<TypeVarId, Type> = if let Some(ref type_args) = path.type_args
+            let instantiation: HashMap<TypeVarId, Type> = if let Some(ref type_args) =
+                path.type_args
             {
                 // Validate count matches type parameters
-                if type_args.len() != enum_type.type_params.len() {
+                if type_args.len() != def.type_params.len() {
                     return Err(TypeError {
                         message: format!(
                             "enum {} expects {} type argument(s), got {}",
-                            enum_name,
-                            enum_type.type_params.len(),
+                            def.name,
+                            def.type_params.len(),
                             type_args.len()
                         ),
                     });
@@ -249,28 +219,26 @@ fn check_path_expr(path: &Path, current_module: &ModulePath, env: &TypeEnv, ctx:
                     .map(|ann| resolve_type_annotation(ann, &HashMap::new(), current_module, env))
                     .collect::<Result<_, _>>()?;
                 // Build substitution map from explicit types
-                enum_type
-                    .type_var_ids
+                def.type_var_ids
                     .iter()
                     .zip(resolved)
                     .map(|(&id, ty)| (id, ty))
                     .collect()
             } else {
                 // No turbofish: create fresh type variables
-                enum_type
-                    .type_var_ids
+                def.type_var_ids
                     .iter()
                     .map(|&id| (id, ctx.fresh_var()))
                     .collect()
             };
 
-            let type_args: Vec<Type> = enum_type
+            let type_args: Vec<Type> = def
                 .type_var_ids
                 .iter()
                 .map(|id| ctx.resolve(&instantiation[id]))
                 .collect();
 
-            let resolved_variants: Vec<(String, EnumVariantType)> = enum_type
+            let resolved_variants: Vec<(String, EnumVariantType)> = def
                 .variants
                 .iter()
                 .map(|(name, vt)| {
@@ -286,7 +254,10 @@ fn check_path_expr(path: &Path, current_module: &ModulePath, env: &TypeEnv, ctx:
                             EnumVariantType::Tuple(types.iter().map(|t| ctx.resolve(t)).collect())
                         }
                         EnumVariantType::Struct(fields) => EnumVariantType::Struct(
-                            fields.iter().map(|(n, t)| (n.clone(), ctx.resolve(t))).collect(),
+                            fields
+                                .iter()
+                                .map(|(n, t)| (n.clone(), ctx.resolve(t)))
+                                .collect(),
                         ),
                     };
                     (name, resolved_vt)
@@ -294,21 +265,30 @@ fn check_path_expr(path: &Path, current_module: &ModulePath, env: &TypeEnv, ctx:
                 .collect();
 
             Ok(TypedExpr::EnumConstruct {
-                path: QualifiedPath::new(vec![
-                    enum_name.to_string(),
-                    variant_name.to_string(),
-                ]),
+                path: QualifiedPath::new(vec![def.name.clone(), variant_name]),
                 fields: TypedEnumConstructFields::Unit,
                 ty: Type::Enum {
-                    name: enum_name.to_string(),
+                    name: def.name.clone(),
                     type_args,
                     variants: resolved_variants,
                 },
             })
         }
-        _ => Err(TypeError {
-            message: format!("unknown path: {}", path),
-        }),
+        ResolvedPath::Definition {
+            qualified_name,
+            def,
+        } => {
+            // Functions, structs, enums, type aliases can't be used as values directly
+            let kind = match def {
+                Definition::Function(_) => "function",
+                Definition::Struct(_) => "struct",
+                Definition::Enum(_) => "enum",
+                Definition::TypeAlias(_) => "type alias",
+            };
+            Err(TypeError {
+                message: format!("{} '{}' cannot be used as a value", kind, qualified_name),
+            })
+        }
     }
 }
 
@@ -320,96 +300,203 @@ fn check_path_call(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    match path.segments.as_slice() {
-        // Single segment: function or lambda call
-        [func] => check_simple_call(func, &path.type_args, args, current_module, env, ctx),
-        // Two segments: Enum::Variant(args)
-        [enum_name, variant_name] => {
-            check_enum_tuple_construct(enum_name, variant_name, &path.type_args, args, current_module, env, ctx)
+    let resolved =
+        resolution::resolve_expr_path(path, current_module, &env.locals, &env.definitions)?;
+
+    match resolved {
+        ResolvedPath::Local { name, scheme } => {
+            // Lambda call - cannot have turbofish
+            if path.type_args.is_some() {
+                return Err(TypeError {
+                    message: format!("cannot use turbofish on lambda call '{}'", name),
+                });
+            }
+            check_lambda_call(&name, scheme, args, current_module, env, ctx)
         }
-        _ => Err(TypeError {
-            message: format!("unknown path: {}", path),
-        }),
+        ResolvedPath::Definition {
+            def: Definition::Function(func_type),
+            ..
+        } => check_function_call(path, func_type, args, current_module, env, ctx),
+        ResolvedPath::EnumVariant {
+            def,
+            variant: (variant_name, variant),
+            ..
+        } => match variant {
+            EnumVariantType::Tuple(_) => check_enum_tuple_construct_resolved(
+                &def.name,
+                &variant_name,
+                def,
+                &path.type_args,
+                args,
+                current_module,
+                env,
+                ctx,
+            ),
+            EnumVariantType::Unit => Err(TypeError {
+                message: format!(
+                    "enum variant {}::{} is a unit variant, doesn't take arguments",
+                    def.name, variant_name
+                ),
+            }),
+            EnumVariantType::Struct(_) => Err(TypeError {
+                message: format!(
+                    "enum variant {}::{} is a struct variant, use {{ }} syntax",
+                    def.name, variant_name
+                ),
+            }),
+        },
+        ResolvedPath::Definition {
+            qualified_name,
+            def,
+        } => {
+            let kind = match def {
+                Definition::Struct(_) => "struct",
+                Definition::Enum(_) => "enum",
+                Definition::TypeAlias(_) => "type alias",
+                Definition::Function(_) => unreachable!(),
+            };
+            Err(TypeError {
+                message: format!("{} '{}' cannot be called", kind, qualified_name),
+            })
+        }
     }
 }
 
-/// Check a simple (single-name) function call
-fn check_simple_call(
-    func: &str,
-    explicit_type_args: &Option<Vec<TypeAnnotation>>,
+/// Check a function call with a resolved function type
+fn check_function_call(
+    path: &Path,
+    func_type: &FunctionType,
     args: &[Expr],
     current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    // First, try to look up as a named function
-    let qualified = resolution::qualified_name(current_module, func);
-    if let Some(func_type) = env.get_function(&qualified) {
-        // Check argument count
-        if args.len() != func_type.params.len() {
+    let func_name = path
+        .segments
+        .last()
+        .map(|s| s.as_str())
+        .unwrap_or("<unknown>");
+
+    // Check argument count
+    if args.len() != func_type.params.len() {
+        return Err(TypeError {
+            message: format!(
+                "function '{}' expects {} arguments, got {}",
+                func_name,
+                func_type.params.len(),
+                args.len()
+            ),
+        });
+    }
+
+    // Handle explicit type arguments (turbofish) or create fresh type variables
+    let instantiation: HashMap<TypeVarId, Type> = if let Some(ref type_args) = path.type_args {
+        // Validate count matches type parameters
+        if type_args.len() != func_type.type_params.len() {
             return Err(TypeError {
                 message: format!(
-                    "function '{}' expects {} arguments, got {}",
-                    func,
-                    func_type.params.len(),
+                    "function '{}' expects {} type argument(s), got {}",
+                    func_name,
+                    func_type.type_params.len(),
+                    type_args.len()
+                ),
+            });
+        }
+        // Resolve type annotations to Types
+        let resolved: Vec<Type> = type_args
+            .iter()
+            .map(|ann| resolve_type_annotation(ann, &HashMap::new(), current_module, env))
+            .collect::<Result<_, _>>()?;
+        // Build substitution map from explicit types
+        func_type
+            .type_var_ids
+            .iter()
+            .zip(resolved)
+            .map(|(&id, ty)| (id, ty))
+            .collect()
+    } else {
+        // No turbofish: create fresh type variables
+        func_type
+            .type_var_ids
+            .iter()
+            .map(|&id| (id, ctx.fresh_var()))
+            .collect()
+    };
+
+    // Instantiate parameter types with fresh variables
+    let instantiated_params: Vec<Type> = func_type
+        .params
+        .iter()
+        .map(|t| substitute_type_vars(t, &instantiation))
+        .collect();
+    let instantiated_return = substitute_type_vars(&func_type.return_type, &instantiation);
+
+    // Type check arguments and unify with parameter types
+    let mut typed_args = Vec::new();
+    for (arg, param_type) in args.iter().zip(instantiated_params.iter()) {
+        let typed_arg = check_expr(arg, current_module, env, ctx)?;
+        let arg_type = typed_arg.ty();
+
+        // Unify argument type with parameter type
+        ctx.unify(&arg_type, param_type).map_err(|e| TypeError {
+            message: format!(
+                "argument type mismatch in call to '{}': expected {}, got {}: {}",
+                func_name,
+                ctx.resolve(param_type),
+                ctx.resolve(&arg_type),
+                e.message
+            ),
+        })?;
+
+        typed_args.push(typed_arg);
+    }
+
+    // Resolve the return type after unification
+    let return_type = ctx.resolve(&instantiated_return);
+
+    Ok(TypedExpr::Call {
+        path: QualifiedPath::simple(func_name.to_string()),
+        args: typed_args,
+        ty: return_type,
+    })
+}
+
+/// Check a lambda call (calling a variable bound to a function type)
+fn check_lambda_call(
+    name: &str,
+    scheme: &TypeScheme,
+    args: &[Expr],
+    current_module: &ModulePath,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
+    let func_ty = ctx.instantiate(scheme);
+    let resolved = ctx.resolve(&func_ty);
+
+    // Must be a function type
+    if let Type::Function { params, ret } = resolved {
+        // Check argument count
+        if args.len() != params.len() {
+            return Err(TypeError {
+                message: format!(
+                    "'{}' expects {} arguments, got {}",
+                    name,
+                    params.len(),
                     args.len()
                 ),
             });
         }
 
-        // Handle explicit type arguments (turbofish) or create fresh type variables
-        let instantiation: HashMap<TypeVarId, Type> = if let Some(type_args) = explicit_type_args {
-            // Validate count matches type parameters
-            if type_args.len() != func_type.type_params.len() {
-                return Err(TypeError {
-                    message: format!(
-                        "function '{}' expects {} type argument(s), got {}",
-                        func,
-                        func_type.type_params.len(),
-                        type_args.len()
-                    ),
-                });
-            }
-            // Resolve type annotations to Types
-            let resolved: Vec<Type> = type_args
-                .iter()
-                .map(|ann| resolve_type_annotation(ann, &HashMap::new(), current_module, env))
-                .collect::<Result<_, _>>()?;
-            // Build substitution map from explicit types
-            func_type
-                .type_var_ids
-                .iter()
-                .zip(resolved)
-                .map(|(&id, ty)| (id, ty))
-                .collect()
-        } else {
-            // No turbofish: create fresh type variables
-            func_type
-                .type_var_ids
-                .iter()
-                .map(|&id| (id, ctx.fresh_var()))
-                .collect()
-        };
-
-        // Instantiate parameter types with fresh variables
-        let instantiated_params: Vec<Type> = func_type
-            .params
-            .iter()
-            .map(|t| substitute_type_vars(t, &instantiation))
-            .collect();
-        let instantiated_return = substitute_type_vars(&func_type.return_type, &instantiation);
-
         // Type check arguments and unify with parameter types
         let mut typed_args = Vec::new();
-        for (arg, param_type) in args.iter().zip(instantiated_params.iter()) {
+        for (arg, param_type) in args.iter().zip(params.iter()) {
             let typed_arg = check_expr(arg, current_module, env, ctx)?;
             let arg_type = typed_arg.ty();
 
-            // Unify argument type with parameter type
             ctx.unify(&arg_type, param_type).map_err(|e| TypeError {
                 message: format!(
                     "argument type mismatch in call to '{}': expected {}, got {}: {}",
-                    func,
+                    name,
                     ctx.resolve(param_type),
                     ctx.resolve(&arg_type),
                     e.message
@@ -419,91 +506,32 @@ fn check_simple_call(
             typed_args.push(typed_arg);
         }
 
-        // Resolve the return type after unification
-        let return_type = ctx.resolve(&instantiated_return);
+        let return_type = ctx.resolve(&ret);
 
         Ok(TypedExpr::Call {
-            path: QualifiedPath::simple(func.to_string()),
+            path: QualifiedPath::simple(name.to_string()),
             args: typed_args,
             ty: return_type,
         })
-    }
-    // Try to look up as a lambda-bound variable
-    else if let Some(func_ty) = get_callable_type(func, env, ctx) {
-        // Lambda calls cannot have turbofish
-        if explicit_type_args.is_some() {
-            return Err(TypeError {
-                message: format!("cannot use turbofish on lambda call '{}'", func),
-            });
-        }
-        // Must be a function type
-        let resolved = ctx.resolve(&func_ty);
-        if let Type::Function { params, ret } = resolved {
-            // Check argument count
-            if args.len() != params.len() {
-                return Err(TypeError {
-                    message: format!(
-                        "'{}' expects {} arguments, got {}",
-                        func,
-                        params.len(),
-                        args.len()
-                    ),
-                });
-            }
-
-            // Type check arguments and unify with parameter types
-            let mut typed_args = Vec::new();
-            for (arg, param_type) in args.iter().zip(params.iter()) {
-                let typed_arg = check_expr(arg, current_module, env, ctx)?;
-                let arg_type = typed_arg.ty();
-
-                ctx.unify(&arg_type, param_type).map_err(|e| TypeError {
-                    message: format!(
-                        "argument type mismatch in call to '{}': expected {}, got {}: {}",
-                        func,
-                        ctx.resolve(param_type),
-                        ctx.resolve(&arg_type),
-                        e.message
-                    ),
-                })?;
-
-                typed_args.push(typed_arg);
-            }
-
-            let return_type = ctx.resolve(&ret);
-
-            Ok(TypedExpr::Call {
-                path: QualifiedPath::simple(func.to_string()),
-                args: typed_args,
-                ty: return_type,
-            })
-        } else {
-            Err(TypeError {
-                message: format!("'{}' is not a function, has type {}", func, resolved),
-            })
-        }
     } else {
         Err(TypeError {
-            message: format!("unknown function: {}", func),
+            message: format!("'{}' is not a function, has type {}", name, resolved),
         })
     }
 }
 
-/// Check an enum tuple variant construction: Enum::Variant(args)
-fn check_enum_tuple_construct(
+/// Check an enum tuple variant construction with a resolved enum type: Enum::Variant(args)
+#[allow(clippy::too_many_arguments)]
+fn check_enum_tuple_construct_resolved(
     enum_name: &str,
     variant_name: &str,
+    enum_type: &EnumType,
     explicit_type_args: &Option<Vec<TypeAnnotation>>,
     args: &[Expr],
     current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    let qualified = resolution::qualified_name(current_module, enum_name);
-    let enum_type = env.get_enum(&qualified).ok_or_else(|| TypeError {
-        message: format!("unknown enum: {}", enum_name),
-    })?;
-
     let variant_type = enum_type
         .variants
         .iter()
@@ -586,16 +614,17 @@ fn check_enum_tuple_construct(
         let typed_expr = check_expr(expr, current_module, env, ctx)?;
         let actual_type = typed_expr.ty();
 
-        ctx.unify(&actual_type, &expected_type).map_err(|e| TypeError {
-            message: format!(
-                "in enum variant {}::{}: expected {} but got {}: {}",
-                enum_name,
-                variant_name,
-                ctx.resolve(&expected_type),
-                ctx.resolve(&actual_type),
-                e.message
-            ),
-        })?;
+        ctx.unify(&actual_type, &expected_type)
+            .map_err(|e| TypeError {
+                message: format!(
+                    "in enum variant {}::{}: expected {} but got {}: {}",
+                    enum_name,
+                    variant_name,
+                    ctx.resolve(&expected_type),
+                    ctx.resolve(&actual_type),
+                    e.message
+                ),
+            })?;
 
         typed_exprs.push(typed_expr);
     }
@@ -622,7 +651,10 @@ fn check_enum_tuple_construct(
                     EnumVariantType::Tuple(types.iter().map(|t| ctx.resolve(t)).collect())
                 }
                 EnumVariantType::Struct(fields) => EnumVariantType::Struct(
-                    fields.iter().map(|(n, t)| (n.clone(), ctx.resolve(t))).collect(),
+                    fields
+                        .iter()
+                        .map(|(n, t)| (n.clone(), ctx.resolve(t)))
+                        .collect(),
                 ),
             };
             (name, resolved_vt)
@@ -733,7 +765,8 @@ fn check_block(
     let mut typed_bindings = Vec::new();
 
     for binding in bindings {
-        let (typed_binding, pattern_bindings) = check_let_binding(binding, current_module, &block_env, ctx)?;
+        let (typed_binding, pattern_bindings) =
+            check_let_binding(binding, current_module, &block_env, ctx)?;
 
         // Check if we should generalize (let polymorphism)
         // Only generalize syntactic values (lambdas, literals, variables)
@@ -952,12 +985,15 @@ fn check_lambda(
         })?;
 
         let param_ty = match &param.typ {
-            Some(annotation) => resolve_type_annotation(annotation, &HashMap::new(), current_module, env)?,
+            Some(annotation) => {
+                resolve_type_annotation(annotation, &HashMap::new(), current_module, env)?
+            }
             None => ctx.fresh_var(),
         };
 
         // Type-check the pattern against the parameter type
-        let (typed_pattern, bindings) = check_pattern(&param.pattern, &param_ty, current_module, env, ctx)?;
+        let (typed_pattern, bindings) =
+            check_pattern(&param.pattern, &param_ty, current_module, env, ctx)?;
 
         // Add all pattern bindings to the lambda environment
         for (name, var_ty) in bindings {
@@ -974,15 +1010,17 @@ fn check_lambda(
 
     // If return type is annotated, unify with body type
     let resolved_return = if let Some(annotation) = return_type {
-        let declared_return = resolve_type_annotation(annotation, &HashMap::new(), current_module, env)?;
-        ctx.unify(&body_ty, &declared_return).map_err(|e| TypeError {
-            message: format!(
-                "lambda body type {} doesn't match declared return type {}: {}",
-                ctx.resolve(&body_ty),
-                ctx.resolve(&declared_return),
-                e.message
-            ),
-        })?;
+        let declared_return =
+            resolve_type_annotation(annotation, &HashMap::new(), current_module, env)?;
+        ctx.unify(&body_ty, &declared_return)
+            .map_err(|e| TypeError {
+                message: format!(
+                    "lambda body type {} doesn't match declared return type {}: {}",
+                    ctx.resolve(&body_ty),
+                    ctx.resolve(&declared_return),
+                    e.message
+                ),
+            })?;
         ctx.resolve(&declared_return)
     } else {
         ctx.resolve(&body_ty)
@@ -1001,7 +1039,6 @@ fn check_lambda(
     })
 }
 
-/// Check a struct constructor expression
 /// Check a path struct expression (struct construction or enum struct variant)
 fn check_path_struct(
     path: &Path,
@@ -1010,33 +1047,80 @@ fn check_path_struct(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    match path.segments.as_slice() {
-        // Single segment: struct construction
-        [name] => check_struct_construct(name, fields, current_module, env, ctx),
-        // Two segments: Enum::Variant { fields }
-        [enum_name, variant_name] => {
-            check_enum_struct_construct(enum_name, variant_name, fields, current_module, env, ctx)
-        }
-        _ => Err(TypeError {
-            message: format!("unknown path: {}", path),
+    let resolved =
+        resolution::resolve_expr_path(path, current_module, &env.locals, &env.definitions)?;
+
+    match resolved {
+        ResolvedPath::Definition {
+            def: Definition::Struct(struct_type),
+            ..
+        } => check_struct_construct_resolved(
+            &struct_type.name,
+            struct_type,
+            fields,
+            current_module,
+            env,
+            ctx,
+        ),
+        ResolvedPath::EnumVariant {
+            def,
+            variant: (variant_name, variant),
+            ..
+        } => match variant {
+            EnumVariantType::Struct(_) => check_enum_struct_construct_resolved(
+                &def.name,
+                &variant_name,
+                def,
+                fields,
+                current_module,
+                env,
+                ctx,
+            ),
+            EnumVariantType::Unit => Err(TypeError {
+                message: format!(
+                    "enum variant {}::{} is a unit variant, doesn't take fields",
+                    def.name, variant_name
+                ),
+            }),
+            EnumVariantType::Tuple(_) => Err(TypeError {
+                message: format!(
+                    "enum variant {}::{} is a tuple variant, use ( ) syntax",
+                    def.name, variant_name
+                ),
+            }),
+        },
+        ResolvedPath::Local { name, .. } => Err(TypeError {
+            message: format!("'{}' is a variable, not a struct", name),
         }),
+        ResolvedPath::Definition {
+            qualified_name,
+            def,
+        } => {
+            let kind = match def {
+                Definition::Function(_) => "function",
+                Definition::Enum(_) => "enum",
+                Definition::TypeAlias(_) => "type alias",
+                Definition::Struct(_) => unreachable!(),
+            };
+            Err(TypeError {
+                message: format!(
+                    "{} '{}' cannot be constructed with struct syntax",
+                    kind, qualified_name
+                ),
+            })
+        }
     }
 }
 
-/// Check a struct construction expression
-fn check_struct_construct(
+/// Check a struct construction expression with resolved struct type
+fn check_struct_construct_resolved(
     name: &str,
+    struct_type: &StructType,
     fields: &[(String, Expr)],
     current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    // Look up the struct definition
-    let qualified = resolution::qualified_name(current_module, name);
-    let struct_type = env.get_struct(&qualified).ok_or_else(|| TypeError {
-        message: format!("unknown struct: {}", name),
-    })?;
-
     // Create fresh type variables for generic parameters
     let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
     for &old_id in &struct_type.type_var_ids {
@@ -1112,9 +1196,9 @@ fn check_struct_construct(
     let resolved_fields: Vec<(String, Type)> = struct_type
         .fields
         .iter()
-        .map(|(name, ty)| {
+        .map(|(field_name, ty)| {
             (
-                name.clone(),
+                field_name.clone(),
                 ctx.resolve(&substitute_type_vars(ty, &instantiation)),
             )
         })
@@ -1131,20 +1215,17 @@ fn check_struct_construct(
     })
 }
 
-/// Check an enum struct variant construction: Enum::Variant { fields }
-fn check_enum_struct_construct(
+/// Check an enum struct variant construction with resolved enum type: Enum::Variant { fields }
+#[allow(clippy::too_many_arguments)]
+fn check_enum_struct_construct_resolved(
     enum_name: &str,
     variant_name: &str,
+    enum_type: &EnumType,
     provided_fields: &[(String, Expr)],
     current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    let qualified = resolution::qualified_name(current_module, enum_name);
-    let enum_type = env.get_enum(&qualified).ok_or_else(|| TypeError {
-        message: format!("unknown enum: {}", enum_name),
-    })?;
-
     let variant_type = enum_type
         .variants
         .iter()
@@ -1289,14 +1370,19 @@ fn check_field_access(
     let expr_ty = ctx.resolve(&typed_expr.ty());
 
     match &expr_ty {
-        Type::Struct { name, fields: struct_fields, .. } => {
+        Type::Struct {
+            name,
+            fields: struct_fields,
+            ..
+        } => {
             // Find the field directly in the resolved type
-            let (_, field_type) = struct_fields
-                .iter()
-                .find(|(n, _)| n == field)
-                .ok_or_else(|| TypeError {
-                    message: format!("struct {} has no field '{}'", name, field),
-                })?;
+            let (_, field_type) =
+                struct_fields
+                    .iter()
+                    .find(|(n, _)| n == field)
+                    .ok_or_else(|| TypeError {
+                        message: format!("struct {} has no field '{}'", name, field),
+                    })?;
 
             Ok(TypedExpr::FieldAccess {
                 expr: Box::new(typed_expr),
@@ -1331,7 +1417,9 @@ pub(crate) fn check_expr(
         Expr::UnaryOp { op, expr } => check_unary_op(*op, expr, current_module, env, ctx),
         Expr::BinOp { op, left, right } => check_bin_op(*op, left, right, current_module, env, ctx),
         Expr::Block { bindings, result } => check_block(bindings, result, current_module, env, ctx),
-        Expr::Match { scrutinee, arms } => check_match_expr(scrutinee, arms, current_module, env, ctx),
+        Expr::Match { scrutinee, arms } => {
+            check_match_expr(scrutinee, arms, current_module, env, ctx)
+        }
         Expr::MethodCall {
             receiver,
             method,
@@ -1345,7 +1433,9 @@ pub(crate) fn check_expr(
             body,
         } => check_lambda(params, return_type, body, current_module, env, ctx),
         Expr::Struct { path, fields } => check_path_struct(path, fields, current_module, env, ctx),
-        Expr::FieldAccess { expr, field } => check_field_access(expr, field, current_module, env, ctx),
+        Expr::FieldAccess { expr, field } => {
+            check_field_access(expr, field, current_module, env, ctx)
+        }
     }
 }
 
@@ -1354,19 +1444,39 @@ pub(crate) fn substitute_type_vars(ty: &Type, mapping: &HashMap<TypeVarId, Type>
     match ty {
         Type::Var(id) => mapping.get(id).cloned().unwrap_or_else(|| ty.clone()),
         Type::List(elem) => Type::List(Box::new(substitute_type_vars(elem, mapping))),
-        Type::Tuple(elems) => {
-            Type::Tuple(elems.iter().map(|t| substitute_type_vars(t, mapping)).collect())
-        }
+        Type::Tuple(elems) => Type::Tuple(
+            elems
+                .iter()
+                .map(|t| substitute_type_vars(t, mapping))
+                .collect(),
+        ),
         Type::Function { params, ret } => Type::Function {
-            params: params.iter().map(|t| substitute_type_vars(t, mapping)).collect(),
+            params: params
+                .iter()
+                .map(|t| substitute_type_vars(t, mapping))
+                .collect(),
             ret: Box::new(substitute_type_vars(ret, mapping)),
         },
-        Type::Struct { name, type_args, fields } => Type::Struct {
+        Type::Struct {
+            name,
+            type_args,
+            fields,
+        } => Type::Struct {
             name: name.clone(),
-            type_args: type_args.iter().map(|t| substitute_type_vars(t, mapping)).collect(),
-            fields: fields.iter().map(|(n, t)| (n.clone(), substitute_type_vars(t, mapping))).collect(),
+            type_args: type_args
+                .iter()
+                .map(|t| substitute_type_vars(t, mapping))
+                .collect(),
+            fields: fields
+                .iter()
+                .map(|(n, t)| (n.clone(), substitute_type_vars(t, mapping)))
+                .collect(),
         },
-        Type::Enum { name, type_args, variants } => Type::Enum {
+        Type::Enum {
+            name,
+            type_args,
+            variants,
+        } => Type::Enum {
             name: name.clone(),
             type_args: type_args
                 .iter()
@@ -1389,9 +1499,12 @@ pub(crate) fn substitute_variant_type_vars(
 ) -> EnumVariantType {
     match vt {
         EnumVariantType::Unit => EnumVariantType::Unit,
-        EnumVariantType::Tuple(types) => {
-            EnumVariantType::Tuple(types.iter().map(|t| substitute_type_vars(t, mapping)).collect())
-        }
+        EnumVariantType::Tuple(types) => EnumVariantType::Tuple(
+            types
+                .iter()
+                .map(|t| substitute_type_vars(t, mapping))
+                .collect(),
+        ),
         EnumVariantType::Struct(fields) => EnumVariantType::Struct(
             fields
                 .iter()
@@ -1399,11 +1512,6 @@ pub(crate) fn substitute_variant_type_vars(
                 .collect(),
         ),
     }
-}
-
-/// Get the type of a callable (lambda-bound variable), instantiating if polymorphic
-fn get_callable_type(name: &str, env: &TypeEnv, ctx: &mut UnifyCtx) -> Option<Type> {
-    env.locals.get(name).map(|scheme| ctx.instantiate(scheme))
 }
 
 /// Check if an expression is a syntactic value (safe to generalize under value restriction)
