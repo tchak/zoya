@@ -7,7 +7,7 @@ use rustyline::error::ReadlineError;
 use zoya_check::check;
 use crate::eval::{self, Context, Value};
 use zoya_ast::{Expr, FunctionDef, Item, LetBinding, Stmt};
-use zoya_codegen::{codegen_module_tree, prelude};
+use zoya_codegen::codegen;
 use zoya_ir::{CheckedItem, CheckedModuleTree, Type, TypedExpr, TypedPattern};
 use zoya_module::{Module, ModulePath, ModuleTree};
 
@@ -158,12 +158,6 @@ impl State {
     pub fn new() -> Result<Self, String> {
         let (runtime, context) = eval::create_context()?;
 
-        // Initialize context with prelude (helper functions)
-        context.with(|ctx| {
-            ctx.eval::<(), _>(prelude())
-                .map_err(|e| format!("Failed to initialize prelude: {}", e))
-        })?;
-
         Ok(State {
             accumulated_items: Vec::new(),
             accumulated_lets: Vec::new(),
@@ -211,8 +205,8 @@ impl State {
         // Type check the module tree
         let checked_tree = check(&tree).map_err(|e| e.to_string())?;
 
-        // Generate JavaScript code
-        let js_code = codegen_module_tree(&checked_tree);
+        // Generate JavaScript code (includes prelude)
+        let js_code = codegen(&checked_tree);
 
         // Execute generated JS to define all functions
         if !js_code.is_empty() {

@@ -1,8 +1,9 @@
 use zoya_ast::{BinOp, UnaryOp};
 use zoya_ir::{
     CheckedItem, CheckedModuleTree, QualifiedPath, Type, TypedEnumConstructFields, TypedExpr,
-    TypedFunction, TypedLetBinding, TypedMatchArm, TypedPattern,
+    TypedFunction, TypedMatchArm, TypedPattern,
 };
+use zoya_module::ModulePath;
 
 /// Deep equality function name used in generated JS
 const DEEP_EQ_FN: &str = "$$eq";
@@ -23,7 +24,7 @@ const MIN_BIGINT_FN: &str = "$$min_bigint";
 const MAX_BIGINT_FN: &str = "$$max_bigint";
 
 /// Prelude containing helper functions for generated JS
-pub fn prelude() -> &'static str {
+fn prelude() -> &'static str {
     r#"function $$is_obj(x) {
   return typeof x === 'object' && x !== null && !Array.isArray(x);
 }
@@ -56,12 +57,11 @@ function $$eq(a, b) {
 
 /// Generate JavaScript code for all functions in the checked items.
 /// Structs, enums, and type aliases are type-level only and produce no JS.
-/// Does NOT include prelude - call `prelude()` separately if needed.
-pub fn codegen_items(items: &[CheckedItem]) -> String {
+fn codegen_items(items: &[CheckedItem], module_path: &ModulePath) -> String {
     let mut js = String::new();
     for item in items {
         if let CheckedItem::Function(f) = item {
-            js.push_str(&codegen_function(f));
+            js.push_str(&codegen_function(f, module_path));
             js.push('\n');
         }
     }
@@ -70,9 +70,13 @@ pub fn codegen_items(items: &[CheckedItem]) -> String {
 
 /// Generate JavaScript code for all modules in the checked module tree.
 /// Processes modules in dependency order (parents before children).
-/// Does NOT include prelude - call `prelude()` separately if needed.
-pub fn codegen_module_tree(tree: &CheckedModuleTree) -> String {
+/// Includes the prelude (runtime helper functions) at the start.
+pub fn codegen(tree: &CheckedModuleTree) -> String {
     let mut js = String::new();
+
+    // Include prelude at the start
+    js.push_str(prelude());
+    js.push('\n');
 
     // Sort modules by depth (parents before children)
     let mut module_paths: Vec<_> = tree.modules.keys().collect();
@@ -80,7 +84,7 @@ pub fn codegen_module_tree(tree: &CheckedModuleTree) -> String {
 
     for path in module_paths {
         if let Some(module) = tree.modules.get(path) {
-            js.push_str(&codegen_items(&module.items));
+            js.push_str(&codegen_items(&module.items, path));
         }
     }
 
@@ -108,7 +112,7 @@ fn is_safe_operand(expr: &TypedExpr) -> bool {
 
 /// Generate JS for an expression, wrapping in parens only if needed for operator safety.
 fn codegen_operand(expr: &TypedExpr) -> String {
-    let code = codegen(expr);
+    let code = codegen_expr(expr);
     if is_safe_operand(expr) {
         code
     } else {
@@ -217,7 +221,7 @@ fn codegen_pattern_at_path(
 
     match pattern {
         TypedPattern::Literal(lit) => {
-            let lit_code = codegen(lit);
+            let lit_code = codegen_expr(lit);
             if needs_deep_equality(&lit.ty()) {
                 conditions.push(format!("{}({}, {})", DEEP_EQ_FN, access_path, lit_code));
             } else {
@@ -398,7 +402,7 @@ fn codegen_pattern_at_path(
     (conditions, bindings)
 }
 
-pub fn codegen(expr: &TypedExpr) -> String {
+fn codegen_expr(expr: &TypedExpr) -> String {
     match expr {
         TypedExpr::Int(n) => n.to_string(),
         TypedExpr::BigInt(n) => format!("{}n", n), // BigInt literal
@@ -406,12 +410,12 @@ pub fn codegen(expr: &TypedExpr) -> String {
         TypedExpr::Bool(b) => b.to_string(),
         TypedExpr::String(s) => escape_js_string(s),
         TypedExpr::List { elements, .. } | TypedExpr::Tuple { elements, .. } => {
-            let strs: Vec<String> = elements.iter().map(codegen).collect();
+            let strs: Vec<String> = elements.iter().map(codegen_expr).collect();
             format!("[{}]", strs.join(", "))
         }
         TypedExpr::Var { path, .. } => format_path(path),
         TypedExpr::Call { path, args, .. } => {
-            let args_str: Vec<String> = args.iter().map(codegen).collect();
+            let args_str: Vec<String> = args.iter().map(codegen_expr).collect();
             format!("{}({})", format_path(path), args_str.join(", "))
         }
         TypedExpr::UnaryOp { op, expr, .. } => {
@@ -426,8 +430,8 @@ pub fn codegen(expr: &TypedExpr) -> String {
             right,
             ty,
         } => {
-            let l = codegen(left);
-            let r = codegen(right);
+            let l = codegen_expr(left);
+            let r = codegen_expr(right);
 
             // Handle equality operators with structural comparison for lists
             if matches!(op, BinOp::Eq | BinOp::Ne) && needs_deep_equality(&left.ty()) {
@@ -466,7 +470,7 @@ pub fn codegen(expr: &TypedExpr) -> String {
             parts.push("(function() {".to_string());
 
             for (i, binding) in bindings.iter().enumerate() {
-                let value_code = codegen(&binding.value);
+                let value_code = codegen_expr(&binding.value);
 
                 // For simple Var patterns, use direct assignment
                 if let TypedPattern::Var { name, .. } = &binding.pattern {
@@ -480,7 +484,7 @@ pub fn codegen(expr: &TypedExpr) -> String {
                 }
             }
 
-            let result_code = codegen(result);
+            let result_code = codegen_expr(result);
             parts.push(format!("return {};", result_code));
             parts.push("})()".to_string());
 
@@ -495,9 +499,9 @@ pub fn codegen(expr: &TypedExpr) -> String {
             args,
             ..
         } => {
-            let receiver_code = codegen(receiver);
+            let receiver_code = codegen_expr(receiver);
             let receiver_ty = receiver.ty();
-            let args_code: Vec<String> = args.iter().map(codegen).collect();
+            let args_code: Vec<String> = args.iter().map(codegen_expr).collect();
 
             match method.as_str() {
                 // String methods
@@ -546,7 +550,7 @@ pub fn codegen(expr: &TypedExpr) -> String {
 
         TypedExpr::Lambda { params, body, .. } => {
             let (param_names, prologue) = codegen_params(params);
-            let body_code = codegen(body);
+            let body_code = codegen_expr(body);
 
             if params.is_empty() {
                 format!("(() => {})", body_code)
@@ -569,13 +573,13 @@ pub fn codegen(expr: &TypedExpr) -> String {
             } else {
                 let field_strs: Vec<String> = fields
                     .iter()
-                    .map(|(name, expr)| format!("{}: {}", name, codegen(expr)))
+                    .map(|(name, expr)| format!("{}: {}", name, codegen_expr(expr)))
                     .collect();
                 format!("({{ {} }})", field_strs.join(", "))
             }
         }
         TypedExpr::FieldAccess { expr, field, .. } => {
-            format!("({}).{}", codegen(expr), field)
+            format!("({}).{}", codegen_expr(expr), field)
         }
         TypedExpr::EnumConstruct { path, fields, .. } => {
                         let variant_name = path.last();
@@ -590,7 +594,7 @@ pub fn codegen(expr: &TypedExpr) -> String {
                         let field_strs: Vec<String> = exprs
                             .iter()
                             .enumerate()
-                            .map(|(i, e)| format!("${}: {}", i, codegen(e)))
+                            .map(|(i, e)| format!("${}: {}", i, codegen_expr(e)))
                             .collect();
                         format!("({{ $tag: \"{}\", {} }})", variant_name, field_strs.join(", "))
                     }
@@ -601,7 +605,7 @@ pub fn codegen(expr: &TypedExpr) -> String {
                     } else {
                         let field_strs: Vec<String> = fields
                             .iter()
-                            .map(|(name, e)| format!("{}: {}", name, codegen(e)))
+                            .map(|(name, e)| format!("{}: {}", name, codegen_expr(e)))
                             .collect();
                         format!("({{ $tag: \"{}\", {} }})", variant_name, field_strs.join(", "))
                     }
@@ -613,7 +617,7 @@ pub fn codegen(expr: &TypedExpr) -> String {
 
 /// Generate JS code for a single match arm
 fn codegen_match_arm(pattern: &TypedPattern, result: &TypedExpr) -> String {
-    let result_code = codegen(result);
+    let result_code = codegen_expr(result);
     let (conditions, bindings) = codegen_pattern_at_path(pattern, "$match");
 
     let condition_str = if conditions.is_empty() {
@@ -649,7 +653,7 @@ fn codegen_match_arm(pattern: &TypedPattern, result: &TypedExpr) -> String {
 
 /// Generate JS code for a match expression
 fn codegen_match(scrutinee: &TypedExpr, arms: &[TypedMatchArm]) -> String {
-    let scrutinee_code = codegen(scrutinee);
+    let scrutinee_code = codegen_expr(scrutinee);
     let mut parts = vec!["(function($match) {".to_string()];
 
     for arm in arms {
@@ -685,51 +689,37 @@ fn codegen_params(params: &[(TypedPattern, Type)]) -> (Vec<String>, Vec<String>)
     (param_names, prologue)
 }
 
-fn codegen_function(func: &TypedFunction) -> String {
+fn codegen_function(func: &TypedFunction, module_path: &ModulePath) -> String {
     let (param_names, prologue) = codegen_params(&func.params);
-    let body = codegen(&func.body);
+    let body = codegen_expr(&func.body);
+
+    // Build qualified path from module path + function name
+    // Skip "root" for root module functions to maintain simple names
+    let mut segments: Vec<String> = module_path
+        .0
+        .iter()
+        .filter(|s| *s != "root")
+        .cloned()
+        .collect();
+    segments.push(func.name.clone());
+    let path = QualifiedPath::new(segments);
 
     if prologue.is_empty() {
         format!(
             "function {}({}) {{ return {}; }}",
-            format_name(&func.name),
+            format_path(&path),
             param_names.join(", "),
             body
         )
     } else {
         format!(
             "function {}({}) {{ {} return {}; }}",
-            format_name(&func.name),
+            format_path(&path),
             param_names.join(", "),
             prologue.join(" "),
             body
         )
     }
-}
-
-/// Generate JS code for a REPL let binding
-pub fn codegen_let(binding: &TypedLetBinding) -> String {
-    let value_code = codegen(&binding.value);
-
-    // For simple Var patterns, use direct assignment
-    if let TypedPattern::Var { name, .. } = &binding.pattern {
-        // Use var for REPL to allow redefinition and global scope
-        return format!("var {} = {};", format_name(name), value_code);
-    }
-
-    // For complex patterns, store in temp and destructure
-    let mut parts = Vec::new();
-    let temp_name = "$$let_tmp";
-    parts.push(format!("var {} = {};", temp_name, value_code));
-
-    let (_, binding_stmts) = codegen_pattern_at_path(&binding.pattern, temp_name);
-    // Convert const to var for REPL global scope
-    for stmt in binding_stmts {
-        let var_stmt = stmt.replace("const ", "var ");
-        parts.push(var_stmt);
-    }
-
-    parts.join(" ")
 }
 
 fn format_float(n: f64) -> String {
@@ -781,37 +771,37 @@ mod tests {
     #[test]
     fn test_codegen_int() {
         let expr = TypedExpr::Int(42);
-        assert_eq!(codegen(&expr), "42");
+        assert_eq!(codegen_expr(&expr), "42");
     }
 
     #[test]
     fn test_codegen_negative_int() {
         let expr = TypedExpr::Int(-42);
-        assert_eq!(codegen(&expr), "-42");
+        assert_eq!(codegen_expr(&expr), "-42");
     }
 
     #[test]
     fn test_codegen_bigint() {
         let expr = TypedExpr::BigInt(42);
-        assert_eq!(codegen(&expr), "42n");
+        assert_eq!(codegen_expr(&expr), "42n");
     }
 
     #[test]
     fn test_codegen_bigint_large() {
         let expr = TypedExpr::BigInt(9_000_000_000);
-        assert_eq!(codegen(&expr), "9000000000n");
+        assert_eq!(codegen_expr(&expr), "9000000000n");
     }
 
     #[test]
     fn test_codegen_float() {
         let expr = TypedExpr::Float(3.14);
-        assert_eq!(codegen(&expr), "3.14");
+        assert_eq!(codegen_expr(&expr), "3.14");
     }
 
     #[test]
     fn test_codegen_float_whole_number() {
         let expr = TypedExpr::Float(5.0);
-        assert_eq!(codegen(&expr), "5.0");
+        assert_eq!(codegen_expr(&expr), "5.0");
     }
 
     #[test]
@@ -821,7 +811,7 @@ mod tests {
             expr: Box::new(TypedExpr::Int(42)),
             ty: Type::Int,
         };
-        assert_eq!(codegen(&expr), "(-42)");
+        assert_eq!(codegen_expr(&expr), "(-42)");
     }
 
     #[test]
@@ -831,7 +821,7 @@ mod tests {
             expr: Box::new(TypedExpr::BigInt(42)),
             ty: Type::BigInt,
         };
-        assert_eq!(codegen(&expr), "(-42n)");
+        assert_eq!(codegen_expr(&expr), "(-42n)");
     }
 
     #[test]
@@ -842,7 +832,7 @@ mod tests {
             right: Box::new(TypedExpr::Int(2)),
             ty: Type::Int,
         };
-        assert_eq!(codegen(&expr), "(1 + 2)");
+        assert_eq!(codegen_expr(&expr), "(1 + 2)");
     }
 
     #[test]
@@ -853,7 +843,7 @@ mod tests {
             right: Box::new(TypedExpr::BigInt(2)),
             ty: Type::BigInt,
         };
-        assert_eq!(codegen(&expr), "(1n + 2n)");
+        assert_eq!(codegen_expr(&expr), "(1n + 2n)");
     }
 
     #[test]
@@ -864,7 +854,7 @@ mod tests {
             right: Box::new(TypedExpr::Int(3)),
             ty: Type::Int,
         };
-        assert_eq!(codegen(&expr), "(5 - 3)");
+        assert_eq!(codegen_expr(&expr), "(5 - 3)");
     }
 
     #[test]
@@ -875,7 +865,7 @@ mod tests {
             right: Box::new(TypedExpr::Int(4)),
             ty: Type::Int,
         };
-        assert_eq!(codegen(&expr), "(3 * 4)");
+        assert_eq!(codegen_expr(&expr), "(3 * 4)");
     }
 
     #[test]
@@ -887,7 +877,7 @@ mod tests {
             ty: Type::Int,
         };
         // Int division uses $$div for truncation and division-by-zero checking
-        assert_eq!(codegen(&expr), "$$div(10, 2)");
+        assert_eq!(codegen_expr(&expr), "$$div(10, 2)");
     }
 
     #[test]
@@ -904,7 +894,7 @@ mod tests {
             }),
             ty: Type::Int,
         };
-        assert_eq!(codegen(&expr), "(2 + (3 * 4))");
+        assert_eq!(codegen_expr(&expr), "(2 + (3 * 4))");
     }
 
     #[test]
@@ -915,7 +905,7 @@ mod tests {
             right: Box::new(TypedExpr::Float(2.5)),
             ty: Type::Float,
         };
-        assert_eq!(codegen(&expr), "(1.5 + 2.5)");
+        assert_eq!(codegen_expr(&expr), "(1.5 + 2.5)");
     }
 
     #[test]
@@ -924,7 +914,7 @@ mod tests {
             path: QualifiedPath::simple("x".to_string()),
             ty: Type::Int,
         };
-        assert_eq!(codegen(&expr), "$x");
+        assert_eq!(codegen_expr(&expr), "$x");
     }
 
     #[test]
@@ -934,7 +924,7 @@ mod tests {
             args: vec![],
             ty: Type::Int,
         };
-        assert_eq!(codegen(&expr), "$foo()");
+        assert_eq!(codegen_expr(&expr), "$foo()");
     }
 
     #[test]
@@ -944,7 +934,7 @@ mod tests {
             args: vec![TypedExpr::Int(5)],
             ty: Type::Int,
         };
-        assert_eq!(codegen(&expr), "$square(5)");
+        assert_eq!(codegen_expr(&expr), "$square(5)");
     }
 
     #[test]
@@ -954,7 +944,7 @@ mod tests {
             args: vec![TypedExpr::Int(1), TypedExpr::Int(2)],
             ty: Type::Int,
         };
-        assert_eq!(codegen(&expr), "$add(1, 2)");
+        assert_eq!(codegen_expr(&expr), "$add(1, 2)");
     }
 
     #[test]
@@ -973,7 +963,7 @@ mod tests {
             ],
             ty: Type::Int,
         };
-        assert_eq!(codegen(&expr), "$add($x, $y)");
+        assert_eq!(codegen_expr(&expr), "$add($x, $y)");
     }
 
     #[test]
@@ -987,7 +977,7 @@ mod tests {
             right: Box::new(TypedExpr::Int(1)),
             ty: Type::Int,
         };
-        assert_eq!(codegen(&expr), "($x + 1)");
+        assert_eq!(codegen_expr(&expr), "($x + 1)");
     }
 
     #[test]
@@ -1010,7 +1000,7 @@ mod tests {
             return_type: Type::Int,
         };
         assert_eq!(
-            codegen_function(&func),
+            codegen_function(&func, &ModulePath::root()),
             "function $square($x) { return ($x * $x); }"
         );
     }
@@ -1038,7 +1028,7 @@ mod tests {
             return_type: Type::Int,
         };
         assert_eq!(
-            codegen_function(&func),
+            codegen_function(&func, &ModulePath::root()),
             "function $add($x, $y) { return ($x + $y); }"
         );
     }
@@ -1052,7 +1042,7 @@ mod tests {
             return_type: Type::Int,
         };
         assert_eq!(
-            codegen_function(&func),
+            codegen_function(&func, &ModulePath::root()),
             "function $answer() { return 42; }"
         );
     }
@@ -1074,7 +1064,7 @@ mod tests {
             return_type: Type::BigInt,
         };
         assert_eq!(
-            codegen_function(&func),
+            codegen_function(&func, &ModulePath::root()),
             "function $big($x) { return ($x + 1n); }"
         );
     }

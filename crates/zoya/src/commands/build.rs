@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use zoya_check::check;
-use zoya_codegen::{codegen_module_tree, prelude};
+use zoya_codegen::codegen;
 
 /// Compile a file to JavaScript without executing
 pub fn execute(path: &Path, output: Option<&Path>) -> Result<(), String> {
@@ -12,10 +12,7 @@ pub fn execute(path: &Path, output: Option<&Path>) -> Result<(), String> {
     let checked_tree = check(&tree).map_err(|e| format!("error: {}", e))?;
 
     // Generate JS code
-    let mut js_code = String::new();
-    js_code.push_str(prelude());
-    js_code.push('\n');
-    js_code.push_str(&codegen_module_tree(&checked_tree));
+    let js_code = codegen(&checked_tree);
 
     // Write output
     match output {

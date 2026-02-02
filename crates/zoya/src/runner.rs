@@ -1,6 +1,6 @@
 use zoya_check::check;
 use crate::eval::{self, EvalError, Value};
-use zoya_codegen::{codegen_module_tree, prelude};
+use zoya_codegen::codegen;
 use zoya_ir::CheckedItem;
 use zoya_loader::{load_modules_with, MemorySource};
 
@@ -36,10 +36,7 @@ pub fn run(source: &str) -> Result<Value, EvalError> {
     }
 
     // Generate JS code
-    let mut js_code = String::new();
-    js_code.push_str(prelude());
-    js_code.push('\n');
-    js_code.push_str(&codegen_module_tree(&checked_tree));
+    let mut js_code = codegen(&checked_tree);
     js_code.push_str("$main()");
 
     // Execute
