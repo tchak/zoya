@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::check::check_module_tree;
+use crate::check::check;
 
 /// Type-check a file without executing it
 pub fn execute(path: &Path) -> Result<(), String> {
@@ -8,7 +8,7 @@ pub fn execute(path: &Path) -> Result<(), String> {
     let tree = zoya_loader::load_modules(path).map_err(|e| format!("error: {}", e))?;
 
     // Type check entire module tree
-    check_module_tree(&tree).map_err(|e| format!("error: {}", e))?;
+    check(&tree).map_err(|e| format!("error: {}", e))?;
 
     // Success
     eprintln!("✓ Type checking passed: {}", path.display());

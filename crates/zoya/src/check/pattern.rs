@@ -11,7 +11,7 @@ use super::unify::UnifyCtx;
 use super::naming::{is_snake_case, to_snake_case};
 use super::resolution;
 use super::type_resolver::resolve_type_annotation;
-use super::{check_with_env, substitute_type_vars, substitute_variant_type_vars, TypeEnv};
+use super::{check_expr, substitute_type_vars, substitute_variant_type_vars, TypeEnv};
 
 /// Check a list of patterns against a single element type (for list patterns)
 pub fn check_patterns_against_elem(
@@ -59,7 +59,7 @@ pub fn check_pattern(
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
     match pattern {
         Pattern::Literal(expr) => {
-            let typed = check_with_env(expr, current_module, env, ctx)?;
+            let typed = check_expr(expr, current_module, env, ctx)?;
             let lit_ty = typed.ty();
 
             // Unify literal type with scrutinee type
@@ -1274,7 +1274,7 @@ pub fn check_match_arm(
         .locals
         .extend(bindings.into_iter().map(|(n, ty)| (n, TypeScheme::mono(ty))));
 
-    let typed_result = check_with_env(&arm.result, current_module, &arm_env, ctx)?;
+    let typed_result = check_expr(&arm.result, current_module, &arm_env, ctx)?;
 
     Ok(TypedMatchArm {
         pattern: typed_pattern,
@@ -1337,7 +1337,7 @@ pub fn check_let_binding(
     })?;
 
     // Type check the value
-    let typed_value = check_with_env(&binding.value, current_module, env, ctx)?;
+    let typed_value = check_expr(&binding.value, current_module, env, ctx)?;
     let inferred_type = typed_value.ty();
 
     // If type annotation exists (only allowed on simple Var patterns), unify with inferred type

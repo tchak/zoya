@@ -1,4 +1,4 @@
-use crate::check::check_module_tree;
+use crate::check::check;
 use crate::eval::{self, EvalError, Value};
 use zoya_codegen::{codegen_module_tree, prelude};
 use zoya_ir::CheckedItem;
@@ -13,7 +13,7 @@ pub fn run(source: &str) -> Result<Value, EvalError> {
 
     // Type check module tree
     let checked_tree =
-        check_module_tree(&tree).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+        check(&tree).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
 
     // Find main in root module
     let root_module = checked_tree

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
-use crate::check::check_module_tree;
+use crate::check::check;
 use crate::eval::{self, Context, Value};
 use zoya_ast::{Expr, FunctionDef, Item, LetBinding, Stmt};
 use zoya_codegen::{codegen_module_tree, prelude};
@@ -209,7 +209,7 @@ impl State {
         let tree = build_repl_module(all_items);
 
         // Type check the module tree
-        let checked_tree = check_module_tree(&tree).map_err(|e| e.to_string())?;
+        let checked_tree = check(&tree).map_err(|e| e.to_string())?;
 
         // Generate JavaScript code
         let js_code = codegen_module_tree(&checked_tree);

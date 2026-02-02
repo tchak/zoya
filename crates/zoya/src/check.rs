@@ -153,7 +153,7 @@ fn check_function(
     let body_env = env.with_locals(locals);
 
     // Check the body
-    let typed_body = check_with_env(&func.body, current_module, &body_env, ctx)?;
+    let typed_body = check_expr(&func.body, current_module, &body_env, ctx)?;
     let body_type = ctx.resolve(&typed_body.ty());
 
     // Determine return type
@@ -410,7 +410,7 @@ fn check_simple_call(
         // Type check arguments and unify with parameter types
         let mut typed_args = Vec::new();
         for (arg, param_type) in args.iter().zip(instantiated_params.iter()) {
-            let typed_arg = check_with_env(arg, current_module, env, ctx)?;
+            let typed_arg = check_expr(arg, current_module, env, ctx)?;
             let arg_type = typed_arg.ty();
 
             // Unify argument type with parameter type
@@ -462,7 +462,7 @@ fn check_simple_call(
             // Type check arguments and unify with parameter types
             let mut typed_args = Vec::new();
             for (arg, param_type) in args.iter().zip(params.iter()) {
-                let typed_arg = check_with_env(arg, current_module, env, ctx)?;
+                let typed_arg = check_expr(arg, current_module, env, ctx)?;
                 let arg_type = typed_arg.ty();
 
                 ctx.unify(&arg_type, param_type).map_err(|e| TypeError {
@@ -591,7 +591,7 @@ fn check_enum_tuple_construct(
     let mut typed_exprs = Vec::new();
     for (expr, expected) in args.iter().zip(expected_types.iter()) {
         let expected_type = substitute_type_vars(expected, &instantiation);
-        let typed_expr = check_with_env(expr, current_module, env, ctx)?;
+        let typed_expr = check_expr(expr, current_module, env, ctx)?;
         let actual_type = typed_expr.ty();
 
         ctx.unify(&actual_type, &expected_type).map_err(|e| TypeError {
@@ -656,7 +656,7 @@ fn check_unary_op(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    let typed_expr = check_with_env(expr, current_module, env, ctx)?;
+    let typed_expr = check_expr(expr, current_module, env, ctx)?;
     let ty = typed_expr.ty();
     match op {
         UnaryOp::Neg => {
@@ -688,8 +688,8 @@ fn check_bin_op(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    let typed_left = check_with_env(left, current_module, env, ctx)?;
-    let typed_right = check_with_env(right, current_module, env, ctx)?;
+    let typed_left = check_expr(left, current_module, env, ctx)?;
+    let typed_right = check_expr(right, current_module, env, ctx)?;
     let left_ty = typed_left.ty();
     let right_ty = typed_right.ty();
 
@@ -764,7 +764,7 @@ fn check_block(
     }
 
     // Type-check the result expression with all bindings in scope
-    let typed_result = check_with_env(result, current_module, &block_env, ctx)?;
+    let typed_result = check_expr(result, current_module, &block_env, ctx)?;
 
     Ok(TypedExpr::Block {
         bindings: typed_bindings,
@@ -780,7 +780,7 @@ fn check_match_expr(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    let typed_scrutinee = check_with_env(scrutinee, current_module, env, ctx)?;
+    let typed_scrutinee = check_expr(scrutinee, current_module, env, ctx)?;
     let scrutinee_ty = typed_scrutinee.ty();
 
     if arms.is_empty() {
@@ -834,7 +834,7 @@ fn check_method_call(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    let typed_receiver = check_with_env(receiver, current_module, env, ctx)?;
+    let typed_receiver = check_expr(receiver, current_module, env, ctx)?;
     let receiver_ty = ctx.resolve(&typed_receiver.ty());
 
     // Look up the method signature
@@ -858,7 +858,7 @@ fn check_method_call(
     // Type check arguments
     let mut typed_args = Vec::new();
     for (arg, param_ty) in args.iter().zip(param_types.iter()) {
-        let typed_arg = check_with_env(arg, current_module, env, ctx)?;
+        let typed_arg = check_expr(arg, current_module, env, ctx)?;
         let arg_ty = typed_arg.ty();
 
         ctx.unify(&arg_ty, param_ty).map_err(|e| TypeError {
@@ -898,13 +898,13 @@ fn check_list_expr(
         })
     } else {
         // Non-empty list: infer element type from first element
-        let first_typed = check_with_env(&elements[0], current_module, env, ctx)?;
+        let first_typed = check_expr(&elements[0], current_module, env, ctx)?;
         let elem_ty = first_typed.ty();
         let mut typed_elements = vec![first_typed];
 
         // Check remaining elements unify with first element's type
         for elem in &elements[1..] {
-            let typed = check_with_env(elem, current_module, env, ctx)?;
+            let typed = check_expr(elem, current_module, env, ctx)?;
             ctx.unify(&typed.ty(), &elem_ty).map_err(|e| TypeError {
                 message: format!("list element type mismatch: {}", e.message),
             })?;
@@ -929,7 +929,7 @@ fn check_tuple_expr(
     let mut element_types = Vec::new();
 
     for elem in elements {
-        let typed = check_with_env(elem, current_module, env, ctx)?;
+        let typed = check_expr(elem, current_module, env, ctx)?;
         element_types.push(typed.ty());
         typed_elements.push(typed);
     }
@@ -977,7 +977,7 @@ fn check_lambda(
     }
 
     // Check the body in the extended environment
-    let typed_body = check_with_env(body, current_module, &lambda_env, ctx)?;
+    let typed_body = check_expr(body, current_module, &lambda_env, ctx)?;
     let body_ty = typed_body.ty();
 
     // If return type is annotated, unify with body type
@@ -1090,7 +1090,7 @@ fn check_struct_construct(
         let expected_type = substitute_type_vars(field_type, &instantiation);
 
         // Type-check the field expression
-        let typed_expr = check_with_env(field_expr, current_module, env, ctx)?;
+        let typed_expr = check_expr(field_expr, current_module, env, ctx)?;
         let actual_type = typed_expr.ty();
 
         // Unify with expected type
@@ -1223,7 +1223,7 @@ fn check_enum_struct_construct(
             .unwrap();
 
         let expected_type = substitute_type_vars(field_type, &instantiation);
-        let typed_expr = check_with_env(field_expr, current_module, env, ctx)?;
+        let typed_expr = check_expr(field_expr, current_module, env, ctx)?;
         let actual_type = typed_expr.ty();
 
         ctx.unify(&actual_type, &expected_type)
@@ -1293,7 +1293,7 @@ fn check_field_access(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    let typed_expr = check_with_env(expr, current_module, env, ctx)?;
+    let typed_expr = check_expr(expr, current_module, env, ctx)?;
     let expr_ty = ctx.resolve(&typed_expr.ty());
 
     match &expr_ty {
@@ -1322,7 +1322,7 @@ fn check_field_access(
 }
 
 /// Check an expression with a type environment
-fn check_with_env(
+fn check_expr(
     expr: &Expr,
     current_module: &ModulePath,
     env: &TypeEnv,
@@ -1430,7 +1430,7 @@ fn is_syntactic_value(expr: &Expr) -> bool {
 /// This performs multi-module type checking:
 /// 1. Register all declarations from all modules
 /// 2. Type-check all function bodies with module context for path resolution
-pub fn check_module_tree(tree: &ModuleTree) -> Result<CheckedModuleTree, TypeError> {
+pub fn check(tree: &ModuleTree) -> Result<CheckedModuleTree, TypeError> {
     let mut env = TypeEnv::default();
     let mut ctx = UnifyCtx::new();
 
@@ -1597,9 +1597,9 @@ mod tests {
     use zoya_ir::Type;
     use zoya_module::{Module, ModuleTree};
 
-    fn check(expr: &Expr) -> Result<TypedExpr, TypeError> {
+    fn check_expr_with_env(expr: &Expr) -> Result<TypedExpr, TypeError> {
         let mut ctx = UnifyCtx::new();
-        check_with_env(expr, &ModulePath::root(), &TypeEnv::default(), &mut ctx)
+        check_expr(expr, &ModulePath::root(), &TypeEnv::default(), &mut ctx)
     }
 
     /// Build a test module from items only.
@@ -1645,7 +1645,7 @@ mod tests {
     #[test]
     fn test_check_int() {
         let expr = Expr::Int(42);
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Int);
         assert_eq!(result, TypedExpr::Int(42));
     }
@@ -1654,7 +1654,7 @@ mod tests {
     fn test_check_int_large() {
         // Large integers now work fine since Int uses i64 internally
         let expr = Expr::Int(3_000_000_000);
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Int);
         assert_eq!(result, TypedExpr::Int(3_000_000_000));
     }
@@ -1662,7 +1662,7 @@ mod tests {
     #[test]
     fn test_check_bigint() {
         let expr = Expr::BigInt(42);
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::BigInt);
         assert_eq!(result, TypedExpr::BigInt(42));
     }
@@ -1670,7 +1670,7 @@ mod tests {
     #[test]
     fn test_check_bigint_large() {
         let expr = Expr::BigInt(9_000_000_000);
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::BigInt);
         assert_eq!(result, TypedExpr::BigInt(9_000_000_000));
     }
@@ -1682,14 +1682,14 @@ mod tests {
             left: Box::new(Expr::BigInt(1)),
             right: Box::new(Expr::BigInt(2)),
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::BigInt);
     }
 
     #[test]
     fn test_check_float() {
         let expr = Expr::Float(3.14);
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Float);
         assert_eq!(result, TypedExpr::Float(3.14));
     }
@@ -1701,7 +1701,7 @@ mod tests {
             left: Box::new(Expr::Int(1)),
             right: Box::new(Expr::Int(2)),
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -1712,7 +1712,7 @@ mod tests {
             left: Box::new(Expr::Float(1.0)),
             right: Box::new(Expr::Float(2.0)),
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Float);
     }
 
@@ -1723,7 +1723,7 @@ mod tests {
             left: Box::new(Expr::Int(1)),
             right: Box::new(Expr::Float(2.0)),
         };
-        let result = check(&expr);
+        let result = check_expr_with_env(&expr);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("type mismatch"));
@@ -1735,7 +1735,7 @@ mod tests {
             op: UnaryOp::Neg,
             expr: Box::new(Expr::Int(42)),
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -1745,7 +1745,7 @@ mod tests {
             op: UnaryOp::Neg,
             expr: Box::new(Expr::Float(3.14)),
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Float);
     }
 
@@ -1759,7 +1759,7 @@ mod tests {
                 right: Box::new(Expr::Int(2)),
             }),
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -1769,7 +1769,7 @@ mod tests {
             op: UnaryOp::Neg,
             expr: Box::new(Expr::Bool(true)),
         };
-        let result = check(&expr);
+        let result = check_expr_with_env(&expr);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("negation"));
     }
@@ -1780,7 +1780,7 @@ mod tests {
             op: UnaryOp::Neg,
             expr: Box::new(Expr::String("hello".to_string())),
         };
-        let result = check(&expr);
+        let result = check_expr_with_env(&expr);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("negation"));
     }
@@ -1797,7 +1797,7 @@ mod tests {
                 right: Box::new(Expr::Float(3.0)),
             }),
         };
-        let result = check(&expr);
+        let result = check_expr_with_env(&expr);
         assert!(result.is_err());
     }
 
@@ -1817,7 +1817,7 @@ mod tests {
                 }),
             }),
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -1831,7 +1831,7 @@ mod tests {
 
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Path(Path::simple("x".to_string()));
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -1840,7 +1840,7 @@ mod tests {
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
         let expr = Expr::Path(Path::simple("x".to_string()));
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("unknown variable"));
     }
@@ -1857,7 +1857,7 @@ mod tests {
             left: Box::new(Expr::Path(Path::simple("x".to_string()))),
             right: Box::new(Expr::Path(Path::simple("y".to_string()))),
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -1879,7 +1879,7 @@ mod tests {
             path: Path::simple("square".to_string()),
             args: vec![Expr::Int(5)],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -1901,7 +1901,7 @@ mod tests {
             path: Path::simple("square".to_string()),
             args: vec![Expr::Float(5.0)],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("type mismatch"));
     }
@@ -1924,7 +1924,7 @@ mod tests {
             path: Path::simple("add".to_string()),
             args: vec![Expr::Int(1)],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("expects 2 arguments"));
     }
@@ -1951,7 +1951,7 @@ mod tests {
             path: Path::simple("identity".to_string()),
             args: vec![Expr::Int(42)],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -1977,7 +1977,7 @@ mod tests {
             path: Path::simple("identity".to_string()),
             args: vec![Expr::Float(3.14)],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Float);
     }
 
@@ -2109,7 +2109,7 @@ mod tests {
     #[test]
     fn test_check_bool_true() {
         let expr = Expr::Bool(true);
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Bool);
         assert_eq!(result, TypedExpr::Bool(true));
     }
@@ -2117,7 +2117,7 @@ mod tests {
     #[test]
     fn test_check_bool_false() {
         let expr = Expr::Bool(false);
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Bool);
         assert_eq!(result, TypedExpr::Bool(false));
     }
@@ -2129,7 +2129,7 @@ mod tests {
             left: Box::new(Expr::Int(1)),
             right: Box::new(Expr::Int(2)),
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Bool);
     }
 
@@ -2140,7 +2140,7 @@ mod tests {
             left: Box::new(Expr::Int(1)),
             right: Box::new(Expr::Int(2)),
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Bool);
     }
 
@@ -2151,7 +2151,7 @@ mod tests {
             left: Box::new(Expr::Bool(true)),
             right: Box::new(Expr::Bool(false)),
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Bool);
     }
 
@@ -2162,7 +2162,7 @@ mod tests {
             left: Box::new(Expr::Int(1)),
             right: Box::new(Expr::Int(2)),
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Bool);
     }
 
@@ -2173,7 +2173,7 @@ mod tests {
             left: Box::new(Expr::Float(1.5)),
             right: Box::new(Expr::Float(2.5)),
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Bool);
     }
 
@@ -2184,7 +2184,7 @@ mod tests {
             left: Box::new(Expr::Int(1)),
             right: Box::new(Expr::Int(2)),
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Bool);
     }
 
@@ -2195,7 +2195,7 @@ mod tests {
             left: Box::new(Expr::Int(1)),
             right: Box::new(Expr::Int(2)),
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Bool);
     }
 
@@ -2206,7 +2206,7 @@ mod tests {
             left: Box::new(Expr::Bool(true)),
             right: Box::new(Expr::Bool(false)),
         };
-        let result = check(&expr);
+        let result = check_expr_with_env(&expr);
         assert!(result.is_err());
         assert!(
             result
@@ -2223,7 +2223,7 @@ mod tests {
             left: Box::new(Expr::Int(1)),
             right: Box::new(Expr::Float(1.0)),
         };
-        let result = check(&expr);
+        let result = check_expr_with_env(&expr);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("type mismatch"));
     }
@@ -2231,7 +2231,7 @@ mod tests {
     #[test]
     fn test_check_expression_type_inference() {
         // Simple expression check - no need for module infrastructure
-        let result = check(&Expr::Int(42)).unwrap();
+        let result = check_expr_with_env(&Expr::Int(42)).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -2245,7 +2245,7 @@ mod tests {
             body: Expr::Int(42),
         })];
         let tree = build_test_module(items);
-        let checked_tree = check_module_tree(&tree).unwrap();
+        let checked_tree = check(&tree).unwrap();
         let root = checked_tree.root().unwrap();
         assert_eq!(root.items.len(), 1);
         assert!(matches!(root.items[0], CheckedItem::Function(_)));
@@ -2272,7 +2272,7 @@ mod tests {
             args: vec![Expr::Int(5)],
         };
         let tree = build_test_module_with_expr(items, test_expr);
-        let checked_tree = check_module_tree(&tree).unwrap();
+        let checked_tree = check(&tree).unwrap();
         let root = checked_tree.root().unwrap();
         // double + __test
         assert_eq!(root.items.len(), 2);
@@ -2293,7 +2293,7 @@ mod tests {
             result: Box::new(Expr::Tuple(vec![])),
         };
         let tree = build_test_module_with_expr(vec![], test_expr);
-        let checked_tree = check_module_tree(&tree).unwrap();
+        let checked_tree = check(&tree).unwrap();
         let root = checked_tree.root().unwrap();
         // Only the __test function should be present
         assert_eq!(root.items.len(), 1);
@@ -2318,7 +2318,7 @@ mod tests {
             }),
         };
         let tree = build_test_module_with_expr(vec![], test_expr);
-        let checked_tree = check_module_tree(&tree).unwrap();
+        let checked_tree = check(&tree).unwrap();
         let root = checked_tree.root().unwrap();
         // Only __test function
         assert_eq!(root.items.len(), 1);
@@ -2338,7 +2338,7 @@ mod tests {
             result: Box::new(Expr::Tuple(vec![])),
         };
         let tree = build_test_module_with_expr(vec![], test_expr);
-        let checked_tree = check_module_tree(&tree).unwrap();
+        let checked_tree = check(&tree).unwrap();
         let root = checked_tree.root().unwrap();
         // Only __test function
         assert_eq!(root.items.len(), 1);
@@ -2357,7 +2357,7 @@ mod tests {
             result: Box::new(Expr::Tuple(vec![])),
         };
         let tree = build_test_module_with_expr(vec![], test_expr);
-        let result = check_module_tree(&tree);
+        let result = check(&tree);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("declares type"));
     }
@@ -2376,7 +2376,7 @@ mod tests {
                 right: Box::new(Expr::Int(2)),
             }),
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -2405,7 +2405,7 @@ mod tests {
                 right: Box::new(Expr::Path(Path::simple("y".to_string()))),
             }),
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -2434,7 +2434,7 @@ mod tests {
                 },
             ],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::String);
     }
 
@@ -2457,7 +2457,7 @@ mod tests {
                 },
             ],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -2478,7 +2478,7 @@ mod tests {
                 },
             }],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -2495,7 +2495,7 @@ mod tests {
                 result: Expr::Int(1),
             }],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("does not match scrutinee"));
     }
@@ -2519,7 +2519,7 @@ mod tests {
                 },
             ],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("different types"));
     }
@@ -2531,7 +2531,7 @@ mod tests {
             method: "len".to_string(),
             args: vec![],
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -2542,7 +2542,7 @@ mod tests {
             method: "is_empty".to_string(),
             args: vec![],
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Bool);
     }
 
@@ -2553,7 +2553,7 @@ mod tests {
             method: "contains".to_string(),
             args: vec![Expr::String("ell".to_string())],
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Bool);
     }
 
@@ -2564,7 +2564,7 @@ mod tests {
             method: "to_uppercase".to_string(),
             args: vec![],
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::String);
     }
 
@@ -2575,7 +2575,7 @@ mod tests {
             method: "trim".to_string(),
             args: vec![],
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::String);
     }
 
@@ -2586,7 +2586,7 @@ mod tests {
             method: "foo".to_string(),
             args: vec![],
         };
-        let result = check(&expr);
+        let result = check_expr_with_env(&expr);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("no method 'foo'"));
     }
@@ -2598,7 +2598,7 @@ mod tests {
             method: "len".to_string(),
             args: vec![],
         };
-        let result = check(&expr);
+        let result = check_expr_with_env(&expr);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("no method 'len' on type Int"));
     }
@@ -2610,7 +2610,7 @@ mod tests {
             method: "contains".to_string(),
             args: vec![], // contains expects 1 argument
         };
-        let result = check(&expr);
+        let result = check_expr_with_env(&expr);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("expects 1 argument"));
     }
@@ -2622,7 +2622,7 @@ mod tests {
             method: "contains".to_string(),
             args: vec![Expr::Int(42)], // contains expects String, not Int
         };
-        let result = check(&expr);
+        let result = check_expr_with_env(&expr);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("type mismatch"));
     }
@@ -2638,7 +2638,7 @@ mod tests {
             method: "len".to_string(),
             args: vec![],
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -2651,7 +2651,7 @@ mod tests {
             method: "len".to_string(),
             args: vec![],
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -2662,7 +2662,7 @@ mod tests {
             method: "is_empty".to_string(),
             args: vec![],
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::Bool);
     }
 
@@ -2673,7 +2673,7 @@ mod tests {
             method: "reverse".to_string(),
             args: vec![],
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::List(Box::new(Type::Int)));
     }
 
@@ -2684,7 +2684,7 @@ mod tests {
             method: "push".to_string(),
             args: vec![Expr::Int(3)],
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::List(Box::new(Type::Int)));
     }
 
@@ -2695,7 +2695,7 @@ mod tests {
             method: "push".to_string(),
             args: vec![Expr::String("hello".to_string())],
         };
-        let result = check(&expr);
+        let result = check_expr_with_env(&expr);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("type mismatch"));
     }
@@ -2707,7 +2707,7 @@ mod tests {
             method: "concat".to_string(),
             args: vec![Expr::List(vec![Expr::Int(3), Expr::Int(4)])],
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::List(Box::new(Type::Int)));
     }
 
@@ -2718,7 +2718,7 @@ mod tests {
             method: "concat".to_string(),
             args: vec![Expr::List(vec![Expr::String("hello".to_string())])],
         };
-        let result = check(&expr);
+        let result = check_expr_with_env(&expr);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("type mismatch"));
     }
@@ -2735,7 +2735,7 @@ mod tests {
             method: "reverse".to_string(),
             args: vec![],
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert_eq!(result.ty(), Type::List(Box::new(Type::Int)));
     }
 
@@ -2766,7 +2766,7 @@ mod tests {
             }),
         ];
         let tree = build_test_module(items);
-        let result = check_module_tree(&tree);
+        let result = check(&tree);
         assert!(result.is_ok(), "Forward reference should succeed: {:?}", result.err());
         let checked_tree = result.unwrap();
         let root = checked_tree.root().unwrap();
@@ -2842,7 +2842,7 @@ mod tests {
             }),
         ];
         let tree = build_test_module(items);
-        let result = check_module_tree(&tree);
+        let result = check(&tree);
         assert!(result.is_ok(), "Mutual recursion should succeed: {:?}", result.err());
     }
 
@@ -2883,7 +2883,7 @@ mod tests {
             }),
         };
         let tree = build_test_module_with_expr(items, test_expr);
-        let result = check_module_tree(&tree);
+        let result = check(&tree);
         assert!(result.is_ok(), "Mixed items and expr should succeed: {:?}", result.err());
         let checked_tree = result.unwrap();
         let root = checked_tree.root().unwrap();
@@ -2909,7 +2909,7 @@ mod tests {
             body: Expr::Path(Path::simple("x".to_string())),
         })];
         let tree = build_test_module(items);
-        let result = check_module_tree(&tree);
+        let result = check(&tree);
         assert!(result.is_err(), "Unknown variable should fail, but got: {:?}", result);
         let err_msg = result.unwrap_err().message;
         assert!(
@@ -2956,7 +2956,7 @@ mod tests {
             },
         })];
         let tree = build_test_module(items);
-        let result = check_module_tree(&tree);
+        let result = check(&tree);
         assert!(result.is_ok(), "Self-recursion should succeed: {:?}", result.err());
     }
 
@@ -3042,7 +3042,7 @@ mod tests {
             result: Box::new(Expr::Tuple(vec![])),
         };
         let tree = build_test_module_with_expr(vec![], test_expr);
-        let result = check_module_tree(&tree);
+        let result = check(&tree);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("refutable"));
     }
@@ -3059,7 +3059,7 @@ mod tests {
             result: Box::new(Expr::Tuple(vec![])),
         };
         let tree = build_test_module_with_expr(vec![], test_expr);
-        let result = check_module_tree(&tree);
+        let result = check(&tree);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("refutable"));
     }
@@ -3084,7 +3084,7 @@ mod tests {
             result: Box::new(Expr::Tuple(vec![])),
         };
         let tree = build_test_module_with_expr(vec![], test_expr);
-        let result = check_module_tree(&tree);
+        let result = check(&tree);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("refutable"));
     }
@@ -3104,7 +3104,7 @@ mod tests {
             result: Box::new(Expr::Tuple(vec![])),
         };
         let tree = build_test_module_with_expr(vec![], test_expr);
-        let result = check_module_tree(&tree);
+        let result = check(&tree);
         // Type checking should succeed
         assert!(result.is_ok());
     }
@@ -3128,7 +3128,7 @@ mod tests {
             }),
         ];
         let tree = build_test_module(items);
-        let result = check_module_tree(&tree);
+        let result = check(&tree);
         assert!(result.is_ok());
     }
 
@@ -3160,7 +3160,7 @@ mod tests {
             }),
         ];
         let tree = build_test_module(items);
-        let result = check_module_tree(&tree);
+        let result = check(&tree);
         assert!(result.is_ok());
     }
 
@@ -3173,7 +3173,7 @@ mod tests {
             typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
         })];
         let tree = build_test_module(items);
-        let result = check_module_tree(&tree);
+        let result = check(&tree);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("PascalCase"));
     }
@@ -3203,7 +3203,7 @@ mod tests {
             }),
         ];
         let tree = build_test_module(items);
-        let result = check_module_tree(&tree);
+        let result = check(&tree);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("type argument"));
     }
@@ -3224,7 +3224,7 @@ mod tests {
             return_type: None,
             body: Box::new(Expr::Path(Path::simple("x".to_string()))),
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         match result.ty() {
             Type::Function { params, ret } => {
                 assert_eq!(params, vec![Type::Int]);
@@ -3244,7 +3244,7 @@ mod tests {
             return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
             body: Box::new(Expr::Path(Path::simple("x".to_string()))),
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         match result.ty() {
             Type::Function { params, ret } => {
                 assert_eq!(params, vec![Type::Int]);
@@ -3264,7 +3264,7 @@ mod tests {
             return_type: Some(TypeAnnotation::Named(Path::simple("String".to_string()))),
             body: Box::new(Expr::Path(Path::simple("x".to_string()))),
         };
-        let result = check(&expr);
+        let result = check_expr_with_env(&expr);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("lambda body type") || err.message.contains("doesn't match declared return type"));
@@ -3281,7 +3281,7 @@ mod tests {
             return_type: None,
             body: Box::new(Expr::Int(1)),
         };
-        let result = check(&expr);
+        let result = check_expr_with_env(&expr);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("refutable pattern in lambda parameter"));
@@ -3307,7 +3307,7 @@ mod tests {
                 right: Box::new(Expr::Path(Path::simple("y".to_string()))),
             }),
         };
-        let result = check(&expr).unwrap();
+        let result = check_expr_with_env(&expr).unwrap();
         assert!(matches!(result.ty(), Type::Function { .. }));
     }
 
@@ -3331,7 +3331,7 @@ mod tests {
             path: Path::simple("f".to_string()),
             args: vec![Expr::Int(42)],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::String);
     }
 
@@ -3345,7 +3345,7 @@ mod tests {
             path: Path::simple("x".to_string()),
             args: vec![Expr::Int(1)],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("is not a function"));
@@ -3371,7 +3371,7 @@ mod tests {
             },
             args: vec![Expr::Int(42)],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("cannot use turbofish on lambda"));
@@ -3393,7 +3393,7 @@ mod tests {
             path: Path::simple("f".to_string()),
             args: vec![Expr::Int(42)], // Only 1 arg, needs 2
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("expects 2 arguments"));
@@ -3433,7 +3433,7 @@ mod tests {
                 ("y".to_string(), Expr::Int(20)),
             ],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         match result.ty() {
             Type::Struct { name, .. } => assert_eq!(name, "Point"),
             _ => panic!("Expected struct type"),
@@ -3451,7 +3451,7 @@ mod tests {
                 // Missing y field
             ],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("missing field 'y'"));
@@ -3469,7 +3469,7 @@ mod tests {
                 ("z".to_string(), Expr::Int(30)), // Extra field
             ],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("unknown field 'z'"));
@@ -3486,7 +3486,7 @@ mod tests {
                 ("y".to_string(), Expr::String("wrong".to_string())), // Wrong type
             ],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("field 'y'") && err.message.contains("expects type"));
@@ -3500,7 +3500,7 @@ mod tests {
             path: Path::simple("UnknownStruct".to_string()),
             fields: vec![],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("unknown struct"));
@@ -3545,7 +3545,7 @@ mod tests {
             },
             args: vec![Expr::String("hello".to_string())],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         match result.ty() {
             Type::Enum { name, .. } => assert_eq!(name, "Message"),
             _ => panic!("Expected enum type"),
@@ -3564,7 +3564,7 @@ mod tests {
             },
             args: vec![Expr::Int(1)], // Quit is a unit variant
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("unit variant"));
@@ -3582,7 +3582,7 @@ mod tests {
             },
             args: vec![Expr::Int(1), Expr::Int(2)], // Move is a struct variant
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("struct variant"));
@@ -3603,7 +3603,7 @@ mod tests {
                 ("y".to_string(), Expr::Int(20)),
             ],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         match result.ty() {
             Type::Enum { name, .. } => assert_eq!(name, "Message"),
             _ => panic!("Expected enum type"),
@@ -3624,7 +3624,7 @@ mod tests {
                 ("x".to_string(), Expr::Int(10)),
             ],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("unit variant"));
@@ -3644,7 +3644,7 @@ mod tests {
                 ("msg".to_string(), Expr::String("hi".to_string())),
             ],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("tuple variant"));
@@ -3665,7 +3665,7 @@ mod tests {
                 // Missing y
             ],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("missing field 'y'"));
@@ -3687,7 +3687,7 @@ mod tests {
                 ("z".to_string(), Expr::Int(30)), // Unknown
             ],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("unknown field 'z'"));
@@ -3708,7 +3708,7 @@ mod tests {
                 ("y".to_string(), Expr::String("wrong".to_string())), // Wrong type
             ],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("field 'y'") && err.message.contains("expects"));
@@ -3802,7 +3802,7 @@ mod tests {
                 },
             ],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -3836,7 +3836,7 @@ mod tests {
             },
             args: vec![Expr::Int(42)],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
@@ -3869,7 +3869,7 @@ mod tests {
             },
             args: vec![Expr::Int(42)],
         };
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("expects 1 type argument(s), got 2"));
@@ -3890,7 +3890,7 @@ mod tests {
             segments: vec!["x".to_string()],
             type_args: Some(vec![TypeAnnotation::Named(Path::simple("Int".to_string()))]),
         });
-        let result = check_with_env(&expr, &ModulePath::root(), &env, &mut ctx);
+        let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("cannot use turbofish on variable"));
