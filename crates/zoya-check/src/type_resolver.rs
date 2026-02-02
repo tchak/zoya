@@ -2,9 +2,10 @@ use std::collections::HashMap;
 
 use zoya_ast::TypeAnnotation;
 use zoya_ir::{Type, TypeError, TypeVarId};
-use zoya_loader::ModulePath;
+use zoya_module::ModulePath;
 
-use super::{resolution, substitute_type_vars, substitute_variant_type_vars, TypeEnv};
+use crate::check::{substitute_type_vars, substitute_variant_type_vars, TypeEnv};
+use crate::resolution;
 
 /// Resolve a type annotation to a concrete Type.
 /// `type_param_map` maps source-level type parameter names (like "T") to TypeVarIds.

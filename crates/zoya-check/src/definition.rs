@@ -4,12 +4,12 @@ use zoya_ast::{EnumDef, FunctionDef, StructDef, TypeAliasDef};
 use zoya_ir::{
     EnumType, EnumVariantType, FunctionType, StructType, Type, TypeAliasType, TypeError,
 };
-use zoya_loader::ModulePath;
-use super::unify::UnifyCtx;
+use zoya_module::ModulePath;
 
-use super::naming::{is_pascal_case, to_pascal_case};
-use super::type_resolver::resolve_type_annotation;
-use super::TypeEnv;
+use crate::check::TypeEnv;
+use crate::naming::{is_pascal_case, to_pascal_case};
+use crate::type_resolver::resolve_type_annotation;
+use crate::unify::UnifyCtx;
 
 /// Extract function type from a function definition (for adding to env).
 /// Uses a separate UnifyCtx to create fresh type variables for the signature.

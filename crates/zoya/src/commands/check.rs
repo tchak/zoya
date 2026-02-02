@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::check::check;
+use zoya_check::check;
 
 /// Type-check a file without executing it
 pub fn execute(path: &Path) -> Result<(), String> {

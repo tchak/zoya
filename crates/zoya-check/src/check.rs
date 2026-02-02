@@ -1,12 +1,3 @@
-mod builtin;
-mod definition;
-mod naming;
-mod pattern;
-mod resolution;
-mod type_resolver;
-mod unify;
-mod usefulness;
-
 use std::collections::{HashMap, HashSet};
 
 use zoya_ast::{
@@ -17,15 +8,16 @@ use zoya_ir::{
     EnumVariantType, FunctionType, QualifiedPath, StructType, Type, TypeAliasType, TypeError,
     TypeScheme, TypeVarId, TypedEnumConstructFields, TypedExpr, TypedFunction,
 };
-use zoya_loader::{ModulePath, ModuleTree};
+use zoya_module::{ModulePath, ModuleTree};
 
-pub use unify::UnifyCtx;
-
-pub use builtin::{builtin_method, is_numeric_type};
-pub use definition::{enum_type_from_def, function_type_from_def, struct_type_from_def, type_alias_from_def};
-pub use naming::{is_pascal_case, is_snake_case, to_pascal_case, to_snake_case};
-pub use pattern::{check_irrefutable, check_let_binding, check_match_arm, check_pattern};
-pub use type_resolver::resolve_type_annotation;
+use crate::builtin::{builtin_method, is_numeric_type};
+use crate::definition::{enum_type_from_def, function_type_from_def, struct_type_from_def, type_alias_from_def};
+use crate::naming::{is_pascal_case, is_snake_case, to_pascal_case, to_snake_case};
+use crate::pattern::{check_irrefutable, check_let_binding, check_match_arm, check_pattern};
+use crate::resolution;
+use crate::type_resolver::resolve_type_annotation;
+use crate::unify::UnifyCtx;
+use crate::usefulness;
 
 /// Type environment for checking expressions
 #[derive(Debug, Clone, Default)]
@@ -1322,7 +1314,7 @@ fn check_field_access(
 }
 
 /// Check an expression with a type environment
-fn check_expr(
+pub(crate) fn check_expr(
     expr: &Expr,
     current_module: &ModulePath,
     env: &TypeEnv,

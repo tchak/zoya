@@ -5,7 +5,7 @@
 
 use zoya_ast::{Path, PathPrefix};
 use zoya_ir::TypeError;
-use zoya_loader::ModulePath;
+use zoya_module::ModulePath;
 
 /// Resolve an AST path to a fully qualified module path string.
 ///

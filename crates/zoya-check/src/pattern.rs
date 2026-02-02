@@ -5,13 +5,13 @@ use zoya_ir::{
     EnumVariantType, QualifiedPath, Type, TypeError, TypeScheme, TypeVarId, TypedLetBinding,
     TypedMatchArm, TypedPattern,
 };
-use zoya_loader::ModulePath;
-use super::unify::UnifyCtx;
+use zoya_module::ModulePath;
 
-use super::naming::{is_snake_case, to_snake_case};
-use super::resolution;
-use super::type_resolver::resolve_type_annotation;
-use super::{check_expr, substitute_type_vars, substitute_variant_type_vars, TypeEnv};
+use crate::check::{check_expr, substitute_type_vars, substitute_variant_type_vars, TypeEnv};
+use crate::naming::{is_snake_case, to_snake_case};
+use crate::resolution;
+use crate::type_resolver::resolve_type_annotation;
+use crate::unify::UnifyCtx;
 
 /// Check a list of patterns against a single element type (for list patterns)
 pub fn check_patterns_against_elem(

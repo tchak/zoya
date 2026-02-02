@@ -1,4 +1,4 @@
-use crate::check::check;
+use zoya_check::check;
 use crate::eval::{self, EvalError, Value};
 use zoya_codegen::{codegen_module_tree, prelude};
 use zoya_ir::CheckedItem;
