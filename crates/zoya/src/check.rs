@@ -2229,14 +2229,14 @@ mod tests {
     }
 
     #[test]
-    fn test_check_repl_single_expr() {
+    fn test_check_expression_type_inference() {
         // Simple expression check - no need for module infrastructure
         let result = check(&Expr::Int(42)).unwrap();
         assert_eq!(result.ty(), Type::Int);
     }
 
     #[test]
-    fn test_check_repl_function_def() {
+    fn test_check_function_definition() {
         let items = vec![Item::Function(FunctionDef {
             name: "foo".to_string(),
             type_params: vec![],
@@ -2252,7 +2252,7 @@ mod tests {
     }
 
     #[test]
-    fn test_check_repl_function_then_call() {
+    fn test_check_function_call_in_module() {
         let items = vec![Item::Function(FunctionDef {
             name: "double".to_string(),
             type_params: vec![],
@@ -2283,7 +2283,7 @@ mod tests {
     }
 
     #[test]
-    fn test_check_repl_let_binding() {
+    fn test_check_let_binding_in_block() {
         let test_expr = Expr::Block {
             bindings: vec![LetBinding {
                 pattern: Pattern::Var("x".to_string()),
@@ -2304,7 +2304,7 @@ mod tests {
     }
 
     #[test]
-    fn test_check_repl_let_then_use() {
+    fn test_check_let_binding_usage() {
         let test_expr = Expr::Block {
             bindings: vec![LetBinding {
                 pattern: Pattern::Var("x".to_string()),
@@ -2742,7 +2742,7 @@ mod tests {
     // Tests for multi-pass type checking in REPL mode
 
     #[test]
-    fn test_check_repl_forward_reference() {
+    fn test_check_forward_reference() {
         // fn caller() -> Int callee()
         // fn callee() -> Int 42
         // Should succeed - caller can reference callee defined later
@@ -2777,7 +2777,7 @@ mod tests {
     }
 
     #[test]
-    fn test_check_repl_mutual_recursion() {
+    fn test_check_mutual_recursion() {
         // fn is_even(n) -> Bool { match n { 0 => true, _ => is_odd(n-1) } }
         // fn is_odd(n) -> Bool { match n { 0 => false, _ => is_even(n-1) } }
         // Should succeed - both see each other
@@ -2847,7 +2847,7 @@ mod tests {
     }
 
     #[test]
-    fn test_check_repl_mixed_items_and_stmts() {
+    fn test_check_module_with_test_expr() {
         // Items: fn f2() -> Int f1()  (forward ref), fn f1() -> Int 42
         // Test expr: { let x = 1; x + 1 }
         // Items are processed before test expr; forward refs work
@@ -2898,7 +2898,7 @@ mod tests {
     }
 
     #[test]
-    fn test_check_repl_let_not_visible_in_function() {
+    fn test_check_undefined_variable_error() {
         // fn bad() -> Int x
         // Should fail: "undefined variable 'x'" (x is not defined anywhere)
         let items = vec![Item::Function(FunctionDef {
@@ -2919,7 +2919,7 @@ mod tests {
     }
 
     #[test]
-    fn test_check_repl_self_recursion() {
+    fn test_check_self_recursion() {
         // fn factorial(n) -> Int { match n { 0 => 1, _ => n * factorial(n-1) } }
         // Should succeed
         let items = vec![Item::Function(FunctionDef {
