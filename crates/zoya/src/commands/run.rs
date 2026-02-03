@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use zoya_check::check;
 use crate::eval::{self, EvalError, VirtualModules};
+use zoya_check::check;
 use zoya_codegen::codegen;
 use zoya_ir::CheckedItem;
 
@@ -12,8 +12,7 @@ pub fn execute(path: &Path) -> Result<(), EvalError> {
         .map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?;
 
     // Type check entire module tree
-    let checked_tree =
-        check(&tree).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+    let checked_tree = check(&tree).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
 
     // Find main function in root module
     let root_module = checked_tree
@@ -40,7 +39,8 @@ pub fn execute(path: &Path) -> Result<(), EvalError> {
 
     // Create virtual modules and register the generated code
     let virtual_modules = VirtualModules::new();
-    virtual_modules.register("root", output.code);
+    let module_name = format!("root_{}", output.hash);
+    virtual_modules.register(&module_name, output.code);
 
     // Create runtime with module loader
     let (_runtime, context) = eval::create_module_runtime(virtual_modules)
@@ -48,7 +48,12 @@ pub fn execute(path: &Path) -> Result<(), EvalError> {
 
     // Evaluate the module and call main
     let value = context.with(|ctx| {
-        eval::eval_module(&ctx, "root", "$root$main", main_func.return_type.clone())
+        eval::eval_module(
+            &ctx,
+            &module_name,
+            "$root$main",
+            main_func.return_type.clone(),
+        )
     })?;
     println!("{}", value);
     Ok(())
