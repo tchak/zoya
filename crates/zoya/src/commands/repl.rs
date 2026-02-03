@@ -787,4 +787,176 @@ mod tests {
         let results = state.eval("match p { Point { x, y } => x + y }").unwrap();
         assert_eq!(results, vec![ReplResult::Expression(Value::Int(30))]);
     }
+
+    #[test]
+    fn test_repl_let_tuple_destructure() {
+        let mut state = State::new(None).unwrap();
+        let results = state.eval("let (a, b) = (1, 2)").unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(matches!(
+            &results[0],
+            ReplResult::LetBinding { bindings } if bindings.len() == 2
+                && bindings[0].0 == "a" && bindings[0].1 == Type::Int
+                && bindings[1].0 == "b" && bindings[1].1 == Type::Int
+        ));
+        // Verify bindings work
+        let results = state.eval("a + b").unwrap();
+        assert_eq!(results, vec![ReplResult::Expression(Value::Int(3))]);
+    }
+
+    #[test]
+    fn test_repl_list_pattern_in_match() {
+        // List patterns are refutable, so we test them in match expressions
+        let mut state = State::new(None).unwrap();
+        let results = state
+            .eval("match [1, 2] { [x, y] => x + y, _ => 0 }")
+            .unwrap();
+        assert_eq!(results, vec![ReplResult::Expression(Value::Int(3))]);
+    }
+
+    #[test]
+    fn test_repl_list_pattern_with_rest_in_match() {
+        // List prefix patterns with rest binding in match
+        let mut state = State::new(None).unwrap();
+        let results = state
+            .eval("match [1, 2, 3] { [h, ..] => h, _ => 0 }")
+            .unwrap();
+        assert_eq!(results, vec![ReplResult::Expression(Value::Int(1))]);
+    }
+
+    #[test]
+    fn test_repl_let_struct_destructure() {
+        let mut state = State::new(None).unwrap();
+        state.eval("struct Point { x: Int, y: Int }").unwrap();
+        state.eval("let p = Point { x: 10, y: 20 }").unwrap();
+        let results = state.eval("let Point { x, y } = p").unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(matches!(
+            &results[0],
+            ReplResult::LetBinding { bindings } if bindings.len() == 2
+        ));
+        // Verify bindings work
+        let results = state.eval("x + y").unwrap();
+        assert_eq!(results, vec![ReplResult::Expression(Value::Int(30))]);
+    }
+
+    #[test]
+    fn test_repl_let_struct_partial() {
+        let mut state = State::new(None).unwrap();
+        state.eval("struct Point { x: Int, y: Int }").unwrap();
+        state.eval("let p = Point { x: 10, y: 20 }").unwrap();
+        let results = state.eval("let Point { x, .. } = p").unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(matches!(
+            &results[0],
+            ReplResult::LetBinding { bindings } if bindings.len() == 1 && bindings[0].0 == "x"
+        ));
+        // Verify binding works
+        let results = state.eval("x").unwrap();
+        assert_eq!(results, vec![ReplResult::Expression(Value::Int(10))]);
+    }
+
+    #[test]
+    fn test_repl_let_as_pattern() {
+        let mut state = State::new(None).unwrap();
+        let results = state.eval("let p @ (a, b) = (1, 2)").unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(matches!(
+            &results[0],
+            ReplResult::LetBinding { bindings } if bindings.len() == 3
+                && bindings[0].0 == "p"
+                && bindings[1].0 == "a"
+                && bindings[2].0 == "b"
+        ));
+        // Verify all bindings work
+        let results = state.eval("p").unwrap();
+        assert_eq!(
+            results,
+            vec![ReplResult::Expression(Value::Tuple(vec![
+                Value::Int(1),
+                Value::Int(2)
+            ]))]
+        );
+        let results = state.eval("a + b").unwrap();
+        assert_eq!(results, vec![ReplResult::Expression(Value::Int(3))]);
+    }
+
+    #[test]
+    fn test_repl_enum_definition() {
+        let mut state = State::new(None).unwrap();
+        let results = state.eval("enum Color { Red, Blue }").unwrap();
+        assert_eq!(
+            results,
+            vec![ReplResult::EnumDefined("Color".to_string())]
+        );
+    }
+
+    #[test]
+    fn test_repl_enum_variant() {
+        use crate::eval::EnumValueFields;
+        let mut state = State::new(None).unwrap();
+        state.eval("enum Color { Red, Blue }").unwrap();
+        let results = state.eval("Color::Red").unwrap();
+        assert_eq!(
+            results,
+            vec![ReplResult::Expression(Value::Enum {
+                enum_name: "Color".to_string(),
+                variant_name: "Red".to_string(),
+                fields: EnumValueFields::Unit,
+            })]
+        );
+    }
+
+    #[test]
+    fn test_repl_enum_with_data() {
+        use crate::eval::EnumValueFields;
+        let mut state = State::new(None).unwrap();
+        state.eval("enum Option<T> { Some(T), None }").unwrap();
+        let results = state.eval("Option::Some(42)").unwrap();
+        assert_eq!(
+            results,
+            vec![ReplResult::Expression(Value::Enum {
+                enum_name: "Option".to_string(),
+                variant_name: "Some".to_string(),
+                fields: EnumValueFields::Tuple(vec![Value::Int(42)]),
+            })]
+        );
+        // Test pattern matching on enum
+        let results = state
+            .eval("match Option::Some(10) { Option::Some(x) => x, Option::None => 0 }")
+            .unwrap();
+        assert_eq!(results, vec![ReplResult::Expression(Value::Int(10))]);
+    }
+
+    #[test]
+    fn test_repl_type_alias() {
+        let mut state = State::new(None).unwrap();
+        let results = state.eval("type Id = Int").unwrap();
+        assert_eq!(
+            results,
+            vec![ReplResult::TypeAliasDefined("Id".to_string())]
+        );
+        // Verify type alias works in function signature
+        state.eval("fn get_id(x: Id) -> Id { x }").unwrap();
+        let results = state.eval("get_id(42)").unwrap();
+        assert_eq!(results, vec![ReplResult::Expression(Value::Int(42))]);
+    }
+
+    #[test]
+    fn test_repl_state_with_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("lib.zoya");
+        std::fs::write(
+            &file,
+            r#"
+            fn helper() -> Int { 100 }
+            "#,
+        )
+        .unwrap();
+
+        let mut state = State::new(Some(&file)).unwrap();
+        // Call function from the loaded file using super:: since REPL is in a submodule
+        let results = state.eval("super::helper()").unwrap();
+        assert_eq!(results, vec![ReplResult::Expression(Value::Int(100))]);
+    }
 }
