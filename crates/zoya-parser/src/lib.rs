@@ -3022,6 +3022,24 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_parse_enum_pattern_single_segment_call() {
+        let expr = parse_str("match x { Some(v) => v, None => 0 }").unwrap();
+        let Expr::Match { arms, .. } = expr else {
+            panic!("expected match expression")
+        };
+        // First arm: Some(v) should be a call pattern
+        let Pattern::Call { path, args } = &arms[0].pattern else {
+            panic!("expected call pattern for single-segment")
+        };
+        assert_eq!(path.prefix, PathPrefix::None);
+        assert_eq!(path.segments, vec!["Some"]);
+        assert!(matches!(args, TuplePattern::Exact(_)));
+
+        // Second arm: None should be a variable (no parens = not a call)
+        assert!(matches!(&arms[1].pattern, Pattern::Var(n) if n == "None"));
+    }
+
     // Expression struct constructor path prefix tests
 
     #[test]

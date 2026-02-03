@@ -268,13 +268,13 @@ pub(crate) fn pattern_parser<'a>(
                 is_partial,
             });
 
-        // Call pattern: Option::Some(x), root::Result::Ok(v, ..)
-        // Requires a qualified path (2+ segments) followed by parenthesized args
+        // Call pattern: Some(x), Option::Some(x), root::Result::Ok(v, ..)
+        // Path (1+ segments) followed by parenthesized args - parens disambiguate from variables
         let call_pattern = path_prefix_parser()
             .then(
                 ident()
                     .separated_by(just(Token::ColonColon))
-                    .at_least(2)
+                    .at_least(1)
                     .collect::<Vec<_>>(),
             )
             .then(pattern_turbofish.clone().or_not())
