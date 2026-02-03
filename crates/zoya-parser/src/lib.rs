@@ -1,6 +1,6 @@
 use chumsky::prelude::*;
 
-use zoya_ast::{Item, ModuleDef, Stmt};
+use zoya_ast::{Item, ModDecl, ModuleDef, Stmt, UseDecl};
 use zoya_lexer::Token;
 
 mod expressions;
@@ -19,21 +19,46 @@ pub struct ParseError {
     pub message: String,
 }
 
-/// Parse REPL input: items followed by statements.
+/// Element type for REPL input parsing
+enum InputElement {
+    Item(Box<Item>),
+    Stmt(Box<Stmt>),
+}
+
+/// Element type for module parsing
+enum ModuleElement {
+    Mod(ModDecl),
+    Use(UseDecl),
+    Item(Box<Item>),
+}
+
+/// Parse REPL input: items and statements in any order.
 ///
 /// This parser handles interactive input where definitions (type, function, etc.)
-/// can be followed by expressions or let bindings for evaluation.
+/// and statements (expressions, let bindings) can be interleaved in any order.
 ///
 /// # Arguments
 /// * `tokens` - Token stream from the lexer
 ///
 /// # Returns
-/// Tuple of (items, statements) on success, or `ParseError` with diagnostics
+/// Tuple of (items, stmts) on success, or `ParseError` with diagnostics
 pub fn parse_input(tokens: Vec<Token>) -> Result<(Vec<Item>, Vec<Stmt>), ParseError> {
-    let parser = item_parser()
-        .repeated()
-        .collect::<Vec<_>>()
-        .then(stmt_parser().repeated().collect::<Vec<_>>());
+    let element = choice((
+        item_parser().map(|i| InputElement::Item(Box::new(i))),
+        stmt_parser().map(|s| InputElement::Stmt(Box::new(s))),
+    ));
+
+    let parser = element.repeated().collect::<Vec<_>>().map(|elements| {
+        let mut items = vec![];
+        let mut stmts = vec![];
+        for elem in elements {
+            match elem {
+                InputElement::Item(i) => items.push(*i),
+                InputElement::Stmt(s) => stmts.push(*s),
+            }
+        }
+        (items, stmts)
+    });
 
     parser
         .parse(&tokens)
@@ -47,9 +72,10 @@ pub fn parse_input(tokens: Vec<Token>) -> Result<(Vec<Item>, Vec<Stmt>), ParseEr
         })
 }
 
-/// Parse a module file: mod declarations, then use declarations, then items.
+/// Parse a module file: mod declarations, use declarations, and items in any order.
 ///
-/// Module files can declare submodules, import names, and define items (types, functions, etc.).
+/// Module files can declare submodules, import names, and define items (types, functions, etc.)
+/// in any order.
 ///
 /// # Arguments
 /// * `tokens` - Token stream from the lexer
@@ -57,12 +83,25 @@ pub fn parse_input(tokens: Vec<Token>) -> Result<(Vec<Item>, Vec<Stmt>), ParseEr
 /// # Returns
 /// `ModuleDef` containing module declarations, use declarations, and items on success, or `ParseError`
 pub fn parse_module(tokens: Vec<Token>) -> Result<ModuleDef, ParseError> {
-    let parser = mod_decl_parser()
-        .repeated()
-        .collect::<Vec<_>>()
-        .then(use_decl_parser().repeated().collect::<Vec<_>>())
-        .then(item_parser().repeated().collect::<Vec<_>>())
-        .map(|((mods, uses), items)| ModuleDef { mods, uses, items });
+    let element = choice((
+        mod_decl_parser().map(ModuleElement::Mod),
+        use_decl_parser().map(ModuleElement::Use),
+        item_parser().map(|i| ModuleElement::Item(Box::new(i))),
+    ));
+
+    let parser = element.repeated().collect::<Vec<_>>().map(|elements| {
+        let mut mods = vec![];
+        let mut uses = vec![];
+        let mut items = vec![];
+        for elem in elements {
+            match elem {
+                ModuleElement::Mod(m) => mods.push(m),
+                ModuleElement::Use(u) => uses.push(u),
+                ModuleElement::Item(i) => items.push(*i),
+            }
+        }
+        ModuleDef { mods, uses, items }
+    });
 
     parser
         .parse(&tokens)
