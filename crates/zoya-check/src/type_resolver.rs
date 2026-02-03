@@ -47,7 +47,7 @@ pub fn resolve_type_annotation(
 
             match resolved {
                 ResolvedPath::Definition {
-                    qualified_name,
+                    qualified_path,
                     def,
                 } => {
                     let name = path
@@ -110,14 +110,14 @@ pub fn resolve_type_annotation(
                             message: format!(
                                 "{} '{}' is not a type",
                                 def.kind_name(),
-                                qualified_name
+                                qualified_path
                             ),
                         }),
                         Definition::EnumVariant(..) => Err(TypeError {
                             message: format!(
                                 "{} '{}' is not a type",
                                 def.kind_name(),
-                                qualified_name
+                                qualified_path
                             ),
                         }),
                     }
@@ -153,7 +153,7 @@ pub fn resolve_type_annotation(
 
             match resolved {
                 ResolvedPath::Definition {
-                    qualified_name,
+                    qualified_path,
                     def,
                 } => {
                     let name = path
@@ -261,14 +261,14 @@ pub fn resolve_type_annotation(
                             message: format!(
                                 "{} '{}' is not a type",
                                 def.kind_name(),
-                                qualified_name
+                                qualified_path
                             ),
                         }),
                         Definition::EnumVariant(..) => Err(TypeError {
                             message: format!(
                                 "{} '{}' is not a type",
                                 def.kind_name(),
-                                qualified_name
+                                qualified_path
                             ),
                         }),
                     }
@@ -313,7 +313,7 @@ pub fn resolve_type_annotation(
 mod tests {
     use super::*;
     use zoya_ast::{Path, PathPrefix, TypeAnnotation};
-    use zoya_ir::{Definition, EnumType, EnumVariantType, StructType, TypeAliasType};
+    use zoya_ir::{Definition, EnumType, EnumVariantType, QualifiedPath, StructType, TypeAliasType};
 
     fn empty_env() -> TypeEnv {
         TypeEnv::default()
@@ -325,6 +325,10 @@ mod tests {
 
     fn root() -> ModulePath {
         ModulePath::root()
+    }
+
+    fn qpath(path: &str) -> QualifiedPath {
+        QualifiedPath::new(path.split("::").map(|s| s.to_string()).collect())
     }
 
     // ========================================================================
@@ -517,7 +521,7 @@ mod tests {
     fn test_resolve_non_generic_struct() {
         let mut env = empty_env();
         env.register(
-            "root::Point".to_string(),
+            qpath("root::Point"),
             Definition::Struct(StructType {
                 name: "Point".to_string(),
                 type_params: vec![],
@@ -547,7 +551,7 @@ mod tests {
     fn test_resolve_struct_requires_type_args() {
         let mut env = empty_env();
         env.register(
-            "root::Container".to_string(),
+            qpath("root::Container"),
             Definition::Struct(StructType {
                 name: "Container".to_string(),
                 type_params: vec!["T".to_string()],
@@ -570,7 +574,7 @@ mod tests {
     fn test_resolve_struct_wrong_type_arg_count() {
         let mut env = empty_env();
         env.register(
-            "root::Pair".to_string(),
+            qpath("root::Pair"),
             Definition::Struct(StructType {
                 name: "Pair".to_string(),
                 type_params: vec!["A".to_string(), "B".to_string()],
@@ -600,7 +604,7 @@ mod tests {
     fn test_resolve_generic_struct_with_type_args() {
         let mut env = empty_env();
         env.register(
-            "root::Container".to_string(),
+            qpath("root::Container"),
             Definition::Struct(StructType {
                 name: "Container".to_string(),
                 type_params: vec!["T".to_string()],
@@ -638,7 +642,7 @@ mod tests {
     fn test_resolve_non_generic_enum() {
         let mut env = empty_env();
         env.register(
-            "root::Status".to_string(),
+            qpath("root::Status"),
             Definition::Enum(EnumType {
                 name: "Status".to_string(),
                 type_params: vec![],
@@ -671,7 +675,7 @@ mod tests {
     fn test_resolve_enum_requires_type_args() {
         let mut env = empty_env();
         env.register(
-            "root::Option".to_string(),
+            qpath("root::Option"),
             Definition::Enum(EnumType {
                 name: "Option".to_string(),
                 type_params: vec!["T".to_string()],
@@ -697,7 +701,7 @@ mod tests {
     fn test_resolve_enum_wrong_type_arg_count() {
         let mut env = empty_env();
         env.register(
-            "root::Result".to_string(),
+            qpath("root::Result"),
             Definition::Enum(EnumType {
                 name: "Result".to_string(),
                 type_params: vec!["T".to_string(), "E".to_string()],
@@ -737,7 +741,7 @@ mod tests {
     fn test_resolve_generic_enum_with_type_args() {
         let mut env = empty_env();
         env.register(
-            "root::Option".to_string(),
+            qpath("root::Option"),
             Definition::Enum(EnumType {
                 name: "Option".to_string(),
                 type_params: vec!["T".to_string()],
@@ -781,7 +785,7 @@ mod tests {
     fn test_resolve_non_generic_type_alias() {
         let mut env = empty_env();
         env.register(
-            "root::IntList".to_string(),
+            qpath("root::IntList"),
             Definition::TypeAlias(TypeAliasType {
                 name: "IntList".to_string(),
                 type_params: vec![],
@@ -800,7 +804,7 @@ mod tests {
     fn test_resolve_type_alias_requires_type_args() {
         let mut env = empty_env();
         env.register(
-            "root::MyList".to_string(),
+            qpath("root::MyList"),
             Definition::TypeAlias(TypeAliasType {
                 name: "MyList".to_string(),
                 type_params: vec!["T".to_string()],
@@ -823,7 +827,7 @@ mod tests {
     fn test_resolve_type_alias_wrong_type_arg_count() {
         let mut env = empty_env();
         env.register(
-            "root::MyPair".to_string(),
+            qpath("root::MyPair"),
             Definition::TypeAlias(TypeAliasType {
                 name: "MyPair".to_string(),
                 type_params: vec!["A".to_string(), "B".to_string()],
@@ -849,7 +853,7 @@ mod tests {
     fn test_resolve_generic_type_alias_with_type_args() {
         let mut env = empty_env();
         env.register(
-            "root::MyList".to_string(),
+            qpath("root::MyList"),
             Definition::TypeAlias(TypeAliasType {
                 name: "MyList".to_string(),
                 type_params: vec!["T".to_string()],

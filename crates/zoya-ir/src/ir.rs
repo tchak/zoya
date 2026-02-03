@@ -1,10 +1,12 @@
 use zoya_ast::{BinOp, EnumDef, StructDef, TypeAliasDef, UnaryOp};
+use zoya_module::ModulePath;
+
 use crate::types::Type;
 
-/// A resolved qualified path (e.g., `Option::Some`, `Color::Red`)
+/// A resolved qualified path (e.g., `root::Option::Some`, `root::Color::Red`)
 /// Unlike ast::Path, this has no type_args - type information
 /// is stored in the TypedExpr::ty field after type checking.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct QualifiedPath {
     pub segments: Vec<String>,
 }
@@ -16,6 +18,20 @@ impl QualifiedPath {
 
     pub fn local(name: String) -> Self {
         Self { segments: vec![name] }
+    }
+
+    /// Build from ModulePath + definition name (e.g., root::module::foo)
+    pub fn from_module(module: &ModulePath, name: &str) -> Self {
+        let mut segments = module.segments().iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        segments.push(name.to_string());
+        Self { segments }
+    }
+
+    /// Extend with a variant segment (e.g., root::Option -> root::Option::Some)
+    pub fn with_variant(&self, variant_name: &str) -> Self {
+        let mut segments = self.segments.clone();
+        segments.push(variant_name.to_string());
+        Self { segments }
     }
 
     pub fn last(&self) -> &str {

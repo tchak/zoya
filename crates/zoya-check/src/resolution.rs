@@ -6,10 +6,10 @@
 use std::collections::HashMap;
 
 use zoya_ast::{Path, PathPrefix};
-use zoya_ir::{Definition, TypeError, TypeScheme};
+use zoya_ir::{Definition, QualifiedPath, TypeError, TypeScheme};
 use zoya_module::ModulePath;
 
-/// Resolve an AST path to a fully qualified module path string.
+/// Resolve an AST path to a fully qualified path.
 ///
 /// # Path Resolution Rules
 ///
@@ -20,22 +20,36 @@ use zoya_module::ModulePath;
 /// | `root::foo()` | Absolute path from root module |
 /// | `self::foo()` | Explicit current module reference |
 /// | `super::foo()` | Parent module reference |
-pub fn resolve_path(path: &Path, current_module: &ModulePath) -> Result<String, TypeError> {
+pub fn resolve_path(path: &Path, current_module: &ModulePath) -> Result<QualifiedPath, TypeError> {
     match path.prefix {
         PathPrefix::Root => {
             // root::foo::bar → root::foo::bar
-            Ok(format!("root::{}", path.segments.join("::")))
+            let mut segments = vec!["root".to_string()];
+            segments.extend(path.segments.iter().cloned());
+            Ok(QualifiedPath::new(segments))
         }
         PathPrefix::Self_ => {
             // self::foo → current_module::foo
-            Ok(format!("{}::{}", current_module, path.segments.join("::")))
+            let mut segments = current_module
+                .segments()
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>();
+            segments.extend(path.segments.iter().cloned());
+            Ok(QualifiedPath::new(segments))
         }
         PathPrefix::Super => {
             // super::foo → parent_module::foo
             let parent = current_module.parent().ok_or_else(|| TypeError {
                 message: "cannot use super:: in root module".to_string(),
             })?;
-            Ok(format!("{}::{}", parent, path.segments.join("::")))
+            let mut segments = parent
+                .segments()
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>();
+            segments.extend(path.segments.iter().cloned());
+            Ok(QualifiedPath::new(segments))
         }
         PathPrefix::None => {
             // Relative path: check current module or child module
@@ -44,34 +58,25 @@ pub fn resolve_path(path: &Path, current_module: &ModulePath) -> Result<String, 
     }
 }
 
-/// Resolve a relative path (no prefix) to a fully qualified module path string.
-fn resolve_relative_path(path: &Path, current_module: &ModulePath) -> Result<String, TypeError> {
-    match path.segments.as_slice() {
-        [name] => {
-            // Single segment: resolve in current module
-            // (locals are checked separately before this)
-            Ok(format!("{}::{}", current_module, name))
-        }
-        [first, rest @ ..] => {
-            // Multi-segment: first segment could be:
-            // 1. Child module (foo::bar → current_module::foo::bar)
-            // 2. Enum name (Option::Some → current_module::Option::Some)
-            // For now, treat all as current_module relative
-            let item = std::iter::once(first.as_str())
-                .chain(rest.iter().map(|s| s.as_str()))
-                .collect::<Vec<_>>()
-                .join("::");
-            Ok(format!("{}::{}", current_module, item))
-        }
-        [] => Err(TypeError {
+/// Resolve a relative path (no prefix) to a fully qualified path.
+fn resolve_relative_path(
+    path: &Path,
+    current_module: &ModulePath,
+) -> Result<QualifiedPath, TypeError> {
+    if path.segments.is_empty() {
+        return Err(TypeError {
             message: "empty path".to_string(),
-        }),
+        });
     }
-}
 
-/// Format a full qualified name from a module path and item name.
-pub fn qualified_name(module: &ModulePath, name: &str) -> String {
-    format!("{}::{}", module, name)
+    // Build segments from current module + path segments
+    let mut segments = current_module
+        .segments()
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    segments.extend(path.segments.iter().cloned());
+    Ok(QualifiedPath::new(segments))
 }
 
 /// Result of resolving a path in expression context
@@ -84,7 +89,7 @@ pub enum ResolvedPath<'a> {
     },
     /// Top-level definition (function, struct, enum, type alias)
     Definition {
-        qualified_name: String,
+        qualified_path: QualifiedPath,
         def: &'a Definition,
     },
 }
@@ -99,7 +104,7 @@ pub fn resolve_expr_path<'a>(
     path: &Path,
     current_module: &ModulePath,
     locals: &'a HashMap<String, TypeScheme>,
-    definitions: &'a HashMap<String, Definition>,
+    definitions: &'a HashMap<QualifiedPath, Definition>,
 ) -> Result<ResolvedPath<'a>, TypeError> {
     // Single-segment path with no prefix: check locals first
     if path.prefix == PathPrefix::None && path.segments.len() == 1 {
@@ -113,12 +118,12 @@ pub fn resolve_expr_path<'a>(
     }
 
     // Resolve the full path
-    let qualified = resolve_path(path, current_module)?;
+    let qualified_path = resolve_path(path, current_module)?;
 
     // Try exact match in definitions
-    if let Some(def) = definitions.get(&qualified) {
+    if let Some(def) = definitions.get(&qualified_path) {
         return Ok(ResolvedPath::Definition {
-            qualified_name: qualified,
+            qualified_path,
             def,
         });
     }
@@ -142,15 +147,15 @@ pub fn resolve_expr_path<'a>(
 pub fn resolve_pattern_path<'a>(
     path: &Path,
     current_module: &ModulePath,
-    definitions: &'a HashMap<String, Definition>,
+    definitions: &'a HashMap<QualifiedPath, Definition>,
 ) -> Result<ResolvedPath<'a>, TypeError> {
     // Resolve the full path
-    let qualified = resolve_path(path, current_module)?;
+    let qualified_path = resolve_path(path, current_module)?;
 
     // Try exact match in definitions
-    if let Some(def) = definitions.get(&qualified) {
+    if let Some(def) = definitions.get(&qualified_path) {
         return Ok(ResolvedPath::Definition {
-            qualified_name: qualified,
+            qualified_path,
             def,
         });
     }
@@ -185,7 +190,7 @@ mod tests {
         let path = path_from_segments(PathPrefix::None, &["foo"]);
         let current = ModulePath::root();
         let result = resolve_path(&path, &current).unwrap();
-        assert_eq!(result, "root::foo");
+        assert_eq!(result.to_string(), "root::foo");
     }
 
     #[test]
@@ -193,7 +198,7 @@ mod tests {
         let path = path_from_segments(PathPrefix::None, &["foo"]);
         let current = ModulePath::root().child("utils");
         let result = resolve_path(&path, &current).unwrap();
-        assert_eq!(result, "root::utils::foo");
+        assert_eq!(result.to_string(), "root::utils::foo");
     }
 
     #[test]
@@ -201,7 +206,7 @@ mod tests {
         let path = path_from_segments(PathPrefix::Root, &["utils", "helper"]);
         let current = ModulePath::root().child("other");
         let result = resolve_path(&path, &current).unwrap();
-        assert_eq!(result, "root::utils::helper");
+        assert_eq!(result.to_string(), "root::utils::helper");
     }
 
     #[test]
@@ -209,7 +214,7 @@ mod tests {
         let path = path_from_segments(PathPrefix::Self_, &["foo"]);
         let current = ModulePath::root().child("utils");
         let result = resolve_path(&path, &current).unwrap();
-        assert_eq!(result, "root::utils::foo");
+        assert_eq!(result.to_string(), "root::utils::foo");
     }
 
     #[test]
@@ -217,7 +222,7 @@ mod tests {
         let path = path_from_segments(PathPrefix::Super, &["foo"]);
         let current = ModulePath::root().child("utils");
         let result = resolve_path(&path, &current).unwrap();
-        assert_eq!(result, "root::foo");
+        assert_eq!(result.to_string(), "root::foo");
     }
 
     #[test]
@@ -234,7 +239,7 @@ mod tests {
         let path = path_from_segments(PathPrefix::None, &["Option", "Some"]);
         let current = ModulePath::root();
         let result = resolve_path(&path, &current).unwrap();
-        assert_eq!(result, "root::Option::Some");
+        assert_eq!(result.to_string(), "root::Option::Some");
     }
 
     #[test]
@@ -242,13 +247,13 @@ mod tests {
         let path = path_from_segments(PathPrefix::Root, &["a", "b", "c", "foo"]);
         let current = ModulePath::root();
         let result = resolve_path(&path, &current).unwrap();
-        assert_eq!(result, "root::a::b::c::foo");
+        assert_eq!(result.to_string(), "root::a::b::c::foo");
     }
 
     #[test]
-    fn test_qualified_name() {
+    fn test_qualified_path_from_module() {
         let module = ModulePath::root().child("utils");
-        let result = qualified_name(&module, "helper");
-        assert_eq!(result, "root::utils::helper");
+        let result = QualifiedPath::from_module(&module, "helper");
+        assert_eq!(result.to_string(), "root::utils::helper");
     }
 }

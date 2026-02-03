@@ -1,9 +1,13 @@
 use zoya_ast::{Expr, Path, PathPrefix};
-use zoya_ir::{Definition, EnumType, EnumVariantType, Type};
+use zoya_ir::{Definition, EnumType, EnumVariantType, QualifiedPath, Type};
 use zoya_module::ModulePath;
 
 use crate::check::{check_expr, TypeEnv};
 use crate::unify::UnifyCtx;
+
+fn qpath(path: &str) -> QualifiedPath {
+    QualifiedPath::new(path.split("::").map(|s| s.to_string()).collect())
+}
 
 fn env_with_message_enum() -> TypeEnv {
     let mut env = TypeEnv::default();
@@ -23,11 +27,11 @@ fn env_with_message_enum() -> TypeEnv {
             ("Write".to_string(), EnumVariantType::Tuple(vec![Type::String])),
         ],
     };
-    env.register("root::Message".to_string(), Definition::Enum(enum_type.clone()));
+    env.register(qpath("root::Message"), Definition::Enum(enum_type.clone()));
     // Register each variant separately
     for (variant_name, variant_type) in &enum_type.variants {
         env.register(
-            format!("root::Message::{}", variant_name),
+            qpath(&format!("root::Message::{}", variant_name)),
             Definition::EnumVariant(enum_type.clone(), variant_type.clone()),
         );
     }

@@ -1,14 +1,18 @@
 use zoya_ast::{Expr, Path};
-use zoya_ir::{Definition, StructType, Type};
+use zoya_ir::{Definition, QualifiedPath, StructType, Type};
 use zoya_module::ModulePath;
 
 use crate::check::{check_expr, TypeEnv};
 use crate::unify::UnifyCtx;
 
+fn qpath(path: &str) -> QualifiedPath {
+    QualifiedPath::new(path.split("::").map(|s| s.to_string()).collect())
+}
+
 fn env_with_point_struct() -> TypeEnv {
     let mut env = TypeEnv::default();
     env.register(
-        "root::Point".to_string(),
+        qpath("root::Point"),
         Definition::Struct(StructType {
             name: "Point".to_string(),
             type_params: vec![],

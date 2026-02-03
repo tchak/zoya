@@ -1,5 +1,5 @@
 use zoya_ast::{BinOp, Expr, FunctionDef, Item, MatchArm, Param, Path, Pattern, TypeAnnotation};
-use zoya_ir::{CheckedItem, Definition, FunctionType, Type};
+use zoya_ir::{CheckedItem, Definition, FunctionType, QualifiedPath, Type};
 use zoya_module::ModulePath;
 
 use crate::check::{check, check_expr, check_function, TypeEnv};
@@ -8,11 +8,15 @@ use crate::unify::UnifyCtx;
 
 use super::{build_test_module, build_test_module_with_expr, find_test_function};
 
+fn qpath(path: &str) -> QualifiedPath {
+    QualifiedPath::new(path.split("::").map(|s| s.to_string()).collect())
+}
+
 #[test]
 fn test_check_function_call() {
     let mut env = TypeEnv::default();
     env.register(
-        "root::square".to_string(),
+        qpath("root::square"),
         Definition::Function(FunctionType {
             type_params: vec![],
             type_var_ids: vec![],
@@ -34,7 +38,7 @@ fn test_check_function_call() {
 fn test_check_function_call_wrong_arg_type() {
     let mut env = TypeEnv::default();
     env.register(
-        "root::square".to_string(),
+        qpath("root::square"),
         Definition::Function(FunctionType {
             type_params: vec![],
             type_var_ids: vec![],
@@ -57,7 +61,7 @@ fn test_check_function_call_wrong_arg_type() {
 fn test_check_function_call_wrong_arity() {
     let mut env = TypeEnv::default();
     env.register(
-        "root::add".to_string(),
+        qpath("root::add"),
         Definition::Function(FunctionType {
             type_params: vec![],
             type_var_ids: vec![],
@@ -84,7 +88,7 @@ fn test_check_generic_function_call() {
 
     let mut env = TypeEnv::default();
     env.register(
-        "root::identity".to_string(),
+        qpath("root::identity"),
         Definition::Function(FunctionType {
             type_params: vec!["T".to_string()],
             type_var_ids: vec![t_id],
@@ -110,7 +114,7 @@ fn test_check_generic_function_call_float() {
 
     let mut env = TypeEnv::default();
     env.register(
-        "root::identity".to_string(),
+        qpath("root::identity"),
         Definition::Function(FunctionType {
             type_params: vec!["T".to_string()],
             type_var_ids: vec![t_id],
@@ -176,7 +180,7 @@ fn test_check_function_def_return_type_mismatch() {
 fn test_check_function_def_with_call() {
     let mut env = TypeEnv::default();
     env.register(
-        "root::add".to_string(),
+        qpath("root::add"),
         Definition::Function(FunctionType {
             type_params: vec![],
             type_var_ids: vec![],

@@ -1,8 +1,12 @@
 use std::collections::HashMap;
 
 use zoya_ast::{Expr, LetBinding, ListPattern, Path, PathPrefix, Pattern, TuplePattern, TypeAnnotation};
-use zoya_ir::{Definition, FunctionType, Type, TypeScheme};
+use zoya_ir::{Definition, FunctionType, QualifiedPath, Type, TypeScheme};
 use zoya_module::ModulePath;
+
+fn qpath(path: &str) -> QualifiedPath {
+    QualifiedPath::new(path.split("::").map(|s| s.to_string()).collect())
+}
 
 use crate::check::{check, check_expr, substitute_type_vars, TypeEnv};
 use crate::unify::UnifyCtx;
@@ -167,7 +171,7 @@ fn test_turbofish_correct_count() {
 
     let mut env = TypeEnv::default();
     env.register(
-        "root::identity".to_string(),
+        qpath("root::identity"),
         Definition::Function(FunctionType {
             type_params: vec!["T".to_string()],
             type_var_ids: vec![t_id],
@@ -197,7 +201,7 @@ fn test_turbofish_wrong_count_error() {
 
     let mut env = TypeEnv::default();
     env.register(
-        "root::identity".to_string(),
+        qpath("root::identity"),
         Definition::Function(FunctionType {
             type_params: vec!["T".to_string()],
             type_var_ids: vec![t_id],

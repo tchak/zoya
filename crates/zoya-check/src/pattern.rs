@@ -597,12 +597,12 @@ fn check_path_pattern(
     match resolved {
         ResolvedPath::Definition {
             def: Definition::EnumVariant(enum_type, variant_type),
-            qualified_name,
+            qualified_path,
         } => {
             // Must be a unit variant when used as a bare path pattern
             if !matches!(variant_type, EnumVariantType::Unit) {
                 return Err(TypeError {
-                    message: format!("enum variant '{}' is not a unit variant", qualified_name),
+                    message: format!("enum variant '{}' is not a unit variant", qualified_path),
                 });
             }
 
@@ -643,7 +643,7 @@ fn check_path_pattern(
                 .map_err(|e| TypeError {
                     message: format!(
                         "enum pattern {} cannot match type {}: {}",
-                        qualified_name,
+                        qualified_path,
                         ctx.resolve(scrutinee_ty),
                         e.message
                     ),
@@ -660,12 +660,12 @@ fn check_path_pattern(
             ))
         }
         ResolvedPath::Definition {
-            qualified_name,
+            qualified_path,
             def,
         } => {
             let kind = def.kind_name();
             Err(TypeError {
-                message: format!("{} '{}' cannot be used as a pattern", kind, qualified_name),
+                message: format!("{} '{}' cannot be used as a pattern", kind, qualified_path),
             })
         }
         ResolvedPath::Local { name, .. } => Err(TypeError {
@@ -691,7 +691,7 @@ fn check_call_pattern(
     match resolved {
         ResolvedPath::Definition {
             def: Definition::EnumVariant(enum_type, variant_type),
-            qualified_name,
+            qualified_path,
         } => {
             // Must be a tuple variant
             let expected_types = match variant_type {
@@ -700,7 +700,7 @@ fn check_call_pattern(
                     return Err(TypeError {
                         message: format!(
                             "enum variant '{}' is a unit variant, doesn't take arguments",
-                            qualified_name
+                            qualified_path
                         ),
                     });
                 }
@@ -708,7 +708,7 @@ fn check_call_pattern(
                     return Err(TypeError {
                         message: format!(
                             "enum variant '{}' is a struct variant, use {{ }} syntax",
-                            qualified_name
+                            qualified_path
                         ),
                     });
                 }
@@ -751,7 +751,7 @@ fn check_call_pattern(
                 .map_err(|e| TypeError {
                     message: format!(
                         "enum pattern '{}' cannot match type {}: {}",
-                        qualified_name,
+                        qualified_path,
                         ctx.resolve(scrutinee_ty),
                         e.message
                     ),
@@ -774,14 +774,14 @@ fn check_call_pattern(
             )
         }
         ResolvedPath::Definition {
-            qualified_name,
+            qualified_path,
             def,
         } => {
             let kind = def.kind_name();
             Err(TypeError {
                 message: format!(
                     "{} '{}' cannot be used as a call pattern",
-                    kind, qualified_name
+                    kind, qualified_path
                 ),
             })
         }
@@ -807,9 +807,9 @@ fn check_struct_pattern(
     match resolved {
         ResolvedPath::Definition {
             def: Definition::Struct(struct_type),
-            qualified_name,
+            qualified_path,
         } => check_struct_type_pattern(
-            &qualified_name,
+            &qualified_path,
             struct_type,
             field_patterns,
             is_partial,
@@ -820,7 +820,7 @@ fn check_struct_pattern(
         ),
         ResolvedPath::Definition {
             def: Definition::EnumVariant(enum_type, variant_type),
-            qualified_name,
+            qualified_path,
         } => {
             // Find variant name from enum_type.variants
             let variant_name = enum_type
@@ -847,25 +847,25 @@ fn check_struct_pattern(
                 EnumVariantType::Unit => Err(TypeError {
                     message: format!(
                         "enum variant '{}' is a unit variant, doesn't take fields",
-                        qualified_name
+                        qualified_path
                     ),
                 }),
                 EnumVariantType::Tuple(_) => Err(TypeError {
                     message: format!(
                         "enum variant '{}' is a tuple variant, use ( ) syntax",
-                        qualified_name
+                        qualified_path
                     ),
                 }),
             }
         }
         ResolvedPath::Definition {
-            qualified_name,
+            qualified_path,
             def,
         } => Err(TypeError {
             message: format!(
                 "{} '{}' cannot be used as a struct pattern",
                 def.kind_name(),
-                qualified_name
+                qualified_path
             ),
         }),
         ResolvedPath::Local { name, .. } => Err(TypeError {
@@ -877,7 +877,7 @@ fn check_struct_pattern(
 /// Check a struct type pattern: Point { x, y }
 #[allow(clippy::too_many_arguments)]
 fn check_struct_type_pattern(
-    qualified_name: &str,
+    qualified_path: &QualifiedPath,
     struct_type: &zoya_ir::StructType,
     field_patterns: &[zoya_ast::StructFieldPattern],
     is_partial: bool,
@@ -974,20 +974,14 @@ fn check_struct_type_pattern(
         typed_fields.push((field_pattern.field_name.clone(), typed_sub_pattern));
     }
 
-    let path = QualifiedPath::new(
-        qualified_name
-            .split("::")
-            .map(|s| s.to_string())
-            .collect(),
-    );
     let typed_pattern = if is_partial {
         TypedPattern::StructPartial {
-            path,
+            path: qualified_path.clone(),
             fields: typed_fields,
         }
     } else {
         TypedPattern::StructExact {
-            path,
+            path: qualified_path.clone(),
             fields: typed_fields,
         }
     };
@@ -1496,7 +1490,11 @@ pub fn check_let_binding(
 mod tests {
     use super::*;
     use zoya_ast::{Expr, Path, PathPrefix, StructFieldPattern};
-    use zoya_ir::{Definition, EnumType, StructType};
+    use zoya_ir::{Definition, EnumType, QualifiedPath, StructType};
+
+    fn qpath(path: &str) -> QualifiedPath {
+        QualifiedPath::new(path.split("::").map(|s| s.to_string()).collect())
+    }
 
     fn default_env() -> TypeEnv {
         TypeEnv::default()
@@ -2298,7 +2296,7 @@ mod tests {
     fn env_with_point() -> TypeEnv {
         let mut env = TypeEnv::default();
         env.register(
-            "root::Point".to_string(),
+            qpath("root::Point"),
             Definition::Struct(StructType {
                 name: "Point".to_string(),
                 type_params: vec![],
@@ -2453,11 +2451,11 @@ mod tests {
                 ),
             ],
         };
-        env.register("root::Option".to_string(), Definition::Enum(enum_type.clone()));
+        env.register(qpath("root::Option"), Definition::Enum(enum_type.clone()));
         // Register each variant separately
         for (variant_name, variant_type) in &enum_type.variants {
             env.register(
-                format!("root::Option::{}", variant_name),
+                qpath(&format!("root::Option::{}", variant_name)),
                 Definition::EnumVariant(enum_type.clone(), variant_type.clone()),
             );
         }
@@ -2485,11 +2483,11 @@ mod tests {
                 ),
             ],
         };
-        env.register("root::Message".to_string(), Definition::Enum(enum_type.clone()));
+        env.register(qpath("root::Message"), Definition::Enum(enum_type.clone()));
         // Register each variant separately
         for (variant_name, variant_type) in &enum_type.variants {
             env.register(
-                format!("root::Message::{}", variant_name),
+                qpath(&format!("root::Message::{}", variant_name)),
                 Definition::EnumVariant(enum_type.clone(), variant_type.clone()),
             );
         }
@@ -3066,11 +3064,11 @@ mod tests {
                 EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool]),
             )],
         };
-        env.register("root::Data".to_string(), Definition::Enum(enum_type.clone()));
+        env.register(qpath("root::Data"), Definition::Enum(enum_type.clone()));
         // Register each variant separately
         for (variant_name, variant_type) in &enum_type.variants {
             env.register(
-                format!("root::Data::{}", variant_name),
+                qpath(&format!("root::Data::{}", variant_name)),
                 Definition::EnumVariant(enum_type.clone(), variant_type.clone()),
             );
         }
