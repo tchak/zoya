@@ -179,7 +179,7 @@ fn check_path_expr(
             }
             let ty = ctx.instantiate(scheme);
             Ok(TypedExpr::Var {
-                path: QualifiedPath::simple(name),
+                path: QualifiedPath::local(name),
                 ty: ctx.resolve(&ty),
             })
         }
@@ -327,8 +327,8 @@ fn check_path_call(
         }
         ResolvedPath::Definition {
             def: Definition::Function(func_type),
-            ..
-        } => check_function_call(path, func_type, args, current_module, env, ctx),
+            qualified_name,
+        } => check_function_call(path, &qualified_name, func_type, args, current_module, env, ctx),
         ResolvedPath::Definition {
             def: Definition::EnumVariant(enum_type, variant_type),
             qualified_name,
@@ -370,6 +370,7 @@ fn check_path_call(
 /// Check a function call with a resolved function type
 fn check_function_call(
     path: &Path,
+    qualified_name: &str,
     func_type: &FunctionType,
     args: &[Expr],
     current_module: &ModulePath,
@@ -460,7 +461,12 @@ fn check_function_call(
     let return_type = ctx.resolve(&instantiated_return);
 
     Ok(TypedExpr::Call {
-        path: QualifiedPath::simple(func_name.to_string()),
+        path: QualifiedPath::new(
+            qualified_name
+                .split("::")
+                .map(|s| s.to_string())
+                .collect(),
+        ),
         args: typed_args,
         ty: return_type,
     })
@@ -514,7 +520,7 @@ fn check_lambda_call(
         let return_type = ctx.resolve(&ret);
 
         Ok(TypedExpr::Call {
-            path: QualifiedPath::simple(name.to_string()),
+            path: QualifiedPath::local(name.to_string()),
             args: typed_args,
             ty: return_type,
         })
@@ -1062,9 +1068,9 @@ fn check_path_struct(
     match resolved {
         ResolvedPath::Definition {
             def: Definition::Struct(struct_type),
-            ..
+            qualified_name,
         } => check_struct_construct_resolved(
-            &struct_type.name,
+            &qualified_name,
             struct_type,
             fields,
             current_module,
@@ -1116,13 +1122,14 @@ fn check_path_struct(
 
 /// Check a struct construction expression with resolved struct type
 fn check_struct_construct_resolved(
-    name: &str,
+    qualified_name: &str,
     struct_type: &StructType,
     fields: &[(String, Expr)],
     current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
+    let name = &struct_type.name;
     // Create fresh type variables for generic parameters
     let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
     for &old_id in &struct_type.type_var_ids {
@@ -1207,7 +1214,12 @@ fn check_struct_construct_resolved(
         .collect();
 
     Ok(TypedExpr::StructConstruct {
-        path: QualifiedPath::simple(name.to_string()),
+        path: QualifiedPath::new(
+            qualified_name
+                .split("::")
+                .map(|s| s.to_string())
+                .collect(),
+        ),
         fields: typed_fields,
         ty: Type::Struct {
             name: name.to_string(),

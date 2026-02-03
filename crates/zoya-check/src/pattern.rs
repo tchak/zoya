@@ -807,9 +807,9 @@ fn check_struct_pattern(
     match resolved {
         ResolvedPath::Definition {
             def: Definition::Struct(struct_type),
-            ..
+            qualified_name,
         } => check_struct_type_pattern(
-            &struct_type.name,
+            &qualified_name,
             struct_type,
             field_patterns,
             is_partial,
@@ -877,7 +877,7 @@ fn check_struct_pattern(
 /// Check a struct type pattern: Point { x, y }
 #[allow(clippy::too_many_arguments)]
 fn check_struct_type_pattern(
-    struct_name: &str,
+    qualified_name: &str,
     struct_type: &zoya_ir::StructType,
     field_patterns: &[zoya_ast::StructFieldPattern],
     is_partial: bool,
@@ -886,6 +886,7 @@ fn check_struct_type_pattern(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
+    let struct_name = &struct_type.name;
     // Create fresh type variables for generic parameters
     let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
     for &old_id in &struct_type.type_var_ids {
@@ -973,14 +974,20 @@ fn check_struct_type_pattern(
         typed_fields.push((field_pattern.field_name.clone(), typed_sub_pattern));
     }
 
+    let path = QualifiedPath::new(
+        qualified_name
+            .split("::")
+            .map(|s| s.to_string())
+            .collect(),
+    );
     let typed_pattern = if is_partial {
         TypedPattern::StructPartial {
-            path: QualifiedPath::simple(struct_name.to_string()),
+            path,
             fields: typed_fields,
         }
     } else {
         TypedPattern::StructExact {
-            path: QualifiedPath::simple(struct_name.to_string()),
+            path,
             fields: typed_fields,
         }
     };

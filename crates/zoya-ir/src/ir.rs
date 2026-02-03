@@ -14,7 +14,7 @@ impl QualifiedPath {
         Self { segments }
     }
 
-    pub fn simple(name: String) -> Self {
+    pub fn local(name: String) -> Self {
         Self { segments: vec![name] }
     }
 
