@@ -17,7 +17,7 @@ zoya-loader = { path = "../zoya-loader" }
 zoya-module = { path = "../zoya-module" }
 zoya-parser = { path = "../zoya-parser" }
 clap = { version = "4", features = ["derive"] }
-rquickjs = { version = "0.9", features = ["bindgen"] }
+rquickjs = { version = "0.9", features = ["bindgen", "loader"] }
 rustyline = "14"
 dirs = "5"
 

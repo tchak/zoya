@@ -5,7 +5,7 @@ use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
 use zoya_check::check;
-use crate::eval::{self, Context, Value};
+use crate::eval::{self, Context, Value, VirtualModules};
 use zoya_ast::{Expr, FunctionDef, Item, LetBinding, Stmt};
 use zoya_codegen::codegen;
 use zoya_ir::{CheckedItem, CheckedModuleTree, Type, TypedExpr, TypedPattern};
@@ -146,24 +146,31 @@ pub struct State {
     accumulated_lets: Vec<LetBinding>,
     /// Counter for synthetic run function names
     run_counter: usize,
+    /// Counter for unique module names to avoid QuickJS caching
+    module_counter: usize,
     /// QuickJS runtime (kept alive for context)
     #[allow(dead_code)]
     runtime: rquickjs::Runtime,
-    /// Persistent QuickJS context with function definitions
+    /// Persistent QuickJS context with module loader
     context: Context,
+    /// Virtual modules storage (shared with runtime loader)
+    virtual_modules: VirtualModules,
 }
 
 impl State {
     /// Create a new REPL state
     pub fn new() -> Result<Self, String> {
-        let (runtime, context) = eval::create_context()?;
+        let virtual_modules = VirtualModules::new();
+        let (runtime, context) = eval::create_module_runtime(virtual_modules.clone())?;
 
         Ok(State {
             accumulated_items: Vec::new(),
             accumulated_lets: Vec::new(),
             run_counter: 0,
+            module_counter: 0,
             runtime,
             context,
+            virtual_modules,
         })
     }
 
@@ -196,7 +203,26 @@ impl State {
         }
 
         // Build module tree with accumulated items + new items + run functions
-        let mut all_items = self.accumulated_items.clone();
+        // First, remove any existing items with the same name as new items (to allow redefinition)
+        let new_item_names: std::collections::HashSet<String> = items.iter().map(|item| match item {
+            Item::Function(f) => f.name.clone(),
+            Item::Struct(s) => s.name.clone(),
+            Item::Enum(e) => e.name.clone(),
+            Item::TypeAlias(t) => t.name.clone(),
+        }).collect();
+
+        let mut all_items: Vec<Item> = self.accumulated_items.iter()
+            .filter(|item| {
+                let name = match item {
+                    Item::Function(f) => &f.name,
+                    Item::Struct(s) => &s.name,
+                    Item::Enum(e) => &e.name,
+                    Item::TypeAlias(t) => &t.name,
+                };
+                !new_item_names.contains(name)
+            })
+            .cloned()
+            .collect();
         all_items.extend(items.clone());
         all_items.extend(run_functions);
 
@@ -205,16 +231,15 @@ impl State {
         // Type check the module tree
         let checked_tree = check(&tree).map_err(|e| e.to_string())?;
 
-        // Generate JavaScript code (includes prelude)
+        // Generate JavaScript code (ESM with exports)
         let js_code = codegen(&checked_tree);
 
-        // Execute generated JS to define all functions
-        if !js_code.is_empty() {
-            self.context.with(|ctx| {
-                ctx.eval::<(), _>(js_code.clone())
-                    .map_err(|e| format!("JS error: {}", e))
-            })?;
-        }
+        // Generate unique module name to avoid QuickJS module caching
+        let module_name = format!("repl_{}", self.module_counter);
+        self.module_counter += 1;
+
+        // Register the module with virtual modules
+        self.virtual_modules.register(&module_name, js_code);
 
         // Collect results
         let mut results = Vec::new();
@@ -243,10 +268,10 @@ impl State {
             let typed_fn = find_typed_function(&checked_tree, run_name)
                 .ok_or_else(|| format!("Internal error: run function {} not found", run_name))?;
 
-            // Call the function (codegen prefixes with $root$)
-            let js_call = format!("$root${}()", run_name);
+            // Call the function via module import
+            let entry_func = format!("$root${}", run_name);
             let value = self.context.with(|ctx| {
-                eval::eval(&ctx, js_call, typed_fn.return_type.clone())
+                eval::eval_module(&ctx, &module_name, &entry_func, typed_fn.return_type.clone())
                     .map_err(|e| e.to_string())
             })?;
 
@@ -265,7 +290,24 @@ impl State {
             }
         }
 
-        // Update accumulated state
+        // Update accumulated state (remove old items with same name before adding new ones)
+        for item in &items {
+            let name = match item {
+                Item::Function(f) => &f.name,
+                Item::Struct(s) => &s.name,
+                Item::Enum(e) => &e.name,
+                Item::TypeAlias(t) => &t.name,
+            };
+            self.accumulated_items.retain(|existing| {
+                let existing_name = match existing {
+                    Item::Function(f) => &f.name,
+                    Item::Struct(s) => &s.name,
+                    Item::Enum(e) => &e.name,
+                    Item::TypeAlias(t) => &t.name,
+                };
+                existing_name != name
+            });
+        }
         self.accumulated_items.extend(items);
         self.accumulated_lets = new_lets;
 

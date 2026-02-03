@@ -700,14 +700,14 @@ fn codegen_function(func: &TypedFunction, module_path: &ModulePath) -> String {
 
     if prologue.is_empty() {
         format!(
-            "function {}({}) {{ return {}; }}",
+            "export function {}({}) {{ return {}; }}",
             format_path(&path),
             param_names.join(", "),
             body
         )
     } else {
         format!(
-            "function {}({}) {{ {} return {}; }}",
+            "export function {}({}) {{ {} return {}; }}",
             format_path(&path),
             param_names.join(", "),
             prologue.join(" "),
@@ -995,7 +995,7 @@ mod tests {
         };
         assert_eq!(
             codegen_function(&func, &ModulePath::root()),
-            "function $root$square($x) { return ($x * $x); }"
+            "export function $root$square($x) { return ($x * $x); }"
         );
     }
 
@@ -1023,7 +1023,7 @@ mod tests {
         };
         assert_eq!(
             codegen_function(&func, &ModulePath::root()),
-            "function $root$add($x, $y) { return ($x + $y); }"
+            "export function $root$add($x, $y) { return ($x + $y); }"
         );
     }
 
@@ -1037,7 +1037,7 @@ mod tests {
         };
         assert_eq!(
             codegen_function(&func, &ModulePath::root()),
-            "function $root$answer() { return 42; }"
+            "export function $root$answer() { return 42; }"
         );
     }
 
@@ -1059,7 +1059,7 @@ mod tests {
         };
         assert_eq!(
             codegen_function(&func, &ModulePath::root()),
-            "function $root$big($x) { return ($x + 1n); }"
+            "export function $root$big($x) { return ($x + 1n); }"
         );
     }
 }

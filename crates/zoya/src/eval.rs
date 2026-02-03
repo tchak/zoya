@@ -1,15 +1,159 @@
+use std::collections::HashMap;
 use std::fmt;
+use std::sync::{Arc, Mutex};
 
 pub use rquickjs::Context;
-use rquickjs::{BigInt, CatchResultExt, Runtime};
+use rquickjs::loader::{BuiltinResolver, Loader, ModuleLoader, Resolver};
+use rquickjs::{BigInt, CatchResultExt, Ctx, Module, Result as QjsResult, Runtime};
 
 use zoya_ir::{EnumVariantType, Type};
 
-/// Create a new QuickJS runtime and context
-pub fn create_context() -> Result<(Runtime, Context), String> {
+/// Virtual module storage - maps module names to source code
+#[derive(Clone, Default)]
+pub struct VirtualModules {
+    modules: Arc<Mutex<HashMap<String, String>>>,
+}
+
+impl VirtualModules {
+    pub fn new() -> Self {
+        Self {
+            modules: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Register a module with its source code
+    pub fn register(&self, name: &str, source: String) {
+        let mut modules = self.modules.lock().unwrap();
+        modules.insert(name.to_string(), source);
+    }
+
+    /// Get source code for a module
+    pub fn get(&self, name: &str) -> Option<String> {
+        let modules = self.modules.lock().unwrap();
+        modules.get(name).cloned()
+    }
+}
+
+/// Resolver for virtual modules
+#[derive(Clone)]
+pub struct VirtualResolver {
+    modules: VirtualModules,
+}
+
+impl VirtualResolver {
+    pub fn new(modules: VirtualModules) -> Self {
+        Self { modules }
+    }
+}
+
+impl Resolver for VirtualResolver {
+    fn resolve(&mut self, _ctx: &Ctx<'_>, _base: &str, name: &str) -> QjsResult<String> {
+        // Check if we have this module registered
+        if self.modules.get(name).is_some() {
+            Ok(name.to_string())
+        } else {
+            Err(rquickjs::Error::new_resolving(_base, name))
+        }
+    }
+}
+
+/// Loader for virtual modules
+#[derive(Clone)]
+pub struct VirtualLoader {
+    modules: VirtualModules,
+}
+
+impl VirtualLoader {
+    pub fn new(modules: VirtualModules) -> Self {
+        Self { modules }
+    }
+}
+
+impl Loader for VirtualLoader {
+    fn load<'js>(&mut self, ctx: &Ctx<'js>, name: &str) -> QjsResult<Module<'js>> {
+        if let Some(source) = self.modules.get(name) {
+            Module::declare(ctx.clone(), name, source)
+        } else {
+            Err(rquickjs::Error::new_loading(name))
+        }
+    }
+}
+
+/// Create a runtime and context configured for ESM module loading
+pub fn create_module_runtime(virtual_modules: VirtualModules) -> Result<(Runtime, Context), String> {
     let runtime = Runtime::new().map_err(|e| e.to_string())?;
+
+    let resolver = (
+        VirtualResolver::new(virtual_modules.clone()),
+        BuiltinResolver::default(),
+    );
+    let loader = (
+        VirtualLoader::new(virtual_modules),
+        ModuleLoader::default(),
+    );
+
+    runtime.set_loader(resolver, loader);
+
     let context = Context::full(&runtime).map_err(|e| e.to_string())?;
     Ok((runtime, context))
+}
+
+/// Evaluate an ESM module and get the result
+///
+/// The module_source should be ESM code that exports functions.
+/// The entry_point is the function to call (e.g., "$root$main").
+/// The result is retrieved from the module's "$result" export.
+pub fn eval_module(
+    ctx: &Ctx<'_>,
+    module_name: &str,
+    entry_func: &str,
+    result_type: Type,
+) -> Result<Value, EvalError> {
+    // Create entry point script that imports the module and calls the function
+    let entry_script = format!(
+        r#"import {{ {} }} from '{}'; export const $result = {}();"#,
+        entry_func, module_name, entry_func
+    );
+
+    // Declare and evaluate the entry module
+    let entry_module = Module::declare(ctx.clone(), "__entry__", entry_script)
+        .catch(ctx)
+        .map_err(|e| {
+            let msg = e.to_string();
+            if msg.contains("division by zero") {
+                EvalError::DivisionByZero
+            } else {
+                EvalError::RuntimeError(msg)
+            }
+        })?;
+
+    // Evaluate the module - eval() takes ownership and returns (Module<Evaluated>, Promise)
+    let (evaluated_module, promise) = entry_module.eval().catch(ctx).map_err(|e| {
+        let msg = e.to_string();
+        if msg.contains("division by zero") {
+            EvalError::DivisionByZero
+        } else {
+            EvalError::RuntimeError(msg)
+        }
+    })?;
+
+    // Check if the promise was rejected (module threw an error)
+    // The result() method returns Err(Error::Exception) if rejected
+    let _: () = promise.finish().catch(ctx).map_err(|e| {
+        let msg = e.to_string();
+        if msg.contains("division by zero") {
+            EvalError::DivisionByZero
+        } else {
+            EvalError::RuntimeError(msg)
+        }
+    })?;
+
+    // Get the result from the module's exports
+    let js_val: rquickjs::Value = evaluated_module.get("$result").catch(ctx).map_err(|e| {
+        EvalError::RuntimeError(format!("failed to get result: {}", e))
+    })?;
+
+    js_value_to_value(ctx, js_val, &result_type)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -128,24 +272,6 @@ impl fmt::Display for EvalError {
     }
 }
 
-/// Evaluate JS code in an existing context and convert to Value
-pub fn eval(
-    ctx: &rquickjs::Ctx<'_>,
-    js_code: String,
-    result_type: Type,
-) -> Result<Value, EvalError> {
-    let js_val: rquickjs::Value = ctx.eval(js_code).catch(ctx).map_err(|e| {
-        let msg = e.to_string();
-        if msg.contains("division by zero") {
-            EvalError::DivisionByZero
-        } else {
-            EvalError::RuntimeError(msg)
-        }
-    })?;
-
-    js_value_to_value(ctx, js_val, &result_type)
-}
-
 /// Convert a JavaScript value to a Zoya Value based on expected type
 #[allow(clippy::only_used_in_recursion)]
 fn js_value_to_value(
@@ -251,7 +377,7 @@ fn js_value_to_value(
             variants,
             ..
         } => {
-                        let obj: rquickjs::Object = js_val
+            let obj: rquickjs::Object = js_val
                 .get()
                 .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
             let tag: String = obj

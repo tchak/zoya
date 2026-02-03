@@ -1,10 +1,16 @@
+#[cfg(test)]
 use zoya_check::check;
-use crate::eval::{self, EvalError, Value};
+#[cfg(test)]
+use crate::eval::{self, EvalError, Value, VirtualModules};
+#[cfg(test)]
 use zoya_codegen::codegen;
+#[cfg(test)]
 use zoya_ir::CheckedItem;
+#[cfg(test)]
 use zoya_loader::{load_modules_with, MemorySource};
 
 /// Run Zoya source code and return the result
+#[cfg(test)]
 pub fn run(source: &str) -> Result<Value, EvalError> {
     // Load module using memory source
     let mem_source = MemorySource::new().with_module("root", source);
@@ -35,15 +41,21 @@ pub fn run(source: &str) -> Result<Value, EvalError> {
         ));
     }
 
-    // Generate JS code
-    let mut js_code = codegen(&checked_tree);
-    js_code.push_str("$root$main()");
+    // Generate JS module code (ESM with exports)
+    let js_code = codegen(&checked_tree);
 
-    // Execute
-    let (_runtime, context) =
-        eval::create_context().map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+    // Create virtual modules and register the generated code
+    let virtual_modules = VirtualModules::new();
+    virtual_modules.register("root", js_code);
 
-    context.with(|ctx| eval::eval(&ctx, js_code, main_func.return_type.clone()))
+    // Create runtime with module loader
+    let (_runtime, context) = eval::create_module_runtime(virtual_modules)
+        .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+
+    // Evaluate the module and call main
+    context.with(|ctx| {
+        eval::eval_module(&ctx, "root", "$root$main", main_func.return_type.clone())
+    })
 }
 
 #[cfg(test)]
