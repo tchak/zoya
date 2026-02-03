@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use zoya_ast::{Expr, FunctionDef, Item};
+use zoya_ast::{Expr, FunctionDef, Item, Visibility};
 use zoya_ir::{CheckedItem, TypeError, TypedExpr, TypedFunction};
 use zoya_module::{Module, ModulePath, ModuleTree};
 
@@ -43,6 +43,7 @@ pub fn build_test_module(items: Vec<Item>) -> ModuleTree {
 pub fn build_test_module_with_expr(items: Vec<Item>, test_expr: Expr) -> ModuleTree {
     let mut all_items = items;
     all_items.push(Item::Function(FunctionDef {
+        visibility: Visibility::Public,
         name: "__test".to_string(),
         type_params: vec![],
         params: vec![],

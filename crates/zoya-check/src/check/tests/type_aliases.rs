@@ -1,4 +1,4 @@
-use zoya_ast::{Expr, FunctionDef, Item, Path, TypeAliasDef, TypeAnnotation};
+use zoya_ast::{Expr, FunctionDef, Item, Path, TypeAliasDef, TypeAnnotation, Visibility};
 
 use crate::check::check;
 
@@ -15,6 +15,7 @@ fn test_type_alias_simple() {
             typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
         }),
         Item::Function(FunctionDef {
+            visibility: Visibility::Public,
             name: "get_id".to_string(),
             type_params: vec![],
             params: vec![],
@@ -41,6 +42,7 @@ fn test_type_alias_generic() {
             ]),
         }),
         Item::Function(FunctionDef {
+            visibility: Visibility::Public,
             name: "make_pair".to_string(),
             type_params: vec![],
             params: vec![],
@@ -87,6 +89,7 @@ fn test_type_alias_wrong_arity_error() {
             ]),
         }),
         Item::Function(FunctionDef {
+            visibility: Visibility::Public,
             name: "bad".to_string(),
             type_params: vec![],
             params: vec![],

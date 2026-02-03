@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use zoya_ast::{Path, PathPrefix};
-use zoya_ir::{Definition, QualifiedPath, TypeError, TypeScheme};
+use zoya_ir::{Definition, QualifiedPath, TypeError, TypeScheme, Visibility};
 use zoya_module::ModulePath;
 
 /// Resolve an AST path to a fully qualified path.
@@ -79,6 +79,49 @@ fn resolve_relative_path(
     Ok(QualifiedPath::new(segments))
 }
 
+/// Check if a function is visible from the accessor module.
+///
+/// Visibility rules:
+/// - Public functions are always visible
+/// - Private functions are visible if the accessor is in the same module or a descendant
+fn check_function_visibility(
+    visibility: Visibility,
+    target_path: &QualifiedPath,
+    accessor_module: &ModulePath,
+) -> Result<(), TypeError> {
+    if visibility == Visibility::Public {
+        return Ok(());
+    }
+
+    // Get target's module (all segments except last, which is the function name)
+    let target_module: Vec<&str> = target_path.segments[..target_path.segments.len() - 1]
+        .iter()
+        .map(|s| s.as_str())
+        .collect();
+
+    let accessor: Vec<&str> = accessor_module
+        .segments()
+        .iter()
+        .map(|s| s.as_str())
+        .collect();
+
+    // Private visible if accessor is same module or descendant
+    let is_visible =
+        accessor.len() >= target_module.len() && accessor[..target_module.len()] == target_module[..];
+
+    if is_visible {
+        Ok(())
+    } else {
+        Err(TypeError {
+            message: format!(
+                "function '{}' is private to module '{}'",
+                target_path.segments.last().unwrap(),
+                target_module.join("::")
+            ),
+        })
+    }
+}
+
 /// Result of resolving a path in expression context
 #[derive(Debug)]
 pub enum ResolvedPath<'a> {
@@ -122,6 +165,10 @@ pub fn resolve_expr_path<'a>(
 
     // Try exact match in definitions
     if let Some(def) = definitions.get(&qualified_path) {
+        // Check visibility for functions
+        if let Definition::Function(func_type) = def {
+            check_function_visibility(func_type.visibility, &qualified_path, current_module)?;
+        }
         return Ok(ResolvedPath::Definition {
             qualified_path,
             def,
@@ -255,5 +302,139 @@ mod tests {
         let module = ModulePath::root().child("utils");
         let result = QualifiedPath::from_module(&module, "helper");
         assert_eq!(result.to_string(), "root::utils::helper");
+    }
+
+    // ========================================================================
+    // Visibility Tests
+    // ========================================================================
+
+    use zoya_ir::{FunctionType, Type, Definition};
+
+    fn qpath(path: &str) -> QualifiedPath {
+        QualifiedPath::new(path.split("::").map(|s| s.to_string()).collect())
+    }
+
+    #[test]
+    fn test_visibility_public_function_accessible() {
+        let mut definitions = HashMap::new();
+        definitions.insert(
+            qpath("root::utils::helper"),
+            Definition::Function(FunctionType {
+                visibility: Visibility::Public,
+                type_params: vec![],
+                type_var_ids: vec![],
+                params: vec![],
+                return_type: Type::Int,
+            }),
+        );
+        let locals = HashMap::new();
+        let path = path_from_segments(PathPrefix::Root, &["utils", "helper"]);
+        let current = ModulePath::root(); // calling from root
+        let result = resolve_expr_path(&path, &current, &locals, &definitions);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_visibility_private_function_same_module() {
+        let mut definitions = HashMap::new();
+        definitions.insert(
+            qpath("root::utils::helper"),
+            Definition::Function(FunctionType {
+                visibility: Visibility::Private,
+                type_params: vec![],
+                type_var_ids: vec![],
+                params: vec![],
+                return_type: Type::Int,
+            }),
+        );
+        let locals = HashMap::new();
+        let path = path_from_segments(PathPrefix::None, &["helper"]);
+        let current = ModulePath::root().child("utils"); // calling from same module
+        let result = resolve_expr_path(&path, &current, &locals, &definitions);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_visibility_private_function_child_can_access_parent() {
+        let mut definitions = HashMap::new();
+        definitions.insert(
+            qpath("root::helper"),
+            Definition::Function(FunctionType {
+                visibility: Visibility::Private,
+                type_params: vec![],
+                type_var_ids: vec![],
+                params: vec![],
+                return_type: Type::Int,
+            }),
+        );
+        let locals = HashMap::new();
+        let path = path_from_segments(PathPrefix::Super, &["helper"]);
+        let current = ModulePath::root().child("utils"); // child accessing parent
+        let result = resolve_expr_path(&path, &current, &locals, &definitions);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_visibility_private_function_parent_cannot_access_child() {
+        let mut definitions = HashMap::new();
+        definitions.insert(
+            qpath("root::utils::helper"),
+            Definition::Function(FunctionType {
+                visibility: Visibility::Private,
+                type_params: vec![],
+                type_var_ids: vec![],
+                params: vec![],
+                return_type: Type::Int,
+            }),
+        );
+        let locals = HashMap::new();
+        let path = path_from_segments(PathPrefix::None, &["utils", "helper"]);
+        let current = ModulePath::root(); // parent trying to access child's private
+        let result = resolve_expr_path(&path, &current, &locals, &definitions);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("private"));
+    }
+
+    #[test]
+    fn test_visibility_private_function_sibling_cannot_access() {
+        let mut definitions = HashMap::new();
+        definitions.insert(
+            qpath("root::a::helper"),
+            Definition::Function(FunctionType {
+                visibility: Visibility::Private,
+                type_params: vec![],
+                type_var_ids: vec![],
+                params: vec![],
+                return_type: Type::Int,
+            }),
+        );
+        let locals = HashMap::new();
+        let path = path_from_segments(PathPrefix::Root, &["a", "helper"]);
+        let current = ModulePath::root().child("b"); // sibling trying to access
+        let result = resolve_expr_path(&path, &current, &locals, &definitions);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("private"));
+    }
+
+    #[test]
+    fn test_visibility_private_function_deep_descendant_can_access() {
+        let mut definitions = HashMap::new();
+        definitions.insert(
+            qpath("root::helper"),
+            Definition::Function(FunctionType {
+                visibility: Visibility::Private,
+                type_params: vec![],
+                type_var_ids: vec![],
+                params: vec![],
+                return_type: Type::Int,
+            }),
+        );
+        let locals = HashMap::new();
+        let path = path_from_segments(PathPrefix::Root, &["helper"]);
+        let current = ModulePath::root().child("a").child("b").child("c"); // deeply nested
+        let result = resolve_expr_path(&path, &current, &locals, &definitions);
+        assert!(result.is_ok());
     }
 }

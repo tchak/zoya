@@ -44,6 +44,7 @@ pub fn function_type_from_def(
     };
 
     Ok(FunctionType {
+        visibility: func.visibility,
         type_params: func.type_params.clone(),
         type_var_ids,
         params: param_types,
@@ -241,7 +242,7 @@ pub fn type_alias_from_def(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zoya_ast::{EnumVariant, EnumVariantKind, Path, StructFieldDef, TypeAnnotation};
+    use zoya_ast::{EnumVariant, EnumVariantKind, Path, StructFieldDef, TypeAnnotation, Visibility};
 
     fn root() -> ModulePath {
         ModulePath::root()
@@ -715,6 +716,7 @@ mod tests {
     #[test]
     fn test_function_type_simple() {
         let func = FunctionDef {
+            visibility: Visibility::Public,
             name: "add".to_string(),
             type_params: vec![],
             params: vec![
@@ -735,6 +737,7 @@ mod tests {
         let result = function_type_from_def(&func, &root(), &env, &mut ctx);
         assert!(result.is_ok());
         let ft = result.unwrap();
+        assert_eq!(ft.visibility, Visibility::Public);
         assert_eq!(ft.params.len(), 2);
         assert_eq!(ft.params[0], Type::Int);
         assert_eq!(ft.params[1], Type::Int);
@@ -744,6 +747,7 @@ mod tests {
     #[test]
     fn test_function_type_generic() {
         let func = FunctionDef {
+            visibility: Visibility::Private,
             name: "identity".to_string(),
             type_params: vec!["T".to_string()],
             params: vec![
@@ -760,6 +764,7 @@ mod tests {
         let result = function_type_from_def(&func, &root(), &env, &mut ctx);
         assert!(result.is_ok());
         let ft = result.unwrap();
+        assert_eq!(ft.visibility, Visibility::Private);
         assert_eq!(ft.type_params.len(), 1);
         assert_eq!(ft.type_var_ids.len(), 1);
         // Param and return type should both reference the same type variable
@@ -770,6 +775,7 @@ mod tests {
     #[test]
     fn test_function_type_no_return_annotation() {
         let func = FunctionDef {
+            visibility: Visibility::Public,
             name: "foo".to_string(),
             type_params: vec![],
             params: vec![],
@@ -788,6 +794,7 @@ mod tests {
     #[test]
     fn test_function_type_unknown_param_type() {
         let func = FunctionDef {
+            visibility: Visibility::Public,
             name: "foo".to_string(),
             type_params: vec![],
             params: vec![

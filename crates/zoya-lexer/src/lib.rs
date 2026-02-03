@@ -69,6 +69,9 @@ pub enum Token {
     #[token("mod")]
     Mod,
 
+    #[token("pub")]
+    Pub,
+
     #[token("root")]
     Root,
 
@@ -763,6 +766,28 @@ mod tests {
     fn test_mod_declaration_tokens() {
         let tokens = lex("mod foo").unwrap();
         assert_eq!(tokens, vec![Token::Mod, Token::Ident("foo".to_string())]);
+    }
+
+    #[test]
+    fn test_pub_keyword() {
+        let tokens = lex("pub").unwrap();
+        assert_eq!(tokens, vec![Token::Pub]);
+    }
+
+    #[test]
+    fn test_pub_fn_tokens() {
+        let tokens = lex("pub fn foo() 1").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Pub,
+                Token::Fn,
+                Token::Ident("foo".to_string()),
+                Token::LParen,
+                Token::RParen,
+                Token::Int(1),
+            ]
+        );
     }
 
     #[test]

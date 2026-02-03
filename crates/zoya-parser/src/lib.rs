@@ -451,7 +451,7 @@ mod tests {
         );
     }
 
-    use zoya_ast::{FunctionDef, Item, Param, Pattern, TypeAnnotation};
+    use zoya_ast::{FunctionDef, Item, Param, Pattern, TypeAnnotation, Visibility};
 
     fn parse_item_str(input: &str) -> Result<Item, ParseError> {
         let tokens = lex(input).expect("lexing failed");
@@ -464,6 +464,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                visibility: Visibility::Private,
                 name: "foo".to_string(),
                 type_params: vec![],
                 params: vec![],
@@ -479,6 +480,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                visibility: Visibility::Private,
                 name: "foo".to_string(),
                 type_params: vec![],
                 params: vec![],
@@ -494,6 +496,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                visibility: Visibility::Private,
                 name: "add".to_string(),
                 type_params: vec![],
                 params: vec![
@@ -522,6 +525,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                visibility: Visibility::Private,
                 name: "identity".to_string(),
                 type_params: vec!["T".to_string()],
                 params: vec![Param {
@@ -540,6 +544,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                visibility: Visibility::Private,
                 name: "pair".to_string(),
                 type_params: vec!["A".to_string(), "B".to_string()],
                 params: vec![
@@ -564,6 +569,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                visibility: Visibility::Private,
                 name: "double".to_string(),
                 type_params: vec![],
                 params: vec![Param {
@@ -889,6 +895,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                visibility: Visibility::Private,
                 name: "foo".to_string(),
                 type_params: vec![],
                 params: vec![],
@@ -905,6 +912,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                visibility: Visibility::Private,
                 name: "add".to_string(),
                 type_params: vec![],
                 params: vec![
@@ -935,6 +943,33 @@ mod tests {
             panic!("expected function")
         };
         assert!(matches!(body, Expr::BinOp { op: BinOp::Mul, .. }));
+    }
+
+    #[test]
+    fn test_parse_pub_function() {
+        let item = parse_item_str("pub fn foo() -> Int 42").unwrap();
+        assert_eq!(
+            item,
+            Item::Function(FunctionDef {
+                visibility: Visibility::Public,
+                name: "foo".to_string(),
+                type_params: vec![],
+                params: vec![],
+                return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+                body: Expr::Int(42),
+            })
+        );
+    }
+
+    #[test]
+    fn test_parse_pub_function_with_params() {
+        let item = parse_item_str("pub fn add(x: Int, y: Int) -> Int x + y").unwrap();
+        let Item::Function(func) = item else {
+            panic!("expected function")
+        };
+        assert_eq!(func.visibility, Visibility::Public);
+        assert_eq!(func.name, "add");
+        assert_eq!(func.params.len(), 2);
     }
 
     use zoya_ast::MatchArm;

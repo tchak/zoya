@@ -5,7 +5,7 @@ use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
 use crate::eval::{self, Context, Value, VirtualModules};
-use zoya_ast::{Expr, FunctionDef, Item, LetBinding, Stmt};
+use zoya_ast::{Expr, FunctionDef, Item, LetBinding, Stmt, Visibility};
 use zoya_check::check;
 use zoya_codegen::codegen;
 use zoya_ir::{CheckedItem, CheckedModuleTree, Type, TypedExpr, TypedPattern};
@@ -352,6 +352,7 @@ fn create_run_function(name: &str, block: &EvalBlock) -> Item {
     };
 
     Item::Function(FunctionDef {
+        visibility: Visibility::Public,
         name: name.to_string(),
         type_params: vec![],
         params: vec![],

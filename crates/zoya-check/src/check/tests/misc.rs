@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use zoya_ast::{Expr, LetBinding, ListPattern, Path, PathPrefix, Pattern, TuplePattern, TypeAnnotation};
-use zoya_ir::{Definition, FunctionType, QualifiedPath, Type, TypeScheme};
+use zoya_ir::{Definition, FunctionType, QualifiedPath, Type, TypeScheme, Visibility};
 use zoya_module::ModulePath;
 
 fn qpath(path: &str) -> QualifiedPath {
@@ -173,6 +173,7 @@ fn test_turbofish_correct_count() {
     env.register(
         qpath("root::identity"),
         Definition::Function(FunctionType {
+            visibility: Visibility::Public,
             type_params: vec!["T".to_string()],
             type_var_ids: vec![t_id],
             params: vec![Type::Var(t_id)],
@@ -203,6 +204,7 @@ fn test_turbofish_wrong_count_error() {
     env.register(
         qpath("root::identity"),
         Definition::Function(FunctionType {
+            visibility: Visibility::Public,
             type_params: vec!["T".to_string()],
             type_var_ids: vec![t_id],
             params: vec![Type::Var(t_id)],

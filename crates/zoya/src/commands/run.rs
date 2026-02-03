@@ -149,12 +149,12 @@ mod tests {
         )
         .unwrap();
 
-        // Create child module
+        // Create child module with public function
         let utils_file = dir.path().join("utils.zoya");
         std::fs::write(
             &utils_file,
             r#"
-            fn helper() -> Int { 42 }
+            pub fn helper() -> Int { 42 }
             "#,
         )
         .unwrap();

@@ -145,9 +145,20 @@ pub struct TypeAliasDef {
     pub typ: TypeAnnotation,
 }
 
+/// Visibility of an item
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Visibility {
+    /// Private to the module (default)
+    #[default]
+    Private,
+    /// Public, accessible from other modules
+    Public,
+}
+
 /// Function definition
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionDef {
+    pub visibility: Visibility,
     pub name: String,
     pub type_params: Vec<String>,
     pub params: Vec<Param>,

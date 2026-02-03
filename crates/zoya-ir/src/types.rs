@@ -1,5 +1,7 @@
 use std::fmt;
 
+use zoya_ast::Visibility;
+
 /// Unique identifier for a type variable
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TypeVarId(pub usize);
@@ -102,6 +104,8 @@ impl fmt::Display for Type {
 /// Function type signature (for named functions)
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionType {
+    /// Visibility of the function
+    pub visibility: Visibility,
     /// Source-level type parameter names (e.g., ["T", "U"])
     pub type_params: Vec<String>,
     /// TypeVarIds corresponding to each type parameter

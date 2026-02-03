@@ -2,7 +2,7 @@ use chumsky::prelude::*;
 
 use zoya_ast::{
     EnumDef, EnumVariant, EnumVariantKind, Expr, FunctionDef, Item, Param, StructDef,
-    StructFieldDef, TypeAliasDef,
+    StructFieldDef, TypeAliasDef, Visibility,
 };
 use zoya_lexer::Token;
 
@@ -64,22 +64,31 @@ pub(crate) fn item_parser<'a>(
         expr_parser(),
     ));
 
-    // fn name<T>(params) -> ReturnType { body }
-    let function_def = just(Token::Fn)
-        .ignore_then(ident())
+    // [pub] fn name<T>(params) -> ReturnType { body }
+    let function_def = just(Token::Pub)
+        .or_not()
+        .then_ignore(just(Token::Fn))
+        .then(ident())
         .then(type_params.clone())
         .then(params)
         .then(return_type)
         .then(body)
-        .map(|((((name, type_params), params), return_type), body)| {
-            Item::Function(FunctionDef {
-                name,
-                type_params,
-                params,
-                return_type,
-                body,
-            })
-        });
+        .map(
+            |(((((is_pub, name), type_params), params), return_type), body)| {
+                Item::Function(FunctionDef {
+                    visibility: if is_pub.is_some() {
+                        Visibility::Public
+                    } else {
+                        Visibility::Private
+                    },
+                    name,
+                    type_params,
+                    params,
+                    return_type,
+                    body,
+                })
+            },
+        );
 
     // Struct field: name: Type
     let struct_field = ident()
