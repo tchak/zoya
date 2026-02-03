@@ -374,6 +374,7 @@ fn build_repl_tree(base_tree: Option<&ModuleTree>, items: Vec<Item>) -> ModuleTr
     // Create or update root module to include "repl" as child
     let root = modules.entry(ModulePath::root()).or_insert_with(|| Module {
         items: vec![],
+        uses: vec![],
         path: ModulePath::root(),
         children: HashMap::new(),
     });
@@ -384,6 +385,7 @@ fn build_repl_tree(base_tree: Option<&ModuleTree>, items: Vec<Item>) -> ModuleTr
         repl_path.clone(),
         Module {
             items,
+            uses: vec![],
             path: repl_path,
             children: HashMap::new(),
         },

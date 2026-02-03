@@ -137,30 +137,52 @@ pub enum ResolvedPath<'a> {
     },
 }
 
+/// Per-module import table type alias
+pub type ImportTable = HashMap<String, QualifiedPath>;
+
 /// Resolve a path in expression context.
 ///
 /// This handles:
-/// 1. Single-segment paths without prefix: check locals first, then definitions
+/// 1. Single-segment paths without prefix: check locals first, then imports, then definitions
 /// 2. Multi-segment paths: resolve as qualified name, then try as enum variant
 /// 3. Paths with prefixes (root::, self::, super::)
+///
+/// Priority order for single-segment paths:
+/// 1. Locals (let bindings, function parameters)
+/// 2. Imports (use declarations)
+/// 3. Module-level definitions (functions, types in current module)
 pub fn resolve_expr_path<'a>(
     path: &Path,
     current_module: &ModulePath,
     locals: &'a HashMap<String, TypeScheme>,
+    imports: &'a HashMap<ModulePath, ImportTable>,
     definitions: &'a HashMap<QualifiedPath, Definition>,
 ) -> Result<ResolvedPath<'a>, TypeError> {
-    // Single-segment path with no prefix: check locals first
+    // Single-segment path with no prefix: check locals first, then imports
     if path.prefix == PathPrefix::None && path.segments.len() == 1 {
         let name = &path.segments[0];
+
+        // Priority 1: Locals
         if let Some(scheme) = locals.get(name) {
             return Ok(ResolvedPath::Local {
                 name: name.clone(),
                 scheme,
             });
         }
+
+        // Priority 2: Imports
+        if let Some(module_imports) = imports.get(current_module)
+            && let Some(qualified) = module_imports.get(name)
+            && let Some(def) = definitions.get(qualified)
+        {
+            return Ok(ResolvedPath::Definition {
+                qualified_path: qualified.clone(),
+                def,
+            });
+        }
     }
 
-    // Resolve the full path
+    // Priority 3: Resolve the full path in module-level definitions
     let qualified_path = resolve_path(path, current_module)?;
 
     // Try exact match in definitions
@@ -328,9 +350,10 @@ mod tests {
             }),
         );
         let locals = HashMap::new();
+        let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["utils", "helper"]);
         let current = ModulePath::root(); // calling from root
-        let result = resolve_expr_path(&path, &current, &locals, &definitions);
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions);
         assert!(result.is_ok());
     }
 
@@ -348,9 +371,10 @@ mod tests {
             }),
         );
         let locals = HashMap::new();
+        let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::None, &["helper"]);
         let current = ModulePath::root().child("utils"); // calling from same module
-        let result = resolve_expr_path(&path, &current, &locals, &definitions);
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions);
         assert!(result.is_ok());
     }
 
@@ -368,9 +392,10 @@ mod tests {
             }),
         );
         let locals = HashMap::new();
+        let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Super, &["helper"]);
         let current = ModulePath::root().child("utils"); // child accessing parent
-        let result = resolve_expr_path(&path, &current, &locals, &definitions);
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions);
         assert!(result.is_ok());
     }
 
@@ -388,9 +413,10 @@ mod tests {
             }),
         );
         let locals = HashMap::new();
+        let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::None, &["utils", "helper"]);
         let current = ModulePath::root(); // parent trying to access child's private
-        let result = resolve_expr_path(&path, &current, &locals, &definitions);
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("private"));
@@ -410,9 +436,10 @@ mod tests {
             }),
         );
         let locals = HashMap::new();
+        let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["a", "helper"]);
         let current = ModulePath::root().child("b"); // sibling trying to access
-        let result = resolve_expr_path(&path, &current, &locals, &definitions);
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("private"));
@@ -432,9 +459,99 @@ mod tests {
             }),
         );
         let locals = HashMap::new();
+        let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["helper"]);
         let current = ModulePath::root().child("a").child("b").child("c"); // deeply nested
-        let result = resolve_expr_path(&path, &current, &locals, &definitions);
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions);
         assert!(result.is_ok());
+    }
+
+    // ========================================================================
+    // Import Resolution Tests
+    // ========================================================================
+
+    #[test]
+    fn test_imports_take_priority_over_definitions() {
+        let mut definitions = HashMap::new();
+        // Two functions named 'helper' in different modules
+        definitions.insert(
+            qpath("root::utils::helper"),
+            Definition::Function(FunctionType {
+                visibility: Visibility::Public,
+                type_params: vec![],
+                type_var_ids: vec![],
+                params: vec![],
+                return_type: Type::Int,
+            }),
+        );
+        definitions.insert(
+            qpath("root::helper"), // Would be the local one if no import
+            Definition::Function(FunctionType {
+                visibility: Visibility::Public,
+                type_params: vec![],
+                type_var_ids: vec![],
+                params: vec![],
+                return_type: Type::Bool,
+            }),
+        );
+
+        let locals = HashMap::new();
+        let mut imports = HashMap::new();
+        let mut root_imports = ImportTable::new();
+        root_imports.insert("helper".to_string(), qpath("root::utils::helper"));
+        imports.insert(ModulePath::root(), root_imports);
+
+        let path = path_from_segments(PathPrefix::None, &["helper"]);
+        let current = ModulePath::root();
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions).unwrap();
+
+        // Should resolve to the imported version (root::utils::helper)
+        match result {
+            ResolvedPath::Definition { qualified_path, .. } => {
+                assert_eq!(qualified_path.to_string(), "root::utils::helper");
+            }
+            _ => panic!("expected definition"),
+        }
+    }
+
+    #[test]
+    fn test_locals_take_priority_over_imports() {
+        let mut definitions = HashMap::new();
+        definitions.insert(
+            qpath("root::utils::helper"),
+            Definition::Function(FunctionType {
+                visibility: Visibility::Public,
+                type_params: vec![],
+                type_var_ids: vec![],
+                params: vec![],
+                return_type: Type::Int,
+            }),
+        );
+
+        let mut locals = HashMap::new();
+        locals.insert(
+            "helper".to_string(),
+            TypeScheme {
+                quantified: vec![],
+                ty: Type::Bool,
+            },
+        );
+
+        let mut imports = HashMap::new();
+        let mut root_imports = ImportTable::new();
+        root_imports.insert("helper".to_string(), qpath("root::utils::helper"));
+        imports.insert(ModulePath::root(), root_imports);
+
+        let path = path_from_segments(PathPrefix::None, &["helper"]);
+        let current = ModulePath::root();
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions).unwrap();
+
+        // Should resolve to the local variable, not the import
+        match result {
+            ResolvedPath::Local { name, .. } => {
+                assert_eq!(name, "helper");
+            }
+            _ => panic!("expected local"),
+        }
     }
 }

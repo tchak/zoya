@@ -42,6 +42,7 @@ pub fn resolve_type_annotation(
                 path,
                 current_module,
                 &empty_locals,
+                &env.imports,
                 &env.definitions,
             )?;
 
@@ -148,6 +149,7 @@ pub fn resolve_type_annotation(
                 path,
                 current_module,
                 &empty_locals,
+                &env.imports,
                 &env.definitions,
             )?;
 

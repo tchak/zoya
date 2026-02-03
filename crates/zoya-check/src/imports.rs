@@ -1,0 +1,310 @@
+//! Import resolution for use declarations.
+//!
+//! Resolves `use` statements into qualified paths that can be looked up during type checking.
+
+use std::collections::HashMap;
+
+use zoya_ast::{PathPrefix, UseDecl};
+use zoya_ir::{Definition, QualifiedPath, TypeError, Visibility};
+use zoya_module::ModulePath;
+
+/// Resolved import entry: maps a local name to a qualified path
+pub type ImportTable = HashMap<String, QualifiedPath>;
+
+/// Resolve a use path to a fully qualified path.
+///
+/// # Path Resolution Rules
+///
+/// | Path | Resolution |
+/// |------|------------|
+/// | `use root::foo::bar` | Absolute path from root module |
+/// | `use self::foo` | Explicit current module reference |
+/// | `use super::foo` | Parent module reference |
+fn resolve_use_path(
+    use_decl: &UseDecl,
+    current_module: &ModulePath,
+) -> Result<QualifiedPath, TypeError> {
+    let path = &use_decl.path;
+
+    match path.prefix {
+        PathPrefix::Root => {
+            // root::foo::bar → root::foo::bar
+            let mut segments = vec!["root".to_string()];
+            segments.extend(path.segments.iter().cloned());
+            Ok(QualifiedPath::new(segments))
+        }
+        PathPrefix::Self_ => {
+            // self::foo → current_module::foo
+            let mut segments = current_module
+                .segments()
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>();
+            segments.extend(path.segments.iter().cloned());
+            Ok(QualifiedPath::new(segments))
+        }
+        PathPrefix::Super => {
+            // super::foo → parent_module::foo
+            let parent = current_module.parent().ok_or_else(|| TypeError {
+                message: "cannot use super:: in root module".to_string(),
+            })?;
+            let mut segments = parent
+                .segments()
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>();
+            segments.extend(path.segments.iter().cloned());
+            Ok(QualifiedPath::new(segments))
+        }
+        PathPrefix::None => {
+            // This should not happen - parser rejects paths without prefix
+            Err(TypeError {
+                message: "use declarations require a prefix (root::, self::, or super::)"
+                    .to_string(),
+            })
+        }
+    }
+}
+
+/// Check if an import target is visible from the importing module.
+fn check_import_visible(
+    qualified: &QualifiedPath,
+    accessor_module: &ModulePath,
+    definitions: &HashMap<QualifiedPath, Definition>,
+) -> Result<(), TypeError> {
+    // Look up the definition
+    let def = definitions.get(qualified).ok_or_else(|| TypeError {
+        message: format!("cannot find '{}' to import", qualified),
+    })?;
+
+    // Get visibility
+    let visibility = match def {
+        Definition::Function(f) => f.visibility,
+        // Structs, enums, type aliases, and enum variants are always public for now
+        Definition::Struct(_) | Definition::Enum(_) | Definition::TypeAlias(_) => {
+            Visibility::Public
+        }
+        Definition::EnumVariant(_, _) => Visibility::Public,
+    };
+
+    if visibility == Visibility::Public {
+        return Ok(());
+    }
+
+    // Get target's module (all segments except last, which is the item name)
+    let target_module: Vec<&str> = qualified.segments[..qualified.segments.len() - 1]
+        .iter()
+        .map(|s| s.as_str())
+        .collect();
+
+    let accessor: Vec<&str> = accessor_module
+        .segments()
+        .iter()
+        .map(|s| s.as_str())
+        .collect();
+
+    // Private visible if accessor is same module or descendant
+    let is_visible =
+        accessor.len() >= target_module.len() && accessor[..target_module.len()] == target_module[..];
+
+    if is_visible {
+        Ok(())
+    } else {
+        Err(TypeError {
+            message: format!(
+                "'{}' is private and cannot be imported from '{}'",
+                qualified, accessor_module
+            ),
+        })
+    }
+}
+
+/// Resolve all imports for a module and return an import table.
+///
+/// The import table maps local names (the last segment of each use path)
+/// to their fully qualified paths.
+pub fn resolve_module_imports(
+    uses: &[UseDecl],
+    current_module: &ModulePath,
+    definitions: &HashMap<QualifiedPath, Definition>,
+) -> Result<ImportTable, TypeError> {
+    let mut imports = HashMap::new();
+
+    for use_decl in uses {
+        let qualified = resolve_use_path(use_decl, current_module)?;
+
+        // Check target exists and is visible
+        check_import_visible(&qualified, current_module, definitions)?;
+
+        // Import uses the last segment as local name
+        let local_name = use_decl
+            .path
+            .segments
+            .last()
+            .ok_or_else(|| TypeError {
+                message: "use declaration has empty path".to_string(),
+            })?
+            .clone();
+
+        // Check for duplicate imports
+        if let Some(existing) = imports.get(&local_name) {
+            return Err(TypeError {
+                message: format!(
+                    "'{}' is already imported (from '{}')",
+                    local_name, existing
+                ),
+            });
+        }
+
+        imports.insert(local_name, qualified);
+    }
+
+    Ok(imports)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zoya_ast::UsePath;
+    use zoya_ir::{FunctionType, Type};
+
+    fn make_use(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
+        UseDecl {
+            path: UsePath {
+                prefix,
+                segments: segments.iter().map(|s| s.to_string()).collect(),
+            },
+        }
+    }
+
+    fn qpath(path: &str) -> QualifiedPath {
+        QualifiedPath::new(path.split("::").map(|s| s.to_string()).collect())
+    }
+
+    #[test]
+    fn test_resolve_use_path_root() {
+        let use_decl = make_use(PathPrefix::Root, &["foo", "bar"]);
+        let current = ModulePath::root();
+        let result = resolve_use_path(&use_decl, &current).unwrap();
+        assert_eq!(result.to_string(), "root::foo::bar");
+    }
+
+    #[test]
+    fn test_resolve_use_path_self() {
+        let use_decl = make_use(PathPrefix::Self_, &["foo"]);
+        let current = ModulePath::root().child("utils");
+        let result = resolve_use_path(&use_decl, &current).unwrap();
+        assert_eq!(result.to_string(), "root::utils::foo");
+    }
+
+    #[test]
+    fn test_resolve_use_path_super() {
+        let use_decl = make_use(PathPrefix::Super, &["foo"]);
+        let current = ModulePath::root().child("utils");
+        let result = resolve_use_path(&use_decl, &current).unwrap();
+        assert_eq!(result.to_string(), "root::foo");
+    }
+
+    #[test]
+    fn test_resolve_use_path_super_from_root_fails() {
+        let use_decl = make_use(PathPrefix::Super, &["foo"]);
+        let current = ModulePath::root();
+        let result = resolve_use_path(&use_decl, &current);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("super"));
+    }
+
+    #[test]
+    fn test_resolve_module_imports_basic() {
+        let mut definitions = HashMap::new();
+        definitions.insert(
+            qpath("root::foo::bar"),
+            Definition::Function(FunctionType {
+                visibility: Visibility::Public,
+                type_params: vec![],
+                type_var_ids: vec![],
+                params: vec![],
+                return_type: Type::Int,
+            }),
+        );
+
+        let uses = vec![make_use(PathPrefix::Root, &["foo", "bar"])];
+        let current = ModulePath::root();
+        let imports = resolve_module_imports(&uses, &current, &definitions).unwrap();
+
+        assert_eq!(imports.len(), 1);
+        assert_eq!(
+            imports.get("bar"),
+            Some(&qpath("root::foo::bar"))
+        );
+    }
+
+    #[test]
+    fn test_resolve_module_imports_duplicate_error() {
+        let mut definitions = HashMap::new();
+        definitions.insert(
+            qpath("root::foo::bar"),
+            Definition::Function(FunctionType {
+                visibility: Visibility::Public,
+                type_params: vec![],
+                type_var_ids: vec![],
+                params: vec![],
+                return_type: Type::Int,
+            }),
+        );
+        definitions.insert(
+            qpath("root::baz::bar"),
+            Definition::Function(FunctionType {
+                visibility: Visibility::Public,
+                type_params: vec![],
+                type_var_ids: vec![],
+                params: vec![],
+                return_type: Type::Int,
+            }),
+        );
+
+        let uses = vec![
+            make_use(PathPrefix::Root, &["foo", "bar"]),
+            make_use(PathPrefix::Root, &["baz", "bar"]),
+        ];
+        let current = ModulePath::root();
+        let result = resolve_module_imports(&uses, &current, &definitions);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("already imported"));
+    }
+
+    #[test]
+    fn test_resolve_module_imports_not_found_error() {
+        let definitions = HashMap::new();
+
+        let uses = vec![make_use(PathPrefix::Root, &["foo", "bar"])];
+        let current = ModulePath::root();
+        let result = resolve_module_imports(&uses, &current, &definitions);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("cannot find"));
+    }
+
+    #[test]
+    fn test_resolve_module_imports_private_error() {
+        let mut definitions = HashMap::new();
+        definitions.insert(
+            qpath("root::other::secret"),
+            Definition::Function(FunctionType {
+                visibility: Visibility::Private,
+                type_params: vec![],
+                type_var_ids: vec![],
+                params: vec![],
+                return_type: Type::Int,
+            }),
+        );
+
+        let uses = vec![make_use(PathPrefix::Root, &["other", "secret"])];
+        let current = ModulePath::root().child("mine"); // sibling module
+        let result = resolve_module_imports(&uses, &current, &definitions);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("private"));
+    }
+}

@@ -419,10 +419,24 @@ pub struct ModDecl {
     pub name: String,
 }
 
-/// A parsed module file containing mod declarations and items
+/// Use declaration: `use root::foo::bar`
+#[derive(Debug, Clone, PartialEq)]
+pub struct UseDecl {
+    pub path: UsePath,
+}
+
+/// Path in a use declaration
+#[derive(Debug, Clone, PartialEq)]
+pub struct UsePath {
+    pub prefix: PathPrefix,
+    pub segments: Vec<String>,
+}
+
+/// A parsed module file containing mod declarations, use declarations, and items
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModuleDef {
     pub mods: Vec<ModDecl>,
+    pub uses: Vec<UseDecl>,
     pub items: Vec<Item>,
 }
 

@@ -377,6 +377,7 @@ fn load_module_recursive<S: ModuleSource>(
         module_path.clone(),
         Module {
             items: module_def.items,
+            uses: module_def.uses,
             path: module_path,
             children,
         },

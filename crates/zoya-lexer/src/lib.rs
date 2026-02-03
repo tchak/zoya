@@ -69,6 +69,9 @@ pub enum Token {
     #[token("mod")]
     Mod,
 
+    #[token("use")]
+    Use,
+
     #[token("pub")]
     Pub,
 
@@ -766,6 +769,28 @@ mod tests {
     fn test_mod_declaration_tokens() {
         let tokens = lex("mod foo").unwrap();
         assert_eq!(tokens, vec![Token::Mod, Token::Ident("foo".to_string())]);
+    }
+
+    #[test]
+    fn test_use_keyword() {
+        let tokens = lex("use").unwrap();
+        assert_eq!(tokens, vec![Token::Use]);
+    }
+
+    #[test]
+    fn test_use_statement_tokens() {
+        let tokens = lex("use root::foo::bar").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Use,
+                Token::Root,
+                Token::ColonColon,
+                Token::Ident("foo".to_string()),
+                Token::ColonColon,
+                Token::Ident("bar".to_string()),
+            ]
+        );
     }
 
     #[test]

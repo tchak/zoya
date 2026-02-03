@@ -1,6 +1,6 @@
 use chumsky::prelude::*;
 
-use zoya_ast::{ModDecl, Path, PathPrefix, Pattern, TypeAnnotation};
+use zoya_ast::{ModDecl, Path, PathPrefix, Pattern, TypeAnnotation, UseDecl, UsePath};
 use zoya_lexer::Token;
 
 pub(crate) fn ident<'a>() -> impl Parser<'a, &'a [Token], String, extra::Err<Rich<'a, Token>>> + Clone
@@ -49,6 +49,30 @@ pub(crate) fn mod_decl_parser<'a>(
     just(Token::Mod)
         .ignore_then(ident())
         .map(|name| ModDecl { name })
+}
+
+pub(crate) fn use_decl_parser<'a>(
+) -> impl Parser<'a, &'a [Token], UseDecl, extra::Err<Rich<'a, Token>>> + Clone {
+    just(Token::Use)
+        .ignore_then(path_prefix_parser())
+        .then(
+            ident()
+                .separated_by(just(Token::ColonColon))
+                .at_least(1)
+                .collect::<Vec<_>>(),
+        )
+        .map_with(|(prefix, segments), e| (prefix, segments, e.span()))
+        .try_map(|(prefix, segments, span), _| {
+            if prefix == PathPrefix::None {
+                return Err(Rich::custom(
+                    span,
+                    "external modules not supported; use root::, self::, or super:: prefix",
+                ));
+            }
+            Ok(UseDecl {
+                path: UsePath { prefix, segments },
+            })
+        })
 }
 
 /// Validate that a type annotation is only used with a simple variable pattern.

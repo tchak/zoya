@@ -11,6 +11,7 @@ mod binop;
 mod blocks;
 mod enums;
 mod functions;
+mod imports;
 mod lambdas;
 mod match_expr;
 mod methods;
@@ -30,6 +31,7 @@ pub fn check_expr_with_env(expr: &Expr) -> Result<TypedExpr, TypeError> {
 pub fn build_test_module(items: Vec<Item>) -> ModuleTree {
     let module = Module {
         items,
+        uses: vec![],
         path: ModulePath::root(),
         children: HashMap::new(),
     };

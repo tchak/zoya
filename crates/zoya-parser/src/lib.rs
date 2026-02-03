@@ -10,7 +10,7 @@ mod patterns;
 mod statements;
 mod types;
 
-use helpers::mod_decl_parser;
+use helpers::{mod_decl_parser, use_decl_parser};
 use items::item_parser;
 use statements::stmt_parser;
 
@@ -47,21 +47,22 @@ pub fn parse_input(tokens: Vec<Token>) -> Result<(Vec<Item>, Vec<Stmt>), ParseEr
         })
 }
 
-/// Parse a module file: mod declarations followed by items.
+/// Parse a module file: mod declarations, then use declarations, then items.
 ///
-/// Module files can declare submodules and define items (types, functions, etc.).
+/// Module files can declare submodules, import names, and define items (types, functions, etc.).
 ///
 /// # Arguments
 /// * `tokens` - Token stream from the lexer
 ///
 /// # Returns
-/// `ModuleDef` containing module declarations and items on success, or `ParseError`
+/// `ModuleDef` containing module declarations, use declarations, and items on success, or `ParseError`
 pub fn parse_module(tokens: Vec<Token>) -> Result<ModuleDef, ParseError> {
     let parser = mod_decl_parser()
         .repeated()
         .collect::<Vec<_>>()
+        .then(use_decl_parser().repeated().collect::<Vec<_>>())
         .then(item_parser().repeated().collect::<Vec<_>>())
-        .map(|(mods, items)| ModuleDef { mods, items });
+        .map(|((mods, uses), items)| ModuleDef { mods, uses, items });
 
     parser
         .parse(&tokens)
@@ -2553,6 +2554,55 @@ mod tests {
     fn test_parse_module_mods_and_items() {
         let module = parse_module_str("mod utils mod helpers fn main() -> Int 42").unwrap();
         assert_eq!(module.mods.len(), 2);
+        assert_eq!(module.items.len(), 1);
+    }
+
+    // Use declaration tests
+
+    #[test]
+    fn test_parse_module_use_root() {
+        let module = parse_module_str("use root::foo::bar").unwrap();
+        assert!(module.mods.is_empty());
+        assert_eq!(module.uses.len(), 1);
+        assert!(module.items.is_empty());
+        assert_eq!(module.uses[0].path.prefix, PathPrefix::Root);
+        assert_eq!(module.uses[0].path.segments, vec!["foo", "bar"]);
+    }
+
+    #[test]
+    fn test_parse_module_use_self() {
+        let module = parse_module_str("use self::helper").unwrap();
+        assert_eq!(module.uses.len(), 1);
+        assert_eq!(module.uses[0].path.prefix, PathPrefix::Self_);
+        assert_eq!(module.uses[0].path.segments, vec!["helper"]);
+    }
+
+    #[test]
+    fn test_parse_module_use_super() {
+        let module = parse_module_str("use super::parent_fn").unwrap();
+        assert_eq!(module.uses.len(), 1);
+        assert_eq!(module.uses[0].path.prefix, PathPrefix::Super);
+        assert_eq!(module.uses[0].path.segments, vec!["parent_fn"]);
+    }
+
+    #[test]
+    fn test_parse_module_use_without_prefix_fails() {
+        let result = parse_module_str("use serde::Deserialize");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("external modules not supported"));
+    }
+
+    #[test]
+    fn test_parse_module_use_multiple() {
+        let module = parse_module_str("use root::a::b use root::c::d").unwrap();
+        assert_eq!(module.uses.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_module_mods_uses_items() {
+        let module = parse_module_str("mod utils use root::types::Option fn main() -> Int 42").unwrap();
+        assert_eq!(module.mods.len(), 1);
+        assert_eq!(module.uses.len(), 1);
         assert_eq!(module.items.len(), 1);
     }
 

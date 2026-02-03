@@ -14,6 +14,7 @@ use crate::builtin::{builtin_method, is_numeric_type};
 use crate::definition::{
     enum_type_from_def, function_type_from_def, struct_type_from_def, type_alias_from_def,
 };
+use crate::imports::{resolve_module_imports, ImportTable};
 use crate::naming::{is_pascal_case, is_snake_case, to_pascal_case, to_snake_case};
 use crate::pattern::{check_irrefutable, check_let_binding, check_match_arm, check_pattern};
 use crate::resolution::{self, ResolvedPath};
@@ -28,6 +29,8 @@ pub struct TypeEnv {
     pub definitions: HashMap<QualifiedPath, Definition>,
     /// Local variable types (type schemes for let polymorphism)
     pub locals: HashMap<String, TypeScheme>,
+    /// Per-module import tables: module_path -> (local_name -> qualified_path)
+    pub imports: HashMap<ModulePath, ImportTable>,
 }
 
 impl TypeEnv {
@@ -35,6 +38,7 @@ impl TypeEnv {
         TypeEnv {
             definitions: self.definitions.clone(),
             locals,
+            imports: self.imports.clone(),
         }
     }
 
@@ -167,7 +171,7 @@ fn check_path_expr(
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
     let resolved =
-        resolution::resolve_expr_path(path, current_module, &env.locals, &env.definitions)?;
+        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.definitions)?;
 
     match resolved {
         ResolvedPath::Local { name, scheme } => {
@@ -308,7 +312,7 @@ fn check_path_call(
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
     let resolved =
-        resolution::resolve_expr_path(path, current_module, &env.locals, &env.definitions)?;
+        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.definitions)?;
 
     match resolved {
         ResolvedPath::Local { name, scheme } => {
@@ -1048,7 +1052,7 @@ fn check_path_struct(
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
     let resolved =
-        resolution::resolve_expr_path(path, current_module, &env.locals, &env.definitions)?;
+        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.definitions)?;
 
     match resolved {
         ResolvedPath::Definition {
@@ -1536,6 +1540,14 @@ pub fn check(tree: &ModuleTree) -> Result<CheckedModuleTree, TypeError> {
     for path in &module_paths {
         if let Some(module) = tree.modules.get(path) {
             register_module_declarations(&module.items, path, &mut env, &mut ctx)?;
+        }
+    }
+
+    // Phase 1.5: Resolve imports for all modules
+    for path in &module_paths {
+        if let Some(module) = tree.modules.get(path) {
+            let module_imports = resolve_module_imports(&module.uses, path, &env.definitions)?;
+            env.imports.insert(path.clone(), module_imports);
         }
     }
 
