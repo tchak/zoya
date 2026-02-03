@@ -4,9 +4,9 @@ use std::path::{Path, PathBuf};
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
-use zoya_check::check;
 use crate::eval::{self, Context, Value, VirtualModules};
 use zoya_ast::{Expr, FunctionDef, Item, LetBinding, Stmt};
+use zoya_check::check;
 use zoya_codegen::codegen;
 use zoya_ir::{CheckedItem, CheckedModuleTree, Type, TypedExpr, TypedPattern};
 use zoya_module::{Module, ModulePath, ModuleTree};
@@ -201,11 +201,11 @@ impl State {
         let (blocks, new_lets) = partition_into_blocks(&self.accumulated_lets, &stmts);
 
         // Create synthetic run functions for each block
-        // Use __repl_run_ prefix which is valid snake_case and unlikely to conflict with user code
+        // Use run_{n} prefix
         let mut run_function_names = Vec::new();
         let mut run_functions = Vec::new();
         for block in &blocks {
-            let name = format!("__repl_run_{}", self.run_counter);
+            let name = format!("run_{}", self.run_counter);
             self.run_counter += 1;
             run_functions.push(create_run_function(&name, block));
             run_function_names.push(name);
@@ -261,8 +261,13 @@ impl State {
             // Call the function via module import
             let entry_func = format!("$root$repl${}", run_name);
             let value = self.context.with(|ctx| {
-                eval::eval_module(&ctx, &module_name, &entry_func, typed_fn.return_type.clone())
-                    .map_err(|e| e.to_string())
+                eval::eval_module(
+                    &ctx,
+                    &module_name,
+                    &entry_func,
+                    typed_fn.return_type.clone(),
+                )
+                .map_err(|e| e.to_string())
             })?;
 
             // If unit type, this was a let-only block
@@ -597,9 +602,7 @@ mod tests {
     #[test]
     fn test_repl_function_call() {
         let mut state = State::new(None).unwrap();
-        state
-            .eval("fn double(n: Int) -> Int { n * 2 }")
-            .unwrap();
+        state.eval("fn double(n: Int) -> Int { n * 2 }").unwrap();
         let results = state.eval("double(21)").unwrap();
         assert_eq!(results, vec![ReplResult::Expression(Value::Int(42))]);
     }
@@ -663,8 +666,12 @@ mod tests {
         let mut state = State::new(None).unwrap();
         let results = state.eval("let a = 1\nlet b = 2\na + b").unwrap();
         assert_eq!(results.len(), 3);
-        assert!(matches!(&results[0], ReplResult::LetBinding { bindings } if bindings.len() == 1 && bindings[0].0 == "a"));
-        assert!(matches!(&results[1], ReplResult::LetBinding { bindings } if bindings.len() == 1 && bindings[0].0 == "b"));
+        assert!(
+            matches!(&results[0], ReplResult::LetBinding { bindings } if bindings.len() == 1 && bindings[0].0 == "a")
+        );
+        assert!(
+            matches!(&results[1], ReplResult::LetBinding { bindings } if bindings.len() == 1 && bindings[0].0 == "b")
+        );
         assert_eq!(results[2], ReplResult::Expression(Value::Int(3)));
     }
 
