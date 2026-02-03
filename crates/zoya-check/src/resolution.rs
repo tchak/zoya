@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use zoya_ast::{Path, PathPrefix};
-use zoya_ir::{Definition, EnumType, EnumVariantType, TypeError, TypeScheme};
+use zoya_ir::{Definition, TypeError, TypeScheme};
 use zoya_module::ModulePath;
 
 /// Resolve an AST path to a fully qualified module path string.
@@ -87,12 +87,6 @@ pub enum ResolvedPath<'a> {
         qualified_name: String,
         def: &'a Definition,
     },
-    /// Enum variant (nested inside enum definition)
-    EnumVariant {
-        qualified_name: String,
-        def: &'a EnumType,
-        variant: (String, &'a EnumVariantType),
-    },
 }
 
 /// Resolve a path in expression context.
@@ -129,44 +123,6 @@ pub fn resolve_expr_path<'a>(
         });
     }
 
-    // If path has 2+ segments, try interpreting last segment as enum variant
-    // E.g., "Option::Some" -> look up "Option" as enum, then "Some" as variant
-    // E.g., "root::module::Option::Some" -> look up "root::module::Option", then "Some"
-    if path.segments.len() >= 2 {
-        // Try to split off the last segment as variant name
-        let variant_name = path.segments.last().unwrap();
-
-        // Build the enum path (all segments except last)
-        let enum_path = Path {
-            prefix: path.prefix,
-            segments: path.segments[..path.segments.len() - 1].to_vec(),
-            type_args: None,
-        };
-        let qualified_name = resolve_path(&enum_path, current_module)?;
-
-        if let Some(Definition::Enum(def)) = definitions.get(&qualified_name) {
-            // Find the variant
-            if let Some((_, variant)) = def.variants.iter().find(|(name, _)| name == variant_name) {
-                return Ok(ResolvedPath::EnumVariant {
-                    qualified_name,
-                    def,
-                    variant: (variant_name.clone(), variant),
-                });
-            }
-            // Enum exists but variant doesn't
-            return Err(TypeError {
-                message: format!(
-                    "enum '{}' has no variant '{}'",
-                    enum_path
-                        .segments
-                        .last()
-                        .unwrap_or(&"<unknown>".to_string()),
-                    variant_name
-                ),
-            });
-        }
-    }
-
     // Nothing found - generate appropriate error
     if path.segments.len() == 1 {
         Err(TypeError {
@@ -197,39 +153,6 @@ pub fn resolve_pattern_path<'a>(
             qualified_name: qualified,
             def,
         });
-    }
-
-    // If path has 2+ segments, try interpreting last segment as enum variant
-    if path.segments.len() >= 2 {
-        let variant_name = path.segments.last().unwrap();
-
-        // Build the enum path (all segments except last)
-        let enum_path = Path {
-            prefix: path.prefix,
-            segments: path.segments[..path.segments.len() - 1].to_vec(),
-            type_args: None,
-        };
-        let qualified_name = resolve_path(&enum_path, current_module)?;
-
-        if let Some(Definition::Enum(def)) = definitions.get(&qualified_name) {
-            if let Some((_, variant)) = def.variants.iter().find(|(name, _)| name == variant_name) {
-                return Ok(ResolvedPath::EnumVariant {
-                    qualified_name,
-                    def,
-                    variant: (variant_name.clone(), variant),
-                });
-            }
-            return Err(TypeError {
-                message: format!(
-                    "enum '{}' has no variant '{}'",
-                    enum_path
-                        .segments
-                        .last()
-                        .unwrap_or(&"<unknown>".to_string()),
-                    variant_name
-                ),
-            });
-        }
     }
 
     // Nothing found

@@ -595,40 +595,46 @@ fn check_path_pattern(
     let resolved = resolution::resolve_pattern_path(path, current_module, &env.definitions)?;
 
     match resolved {
-        ResolvedPath::EnumVariant {
+        ResolvedPath::Definition {
+            def: Definition::EnumVariant(enum_type, variant_type),
             qualified_name,
-            def,
-            variant: (variant_name, variant),
         } => {
             // Must be a unit variant when used as a bare path pattern
-            if !matches!(variant, EnumVariantType::Unit) {
+            if !matches!(variant_type, EnumVariantType::Unit) {
                 return Err(TypeError {
-                    message: format!(
-                        "enum variant '{}::{}' is not a unit variant",
-                        qualified_name, variant_name
-                    ),
+                    message: format!("enum variant '{}' is not a unit variant", qualified_name),
                 });
             }
 
+            // Find variant name from enum_type.variants
+            let variant_name = enum_type
+                .variants
+                .iter()
+                .find(|(_, vt)| vt == variant_type)
+                .map(|(name, _)| name)
+                .ok_or_else(|| TypeError {
+                    message: format!("enum variant not found in {:?}", variant_type),
+                })?;
+
             // Create fresh type variables for generic parameters
             let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
-            for &old_id in &def.type_var_ids {
+            for &old_id in &enum_type.type_var_ids {
                 instantiation.insert(old_id, ctx.fresh_var());
             }
 
             // Build the expected enum type and unify with scrutinee
-            let type_args: Vec<Type> = def
+            let type_args: Vec<Type> = enum_type
                 .type_var_ids
                 .iter()
                 .map(|id| instantiation[id].clone())
                 .collect();
-            let resolved_variants: Vec<(String, EnumVariantType)> = def
+            let resolved_variants: Vec<(String, EnumVariantType)> = enum_type
                 .variants
                 .iter()
                 .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, &instantiation)))
                 .collect();
             let expected_enum_ty = Type::Enum {
-                name: def.name.clone(),
+                name: enum_type.name.clone(),
                 type_args,
                 variants: resolved_variants,
             };
@@ -636,9 +642,8 @@ fn check_path_pattern(
             ctx.unify(scrutinee_ty, &expected_enum_ty)
                 .map_err(|e| TypeError {
                     message: format!(
-                        "enum pattern {}::{} cannot match type {}: {}",
-                        def.name,
-                        variant_name,
+                        "enum pattern {} cannot match type {}: {}",
+                        qualified_name,
                         ctx.resolve(scrutinee_ty),
                         e.message
                     ),
@@ -646,7 +651,10 @@ fn check_path_pattern(
 
             Ok((
                 TypedPattern::EnumUnit {
-                    path: QualifiedPath::new(vec![def.name.clone(), variant_name]),
+                    path: QualifiedPath::new(vec![
+                        enum_type.name.clone(),
+                        variant_name.clone(),
+                    ]),
                 },
                 HashMap::new(),
             ))
@@ -655,12 +663,7 @@ fn check_path_pattern(
             qualified_name,
             def,
         } => {
-            let kind = match def {
-                Definition::Function(_) => "function",
-                Definition::Struct(_) => "struct",
-                Definition::Enum(_) => "enum",
-                Definition::TypeAlias(_) => "type alias",
-            };
+            let kind = def.kind_name();
             Err(TypeError {
                 message: format!("{} '{}' cannot be used as a pattern", kind, qualified_name),
             })
@@ -686,51 +689,60 @@ fn check_call_pattern(
     let resolved = resolution::resolve_pattern_path(path, current_module, &env.definitions)?;
 
     match resolved {
-        ResolvedPath::EnumVariant {
+        ResolvedPath::Definition {
+            def: Definition::EnumVariant(enum_type, variant_type),
             qualified_name,
-            def,
-            variant: (variant_name, variant),
         } => {
             // Must be a tuple variant
-            let expected_types = match variant {
+            let expected_types = match variant_type {
                 EnumVariantType::Tuple(types) => types,
                 EnumVariantType::Unit => {
                     return Err(TypeError {
                         message: format!(
-                            "enum variant '{}::{}' is a unit variant, doesn't take arguments",
-                            qualified_name, variant_name
+                            "enum variant '{}' is a unit variant, doesn't take arguments",
+                            qualified_name
                         ),
                     });
                 }
                 EnumVariantType::Struct(_) => {
                     return Err(TypeError {
                         message: format!(
-                            "enum variant '{}::{}' is a struct variant, use {{ }} syntax",
-                            qualified_name, variant_name
+                            "enum variant '{}' is a struct variant, use {{ }} syntax",
+                            qualified_name
                         ),
                     });
                 }
             };
 
+            // Find variant name from enum_type.variants
+            let variant_name = enum_type
+                .variants
+                .iter()
+                .find(|(_, vt)| vt == variant_type)
+                .map(|(name, _)| name)
+                .ok_or_else(|| TypeError {
+                    message: format!("enum variant not found in {:?}", variant_type),
+                })?;
+
             // Create fresh type variables for generic parameters
             let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
-            for &old_id in &def.type_var_ids {
+            for &old_id in &enum_type.type_var_ids {
                 instantiation.insert(old_id, ctx.fresh_var());
             }
 
             // Build the expected enum type and unify with scrutinee
-            let type_args: Vec<Type> = def
+            let type_args: Vec<Type> = enum_type
                 .type_var_ids
                 .iter()
                 .map(|id| instantiation[id].clone())
                 .collect();
-            let resolved_variants: Vec<(String, EnumVariantType)> = def
+            let resolved_variants: Vec<(String, EnumVariantType)> = enum_type
                 .variants
                 .iter()
                 .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, &instantiation)))
                 .collect();
             let expected_enum_ty = Type::Enum {
-                name: def.name.clone(),
+                name: enum_type.name.clone(),
                 type_args,
                 variants: resolved_variants,
             };
@@ -738,9 +750,8 @@ fn check_call_pattern(
             ctx.unify(scrutinee_ty, &expected_enum_ty)
                 .map_err(|e| TypeError {
                     message: format!(
-                        "enum pattern '{}::{}' cannot match type {}: {}",
+                        "enum pattern '{}' cannot match type {}: {}",
                         qualified_name,
-                        variant_name,
                         ctx.resolve(scrutinee_ty),
                         e.message
                     ),
@@ -753,8 +764,8 @@ fn check_call_pattern(
                 .collect();
 
             check_enum_tuple_pattern(
-                &def.name,
-                &variant_name,
+                &enum_type.name,
+                variant_name,
                 args,
                 &resolved_types,
                 current_module,
@@ -766,12 +777,7 @@ fn check_call_pattern(
             qualified_name,
             def,
         } => {
-            let kind = match def {
-                Definition::Function(_) => "function",
-                Definition::Struct(_) => "struct",
-                Definition::Enum(_) => "enum",
-                Definition::TypeAlias(_) => "type alias",
-            };
+            let kind = def.kind_name();
             Err(TypeError {
                 message: format!(
                     "{} '{}' cannot be used as a call pattern",
@@ -812,52 +818,56 @@ fn check_struct_pattern(
             env,
             ctx,
         ),
-        ResolvedPath::EnumVariant {
+        ResolvedPath::Definition {
+            def: Definition::EnumVariant(enum_type, variant_type),
             qualified_name,
-            def,
-            variant: (variant_name, variant),
-        } => match variant {
-            EnumVariantType::Struct(_) => check_enum_struct_variant_pattern(
-                &def.name,
-                &variant_name,
-                def,
-                field_patterns,
-                is_partial,
-                scrutinee_ty,
-                current_module,
-                env,
-                ctx,
-            ),
-            EnumVariantType::Unit => Err(TypeError {
-                message: format!(
-                    "enum variant '{}::{}' is a unit variant, doesn't take fields",
-                    qualified_name, variant_name
+        } => {
+            // Find variant name from enum_type.variants
+            let variant_name = enum_type
+                .variants
+                .iter()
+                .find(|(_, vt)| vt == variant_type)
+                .map(|(name, _)| name)
+                .ok_or_else(|| TypeError {
+                    message: format!("enum variant not found in {:?}", variant_type),
+                })?;
+
+            match variant_type {
+                EnumVariantType::Struct(_) => check_enum_struct_variant_pattern(
+                    &enum_type.name,
+                    variant_name,
+                    enum_type,
+                    field_patterns,
+                    is_partial,
+                    scrutinee_ty,
+                    current_module,
+                    env,
+                    ctx,
                 ),
-            }),
-            EnumVariantType::Tuple(_) => Err(TypeError {
-                message: format!(
-                    "enum variant '{}::{}' is a tuple variant, use ( ) syntax",
-                    qualified_name, variant_name
-                ),
-            }),
-        },
+                EnumVariantType::Unit => Err(TypeError {
+                    message: format!(
+                        "enum variant '{}' is a unit variant, doesn't take fields",
+                        qualified_name
+                    ),
+                }),
+                EnumVariantType::Tuple(_) => Err(TypeError {
+                    message: format!(
+                        "enum variant '{}' is a tuple variant, use ( ) syntax",
+                        qualified_name
+                    ),
+                }),
+            }
+        }
         ResolvedPath::Definition {
             qualified_name,
             def,
-        } => {
-            let kind = match def {
-                Definition::Function(_) => "function",
-                Definition::Enum(_) => "enum",
-                Definition::TypeAlias(_) => "type alias",
-                Definition::Struct(_) => unreachable!(),
-            };
-            Err(TypeError {
-                message: format!(
-                    "{} '{}' cannot be used as a struct pattern",
-                    kind, qualified_name
-                ),
-            })
-        }
+        } => Err(TypeError {
+            message: format!(
+                "{} '{}' cannot be used as a struct pattern",
+                def.kind_name(),
+                qualified_name
+            ),
+        }),
         ResolvedPath::Local { name, .. } => Err(TypeError {
             message: format!("variable '{}' cannot be used as a struct pattern", name),
         }),
@@ -2424,48 +2434,58 @@ mod tests {
 
     fn env_with_option() -> TypeEnv {
         let mut env = TypeEnv::default();
-        env.register(
-            "root::Option".to_string(),
-            Definition::Enum(EnumType {
-                name: "Option".to_string(),
-                type_params: vec!["T".to_string()],
-                type_var_ids: vec![TypeVarId(1)],
-                variants: vec![
-                    ("None".to_string(), EnumVariantType::Unit),
-                    (
-                        "Some".to_string(),
-                        EnumVariantType::Tuple(vec![Type::Var(TypeVarId(1))]),
-                    ),
-                ],
-            }),
-        );
+        let enum_type = EnumType {
+            name: "Option".to_string(),
+            type_params: vec!["T".to_string()],
+            type_var_ids: vec![TypeVarId(1)],
+            variants: vec![
+                ("None".to_string(), EnumVariantType::Unit),
+                (
+                    "Some".to_string(),
+                    EnumVariantType::Tuple(vec![Type::Var(TypeVarId(1))]),
+                ),
+            ],
+        };
+        env.register("root::Option".to_string(), Definition::Enum(enum_type.clone()));
+        // Register each variant separately
+        for (variant_name, variant_type) in &enum_type.variants {
+            env.register(
+                format!("root::Option::{}", variant_name),
+                Definition::EnumVariant(enum_type.clone(), variant_type.clone()),
+            );
+        }
         env
     }
 
     fn env_with_message() -> TypeEnv {
         let mut env = TypeEnv::default();
-        env.register(
-            "root::Message".to_string(),
-            Definition::Enum(EnumType {
-                name: "Message".to_string(),
-                type_params: vec![],
-                type_var_ids: vec![],
-                variants: vec![
-                    ("Quit".to_string(), EnumVariantType::Unit),
-                    (
-                        "Move".to_string(),
-                        EnumVariantType::Struct(vec![
-                            ("x".to_string(), Type::Int),
-                            ("y".to_string(), Type::Int),
-                        ]),
-                    ),
-                    (
-                        "Write".to_string(),
-                        EnumVariantType::Tuple(vec![Type::String]),
-                    ),
-                ],
-            }),
-        );
+        let enum_type = EnumType {
+            name: "Message".to_string(),
+            type_params: vec![],
+            type_var_ids: vec![],
+            variants: vec![
+                ("Quit".to_string(), EnumVariantType::Unit),
+                (
+                    "Move".to_string(),
+                    EnumVariantType::Struct(vec![
+                        ("x".to_string(), Type::Int),
+                        ("y".to_string(), Type::Int),
+                    ]),
+                ),
+                (
+                    "Write".to_string(),
+                    EnumVariantType::Tuple(vec![Type::String]),
+                ),
+            ],
+        };
+        env.register("root::Message".to_string(), Definition::Enum(enum_type.clone()));
+        // Register each variant separately
+        for (variant_name, variant_type) in &enum_type.variants {
+            env.register(
+                format!("root::Message::{}", variant_name),
+                Definition::EnumVariant(enum_type.clone(), variant_type.clone()),
+            );
+        }
         env
     }
 
@@ -2787,7 +2807,12 @@ mod tests {
         let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("has no variant") && err.message.contains("Unknown"));
+        // With the new scheme, unknown variants are reported as unknown paths
+        assert!(
+            err.message.contains("unknown path") && err.message.contains("Unknown"),
+            "Expected 'unknown path' error with 'Unknown' but got: {}",
+            err.message
+        );
     }
 
     #[test]
@@ -3025,18 +3050,23 @@ mod tests {
 
     fn env_with_multi_tuple_enum() -> TypeEnv {
         let mut env = TypeEnv::default();
-        env.register(
-            "root::Data".to_string(),
-            Definition::Enum(EnumType {
-                name: "Data".to_string(),
-                type_params: vec![],
-                type_var_ids: vec![],
-                variants: vec![(
-                    "Triple".to_string(),
-                    EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool]),
-                )],
-            }),
-        );
+        let enum_type = EnumType {
+            name: "Data".to_string(),
+            type_params: vec![],
+            type_var_ids: vec![],
+            variants: vec![(
+                "Triple".to_string(),
+                EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool]),
+            )],
+        };
+        env.register("root::Data".to_string(), Definition::Enum(enum_type.clone()));
+        // Register each variant separately
+        for (variant_name, variant_type) in &enum_type.variants {
+            env.register(
+                format!("root::Data::{}", variant_name),
+                Definition::EnumVariant(enum_type.clone(), variant_type.clone()),
+            );
+        }
         env
     }
 

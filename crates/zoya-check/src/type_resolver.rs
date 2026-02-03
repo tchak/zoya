@@ -107,20 +107,21 @@ pub fn resolve_type_annotation(
                             Ok(alias_def.typ.clone())
                         }
                         Definition::Function(_) => Err(TypeError {
-                            message: format!("function '{}' is not a type", qualified_name),
+                            message: format!(
+                                "{} '{}' is not a type",
+                                def.kind_name(),
+                                qualified_name
+                            ),
+                        }),
+                        Definition::EnumVariant(..) => Err(TypeError {
+                            message: format!(
+                                "{} '{}' is not a type",
+                                def.kind_name(),
+                                qualified_name
+                            ),
                         }),
                     }
                 }
-                ResolvedPath::EnumVariant {
-                    qualified_name,
-                    variant: (variant_name, ..),
-                    ..
-                } => Err(TypeError {
-                    message: format!(
-                        "enum variant '{}::{}' is not a type",
-                        qualified_name, variant_name
-                    ),
-                }),
                 ResolvedPath::Local { name, .. } => Err(TypeError {
                     message: format!("variable '{}' is not a type", name),
                 }),
@@ -257,20 +258,21 @@ pub fn resolve_type_annotation(
                             Ok(substitute_type_vars(&alias_def.typ, &subst))
                         }
                         Definition::Function(_) => Err(TypeError {
-                            message: format!("function '{}' is not a type", qualified_name),
+                            message: format!(
+                                "{} '{}' is not a type",
+                                def.kind_name(),
+                                qualified_name
+                            ),
+                        }),
+                        Definition::EnumVariant(..) => Err(TypeError {
+                            message: format!(
+                                "{} '{}' is not a type",
+                                def.kind_name(),
+                                qualified_name
+                            ),
                         }),
                     }
                 }
-                ResolvedPath::EnumVariant {
-                    qualified_name,
-                    variant: (variant_name, _),
-                    ..
-                } => Err(TypeError {
-                    message: format!(
-                        "enum variant '{}::{}' is not a type",
-                        qualified_name, variant_name
-                    ),
-                }),
                 ResolvedPath::Local { name, .. } => Err(TypeError {
                     message: format!("variable '{}' is not a type", name),
                 }),

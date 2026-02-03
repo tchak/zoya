@@ -71,12 +71,13 @@ impl fmt::Display for Type {
                 } else if params.len() == 1 {
                     write!(f, "{} -> {}", params[0], ret)
                 } else {
-                    let param_strs: Vec<String> =
-                        params.iter().map(|p| p.to_string()).collect();
+                    let param_strs: Vec<String> = params.iter().map(|p| p.to_string()).collect();
                     write!(f, "({}) -> {}", param_strs.join(", "), ret)
                 }
             }
-            Type::Struct { name, type_args, .. } => {
+            Type::Struct {
+                name, type_args, ..
+            } => {
                 if type_args.is_empty() {
                     write!(f, "{}", name)
                 } else {
@@ -84,7 +85,9 @@ impl fmt::Display for Type {
                     write!(f, "{}<{}>", name, args.join(", "))
                 }
             }
-            Type::Enum { name, type_args, .. } => {
+            Type::Enum {
+                name, type_args, ..
+            } => {
                 if type_args.is_empty() {
                     write!(f, "{}", name)
                 } else {
@@ -155,6 +158,7 @@ pub enum Definition {
     Function(FunctionType),
     Struct(StructType),
     Enum(EnumType),
+    EnumVariant(EnumType, EnumVariantType),
     TypeAlias(TypeAliasType),
 }
 
@@ -192,6 +196,7 @@ impl Definition {
             Definition::Function(_) => "function",
             Definition::Struct(_) => "struct",
             Definition::Enum(_) => "enum",
+            Definition::EnumVariant(..) => "enum variant",
             Definition::TypeAlias(_) => "type alias",
         }
     }

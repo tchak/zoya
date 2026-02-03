@@ -7,22 +7,30 @@ use crate::unify::UnifyCtx;
 
 fn env_with_message_enum() -> TypeEnv {
     let mut env = TypeEnv::default();
-    env.register(
-        "root::Message".to_string(),
-        Definition::Enum(EnumType {
-            name: "Message".to_string(),
-            type_params: vec![],
-            type_var_ids: vec![],
-            variants: vec![
-                ("Quit".to_string(), EnumVariantType::Unit),
-                ("Move".to_string(), EnumVariantType::Struct(vec![
+    let enum_type = EnumType {
+        name: "Message".to_string(),
+        type_params: vec![],
+        type_var_ids: vec![],
+        variants: vec![
+            ("Quit".to_string(), EnumVariantType::Unit),
+            (
+                "Move".to_string(),
+                EnumVariantType::Struct(vec![
                     ("x".to_string(), Type::Int),
                     ("y".to_string(), Type::Int),
-                ])),
-                ("Write".to_string(), EnumVariantType::Tuple(vec![Type::String])),
-            ],
-        }),
-    );
+                ]),
+            ),
+            ("Write".to_string(), EnumVariantType::Tuple(vec![Type::String])),
+        ],
+    };
+    env.register("root::Message".to_string(), Definition::Enum(enum_type.clone()));
+    // Register each variant separately
+    for (variant_name, variant_type) in &enum_type.variants {
+        env.register(
+            format!("root::Message::{}", variant_name),
+            Definition::EnumVariant(enum_type.clone(), variant_type.clone()),
+        );
+    }
     env
 }
 
