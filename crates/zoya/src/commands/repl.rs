@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
@@ -155,13 +155,24 @@ pub struct State {
     context: Context,
     /// Virtual modules storage (shared with runtime loader)
     virtual_modules: VirtualModules,
+    /// Base module tree loaded from file (if provided)
+    base_tree: Option<ModuleTree>,
 }
 
 impl State {
     /// Create a new REPL state
-    pub fn new() -> Result<Self, String> {
+    pub fn new(file_path: Option<&Path>) -> Result<Self, String> {
         let virtual_modules = VirtualModules::new();
         let (runtime, context) = eval::create_module_runtime(virtual_modules.clone())?;
+
+        let base_tree = if let Some(path) = file_path {
+            Some(
+                zoya_loader::load_modules(path)
+                    .map_err(|e| format!("Failed to load modules: {}", e))?,
+            )
+        } else {
+            None
+        };
 
         Ok(State {
             accumulated_items: HashMap::new(),
@@ -171,6 +182,7 @@ impl State {
             runtime,
             context,
             virtual_modules,
+            base_tree,
         })
     }
 
@@ -208,7 +220,7 @@ impl State {
         all_items.extend(items.clone());
         all_items.extend(run_functions);
 
-        let tree = build_repl_module(all_items);
+        let tree = build_repl_tree(self.base_tree.as_ref(), all_items);
 
         // Type check the module tree
         let checked_tree = check(&tree).map_err(|e| e.to_string())?;
@@ -251,7 +263,7 @@ impl State {
                 .ok_or_else(|| format!("Internal error: run function {} not found", run_name))?;
 
             // Call the function via module import
-            let entry_func = format!("$root${}", run_name);
+            let entry_func = format!("$root$repl${}", run_name);
             let value = self.context.with(|ctx| {
                 eval::eval_module(&ctx, &module_name, &entry_func, typed_fn.return_type.clone())
                     .map_err(|e| e.to_string())
@@ -347,25 +359,45 @@ fn create_run_function(name: &str, block: &EvalBlock) -> Item {
     })
 }
 
-/// Build a ModuleTree with a single root module containing the given items.
-fn build_repl_module(items: Vec<Item>) -> ModuleTree {
-    let module = Module {
-        items,
+/// Build a ModuleTree with REPL items in a "repl" submodule.
+fn build_repl_tree(base_tree: Option<&ModuleTree>, items: Vec<Item>) -> ModuleTree {
+    let repl_path = ModulePath::root().child("repl");
+
+    let mut modules = if let Some(tree) = base_tree {
+        tree.modules.clone()
+    } else {
+        HashMap::new()
+    };
+
+    // Create or update root module to include "repl" as child
+    let root = modules.entry(ModulePath::root()).or_insert_with(|| Module {
+        items: vec![],
         path: ModulePath::root(),
         children: HashMap::new(),
-    };
-    let mut modules = HashMap::new();
-    modules.insert(ModulePath::root(), module);
+    });
+    root.children.insert("repl".to_string(), repl_path.clone());
+
+    // Create the repl submodule with REPL items
+    modules.insert(
+        repl_path.clone(),
+        Module {
+            items,
+            path: repl_path,
+            children: HashMap::new(),
+        },
+    );
+
     ModuleTree { modules }
 }
 
-/// Find a typed function by name in the checked module tree.
+/// Find a typed function by name in the repl submodule of the checked module tree.
 fn find_typed_function<'a>(
     tree: &'a CheckedModuleTree,
     name: &str,
 ) -> Option<&'a zoya_ir::TypedFunction> {
-    let root = tree.root()?;
-    for item in &root.items {
+    let repl_path = ModulePath::root().child("repl");
+    let repl_module = tree.modules.get(&repl_path)?;
+    for item in &repl_module.items {
         if let CheckedItem::Function(f) = item
             && f.name == name
         {
@@ -398,7 +430,7 @@ fn history_path() -> PathBuf {
 }
 
 /// Run the interactive REPL
-pub fn execute() {
+pub fn execute(file_path: Option<&Path>) {
     let mut rl = match DefaultEditor::new() {
         Ok(editor) => editor,
         Err(e) => {
@@ -411,7 +443,7 @@ pub fn execute() {
     let history_file = history_path();
     let _ = rl.load_history(&history_file);
 
-    let mut state = match State::new() {
+    let mut state = match State::new(file_path) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("Failed to initialize REPL: {}", e);
@@ -498,21 +530,21 @@ mod tests {
 
     #[test]
     fn test_repl_simple_expression() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         let results = state.eval("42").unwrap();
         assert_eq!(results, vec![ReplResult::Expression(Value::Int(42))]);
     }
 
     #[test]
     fn test_repl_float_expression() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         let results = state.eval("3.14").unwrap();
         assert_eq!(results, vec![ReplResult::Expression(Value::Float(3.14))]);
     }
 
     #[test]
     fn test_repl_string_expression() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         let results = state.eval(r#""hello""#).unwrap();
         assert_eq!(
             results,
@@ -522,21 +554,21 @@ mod tests {
 
     #[test]
     fn test_repl_bool_expression() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         let results = state.eval("true").unwrap();
         assert_eq!(results, vec![ReplResult::Expression(Value::Bool(true))]);
     }
 
     #[test]
     fn test_repl_arithmetic() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         let results = state.eval("1 + 2 * 3").unwrap();
         assert_eq!(results, vec![ReplResult::Expression(Value::Int(7))]);
     }
 
     #[test]
     fn test_repl_function_definition() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         let results = state
             .eval("fn add(x: Int, y: Int) -> Int { x + y }")
             .unwrap();
@@ -548,7 +580,7 @@ mod tests {
 
     #[test]
     fn test_repl_let_binding() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         let results = state.eval("let x = 42").unwrap();
         assert_eq!(results.len(), 1);
         assert!(matches!(
@@ -559,7 +591,7 @@ mod tests {
 
     #[test]
     fn test_repl_state_persistence_let() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         state.eval("let x = 10").unwrap();
         state.eval("let y = 20").unwrap();
         let results = state.eval("x + y").unwrap();
@@ -568,7 +600,7 @@ mod tests {
 
     #[test]
     fn test_repl_function_call() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         state
             .eval("fn double(n: Int) -> Int { n * 2 }")
             .unwrap();
@@ -578,7 +610,7 @@ mod tests {
 
     #[test]
     fn test_repl_forward_reference() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         let results = state
             .eval("fn caller() -> Int { callee() } fn callee() -> Int { 42 }")
             .unwrap();
@@ -593,7 +625,7 @@ mod tests {
 
     #[test]
     fn test_repl_mutual_recursion() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         state
             .eval(
                 r#"
@@ -611,28 +643,28 @@ mod tests {
 
     #[test]
     fn test_repl_syntax_error() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         let result = state.eval("fn bad(");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_repl_type_error() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         let result = state.eval("1 + true");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_repl_undefined_variable() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         let result = state.eval("undefined_var");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_repl_multiple_statements() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         let results = state.eval("let a = 1\nlet b = 2\na + b").unwrap();
         assert_eq!(results.len(), 3);
         assert!(matches!(&results[0], ReplResult::LetBinding { bindings } if bindings.len() == 1 && bindings[0].0 == "a"));
@@ -642,21 +674,21 @@ mod tests {
 
     #[test]
     fn test_repl_empty_input() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         let results = state.eval("").unwrap();
         assert!(results.is_empty());
     }
 
     #[test]
     fn test_repl_whitespace_only() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         let results = state.eval("   \n\t  ").unwrap();
         assert!(results.is_empty());
     }
 
     #[test]
     fn test_repl_function_redefine() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         state.eval("fn f() -> Int { 1 }").unwrap();
         let results = state.eval("f()").unwrap();
         assert_eq!(results, vec![ReplResult::Expression(Value::Int(1))]);
@@ -669,14 +701,14 @@ mod tests {
 
     #[test]
     fn test_repl_method_call() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         let results = state.eval(r#""hello".len()"#).unwrap();
         assert_eq!(results, vec![ReplResult::Expression(Value::Int(5))]);
     }
 
     #[test]
     fn test_repl_list() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         let results = state.eval("[1, 2, 3]").unwrap();
         assert_eq!(
             results,
@@ -690,7 +722,7 @@ mod tests {
 
     #[test]
     fn test_repl_tuple() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         let results = state.eval("(1, true)").unwrap();
         assert_eq!(
             results,
@@ -703,14 +735,14 @@ mod tests {
 
     #[test]
     fn test_repl_match_expression() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         let results = state.eval("match 1 { 0 => false, _ => true }").unwrap();
         assert_eq!(results, vec![ReplResult::Expression(Value::Bool(true))]);
     }
 
     #[test]
     fn test_repl_struct_definition() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         let results = state.eval("struct Point { x: Int, y: Int }").unwrap();
         assert_eq!(
             results,
@@ -720,7 +752,7 @@ mod tests {
 
     #[test]
     fn test_repl_struct_construction() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         state.eval("struct Point { x: Int, y: Int }").unwrap();
         let results = state.eval("Point { x: 10, y: 20 }").unwrap();
         assert_eq!(
@@ -737,7 +769,7 @@ mod tests {
 
     #[test]
     fn test_repl_struct_field_access() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         state.eval("struct Point { x: Int, y: Int }").unwrap();
         state.eval("let p = Point { x: 10, y: 20 }").unwrap();
         let results = state.eval("p.x").unwrap();
@@ -746,7 +778,7 @@ mod tests {
 
     #[test]
     fn test_repl_struct_pattern_match() {
-        let mut state = State::new().unwrap();
+        let mut state = State::new(None).unwrap();
         state.eval("struct Point { x: Int, y: Int }").unwrap();
         state.eval("let p = Point { x: 10, y: 20 }").unwrap();
         let results = state.eval("match p { Point { x, y } => x + y }").unwrap();

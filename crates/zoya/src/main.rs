@@ -22,7 +22,10 @@ enum Command {
         file: PathBuf,
     },
     /// Start the interactive REPL
-    Repl,
+    Repl {
+        /// Optional file to load modules from
+        file: Option<PathBuf>,
+    },
     /// Type-check a file without executing
     Check {
         /// File to type-check
@@ -48,7 +51,7 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Some(Command::Repl) => commands::repl::execute(),
+        Some(Command::Repl { file }) => commands::repl::execute(file.as_deref()),
         Some(Command::Check { file }) => {
             if let Err(e) = commands::check::execute(&file) {
                 eprintln!("{}", e);
