@@ -592,7 +592,7 @@ fn check_path_pattern(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
-    let resolved = resolution::resolve_pattern_path(path, current_module, &env.definitions)?;
+    let resolved = resolution::resolve_pattern_path(path, current_module, &env.imports, &env.definitions)?;
 
     match resolved {
         ResolvedPath::Definition {
@@ -686,7 +686,7 @@ fn check_call_pattern(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
-    let resolved = resolution::resolve_pattern_path(path, current_module, &env.definitions)?;
+    let resolved = resolution::resolve_pattern_path(path, current_module, &env.imports, &env.definitions)?;
 
     match resolved {
         ResolvedPath::Definition {
@@ -802,7 +802,7 @@ fn check_struct_pattern(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
-    let resolved = resolution::resolve_pattern_path(path, current_module, &env.definitions)?;
+    let resolved = resolution::resolve_pattern_path(path, current_module, &env.imports, &env.definitions)?;
 
     match resolved {
         ResolvedPath::Definition {

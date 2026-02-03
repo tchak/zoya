@@ -209,15 +209,32 @@ pub fn resolve_expr_path<'a>(
     }
 }
 
-/// Resolve a path in pattern context (no locals, only definitions and enum variants).
+/// Resolve a path in pattern context (no locals, only imports and definitions).
 ///
 /// This is similar to `resolve_expr_path` but doesn't check locals since patterns
 /// don't have access to local variables.
 pub fn resolve_pattern_path<'a>(
     path: &Path,
     current_module: &ModulePath,
+    imports: &'a HashMap<ModulePath, ImportTable>,
     definitions: &'a HashMap<QualifiedPath, Definition>,
 ) -> Result<ResolvedPath<'a>, TypeError> {
+    // For single-segment paths without prefix, check imports first
+    if path.prefix == PathPrefix::None && path.segments.len() == 1 {
+        let name = &path.segments[0];
+
+        // Check imports
+        if let Some(module_imports) = imports.get(current_module)
+            && let Some(qualified) = module_imports.get(name)
+            && let Some(def) = definitions.get(qualified)
+        {
+            return Ok(ResolvedPath::Definition {
+                qualified_path: qualified.clone(),
+                def,
+            });
+        }
+    }
+
     // Resolve the full path
     let qualified_path = resolve_path(path, current_module)?;
 

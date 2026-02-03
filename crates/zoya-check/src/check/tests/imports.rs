@@ -3,7 +3,8 @@
 use std::collections::HashMap;
 
 use zoya_ast::{
-    Expr, FunctionDef, Item, Path, PathPrefix, TypeAnnotation, UseDecl, UsePath, Visibility,
+    EnumDef, EnumVariant, EnumVariantKind, Expr, FunctionDef, Item, MatchArm, Path, PathPrefix,
+    Pattern, StructFieldPattern, TuplePattern, TypeAnnotation, UseDecl, UsePath, Visibility,
 };
 use zoya_ir::Type;
 use zoya_module::{Module, ModulePath, ModuleTree};
@@ -332,5 +333,163 @@ fn test_import_with_super_prefix() {
     let result = check(&tree).unwrap();
     let child_module = result.modules.get(&ModulePath::root().child("child")).unwrap();
     let test_fn = find_test_function(&child_module.items).unwrap();
+    assert_eq!(test_fn.return_type, Type::Int);
+}
+
+// ===== Pattern Import Tests =====
+
+#[test]
+fn test_imported_enum_variant_in_match_pattern() {
+    // types module has enum Option<T> { None, Some(T) }
+    let types_items = vec![Item::Enum(EnumDef {
+        name: "Option".to_string(),
+        type_params: vec!["T".to_string()],
+        variants: vec![
+            EnumVariant {
+                name: "None".to_string(),
+                kind: EnumVariantKind::Unit,
+            },
+            EnumVariant {
+                name: "Some".to_string(),
+                kind: EnumVariantKind::Tuple(vec![TypeAnnotation::Named(Path::simple(
+                    "T".to_string(),
+                ))]),
+            },
+        ],
+    })];
+
+    // Root module imports Some and None, uses them in expressions and patterns
+    // fn __test() -> Int
+    //     match Some(42) { Some(x) => x, None => 0 }
+    let root_items = vec![Item::Function(FunctionDef {
+        visibility: Visibility::Public,
+        name: "__test".to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+        body: Expr::Match {
+            scrutinee: Box::new(Expr::Call {
+                path: Path::simple("Some".to_string()), // Uses import in expression
+                args: vec![Expr::Int(42)],
+            }),
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Call {
+                        path: Path::simple("Some".to_string()), // Uses import in pattern
+                        args: TuplePattern::Exact(vec![Pattern::Var("x".to_string())]),
+                    },
+                    result: Expr::Path(Path::simple("x".to_string())),
+                },
+                MatchArm {
+                    pattern: Pattern::Path(Path::simple("None".to_string())), // Uses import in pattern
+                    result: Expr::Int(0),
+                },
+            ],
+        },
+    })];
+
+    let root_uses = vec![
+        make_use(PathPrefix::Root, &["types", "Option", "Some"]),
+        make_use(PathPrefix::Root, &["types", "Option", "None"]),
+    ];
+
+    let tree = build_multi_module_tree(vec![
+        (ModulePath::root(), root_items, root_uses),
+        (ModulePath::root().child("types"), types_items, vec![]),
+    ]);
+
+    let result = check(&tree).unwrap();
+    let root_module = result.modules.get(&ModulePath::root()).unwrap();
+    let test_fn = find_test_function(&root_module.items).unwrap();
+    assert_eq!(test_fn.return_type, Type::Int);
+}
+
+#[test]
+fn test_imported_enum_variant_in_struct_pattern() {
+    // types module has enum Message { Move { x: Int, y: Int }, Quit }
+    let types_items = vec![Item::Enum(EnumDef {
+        name: "Message".to_string(),
+        type_params: vec![],
+        variants: vec![
+            EnumVariant {
+                name: "Move".to_string(),
+                kind: EnumVariantKind::Struct(vec![
+                    zoya_ast::StructFieldDef {
+                        name: "x".to_string(),
+                        typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
+                    },
+                    zoya_ast::StructFieldDef {
+                        name: "y".to_string(),
+                        typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
+                    },
+                ]),
+            },
+            EnumVariant {
+                name: "Quit".to_string(),
+                kind: EnumVariantKind::Unit,
+            },
+        ],
+    })];
+
+    // Root module imports Move and Quit, uses them in expressions and patterns
+    // fn __test() -> Int
+    //     match Move { x: 1, y: 2 } { Move { x, y } => x + y, Quit => 0 }
+    let root_items = vec![Item::Function(FunctionDef {
+        visibility: Visibility::Public,
+        name: "__test".to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+        body: Expr::Match {
+            scrutinee: Box::new(Expr::Struct {
+                path: Path::simple("Move".to_string()), // Uses import in expression
+                fields: vec![
+                    ("x".to_string(), Expr::Int(1)),
+                    ("y".to_string(), Expr::Int(2)),
+                ],
+            }),
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Struct {
+                        path: Path::simple("Move".to_string()), // Uses import in pattern
+                        fields: vec![
+                            StructFieldPattern {
+                                field_name: "x".to_string(),
+                                pattern: Box::new(Pattern::Var("x".to_string())),
+                            },
+                            StructFieldPattern {
+                                field_name: "y".to_string(),
+                                pattern: Box::new(Pattern::Var("y".to_string())),
+                            },
+                        ],
+                        is_partial: false,
+                    },
+                    result: Expr::BinOp {
+                        op: zoya_ast::BinOp::Add,
+                        left: Box::new(Expr::Path(Path::simple("x".to_string()))),
+                        right: Box::new(Expr::Path(Path::simple("y".to_string()))),
+                    },
+                },
+                MatchArm {
+                    pattern: Pattern::Path(Path::simple("Quit".to_string())), // Uses import in pattern
+                    result: Expr::Int(0),
+                },
+            ],
+        },
+    })];
+
+    let root_uses = vec![
+        make_use(PathPrefix::Root, &["types", "Message", "Move"]),
+        make_use(PathPrefix::Root, &["types", "Message", "Quit"]),
+    ];
+
+    let tree = build_multi_module_tree(vec![
+        (ModulePath::root(), root_items, root_uses),
+        (ModulePath::root().child("types"), types_items, vec![]),
+    ]);
+
+    let result = check(&tree).unwrap();
+    let root_module = result.modules.get(&ModulePath::root()).unwrap();
+    let test_fn = find_test_function(&root_module.items).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
