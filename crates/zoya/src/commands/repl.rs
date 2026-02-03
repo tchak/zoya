@@ -226,14 +226,14 @@ impl State {
         let checked_tree = check(&tree).map_err(|e| e.to_string())?;
 
         // Generate JavaScript code (ESM with exports)
-        let js_code = codegen(&checked_tree);
+        let output = codegen(&checked_tree);
 
         // Generate unique module name to avoid QuickJS module caching
         let module_name = format!("repl_{}", self.module_counter);
         self.module_counter += 1;
 
         // Register the module with virtual modules
-        self.virtual_modules.register(&module_name, js_code);
+        self.virtual_modules.register(&module_name, output.code);
 
         // Collect results
         let mut results = Vec::new();

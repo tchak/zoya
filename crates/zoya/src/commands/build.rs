@@ -12,16 +12,16 @@ pub fn execute(path: &Path, output: Option<&Path>) -> Result<(), String> {
     let checked_tree = check(&tree).map_err(|e| format!("error: {}", e))?;
 
     // Generate JS code
-    let js_code = codegen(&checked_tree);
+    let output_data = codegen(&checked_tree);
 
     // Write output
     match output {
         Some(out_path) => {
-            std::fs::write(out_path, &js_code)
+            std::fs::write(out_path, &output_data.code)
                 .map_err(|e| format!("error: failed to write file '{}': {}", out_path.display(), e))?;
         }
         None => {
-            print!("{}", js_code);
+            print!("{}", output_data.code);
         }
     }
 

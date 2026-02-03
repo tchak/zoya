@@ -5,6 +5,15 @@ use zoya_ir::{
 };
 use zoya_module::ModulePath;
 
+/// Output of code generation containing JS code and content hash
+#[derive(Debug, Clone)]
+pub struct CodegenOutput {
+    /// Generated JavaScript code
+    pub code: String,
+    /// Blake3 hash of the code as hex string (64 chars)
+    pub hash: String,
+}
+
 /// Deep equality function name used in generated JS
 const DEEP_EQ_FN: &str = "$$eq";
 
@@ -71,7 +80,8 @@ fn codegen_items(items: &[CheckedItem], module_path: &ModulePath) -> String {
 /// Generate JavaScript code for all modules in the checked module tree.
 /// Processes modules in dependency order (parents before children).
 /// Includes the prelude (runtime helper functions) at the start.
-pub fn codegen(tree: &CheckedModuleTree) -> String {
+/// Returns a `CodegenOutput` containing the generated code and its Blake3 hash.
+pub fn codegen(tree: &CheckedModuleTree) -> CodegenOutput {
     let mut js = String::new();
 
     // Include prelude at the start
@@ -88,7 +98,9 @@ pub fn codegen(tree: &CheckedModuleTree) -> String {
         }
     }
 
-    js
+    let hash = blake3::hash(js.as_bytes()).to_hex().to_string();
+
+    CodegenOutput { code: js, hash }
 }
 
 /// Check if an expression doesn't need wrapping in parens when used as an operand.

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+blake3 = "1"
 zoya-ast = { path = "../zoya-ast" }
 zoya-ir = { path = "../zoya-ir" }
 zoya-module = { path = "../zoya-module" }

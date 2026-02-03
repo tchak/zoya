@@ -36,11 +36,11 @@ pub fn execute(path: &Path) -> Result<(), EvalError> {
     }
 
     // Generate JS module code (ESM with exports)
-    let js_code = codegen(&checked_tree);
+    let output = codegen(&checked_tree);
 
     // Create virtual modules and register the generated code
     let virtual_modules = VirtualModules::new();
-    virtual_modules.register("root", js_code);
+    virtual_modules.register("root", output.code);
 
     // Create runtime with module loader
     let (_runtime, context) = eval::create_module_runtime(virtual_modules)
