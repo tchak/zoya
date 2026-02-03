@@ -146,8 +146,6 @@ pub struct State {
     accumulated_lets: Vec<LetBinding>,
     /// Counter for synthetic run function names
     run_counter: usize,
-    /// Counter for unique module names to avoid QuickJS caching
-    module_counter: usize,
     /// QuickJS runtime (kept alive for context)
     #[allow(dead_code)]
     runtime: rquickjs::Runtime,
@@ -178,7 +176,6 @@ impl State {
             accumulated_items: HashMap::new(),
             accumulated_lets: Vec::new(),
             run_counter: 0,
-            module_counter: 0,
             runtime,
             context,
             virtual_modules,
@@ -229,8 +226,7 @@ impl State {
         let output = codegen(&checked_tree);
 
         // Generate unique module name to avoid QuickJS module caching
-        let module_name = format!("repl_{}", self.module_counter);
-        self.module_counter += 1;
+        let module_name = format!("root_{}", output.hash);
 
         // Register the module with virtual modules
         self.virtual_modules.register(&module_name, output.code);
