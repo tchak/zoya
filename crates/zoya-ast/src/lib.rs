@@ -84,6 +84,18 @@ pub enum Item {
     TypeAlias(TypeAliasDef),
 }
 
+impl Item {
+    /// Returns the name of this item
+    pub fn name(&self) -> &str {
+        match self {
+            Item::Function(f) => &f.name,
+            Item::Struct(s) => &s.name,
+            Item::Enum(e) => &e.name,
+            Item::TypeAlias(t) => &t.name,
+        }
+    }
+}
+
 /// Struct definition: `struct Name<T, U> { field: Type, ... }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructDef {

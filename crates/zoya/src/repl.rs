@@ -140,8 +140,8 @@ struct EvalBlock {
 
 /// REPL state that accumulates definitions across evaluations
 pub struct State {
-    /// Accumulated items (functions, structs, enums, type aliases)
-    accumulated_items: Vec<Item>,
+    /// Accumulated items (functions, structs, enums, type aliases), keyed by name
+    accumulated_items: HashMap<String, Item>,
     /// Accumulated let bindings from REPL input
     accumulated_lets: Vec<LetBinding>,
     /// Counter for synthetic run function names
@@ -164,7 +164,7 @@ impl State {
         let (runtime, context) = eval::create_module_runtime(virtual_modules.clone())?;
 
         Ok(State {
-            accumulated_items: Vec::new(),
+            accumulated_items: HashMap::new(),
             accumulated_lets: Vec::new(),
             run_counter: 0,
             module_counter: 0,
@@ -203,26 +203,8 @@ impl State {
         }
 
         // Build module tree with accumulated items + new items + run functions
-        // First, remove any existing items with the same name as new items (to allow redefinition)
-        let new_item_names: std::collections::HashSet<String> = items.iter().map(|item| match item {
-            Item::Function(f) => f.name.clone(),
-            Item::Struct(s) => s.name.clone(),
-            Item::Enum(e) => e.name.clone(),
-            Item::TypeAlias(t) => t.name.clone(),
-        }).collect();
-
-        let mut all_items: Vec<Item> = self.accumulated_items.iter()
-            .filter(|item| {
-                let name = match item {
-                    Item::Function(f) => &f.name,
-                    Item::Struct(s) => &s.name,
-                    Item::Enum(e) => &e.name,
-                    Item::TypeAlias(t) => &t.name,
-                };
-                !new_item_names.contains(name)
-            })
-            .cloned()
-            .collect();
+        // New items will replace accumulated items with the same name when we update state later
+        let mut all_items: Vec<Item> = self.accumulated_items.values().cloned().collect();
         all_items.extend(items.clone());
         all_items.extend(run_functions);
 
@@ -290,25 +272,10 @@ impl State {
             }
         }
 
-        // Update accumulated state (remove old items with same name before adding new ones)
-        for item in &items {
-            let name = match item {
-                Item::Function(f) => &f.name,
-                Item::Struct(s) => &s.name,
-                Item::Enum(e) => &e.name,
-                Item::TypeAlias(t) => &t.name,
-            };
-            self.accumulated_items.retain(|existing| {
-                let existing_name = match existing {
-                    Item::Function(f) => &f.name,
-                    Item::Struct(s) => &s.name,
-                    Item::Enum(e) => &e.name,
-                    Item::TypeAlias(t) => &t.name,
-                };
-                existing_name != name
-            });
+        // Update accumulated state (HashMap handles replacement automatically)
+        for item in items {
+            self.accumulated_items.insert(item.name().to_string(), item);
         }
-        self.accumulated_items.extend(items);
         self.accumulated_lets = new_lets;
 
         // If no blocks were created, we need to report let bindings from stmts directly
