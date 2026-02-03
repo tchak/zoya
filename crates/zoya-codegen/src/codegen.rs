@@ -130,13 +130,7 @@ fn needs_deep_equality(ty: &Type) -> bool {
 
 /// Format a qualified path as a JS identifier: Option::Some -> $Option$Some
 fn format_path(path: &QualifiedPath) -> String {
-    let segments: Vec<&str> = path
-        .segments
-        .iter()
-        .filter(|s| *s != "root")
-        .map(|s| s.as_str())
-        .collect();
-    format!("${}", segments.join("$"))
+    format!("${}", path.segments.join("$"))
 }
 
 /// Format a simple name as a JS identifier: x -> $x
@@ -700,13 +694,7 @@ fn codegen_function(func: &TypedFunction, module_path: &ModulePath) -> String {
     let body = codegen_expr(&func.body);
 
     // Build qualified path from module path + function name
-    // Skip "root" for root module functions to maintain simple names
-    let mut segments: Vec<String> = module_path
-        .0
-        .iter()
-        .filter(|s| *s != "root")
-        .cloned()
-        .collect();
+    let mut segments: Vec<String> = module_path.0.to_vec();
     segments.push(func.name.clone());
     let path = QualifiedPath::new(segments);
 
@@ -1007,7 +995,7 @@ mod tests {
         };
         assert_eq!(
             codegen_function(&func, &ModulePath::root()),
-            "function $square($x) { return ($x * $x); }"
+            "function $root$square($x) { return ($x * $x); }"
         );
     }
 
@@ -1035,7 +1023,7 @@ mod tests {
         };
         assert_eq!(
             codegen_function(&func, &ModulePath::root()),
-            "function $add($x, $y) { return ($x + $y); }"
+            "function $root$add($x, $y) { return ($x + $y); }"
         );
     }
 
@@ -1049,7 +1037,7 @@ mod tests {
         };
         assert_eq!(
             codegen_function(&func, &ModulePath::root()),
-            "function $answer() { return 42; }"
+            "function $root$answer() { return 42; }"
         );
     }
 
@@ -1071,7 +1059,7 @@ mod tests {
         };
         assert_eq!(
             codegen_function(&func, &ModulePath::root()),
-            "function $big($x) { return ($x + 1n); }"
+            "function $root$big($x) { return ($x + 1n); }"
         );
     }
 }

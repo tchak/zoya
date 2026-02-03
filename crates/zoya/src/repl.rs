@@ -243,8 +243,8 @@ impl State {
             let typed_fn = find_typed_function(&checked_tree, run_name)
                 .ok_or_else(|| format!("Internal error: run function {} not found", run_name))?;
 
-            // Call the function (codegen prefixes with $)
-            let js_call = format!("${}()", run_name);
+            // Call the function (codegen prefixes with $root$)
+            let js_call = format!("$root${}()", run_name);
             let value = self.context.with(|ctx| {
                 eval::eval(&ctx, js_call, typed_fn.return_type.clone())
                     .map_err(|e| e.to_string())

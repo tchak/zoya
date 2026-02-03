@@ -37,7 +37,7 @@ pub fn execute(path: &Path) -> Result<(), EvalError> {
 
     // Generate JS code
     let mut js_code = codegen(&checked_tree);
-    js_code.push_str("$main()");
+    js_code.push_str("$root$main()");
 
     // Execute
     let (_runtime, context) =
