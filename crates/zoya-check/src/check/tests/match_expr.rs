@@ -64,7 +64,7 @@ fn test_check_match_with_variable_binding() {
     let expr = Expr::Match {
         scrutinee: Box::new(Expr::Path(Path::simple("x".to_string()))),
         arms: vec![MatchArm {
-            pattern: Pattern::Var("n".to_string()),
+            pattern: Pattern::Path(Path::simple("n".to_string())),
             result: Expr::BinOp {
                 op: BinOp::Add,
                 left: Box::new(Expr::Path(Path::simple("n".to_string()))),

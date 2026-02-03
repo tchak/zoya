@@ -92,7 +92,13 @@ pub(crate) fn validate_typed_pattern<'a>(
     type_ann: &Option<TypeAnnotation>,
     span: SimpleSpan,
 ) -> Result<(), Rich<'a, Token>> {
-    if type_ann.is_some() && !matches!(pattern, Pattern::Var(_)) {
+    // Check if pattern is a simple path (single-segment, no prefix, no turbofish)
+    // which represents a variable binding
+    let is_simple_var_pattern = matches!(
+        pattern,
+        Pattern::Path(p) if p.is_simple() && p.prefix == PathPrefix::None && p.type_args.is_none()
+    );
+    if type_ann.is_some() && !is_simple_var_pattern {
         return Err(Rich::custom(
             span,
             "type annotations are only allowed on simple variable patterns",

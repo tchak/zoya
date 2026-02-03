@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use zoya_ast::{LetBinding, ListPattern, MatchArm, Path, Pattern, TuplePattern};
+use zoya_ast::{LetBinding, ListPattern, MatchArm, Path, PathPrefix, Pattern, TuplePattern};
 use zoya_ir::{
     Definition, EnumVariantType, QualifiedPath, Type, TypeError, TypeScheme, TypeVarId,
     TypedLetBinding, TypedMatchArm, TypedPattern,
@@ -73,27 +73,6 @@ pub fn check_pattern(
             })?;
 
             Ok((TypedPattern::Literal(typed), HashMap::new()))
-        }
-        Pattern::Var(name) => {
-            // Check variable name is snake_case
-            if !is_snake_case(name) {
-                return Err(TypeError {
-                    message: format!(
-                        "variable '{}' should be snake_case (e.g., '{}')",
-                        name,
-                        to_snake_case(name)
-                    ),
-                });
-            }
-            let mut bindings = HashMap::new();
-            bindings.insert(name.clone(), ctx.resolve(scrutinee_ty));
-            Ok((
-                TypedPattern::Var {
-                    name: name.clone(),
-                    ty: ctx.resolve(scrutinee_ty),
-                },
-                bindings,
-            ))
         }
         Pattern::Wildcard => Ok((TypedPattern::Wildcard, HashMap::new())),
 
@@ -529,7 +508,56 @@ pub fn check_pattern(
         }
 
         // Path pattern: Option::None, root::Color::Red (unit enum variants)
-        Pattern::Path(path) => check_path_pattern(path, scrutinee_ty, current_module, env, ctx),
+        // Also handles single identifiers which may be variable bindings
+        Pattern::Path(path) => {
+            // Check if this is a simple path (single segment, no prefix, no turbofish)
+            let is_simple_path = path.is_simple()
+                && path.prefix == PathPrefix::None
+                && path.type_args.is_none();
+
+            // Helper to create a variable binding for simple paths
+            let create_var_binding = |name: &str, ctx: &mut UnifyCtx| -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
+                // Enforce snake_case for variable bindings
+                if !is_snake_case(name) {
+                    return Err(TypeError {
+                        message: format!(
+                            "variable '{}' should be snake_case (e.g., '{}')",
+                            name,
+                            to_snake_case(name)
+                        ),
+                    });
+                }
+
+                let mut bindings = HashMap::new();
+                bindings.insert(name.to_string(), ctx.resolve(scrutinee_ty));
+                Ok((
+                    TypedPattern::Var {
+                        name: name.to_string(),
+                        ty: ctx.resolve(scrutinee_ty),
+                    },
+                    bindings,
+                ))
+            };
+
+            // Try to resolve as imported/defined enum unit variant
+            match resolution::resolve_pattern_path(path, current_module, &env.imports, &env.definitions) {
+                Ok(resolved) => {
+                    // Try to use the resolved path as a pattern
+                    match check_path_pattern_resolved(resolved, path, scrutinee_ty, current_module, env, ctx) {
+                        Ok(result) => Ok(result),
+                        // If resolution succeeded but it can't be used as a pattern (e.g., function),
+                        // and this is a simple path, fall back to creating a variable binding
+                        Err(_) if is_simple_path => create_var_binding(&path.segments[0], ctx),
+                        Err(e) => Err(e),
+                    }
+                }
+                Err(_) if is_simple_path => {
+                    // Single-segment path that didn't resolve -> create variable binding
+                    create_var_binding(&path.segments[0], ctx)
+                }
+                Err(e) => Err(e), // Multi-segment path or path with prefix/turbofish that didn't resolve
+            }
+        }
 
         // Call pattern: Option::Some(x), root::Result::Ok(v) (tuple enum variants)
         Pattern::Call { path, args } => {
@@ -584,16 +612,15 @@ pub fn check_pattern(
     }
 }
 
-/// Check a path pattern (unit enum variant): Option::None, root::Color::Red
-fn check_path_pattern(
+/// Check a resolved path pattern (unit enum variant): Option::None, root::Color::Red
+fn check_path_pattern_resolved(
+    resolved: ResolvedPath,
     path: &Path,
     scrutinee_ty: &Type,
-    current_module: &ModulePath,
-    env: &TypeEnv,
+    _current_module: &ModulePath,
+    _env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
-    let resolved = resolution::resolve_pattern_path(path, current_module, &env.imports, &env.definitions)?;
-
     match resolved {
         ResolvedPath::Definition {
             def: Definition::EnumVariant(enum_type, variant_type),
@@ -670,8 +697,9 @@ fn check_path_pattern(
         }
         ResolvedPath::Local { name, .. } => Err(TypeError {
             message: format!(
-                "variable '{}' cannot be used as a pattern (did you mean to use a wildcard '_'?)",
-                name
+                "variable '{}' cannot be used as a pattern; path {} is bound as a local variable",
+                name,
+                path
             ),
         }),
     }
@@ -1398,10 +1426,25 @@ pub fn check_match_arm(
 
 /// Check if a pattern is irrefutable (always matches).
 /// Returns Ok(()) if irrefutable, Err with message if refutable.
+///
+/// Note: For `Pattern::Path` with simple paths (single segment, no prefix, no turbofish),
+/// we treat them as potentially irrefutable at the syntax level since they could be
+/// variable bindings. The semantic check happens during type checking - if the path
+/// resolves to an enum variant, it becomes refutable and will fail appropriately.
 pub fn check_irrefutable(pattern: &Pattern) -> Result<(), String> {
     match pattern {
         Pattern::Wildcard => Ok(()),
-        Pattern::Var(_) => Ok(()),
+
+        // Simple path patterns (single segment, no prefix, no turbofish) are treated as
+        // potentially irrefutable since they could be variable bindings. The actual
+        // refutability depends on whether they resolve to an enum variant during type checking.
+        Pattern::Path(path)
+            if path.is_simple()
+                && path.prefix == PathPrefix::None
+                && path.type_args.is_none() =>
+        {
+            Ok(())
+        }
 
         Pattern::Tuple(tuple_pattern) => {
             let patterns = match tuple_pattern {
@@ -1506,7 +1549,7 @@ mod tests {
 
     #[test]
     fn test_pattern_var_snake_case() {
-        let pattern = Pattern::Var("my_var".to_string());
+        let pattern = Pattern::Path(Path::simple("my_var".to_string()));
         let mut ctx = UnifyCtx::new();
         let result = check_pattern(
             &pattern,
@@ -1523,7 +1566,7 @@ mod tests {
 
     #[test]
     fn test_pattern_var_invalid_pascal_case() {
-        let pattern = Pattern::Var("MyVar".to_string());
+        let pattern = Pattern::Path(Path::simple("MyVar".to_string()));
         let mut ctx = UnifyCtx::new();
         let result = check_pattern(
             &pattern,
@@ -1540,7 +1583,7 @@ mod tests {
 
     #[test]
     fn test_pattern_var_underscore_prefix() {
-        let pattern = Pattern::Var("_unused".to_string());
+        let pattern = Pattern::Path(Path::simple("_unused".to_string()));
         let mut ctx = UnifyCtx::new();
         let result = check_pattern(
             &pattern,
@@ -1636,8 +1679,8 @@ mod tests {
     #[test]
     fn test_list_pattern_exact() {
         let pattern = Pattern::List(ListPattern::Exact(vec![
-            Pattern::Var("a".to_string()),
-            Pattern::Var("b".to_string()),
+            Pattern::Path(Path::simple("a".to_string())),
+            Pattern::Path(Path::simple("b".to_string())),
         ]));
         let mut ctx = UnifyCtx::new();
         let result = check_pattern(
@@ -1662,7 +1705,7 @@ mod tests {
     #[test]
     fn test_list_pattern_prefix() {
         let pattern = Pattern::List(ListPattern::Prefix {
-            patterns: vec![Pattern::Var("head".to_string())],
+            patterns: vec![Pattern::Path(Path::simple("head".to_string()))],
             rest_binding: None,
         });
         let mut ctx = UnifyCtx::new();
@@ -1682,7 +1725,7 @@ mod tests {
     #[test]
     fn test_list_pattern_prefix_with_rest_binding() {
         let pattern = Pattern::List(ListPattern::Prefix {
-            patterns: vec![Pattern::Var("head".to_string())],
+            patterns: vec![Pattern::Path(Path::simple("head".to_string()))],
             rest_binding: Some("tail".to_string()),
         });
         let mut ctx = UnifyCtx::new();
@@ -1702,7 +1745,7 @@ mod tests {
     #[test]
     fn test_list_pattern_prefix_rest_binding_invalid_name() {
         let pattern = Pattern::List(ListPattern::Prefix {
-            patterns: vec![Pattern::Var("head".to_string())],
+            patterns: vec![Pattern::Path(Path::simple("head".to_string()))],
             rest_binding: Some("InvalidName".to_string()),
         });
         let mut ctx = UnifyCtx::new();
@@ -1725,7 +1768,7 @@ mod tests {
     #[test]
     fn test_list_pattern_suffix() {
         let pattern = Pattern::List(ListPattern::Suffix {
-            patterns: vec![Pattern::Var("last".to_string())],
+            patterns: vec![Pattern::Path(Path::simple("last".to_string()))],
             rest_binding: None,
         });
         let mut ctx = UnifyCtx::new();
@@ -1745,7 +1788,7 @@ mod tests {
     #[test]
     fn test_list_pattern_suffix_with_rest_binding() {
         let pattern = Pattern::List(ListPattern::Suffix {
-            patterns: vec![Pattern::Var("last".to_string())],
+            patterns: vec![Pattern::Path(Path::simple("last".to_string()))],
             rest_binding: Some("init".to_string()),
         });
         let mut ctx = UnifyCtx::new();
@@ -1765,7 +1808,7 @@ mod tests {
     #[test]
     fn test_list_pattern_suffix_rest_binding_invalid_name() {
         let pattern = Pattern::List(ListPattern::Suffix {
-            patterns: vec![Pattern::Var("last".to_string())],
+            patterns: vec![Pattern::Path(Path::simple("last".to_string()))],
             rest_binding: Some("BadName".to_string()),
         });
         let mut ctx = UnifyCtx::new();
@@ -1786,8 +1829,8 @@ mod tests {
     #[test]
     fn test_list_pattern_prefix_suffix() {
         let pattern = Pattern::List(ListPattern::PrefixSuffix {
-            prefix: vec![Pattern::Var("first".to_string())],
-            suffix: vec![Pattern::Var("last".to_string())],
+            prefix: vec![Pattern::Path(Path::simple("first".to_string()))],
+            suffix: vec![Pattern::Path(Path::simple("last".to_string()))],
             rest_binding: None,
         });
         let mut ctx = UnifyCtx::new();
@@ -1811,8 +1854,8 @@ mod tests {
     #[test]
     fn test_list_pattern_prefix_suffix_with_rest_binding() {
         let pattern = Pattern::List(ListPattern::PrefixSuffix {
-            prefix: vec![Pattern::Var("first".to_string())],
-            suffix: vec![Pattern::Var("last".to_string())],
+            prefix: vec![Pattern::Path(Path::simple("first".to_string()))],
+            suffix: vec![Pattern::Path(Path::simple("last".to_string()))],
             rest_binding: Some("middle".to_string()),
         });
         let mut ctx = UnifyCtx::new();
@@ -1834,8 +1877,8 @@ mod tests {
     #[test]
     fn test_list_pattern_prefix_suffix_rest_binding_invalid_name() {
         let pattern = Pattern::List(ListPattern::PrefixSuffix {
-            prefix: vec![Pattern::Var("first".to_string())],
-            suffix: vec![Pattern::Var("last".to_string())],
+            prefix: vec![Pattern::Path(Path::simple("first".to_string()))],
+            suffix: vec![Pattern::Path(Path::simple("last".to_string()))],
             rest_binding: Some("BadMiddle".to_string()),
         });
         let mut ctx = UnifyCtx::new();
@@ -1911,8 +1954,8 @@ mod tests {
     #[test]
     fn test_tuple_pattern_exact() {
         let pattern = Pattern::Tuple(TuplePattern::Exact(vec![
-            Pattern::Var("x".to_string()),
-            Pattern::Var("y".to_string()),
+            Pattern::Path(Path::simple("x".to_string())),
+            Pattern::Path(Path::simple("y".to_string())),
         ]));
         let mut ctx = UnifyCtx::new();
         let result = check_pattern(
@@ -1932,9 +1975,9 @@ mod tests {
     #[test]
     fn test_tuple_pattern_exact_length_mismatch() {
         let pattern = Pattern::Tuple(TuplePattern::Exact(vec![
-            Pattern::Var("x".to_string()),
-            Pattern::Var("y".to_string()),
-            Pattern::Var("z".to_string()),
+            Pattern::Path(Path::simple("x".to_string())),
+            Pattern::Path(Path::simple("y".to_string())),
+            Pattern::Path(Path::simple("z".to_string())),
         ]));
         let mut ctx = UnifyCtx::new();
         let result = check_pattern(
@@ -1959,7 +2002,7 @@ mod tests {
     #[test]
     fn test_tuple_pattern_prefix() {
         let pattern = Pattern::Tuple(TuplePattern::Prefix {
-            patterns: vec![Pattern::Var("first".to_string())],
+            patterns: vec![Pattern::Path(Path::simple("first".to_string()))],
             rest_binding: None,
         });
         let mut ctx = UnifyCtx::new();
@@ -1982,7 +2025,7 @@ mod tests {
     #[test]
     fn test_tuple_pattern_prefix_with_rest_binding() {
         let pattern = Pattern::Tuple(TuplePattern::Prefix {
-            patterns: vec![Pattern::Var("first".to_string())],
+            patterns: vec![Pattern::Path(Path::simple("first".to_string()))],
             rest_binding: Some("rest".to_string()),
         });
         let mut ctx = UnifyCtx::new();
@@ -2006,9 +2049,9 @@ mod tests {
     fn test_tuple_pattern_prefix_too_long() {
         let pattern = Pattern::Tuple(TuplePattern::Prefix {
             patterns: vec![
-                Pattern::Var("a".to_string()),
-                Pattern::Var("b".to_string()),
-                Pattern::Var("c".to_string()),
+                Pattern::Path(Path::simple("a".to_string())),
+                Pattern::Path(Path::simple("b".to_string())),
+                Pattern::Path(Path::simple("c".to_string())),
             ],
             rest_binding: None,
         });
@@ -2028,7 +2071,7 @@ mod tests {
     #[test]
     fn test_tuple_pattern_prefix_rest_binding_invalid_name() {
         let pattern = Pattern::Tuple(TuplePattern::Prefix {
-            patterns: vec![Pattern::Var("first".to_string())],
+            patterns: vec![Pattern::Path(Path::simple("first".to_string()))],
             rest_binding: Some("BadName".to_string()),
         });
         let mut ctx = UnifyCtx::new();
@@ -2049,7 +2092,7 @@ mod tests {
     #[test]
     fn test_tuple_pattern_suffix() {
         let pattern = Pattern::Tuple(TuplePattern::Suffix {
-            patterns: vec![Pattern::Var("last".to_string())],
+            patterns: vec![Pattern::Path(Path::simple("last".to_string()))],
             rest_binding: None,
         });
         let mut ctx = UnifyCtx::new();
@@ -2072,7 +2115,7 @@ mod tests {
     #[test]
     fn test_tuple_pattern_suffix_with_rest_binding() {
         let pattern = Pattern::Tuple(TuplePattern::Suffix {
-            patterns: vec![Pattern::Var("last".to_string())],
+            patterns: vec![Pattern::Path(Path::simple("last".to_string()))],
             rest_binding: Some("init".to_string()),
         });
         let mut ctx = UnifyCtx::new();
@@ -2096,9 +2139,9 @@ mod tests {
     fn test_tuple_pattern_suffix_too_long() {
         let pattern = Pattern::Tuple(TuplePattern::Suffix {
             patterns: vec![
-                Pattern::Var("a".to_string()),
-                Pattern::Var("b".to_string()),
-                Pattern::Var("c".to_string()),
+                Pattern::Path(Path::simple("a".to_string())),
+                Pattern::Path(Path::simple("b".to_string())),
+                Pattern::Path(Path::simple("c".to_string())),
             ],
             rest_binding: None,
         });
@@ -2118,7 +2161,7 @@ mod tests {
     #[test]
     fn test_tuple_pattern_suffix_rest_binding_invalid_name() {
         let pattern = Pattern::Tuple(TuplePattern::Suffix {
-            patterns: vec![Pattern::Var("last".to_string())],
+            patterns: vec![Pattern::Path(Path::simple("last".to_string()))],
             rest_binding: Some("BadInit".to_string()),
         });
         let mut ctx = UnifyCtx::new();
@@ -2139,8 +2182,8 @@ mod tests {
     #[test]
     fn test_tuple_pattern_prefix_suffix() {
         let pattern = Pattern::Tuple(TuplePattern::PrefixSuffix {
-            prefix: vec![Pattern::Var("first".to_string())],
-            suffix: vec![Pattern::Var("last".to_string())],
+            prefix: vec![Pattern::Path(Path::simple("first".to_string()))],
+            suffix: vec![Pattern::Path(Path::simple("last".to_string()))],
             rest_binding: None,
         });
         let mut ctx = UnifyCtx::new();
@@ -2164,8 +2207,8 @@ mod tests {
     #[test]
     fn test_tuple_pattern_prefix_suffix_with_rest_binding() {
         let pattern = Pattern::Tuple(TuplePattern::PrefixSuffix {
-            prefix: vec![Pattern::Var("first".to_string())],
-            suffix: vec![Pattern::Var("last".to_string())],
+            prefix: vec![Pattern::Path(Path::simple("first".to_string()))],
+            suffix: vec![Pattern::Path(Path::simple("last".to_string()))],
             rest_binding: Some("middle".to_string()),
         });
         let mut ctx = UnifyCtx::new();
@@ -2189,8 +2232,8 @@ mod tests {
     #[test]
     fn test_tuple_pattern_prefix_suffix_too_long() {
         let pattern = Pattern::Tuple(TuplePattern::PrefixSuffix {
-            prefix: vec![Pattern::Var("a".to_string()), Pattern::Var("b".to_string())],
-            suffix: vec![Pattern::Var("c".to_string()), Pattern::Var("d".to_string())],
+            prefix: vec![Pattern::Path(Path::simple("a".to_string())), Pattern::Path(Path::simple("b".to_string()))],
+            suffix: vec![Pattern::Path(Path::simple("c".to_string())), Pattern::Path(Path::simple("d".to_string()))],
             rest_binding: None,
         });
         let mut ctx = UnifyCtx::new();
@@ -2209,8 +2252,8 @@ mod tests {
     #[test]
     fn test_tuple_pattern_prefix_suffix_rest_binding_invalid_name() {
         let pattern = Pattern::Tuple(TuplePattern::PrefixSuffix {
-            prefix: vec![Pattern::Var("first".to_string())],
-            suffix: vec![Pattern::Var("last".to_string())],
+            prefix: vec![Pattern::Path(Path::simple("first".to_string()))],
+            suffix: vec![Pattern::Path(Path::simple("last".to_string()))],
             rest_binding: Some("BadMiddle".to_string()),
         });
         let mut ctx = UnifyCtx::new();
@@ -2231,8 +2274,8 @@ mod tests {
     #[test]
     fn test_tuple_pattern_infer_type() {
         let pattern = Pattern::Tuple(TuplePattern::Exact(vec![
-            Pattern::Var("x".to_string()),
-            Pattern::Var("y".to_string()),
+            Pattern::Path(Path::simple("x".to_string())),
+            Pattern::Path(Path::simple("y".to_string())),
         ]));
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = ctx.fresh_var();
@@ -2252,7 +2295,7 @@ mod tests {
     #[test]
     fn test_tuple_pattern_cannot_infer_with_rest() {
         let pattern = Pattern::Tuple(TuplePattern::Prefix {
-            patterns: vec![Pattern::Var("x".to_string())],
+            patterns: vec![Pattern::Path(Path::simple("x".to_string()))],
             rest_binding: None,
         });
         let mut ctx = UnifyCtx::new();
@@ -2275,7 +2318,7 @@ mod tests {
 
     #[test]
     fn test_tuple_pattern_non_tuple_scrutinee() {
-        let pattern = Pattern::Tuple(TuplePattern::Exact(vec![Pattern::Var("x".to_string())]));
+        let pattern = Pattern::Tuple(TuplePattern::Exact(vec![Pattern::Path(Path::simple("x".to_string()))]));
         let mut ctx = UnifyCtx::new();
         let result = check_pattern(
             &pattern,
@@ -2314,11 +2357,11 @@ mod tests {
             fields: vec![
                 StructFieldPattern {
                     field_name: "x".to_string(),
-                    pattern: Box::new(Pattern::Var("px".to_string())),
+                    pattern: Box::new(Pattern::Path(Path::simple("px".to_string()))),
                 },
                 StructFieldPattern {
                     field_name: "y".to_string(),
-                    pattern: Box::new(Pattern::Var("py".to_string())),
+                    pattern: Box::new(Pattern::Path(Path::simple("py".to_string()))),
                 },
             ],
             is_partial: false,
@@ -2345,7 +2388,7 @@ mod tests {
             fields: vec![
                 StructFieldPattern {
                     field_name: "x".to_string(),
-                    pattern: Box::new(Pattern::Var("px".to_string())),
+                    pattern: Box::new(Pattern::Path(Path::simple("px".to_string()))),
                 },
                 // Missing "y" field
             ],
@@ -2371,7 +2414,7 @@ mod tests {
             path: Path::simple("Point".to_string()),
             fields: vec![StructFieldPattern {
                 field_name: "x".to_string(),
-                pattern: Box::new(Pattern::Var("px".to_string())),
+                pattern: Box::new(Pattern::Path(Path::simple("px".to_string()))),
             }],
             is_partial: true,
         };
@@ -2396,7 +2439,7 @@ mod tests {
             path: Path::simple("Point".to_string()),
             fields: vec![StructFieldPattern {
                 field_name: "z".to_string(), // Point has no 'z' field
-                pattern: Box::new(Pattern::Var("pz".to_string())),
+                pattern: Box::new(Pattern::Path(Path::simple("pz".to_string()))),
             }],
             is_partial: true,
         };
@@ -2528,7 +2571,7 @@ mod tests {
                 segments: vec!["Option".to_string(), "Some".to_string()],
                 type_args: None,
             },
-            args: TuplePattern::Exact(vec![Pattern::Var("value".to_string())]),
+            args: TuplePattern::Exact(vec![Pattern::Path(Path::simple("value".to_string()))]),
         };
         let env = env_with_option();
         let mut ctx = UnifyCtx::new();
@@ -2558,11 +2601,11 @@ mod tests {
             fields: vec![
                 StructFieldPattern {
                     field_name: "x".to_string(),
-                    pattern: Box::new(Pattern::Var("px".to_string())),
+                    pattern: Box::new(Pattern::Path(Path::simple("px".to_string()))),
                 },
                 StructFieldPattern {
                     field_name: "y".to_string(),
-                    pattern: Box::new(Pattern::Var("py".to_string())),
+                    pattern: Box::new(Pattern::Path(Path::simple("py".to_string()))),
                 },
             ],
             is_partial: false,
@@ -2604,7 +2647,7 @@ mod tests {
             },
             fields: vec![StructFieldPattern {
                 field_name: "x".to_string(),
-                pattern: Box::new(Pattern::Var("px".to_string())),
+                pattern: Box::new(Pattern::Path(Path::simple("px".to_string()))),
             }],
             is_partial: true,
         };
@@ -2643,7 +2686,7 @@ mod tests {
             fields: vec![
                 StructFieldPattern {
                     field_name: "x".to_string(),
-                    pattern: Box::new(Pattern::Var("px".to_string())),
+                    pattern: Box::new(Pattern::Path(Path::simple("px".to_string()))),
                 },
                 // Missing "y" field
             ],
@@ -2708,7 +2751,7 @@ mod tests {
                 segments: vec!["Option".to_string(), "None".to_string()],
                 type_args: None,
             },
-            args: TuplePattern::Exact(vec![Pattern::Var("x".to_string())]),
+            args: TuplePattern::Exact(vec![Pattern::Path(Path::simple("x".to_string()))]),
         };
         let env = env_with_option();
         let mut ctx = UnifyCtx::new();
@@ -2850,8 +2893,8 @@ mod tests {
         let pattern = Pattern::As {
             name: "whole".to_string(),
             pattern: Box::new(Pattern::Tuple(TuplePattern::Exact(vec![
-                Pattern::Var("x".to_string()),
-                Pattern::Var("y".to_string()),
+                Pattern::Path(Path::simple("x".to_string())),
+                Pattern::Path(Path::simple("y".to_string())),
             ]))),
         };
         let mut ctx = UnifyCtx::new();
@@ -2877,7 +2920,7 @@ mod tests {
     fn test_as_pattern_invalid_name() {
         let pattern = Pattern::As {
             name: "BadName".to_string(),
-            pattern: Box::new(Pattern::Var("x".to_string())),
+            pattern: Box::new(Pattern::Path(Path::simple("x".to_string()))),
         };
         let mut ctx = UnifyCtx::new();
         let result = check_pattern(
@@ -2903,7 +2946,7 @@ mod tests {
 
     #[test]
     fn test_irrefutable_var() {
-        assert!(check_irrefutable(&Pattern::Var("x".to_string())).is_ok());
+        assert!(check_irrefutable(&Pattern::Path(Path::simple("x".to_string()))).is_ok());
     }
 
     #[test]
@@ -2915,7 +2958,7 @@ mod tests {
     #[test]
     fn test_irrefutable_tuple_exact_irrefutable() {
         let pattern = Pattern::Tuple(TuplePattern::Exact(vec![
-            Pattern::Var("x".to_string()),
+            Pattern::Path(Path::simple("x".to_string())),
             Pattern::Wildcard,
         ]));
         assert!(check_irrefutable(&pattern).is_ok());
@@ -2924,7 +2967,7 @@ mod tests {
     #[test]
     fn test_irrefutable_tuple_exact_refutable() {
         let pattern = Pattern::Tuple(TuplePattern::Exact(vec![
-            Pattern::Var("x".to_string()),
+            Pattern::Path(Path::simple("x".to_string())),
             Pattern::Literal(Box::new(Expr::Int(42))), // Literal is refutable
         ]));
         assert!(check_irrefutable(&pattern).is_err());
@@ -2933,7 +2976,7 @@ mod tests {
     #[test]
     fn test_irrefutable_tuple_prefix() {
         let pattern = Pattern::Tuple(TuplePattern::Prefix {
-            patterns: vec![Pattern::Var("x".to_string())],
+            patterns: vec![Pattern::Path(Path::simple("x".to_string()))],
             rest_binding: None,
         });
         assert!(check_irrefutable(&pattern).is_ok());
@@ -2942,7 +2985,7 @@ mod tests {
     #[test]
     fn test_irrefutable_tuple_suffix() {
         let pattern = Pattern::Tuple(TuplePattern::Suffix {
-            patterns: vec![Pattern::Var("x".to_string())],
+            patterns: vec![Pattern::Path(Path::simple("x".to_string()))],
             rest_binding: None,
         });
         assert!(check_irrefutable(&pattern).is_ok());
@@ -2951,8 +2994,8 @@ mod tests {
     #[test]
     fn test_irrefutable_tuple_prefix_suffix() {
         let pattern = Pattern::Tuple(TuplePattern::PrefixSuffix {
-            prefix: vec![Pattern::Var("a".to_string())],
-            suffix: vec![Pattern::Var("b".to_string())],
+            prefix: vec![Pattern::Path(Path::simple("a".to_string()))],
+            suffix: vec![Pattern::Path(Path::simple("b".to_string()))],
             rest_binding: None,
         });
         assert!(check_irrefutable(&pattern).is_ok());
@@ -2964,7 +3007,7 @@ mod tests {
             path: Path::simple("Point".to_string()),
             fields: vec![StructFieldPattern {
                 field_name: "x".to_string(),
-                pattern: Box::new(Pattern::Var("px".to_string())),
+                pattern: Box::new(Pattern::Path(Path::simple("px".to_string()))),
             }],
             is_partial: false,
         };
@@ -2988,7 +3031,7 @@ mod tests {
     fn test_irrefutable_as_pattern() {
         let pattern = Pattern::As {
             name: "whole".to_string(),
-            pattern: Box::new(Pattern::Var("x".to_string())),
+            pattern: Box::new(Pattern::Path(Path::simple("x".to_string()))),
         };
         assert!(check_irrefutable(&pattern).is_ok());
     }
@@ -3042,7 +3085,7 @@ mod tests {
                 segments: vec!["Option".to_string(), "Some".to_string()],
                 type_args: None,
             },
-            args: TuplePattern::Exact(vec![Pattern::Var("x".to_string())]),
+            args: TuplePattern::Exact(vec![Pattern::Path(Path::simple("x".to_string()))]),
         };
         let result = check_irrefutable(&pattern);
         assert!(result.is_err());
@@ -3084,7 +3127,7 @@ mod tests {
                 type_args: None,
             },
             args: TuplePattern::Prefix {
-                patterns: vec![Pattern::Var("first".to_string())],
+                patterns: vec![Pattern::Path(Path::simple("first".to_string()))],
                 rest_binding: Some("rest".to_string()),
             },
         };
@@ -3117,7 +3160,7 @@ mod tests {
                 type_args: None,
             },
             args: TuplePattern::Suffix {
-                patterns: vec![Pattern::Var("last".to_string())],
+                patterns: vec![Pattern::Path(Path::simple("last".to_string()))],
                 rest_binding: Some("init".to_string()),
             },
         };
@@ -3150,8 +3193,8 @@ mod tests {
                 type_args: None,
             },
             args: TuplePattern::PrefixSuffix {
-                prefix: vec![Pattern::Var("first".to_string())],
-                suffix: vec![Pattern::Var("last".to_string())],
+                prefix: vec![Pattern::Path(Path::simple("first".to_string()))],
+                suffix: vec![Pattern::Path(Path::simple("last".to_string()))],
                 rest_binding: Some("middle".to_string()),
             },
         };
@@ -3185,10 +3228,10 @@ mod tests {
                 type_args: None,
             },
             args: TuplePattern::Exact(vec![
-                Pattern::Var("a".to_string()),
-                Pattern::Var("b".to_string()),
-                Pattern::Var("c".to_string()),
-                Pattern::Var("d".to_string()), // Too many!
+                Pattern::Path(Path::simple("a".to_string())),
+                Pattern::Path(Path::simple("b".to_string())),
+                Pattern::Path(Path::simple("c".to_string())),
+                Pattern::Path(Path::simple("d".to_string())), // Too many!
             ]),
         };
         let env = env_with_multi_tuple_enum();

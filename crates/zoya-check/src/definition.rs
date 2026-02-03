@@ -721,11 +721,11 @@ mod tests {
             type_params: vec![],
             params: vec![
                 zoya_ast::Param {
-                    pattern: zoya_ast::Pattern::Var("x".to_string()),
+                    pattern: zoya_ast::Pattern::Path(Path::simple("x".to_string())),
                     typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                 },
                 zoya_ast::Param {
-                    pattern: zoya_ast::Pattern::Var("y".to_string()),
+                    pattern: zoya_ast::Pattern::Path(Path::simple("y".to_string())),
                     typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                 },
             ],
@@ -752,7 +752,7 @@ mod tests {
             type_params: vec!["T".to_string()],
             params: vec![
                 zoya_ast::Param {
-                    pattern: zoya_ast::Pattern::Var("x".to_string()),
+                    pattern: zoya_ast::Pattern::Path(Path::simple("x".to_string())),
                     typ: TypeAnnotation::Named(Path::simple("T".to_string())),
                 },
             ],
@@ -799,7 +799,7 @@ mod tests {
             type_params: vec![],
             params: vec![
                 zoya_ast::Param {
-                    pattern: zoya_ast::Pattern::Var("x".to_string()),
+                    pattern: zoya_ast::Pattern::Path(Path::simple("x".to_string())),
                     typ: TypeAnnotation::Named(Path::simple("UnknownType".to_string())),
                 },
             ],

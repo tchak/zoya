@@ -9,7 +9,7 @@ use super::{build_test_module_with_expr, check_expr_with_env, find_test_function
 fn test_check_let_binding_in_block() {
     let test_expr = Expr::Block {
         bindings: vec![LetBinding {
-            pattern: Pattern::Var("x".to_string()),
+            pattern: Pattern::Path(Path::simple("x".to_string())),
             type_annotation: None,
             value: Box::new(Expr::Int(42)),
         }],
@@ -30,7 +30,7 @@ fn test_check_let_binding_in_block() {
 fn test_check_let_binding_usage() {
     let test_expr = Expr::Block {
         bindings: vec![LetBinding {
-            pattern: Pattern::Var("x".to_string()),
+            pattern: Pattern::Path(Path::simple("x".to_string())),
             type_annotation: None,
             value: Box::new(Expr::Int(42)),
         }],
@@ -54,7 +54,7 @@ fn test_check_let_binding_usage() {
 fn test_check_let_with_type_annotation() {
     let test_expr = Expr::Block {
         bindings: vec![LetBinding {
-            pattern: Pattern::Var("x".to_string()),
+            pattern: Pattern::Path(Path::simple("x".to_string())),
             type_annotation: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
             value: Box::new(Expr::Int(42)),
         }],
@@ -73,7 +73,7 @@ fn test_check_let_with_type_annotation() {
 fn test_check_let_type_mismatch() {
     let test_expr = Expr::Block {
         bindings: vec![LetBinding {
-            pattern: Pattern::Var("x".to_string()),
+            pattern: Pattern::Path(Path::simple("x".to_string())),
             type_annotation: Some(TypeAnnotation::Named(Path::simple("Float".to_string()))),
             value: Box::new(Expr::Int(42)),
         }],
@@ -89,7 +89,7 @@ fn test_check_let_type_mismatch() {
 fn test_check_block_expression() {
     let expr = Expr::Block {
         bindings: vec![LetBinding {
-            pattern: Pattern::Var("x".to_string()),
+            pattern: Pattern::Path(Path::simple("x".to_string())),
             type_annotation: None,
             value: Box::new(Expr::Int(1)),
         }],
@@ -108,12 +108,12 @@ fn test_check_block_multiple_bindings() {
     let expr = Expr::Block {
         bindings: vec![
             LetBinding {
-                pattern: Pattern::Var("x".to_string()),
+                pattern: Pattern::Path(Path::simple("x".to_string())),
                 type_annotation: None,
                 value: Box::new(Expr::Int(1)),
             },
             LetBinding {
-                pattern: Pattern::Var("y".to_string()),
+                pattern: Pattern::Path(Path::simple("y".to_string())),
                 type_annotation: None,
                 value: Box::new(Expr::BinOp {
                     op: BinOp::Add,

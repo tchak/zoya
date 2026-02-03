@@ -11,7 +11,7 @@ use super::check_expr_with_env;
 fn test_check_lambda_basic() {
     let expr = Expr::Lambda {
         params: vec![LambdaParam {
-            pattern: Pattern::Var("x".to_string()),
+            pattern: Pattern::Path(Path::simple("x".to_string())),
             typ: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
         }],
         return_type: None,
@@ -31,7 +31,7 @@ fn test_check_lambda_basic() {
 fn test_check_lambda_with_return_type() {
     let expr = Expr::Lambda {
         params: vec![LambdaParam {
-            pattern: Pattern::Var("x".to_string()),
+            pattern: Pattern::Path(Path::simple("x".to_string())),
             typ: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
         }],
         return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
@@ -51,7 +51,7 @@ fn test_check_lambda_with_return_type() {
 fn test_check_lambda_return_type_mismatch() {
     let expr = Expr::Lambda {
         params: vec![LambdaParam {
-            pattern: Pattern::Var("x".to_string()),
+            pattern: Pattern::Path(Path::simple("x".to_string())),
             typ: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
         }],
         return_type: Some(TypeAnnotation::Named(Path::simple("String".to_string()))),
@@ -85,8 +85,8 @@ fn test_check_lambda_tuple_param() {
     let expr = Expr::Lambda {
         params: vec![LambdaParam {
             pattern: Pattern::Tuple(TuplePattern::Exact(vec![
-                Pattern::Var("x".to_string()),
-                Pattern::Var("y".to_string()),
+                Pattern::Path(Path::simple("x".to_string())),
+                Pattern::Path(Path::simple("y".to_string())),
             ])),
             typ: Some(TypeAnnotation::Tuple(vec![
                 TypeAnnotation::Named(Path::simple("Int".to_string())),

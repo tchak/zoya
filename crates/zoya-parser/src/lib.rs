@@ -502,11 +502,11 @@ mod tests {
                 type_params: vec![],
                 params: vec![
                     Param {
-                        pattern: Pattern::Var("x".to_string()),
+                        pattern: Pattern::Path(Path::simple("x".to_string())),
                         typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                     },
                     Param {
-                        pattern: Pattern::Var("y".to_string()),
+                        pattern: Pattern::Path(Path::simple("y".to_string())),
                         typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                     },
                 ],
@@ -530,7 +530,7 @@ mod tests {
                 name: "identity".to_string(),
                 type_params: vec!["T".to_string()],
                 params: vec![Param {
-                    pattern: Pattern::Var("x".to_string()),
+                    pattern: Pattern::Path(Path::simple("x".to_string())),
                     typ: TypeAnnotation::Named(Path::simple("T".to_string())),
                 }],
                 return_type: Some(TypeAnnotation::Named(Path::simple("T".to_string()))),
@@ -550,11 +550,11 @@ mod tests {
                 type_params: vec!["A".to_string(), "B".to_string()],
                 params: vec![
                     Param {
-                        pattern: Pattern::Var("a".to_string()),
+                        pattern: Pattern::Path(Path::simple("a".to_string())),
                         typ: TypeAnnotation::Named(Path::simple("A".to_string())),
                     },
                     Param {
-                        pattern: Pattern::Var("b".to_string()),
+                        pattern: Pattern::Path(Path::simple("b".to_string())),
                         typ: TypeAnnotation::Named(Path::simple("B".to_string())),
                     },
                 ],
@@ -574,7 +574,7 @@ mod tests {
                 name: "double".to_string(),
                 type_params: vec![],
                 params: vec![Param {
-                    pattern: Pattern::Var("x".to_string()),
+                    pattern: Pattern::Path(Path::simple("x".to_string())),
                     typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                 }],
                 return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
@@ -816,10 +816,10 @@ mod tests {
         assert!(matches!(
             &stmts[0],
             Stmt::Let(LetBinding {
-                pattern: Pattern::Var(name),
+                pattern: Pattern::Path(p),
                 type_annotation: None,
                 value,
-            }) if name == "x" && **value == Expr::Int(42)
+            }) if p.segments == ["x"] && **value == Expr::Int(42)
         ));
     }
 
@@ -830,10 +830,10 @@ mod tests {
         assert!(matches!(
             &stmts[0],
             Stmt::Let(LetBinding {
-                pattern: Pattern::Var(name),
+                pattern: Pattern::Path(p),
                 type_annotation: Some(TypeAnnotation::Named(ty)),
                 value,
-            }) if name == "x" && ty.as_simple() == Some("Int") && **value == Expr::Int(42)
+            }) if p.segments == ["x"] && ty.as_simple() == Some("Int") && **value == Expr::Int(42)
         ));
     }
 
@@ -867,8 +867,8 @@ mod tests {
             panic!("expected function with block body")
         };
         assert_eq!(bindings.len(), 2);
-        assert!(matches!(&bindings[0].pattern, Pattern::Var(n) if n == "x"));
-        assert!(matches!(&bindings[1].pattern, Pattern::Var(n) if n == "y"));
+        assert!(matches!(&bindings[0].pattern, Pattern::Path(p) if p.segments == ["x"]));
+        assert!(matches!(&bindings[1].pattern, Pattern::Path(p) if p.segments == ["y"]));
         assert!(matches!(*result, Expr::BinOp { .. }));
     }
 
@@ -918,11 +918,11 @@ mod tests {
                 type_params: vec![],
                 params: vec![
                     Param {
-                        pattern: Pattern::Var("x".to_string()),
+                        pattern: Pattern::Path(Path::simple("x".to_string())),
                         typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                     },
                     Param {
-                        pattern: Pattern::Var("y".to_string()),
+                        pattern: Pattern::Path(Path::simple("y".to_string())),
                         typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
                     },
                 ],
@@ -1016,7 +1016,7 @@ mod tests {
             panic!("expected match expression")
         };
         assert_eq!(arms.len(), 1);
-        assert!(matches!(&arms[0].pattern, Pattern::Var(s) if s == "n"));
+        assert!(matches!(&arms[0].pattern, Pattern::Path(p) if p.segments == ["n"]));
         assert!(matches!(&arms[0].result, Expr::Path(p) if p.as_simple() == Some("n")));
     }
 
@@ -1184,8 +1184,8 @@ mod tests {
             panic!("expected exact list pattern")
         };
         assert_eq!(patterns.len(), 2);
-        assert!(matches!(&patterns[0], Pattern::Var(s) if s == "a"));
-        assert!(matches!(&patterns[1], Pattern::Var(s) if s == "b"));
+        assert!(matches!(&patterns[0], Pattern::Path(p) if p.segments == ["a"]));
+        assert!(matches!(&patterns[1], Pattern::Path(p) if p.segments == ["b"]));
     }
 
     #[test]
@@ -1202,7 +1202,7 @@ mod tests {
             panic!("expected prefix list pattern")
         };
         assert_eq!(patterns.len(), 1);
-        assert!(matches!(&patterns[0], Pattern::Var(s) if s == "head"));
+        assert!(matches!(&patterns[0], Pattern::Path(p) if p.segments == ["head"]));
         assert!(rest_binding.is_none());
     }
 
@@ -1221,7 +1221,7 @@ mod tests {
         };
         assert_eq!(patterns.len(), 2);
         assert!(matches!(&patterns[0], Pattern::Literal(lit) if **lit == Expr::Int(1)));
-        assert!(matches!(&patterns[1], Pattern::Var(s) if s == "x"));
+        assert!(matches!(&patterns[1], Pattern::Path(p) if p.segments == ["x"]));
         assert!(rest_binding.is_none());
     }
 
@@ -1236,7 +1236,7 @@ mod tests {
         };
         assert_eq!(patterns.len(), 2);
         assert!(matches!(&patterns[0], Pattern::Wildcard));
-        assert!(matches!(&patterns[1], Pattern::Var(s) if s == "x"));
+        assert!(matches!(&patterns[1], Pattern::Path(p) if p.segments == ["x"]));
     }
 
     #[test]
@@ -1253,7 +1253,7 @@ mod tests {
             panic!("expected suffix list pattern")
         };
         assert_eq!(patterns.len(), 1);
-        assert!(matches!(&patterns[0], Pattern::Var(s) if s == "last"));
+        assert!(matches!(&patterns[0], Pattern::Path(p) if p.segments == ["last"]));
         assert!(rest_binding.is_none());
     }
 
@@ -1271,8 +1271,8 @@ mod tests {
             panic!("expected suffix list pattern")
         };
         assert_eq!(patterns.len(), 2);
-        assert!(matches!(&patterns[0], Pattern::Var(s) if s == "x"));
-        assert!(matches!(&patterns[1], Pattern::Var(s) if s == "y"));
+        assert!(matches!(&patterns[0], Pattern::Path(p) if p.segments == ["x"]));
+        assert!(matches!(&patterns[1], Pattern::Path(p) if p.segments == ["y"]));
         assert!(rest_binding.is_none());
     }
 
@@ -1292,8 +1292,8 @@ mod tests {
         };
         assert_eq!(prefix.len(), 1);
         assert_eq!(suffix.len(), 1);
-        assert!(matches!(&prefix[0], Pattern::Var(s) if s == "first"));
-        assert!(matches!(&suffix[0], Pattern::Var(s) if s == "last"));
+        assert!(matches!(&prefix[0], Pattern::Path(p) if p.segments == ["first"]));
+        assert!(matches!(&suffix[0], Pattern::Path(p) if p.segments == ["last"]));
         assert!(rest_binding.is_none());
     }
 
@@ -1313,10 +1313,10 @@ mod tests {
         };
         assert_eq!(prefix.len(), 2);
         assert_eq!(suffix.len(), 2);
-        assert!(matches!(&prefix[0], Pattern::Var(s) if s == "a"));
-        assert!(matches!(&prefix[1], Pattern::Var(s) if s == "b"));
-        assert!(matches!(&suffix[0], Pattern::Var(s) if s == "y"));
-        assert!(matches!(&suffix[1], Pattern::Var(s) if s == "z"));
+        assert!(matches!(&prefix[0], Pattern::Path(p) if p.segments == ["a"]));
+        assert!(matches!(&prefix[1], Pattern::Path(p) if p.segments == ["b"]));
+        assert!(matches!(&suffix[0], Pattern::Path(p) if p.segments == ["y"]));
+        assert!(matches!(&suffix[1], Pattern::Path(p) if p.segments == ["z"]));
         assert!(rest_binding.is_none());
     }
 
@@ -1377,8 +1377,8 @@ mod tests {
             panic!("expected exact tuple pattern")
         };
         assert_eq!(patterns.len(), 2);
-        assert!(matches!(&patterns[0], Pattern::Var(s) if s == "a"));
-        assert!(matches!(&patterns[1], Pattern::Var(s) if s == "b"));
+        assert!(matches!(&patterns[0], Pattern::Path(p) if p.segments == ["a"]));
+        assert!(matches!(&patterns[1], Pattern::Path(p) if p.segments == ["b"]));
     }
 
     #[test]
@@ -1395,7 +1395,7 @@ mod tests {
             panic!("expected prefix tuple pattern")
         };
         assert_eq!(patterns.len(), 1);
-        assert!(matches!(&patterns[0], Pattern::Var(s) if s == "a"));
+        assert!(matches!(&patterns[0], Pattern::Path(p) if p.segments == ["a"]));
         assert!(rest_binding.is_none());
     }
 
@@ -1413,7 +1413,7 @@ mod tests {
             panic!("expected suffix tuple pattern")
         };
         assert_eq!(patterns.len(), 1);
-        assert!(matches!(&patterns[0], Pattern::Var(s) if s == "z"));
+        assert!(matches!(&patterns[0], Pattern::Path(p) if p.segments == ["z"]));
         assert!(rest_binding.is_none());
     }
 
@@ -1433,8 +1433,8 @@ mod tests {
         };
         assert_eq!(prefix.len(), 1);
         assert_eq!(suffix.len(), 1);
-        assert!(matches!(&prefix[0], Pattern::Var(s) if s == "a"));
-        assert!(matches!(&suffix[0], Pattern::Var(s) if s == "z"));
+        assert!(matches!(&prefix[0], Pattern::Path(p) if p.segments == ["a"]));
+        assert!(matches!(&suffix[0], Pattern::Path(p) if p.segments == ["z"]));
         assert!(rest_binding.is_none());
     }
 
@@ -1478,7 +1478,7 @@ mod tests {
             panic!("expected prefix list pattern with rest binding")
         };
         assert_eq!(patterns.len(), 1);
-        assert!(matches!(&patterns[0], Pattern::Var(s) if s == "first"));
+        assert!(matches!(&patterns[0], Pattern::Path(p) if p.segments == ["first"]));
         assert_eq!(rest_binding.as_deref(), Some("rest"));
     }
 
@@ -1496,7 +1496,7 @@ mod tests {
             panic!("expected suffix list pattern with rest binding")
         };
         assert_eq!(patterns.len(), 1);
-        assert!(matches!(&patterns[0], Pattern::Var(s) if s == "last"));
+        assert!(matches!(&patterns[0], Pattern::Path(p) if p.segments == ["last"]));
         assert_eq!(rest_binding.as_deref(), Some("rest"));
     }
 
@@ -1514,7 +1514,7 @@ mod tests {
             panic!("expected prefix tuple pattern with rest binding")
         };
         assert_eq!(patterns.len(), 1);
-        assert!(matches!(&patterns[0], Pattern::Var(s) if s == "a"));
+        assert!(matches!(&patterns[0], Pattern::Path(p) if p.segments == ["a"]));
         assert_eq!(rest_binding.as_deref(), Some("rest"));
     }
 
@@ -1562,7 +1562,7 @@ mod tests {
             panic!("expected block expression in first arm")
         };
         assert_eq!(bindings.len(), 1);
-        assert!(matches!(&bindings[0].pattern, Pattern::Var(n) if n == "y"));
+        assert!(matches!(&bindings[0].pattern, Pattern::Path(p) if p.segments == ["y"]));
         assert!(matches!(**result, Expr::BinOp { .. }));
         assert!(matches!(&arms[1].result, Expr::Int(0)));
     }
@@ -1590,8 +1590,8 @@ mod tests {
             panic!("expected block expression")
         };
         assert_eq!(bindings.len(), 2);
-        assert!(matches!(&bindings[0].pattern, Pattern::Var(n) if n == "a"));
-        assert!(matches!(&bindings[1].pattern, Pattern::Var(n) if n == "b"));
+        assert!(matches!(&bindings[0].pattern, Pattern::Path(p) if p.segments == ["a"]));
+        assert!(matches!(&bindings[1].pattern, Pattern::Path(p) if p.segments == ["b"]));
     }
 
     #[test]
@@ -1605,7 +1605,7 @@ mod tests {
             panic!("expected block expression")
         };
         assert_eq!(bindings.len(), 1);
-        assert!(matches!(&bindings[0].pattern, Pattern::Var(n) if n == "doubled"));
+        assert!(matches!(&bindings[0].pattern, Pattern::Path(p) if p.segments == ["doubled"]));
         // The binding value should reference 'n' from the pattern
         let Expr::BinOp { left, .. } = &*bindings[0].value else {
             panic!("expected binop in binding value")
@@ -1631,7 +1631,7 @@ mod tests {
             panic!("expected lambda")
         };
         assert_eq!(params.len(), 1);
-        assert_eq!(params[0].pattern, Pattern::Var("x".to_string()));
+        assert_eq!(params[0].pattern, Pattern::Path(Path::simple("x".to_string())));
         assert!(params[0].typ.is_none());
         assert!(return_type.is_none());
         assert!(matches!(*body, Expr::BinOp { op: BinOp::Add, .. }));
@@ -1644,8 +1644,8 @@ mod tests {
             panic!("expected lambda")
         };
         assert_eq!(params.len(), 2);
-        assert_eq!(params[0].pattern, Pattern::Var("x".to_string()));
-        assert_eq!(params[1].pattern, Pattern::Var("y".to_string()));
+        assert_eq!(params[0].pattern, Pattern::Path(Path::simple("x".to_string())));
+        assert_eq!(params[1].pattern, Pattern::Path(Path::simple("y".to_string())));
     }
 
     #[test]
@@ -1655,7 +1655,7 @@ mod tests {
             panic!("expected lambda")
         };
         assert_eq!(params.len(), 1);
-        assert_eq!(params[0].pattern, Pattern::Var("x".to_string()));
+        assert_eq!(params[0].pattern, Pattern::Path(Path::simple("x".to_string())));
         assert!(matches!(
             &params[0].typ,
             Some(TypeAnnotation::Named(s)) if s.as_simple() == Some("Int")
@@ -1726,7 +1726,7 @@ mod tests {
         let Stmt::Let(binding) = &stmts[0] else {
             panic!("expected let statement")
         };
-        assert!(matches!(&binding.pattern, Pattern::Var(n) if n == "f"));
+        assert!(matches!(&binding.pattern, Pattern::Path(p) if p.segments == ["f"]));
         assert!(matches!(*binding.value, Expr::Lambda { .. }));
     }
 
@@ -1964,7 +1964,7 @@ mod tests {
         assert_eq!(path.as_simple(), Some("Point"));
         assert_eq!(fields.len(), 2);
         assert_eq!(fields[0].field_name, "x");
-        assert!(matches!(&*fields[0].pattern, Pattern::Var(n) if n == "a"));
+        assert!(matches!(&*fields[0].pattern, Pattern::Path(p) if p.segments == ["a"]));
     }
 
     // ===== Let Pattern Destructuring Parser Tests =====
@@ -2022,7 +2022,7 @@ mod tests {
             panic!("expected nested tuple pattern")
         };
         assert_eq!(outer.len(), 2);
-        assert!(matches!(&outer[0], Pattern::Var(_)));
+        assert!(matches!(&outer[0], Pattern::Path(_)));
         assert!(matches!(&outer[1], Pattern::Tuple(_)));
     }
 
@@ -2292,7 +2292,7 @@ mod tests {
             panic!("expected exact tuple pattern args")
         };
         assert_eq!(patterns.len(), 1);
-        assert!(matches!(&patterns[0], Pattern::Var(n) if n == "v"));
+        assert!(matches!(&patterns[0], Pattern::Path(p) if p.segments == ["v"]));
     }
 
     #[test]
@@ -2353,7 +2353,7 @@ mod tests {
             panic!("expected tuple prefix pattern args")
         };
         assert_eq!(patterns.len(), 1);
-        assert!(matches!(&patterns[0], Pattern::Var(n) if n == "first"));
+        assert!(matches!(&patterns[0], Pattern::Path(p) if p.segments == ["first"]));
         assert!(rest_binding.is_none());
     }
 
@@ -2402,7 +2402,7 @@ mod tests {
             panic!("expected tuple suffix pattern")
         };
         assert_eq!(patterns.len(), 1);
-        assert!(matches!(&patterns[0], Pattern::Var(n) if n == "last"));
+        assert!(matches!(&patterns[0], Pattern::Path(p) if p.segments == ["last"]));
     }
 
     #[test]
@@ -3036,8 +3036,8 @@ mod tests {
         assert_eq!(path.segments, vec!["Some"]);
         assert!(matches!(args, TuplePattern::Exact(_)));
 
-        // Second arm: None should be a variable (no parens = not a call)
-        assert!(matches!(&arms[1].pattern, Pattern::Var(n) if n == "None"));
+        // Second arm: None should be a Path pattern (no parens = not a call)
+        assert!(matches!(&arms[1].pattern, Pattern::Path(p) if p.segments == ["None"]));
     }
 
     // Expression struct constructor path prefix tests

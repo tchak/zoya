@@ -23,8 +23,8 @@ pub(crate) fn pattern_parser<'a>(
                 Token::False => Pattern::Literal(Box::new(Expr::Bool(false))),
                 Token::String(s) => Pattern::Literal(Box::new(Expr::String(s))),
             },
-            // Variable (must be last among simple patterns)
-            ident().map(Pattern::Var),
+            // Single identifier as path (resolved later as variable or enum variant)
+            ident().map(|name| Pattern::Path(Path::simple(name))),
         ));
 
         // List pattern element: pattern or .. (rest marker with optional binding)
@@ -169,7 +169,7 @@ pub(crate) fn pattern_parser<'a>(
             ident()
                 .then(just(Token::Colon).ignore_then(pattern.clone()).or_not())
                 .map(|(field_name, pat)| {
-                    let binding_pattern = pat.unwrap_or_else(|| Pattern::Var(field_name.clone()));
+                    let binding_pattern = pat.unwrap_or_else(|| Pattern::Path(Path::simple(field_name.clone())));
                     StructPatternField::Field(StructFieldPattern {
                         field_name,
                         pattern: Box::new(binding_pattern),

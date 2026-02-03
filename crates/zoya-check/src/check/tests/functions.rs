@@ -146,7 +146,7 @@ fn test_check_function_def() {
         name: "double".to_string(),
         type_params: vec![],
         params: vec![Param {
-            pattern: Pattern::Var("x".to_string()),
+            pattern: Pattern::Path(Path::simple("x".to_string())),
             typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
         }],
         return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
@@ -171,7 +171,7 @@ fn test_check_function_def_return_type_mismatch() {
         name: "wrong".to_string(),
         type_params: vec![],
         params: vec![Param {
-            pattern: Pattern::Var("x".to_string()),
+            pattern: Pattern::Path(Path::simple("x".to_string())),
             typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
         }],
         return_type: Some(TypeAnnotation::Named(Path::simple("Float".to_string()))),
@@ -203,7 +203,7 @@ fn test_check_function_def_with_call() {
         name: "double".to_string(),
         type_params: vec![],
         params: vec![Param {
-            pattern: Pattern::Var("x".to_string()),
+            pattern: Pattern::Path(Path::simple("x".to_string())),
             typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
         }],
         return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
@@ -226,11 +226,11 @@ fn test_function_type_from_def() {
         type_params: vec![],
         params: vec![
             Param {
-                pattern: Pattern::Var("x".to_string()),
+                pattern: Pattern::Path(Path::simple("x".to_string())),
                 typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
             },
             Param {
-                pattern: Pattern::Var("y".to_string()),
+                pattern: Pattern::Path(Path::simple("y".to_string())),
                 typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
             },
         ],
@@ -252,7 +252,7 @@ fn test_function_type_from_def_generic() {
         name: "identity".to_string(),
         type_params: vec!["T".to_string()],
         params: vec![Param {
-            pattern: Pattern::Var("x".to_string()),
+            pattern: Pattern::Path(Path::simple("x".to_string())),
             typ: TypeAnnotation::Named(Path::simple("T".to_string())),
         }],
         return_type: Some(TypeAnnotation::Named(Path::simple("T".to_string()))),
@@ -292,7 +292,7 @@ fn test_check_function_call_in_module() {
         name: "double".to_string(),
         type_params: vec![],
         params: vec![Param {
-            pattern: Pattern::Var("x".to_string()),
+            pattern: Pattern::Path(Path::simple("x".to_string())),
             typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
         }],
         return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
@@ -365,7 +365,7 @@ fn test_check_mutual_recursion() {
             name: "is_even".to_string(),
             type_params: vec![],
             params: vec![Param {
-                pattern: Pattern::Var("n".to_string()),
+                pattern: Pattern::Path(Path::simple("n".to_string())),
                 typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
             }],
             return_type: Some(TypeAnnotation::Named(Path::simple("Bool".to_string()))),
@@ -395,7 +395,7 @@ fn test_check_mutual_recursion() {
             name: "is_odd".to_string(),
             type_params: vec![],
             params: vec![Param {
-                pattern: Pattern::Var("n".to_string()),
+                pattern: Pattern::Path(Path::simple("n".to_string())),
                 typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
             }],
             return_type: Some(TypeAnnotation::Named(Path::simple("Bool".to_string()))),
@@ -454,7 +454,7 @@ fn test_check_module_with_test_expr() {
     ];
     let test_expr = Expr::Block {
         bindings: vec![zoya_ast::LetBinding {
-            pattern: Pattern::Var("x".to_string()),
+            pattern: Pattern::Path(Path::simple("x".to_string())),
             type_annotation: None,
             value: Box::new(Expr::Int(1)),
         }],
@@ -510,7 +510,7 @@ fn test_check_self_recursion() {
         name: "factorial".to_string(),
         type_params: vec![],
         params: vec![Param {
-            pattern: Pattern::Var("n".to_string()),
+            pattern: Pattern::Path(Path::simple("n".to_string())),
             typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
         }],
         return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
@@ -571,7 +571,7 @@ fn test_function_def_invalid_type_param() {
         name: "identity".to_string(),
         type_params: vec!["bad_type".to_string()], // Should be PascalCase
         params: vec![Param {
-            pattern: Pattern::Var("x".to_string()),
+            pattern: Pattern::Path(Path::simple("x".to_string())),
             typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
         }],
         return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),

@@ -225,7 +225,7 @@ fn test_local_shadows_import() {
         return_type: None,
         body: Expr::Block {
             bindings: vec![zoya_ast::LetBinding {
-                pattern: zoya_ast::Pattern::Var("x".to_string()),
+                pattern: zoya_ast::Pattern::Path(Path::simple("x".to_string())),
                 type_annotation: None,
                 value: Box::new(Expr::Bool(true)),
             }],
@@ -376,7 +376,7 @@ fn test_imported_enum_variant_in_match_pattern() {
                 MatchArm {
                     pattern: Pattern::Call {
                         path: Path::simple("Some".to_string()), // Uses import in pattern
-                        args: TuplePattern::Exact(vec![Pattern::Var("x".to_string())]),
+                        args: TuplePattern::Exact(vec![Pattern::Path(Path::simple("x".to_string()))]),
                     },
                     result: Expr::Path(Path::simple("x".to_string())),
                 },
@@ -455,11 +455,11 @@ fn test_imported_enum_variant_in_struct_pattern() {
                         fields: vec![
                             StructFieldPattern {
                                 field_name: "x".to_string(),
-                                pattern: Box::new(Pattern::Var("x".to_string())),
+                                pattern: Box::new(Pattern::Path(Path::simple("x".to_string()))),
                             },
                             StructFieldPattern {
                                 field_name: "y".to_string(),
-                                pattern: Box::new(Pattern::Var("y".to_string())),
+                                pattern: Box::new(Pattern::Path(Path::simple("y".to_string()))),
                             },
                         ],
                         is_partial: false,

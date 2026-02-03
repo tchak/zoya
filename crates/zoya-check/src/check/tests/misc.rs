@@ -106,7 +106,7 @@ fn test_let_literal_pattern_rejected() {
 fn test_let_list_pattern_rejected() {
     let test_expr = Expr::Block {
         bindings: vec![LetBinding {
-            pattern: Pattern::List(ListPattern::Exact(vec![Pattern::Var("x".to_string())])),
+            pattern: Pattern::List(ListPattern::Exact(vec![Pattern::Path(Path::simple("x".to_string()))])),
             type_annotation: None,
             value: Box::new(Expr::List(vec![Expr::Int(1)])),
         }],
@@ -129,7 +129,7 @@ fn test_let_call_pattern_rejected() {
                     segments: vec!["Option".to_string(), "Some".to_string()],
                     type_args: None,
                 },
-                args: TuplePattern::Exact(vec![Pattern::Var("x".to_string())]),
+                args: TuplePattern::Exact(vec![Pattern::Path(Path::simple("x".to_string()))]),
             },
             type_annotation: None,
             value: Box::new(Expr::Int(42)), // Doesn't matter, will fail at irrefutability check first
@@ -147,8 +147,8 @@ fn test_let_tuple_pattern_irrefutable() {
     let test_expr = Expr::Block {
         bindings: vec![LetBinding {
             pattern: Pattern::Tuple(TuplePattern::Exact(vec![
-                Pattern::Var("a".to_string()),
-                Pattern::Var("b".to_string()),
+                Pattern::Path(Path::simple("a".to_string())),
+                Pattern::Path(Path::simple("b".to_string())),
             ])),
             type_annotation: None,
             value: Box::new(Expr::Tuple(vec![Expr::Int(1), Expr::Int(2)])),

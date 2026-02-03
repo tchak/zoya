@@ -244,7 +244,6 @@ pub struct LambdaParam {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pattern {
     Literal(Box<Expr>),    // 0, "hello", true
-    Var(String),           // x (binds value)
     Wildcard,              // _ (matches all)
     List(ListPattern),     // [], [a, b], [x, ..]
     Tuple(TuplePattern),   // (), (a, b), (x, ..)
