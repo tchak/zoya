@@ -4,7 +4,6 @@ use clap::{Parser, Subcommand};
 
 mod commands;
 mod eval;
-mod repl;
 mod runner;
 
 #[derive(Parser)]
@@ -49,7 +48,7 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Some(Command::Repl) => repl::run(),
+        Some(Command::Repl) => commands::repl::execute(),
         Some(Command::Check { file }) => {
             if let Err(e) = commands::check::execute(&file) {
                 eprintln!("{}", e);

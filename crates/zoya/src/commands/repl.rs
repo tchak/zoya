@@ -398,7 +398,7 @@ fn history_path() -> PathBuf {
 }
 
 /// Run the interactive REPL
-pub fn run() {
+pub fn execute() {
     let mut rl = match DefaultEditor::new() {
         Ok(editor) => editor,
         Err(e) => {
