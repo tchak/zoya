@@ -4,10 +4,10 @@ use std::path::{Path, PathBuf};
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
-use crate::eval::{self, Context, Value, VirtualModules};
+use crate::eval::Value;
+use crate::runner;
 use zoya_ast::{Expr, FunctionDef, Item, LetBinding, Stmt, Visibility};
 use zoya_check::check;
-use zoya_codegen::codegen;
 use zoya_ir::{CheckedItem, CheckedPackage, Type, TypedExpr, TypedPattern};
 use zoya_package::{Module, ModulePath, Package};
 
@@ -146,13 +146,6 @@ pub struct State {
     accumulated_lets: Vec<LetBinding>,
     /// Counter for synthetic run function names
     run_counter: usize,
-    /// QuickJS runtime (kept alive for context)
-    #[allow(dead_code)]
-    runtime: rquickjs::Runtime,
-    /// Persistent QuickJS context with module loader
-    context: Context,
-    /// Virtual modules storage (shared with runtime loader)
-    virtual_modules: VirtualModules,
     /// Base package loaded from file (if provided)
     base_pkg: Option<Package>,
 }
@@ -160,9 +153,6 @@ pub struct State {
 impl State {
     /// Create a new REPL state
     pub fn new(file_path: Option<&Path>) -> Result<Self, String> {
-        let virtual_modules = VirtualModules::new();
-        let (runtime, context) = eval::create_module_runtime(virtual_modules.clone())?;
-
         let base_pkg = if let Some(path) = file_path {
             Some(
                 zoya_loader::load_package(path)
@@ -176,9 +166,6 @@ impl State {
             accumulated_items: HashMap::new(),
             accumulated_lets: Vec::new(),
             run_counter: 0,
-            runtime,
-            context,
-            virtual_modules,
             base_pkg,
         })
     }
@@ -229,7 +216,7 @@ impl State {
 
             let combined_fn = Item::Function(FunctionDef {
                 visibility: Visibility::Public,
-                name: "run".to_string(),
+                name: "main".to_string(),
                 type_params: vec![],
                 params: vec![],
                 return_type: None, // inferred as tuple
@@ -243,15 +230,6 @@ impl State {
 
         // Type check the package
         let checked_pkg = check(&pkg).map_err(|e| e.to_string())?;
-
-        // Generate JavaScript code (ESM with exports)
-        let output = codegen(&checked_pkg);
-
-        // Generate unique module name to avoid QuickJS module caching
-        let module_name = format!("root_{}", output.hash);
-
-        // Register the module with virtual modules
-        self.virtual_modules.register(&module_name, output.code);
 
         // Collect results
         let mut results = Vec::new();
@@ -286,14 +264,14 @@ impl State {
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
-            // Build combined return type
+            // Build combined return type (tuple of all individual return types)
             let combined_type = Type::Tuple(return_types.clone());
 
-            // Call combined function once
-            let combined_value = self.context.with(|ctx| {
-                eval::eval_module(&ctx, &module_name, "$root$repl$run", combined_type)
-                    .map_err(|e| e.to_string())
-            })?;
+            // Call combined main function via runner with explicit type
+            let module_path = ModulePath::root().child("repl");
+            let combined_value =
+                runner::run(checked_pkg.clone(), Some(module_path), Some(combined_type))
+                    .map_err(|e| e.to_string())?;
 
             // Unpack tuple result
             let individual_values = match combined_value {

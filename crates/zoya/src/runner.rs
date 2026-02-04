@@ -2,7 +2,7 @@ use std::path::Path;
 
 use zoya_check::check;
 use zoya_codegen::codegen;
-use zoya_ir::{CheckedItem, CheckedPackage};
+use zoya_ir::{CheckedItem, CheckedPackage, Type};
 use zoya_loader::{load_package, load_package_with, MemorySource};
 use zoya_package::ModulePath;
 
@@ -11,7 +11,14 @@ use crate::eval::{self, EvalError, Value, VirtualModules};
 /// Run an already-checked package by executing its main function
 ///
 /// If `module` is `None`, the root module is used.
-pub fn run(package: CheckedPackage, module: Option<ModulePath>) -> Result<Value, EvalError> {
+/// If `return_type` is `Some`, it overrides the return type from the checked package.
+/// This is useful when the main function has an inferred return type that may contain
+/// unresolved type variables.
+pub fn run(
+    package: CheckedPackage,
+    module: Option<ModulePath>,
+    return_type: Option<Type>,
+) -> Result<Value, EvalError> {
     let module_path = module.unwrap_or_else(ModulePath::root);
 
     // Find main in the specified module
@@ -36,6 +43,9 @@ pub fn run(package: CheckedPackage, module: Option<ModulePath>) -> Result<Value,
         ));
     }
 
+    // Use provided return type or fall back to the one from the checked package
+    let return_type = return_type.unwrap_or_else(|| main_func.return_type.clone());
+
     // Generate JS module code (ESM with exports)
     let output = codegen(&package);
 
@@ -53,9 +63,7 @@ pub fn run(package: CheckedPackage, module: Option<ModulePath>) -> Result<Value,
         .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
 
     // Evaluate the module and call main
-    context.with(|ctx| {
-        eval::eval_module(&ctx, &module_name, &entry_func, main_func.return_type.clone())
-    })
+    context.with(|ctx| eval::eval_module(&ctx, &module_name, &entry_func, return_type))
 }
 
 /// Load, check, and run source code from a string
@@ -65,7 +73,7 @@ pub fn run_source(source: &str) -> Result<Value, EvalError> {
     let package = load_package_with(&mem_source, &"root".to_string())
         .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
     let checked = check(&package).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-    run(checked, None)
+    run(checked, None, None)
 }
 
 /// Load, check, and run source code from a file
@@ -73,7 +81,7 @@ pub fn run_file(path: &Path) -> Result<Value, EvalError> {
     let package =
         load_package(path).map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?;
     let checked = check(&package).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-    run(checked, None)
+    run(checked, None, None)
 }
 
 #[cfg(test)]
