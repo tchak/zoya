@@ -1,7 +1,6 @@
 use std::path::Path;
 
-use crate::eval::EvalError;
-use crate::runner::run_file;
+use zoya_run::{run_file, EvalError};
 
 /// Run a Zoya source file and print the result
 pub fn execute(path: &Path) -> Result<(), EvalError> {

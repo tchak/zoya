@@ -3,8 +3,6 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 mod commands;
-mod eval;
-mod runner;
 
 #[derive(Parser)]
 #[command(name = "zoya")]

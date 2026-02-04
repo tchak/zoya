@@ -4,8 +4,7 @@ use std::path::{Path, PathBuf};
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
-use crate::eval::Value;
-use crate::runner;
+use zoya_run::{self as runner, Value};
 use zoya_ast::{Expr, FunctionDef, Item, LetBinding, Stmt, Visibility};
 use zoya_check::check;
 use zoya_ir::{CheckedItem, CheckedPackage, Type, TypedExpr, TypedPattern};
@@ -912,7 +911,7 @@ mod tests {
 
     #[test]
     fn test_repl_enum_variant() {
-        use crate::eval::EnumValueFields;
+        use zoya_run::EnumValueFields;
         let mut state = State::new(None).unwrap();
         state.eval("enum Color { Red, Blue }").unwrap();
         let results = state.eval("Color::Red").unwrap();
@@ -928,7 +927,7 @@ mod tests {
 
     #[test]
     fn test_repl_enum_with_data() {
-        use crate::eval::EnumValueFields;
+        use zoya_run::EnumValueFields;
         let mut state = State::new(None).unwrap();
         state.eval("enum Option<T> { Some(T), None }").unwrap();
         let results = state.eval("Option::Some(42)").unwrap();

@@ -10,7 +10,7 @@ use zoya_ir::{EnumVariantType, Type};
 
 /// Virtual module storage - maps module names to source code
 #[derive(Clone, Default)]
-pub struct VirtualModules {
+pub(crate) struct VirtualModules {
     modules: Arc<Mutex<HashMap<String, String>>>,
 }
 
@@ -36,7 +36,7 @@ impl VirtualModules {
 
 /// Resolver for virtual modules
 #[derive(Clone)]
-pub struct VirtualResolver {
+pub(crate) struct VirtualResolver {
     modules: VirtualModules,
 }
 
@@ -59,7 +59,7 @@ impl Resolver for VirtualResolver {
 
 /// Loader for virtual modules
 #[derive(Clone)]
-pub struct VirtualLoader {
+pub(crate) struct VirtualLoader {
     modules: VirtualModules,
 }
 
@@ -80,7 +80,9 @@ impl Loader for VirtualLoader {
 }
 
 /// Create a runtime and context configured for ESM module loading
-pub fn create_module_runtime(virtual_modules: VirtualModules) -> Result<(Runtime, Context), String> {
+pub(crate) fn create_module_runtime(
+    virtual_modules: VirtualModules,
+) -> Result<(Runtime, Context), String> {
     let runtime = Runtime::new().map_err(|e| e.to_string())?;
 
     let resolver = (
@@ -103,7 +105,7 @@ pub fn create_module_runtime(virtual_modules: VirtualModules) -> Result<(Runtime
 /// The module_source should be ESM code that exports functions.
 /// The entry_point is the function to call (e.g., "$root$main").
 /// The result is retrieved from the module's "$result" export.
-pub fn eval_module(
+pub(crate) fn eval_module(
     ctx: &Ctx<'_>,
     module_name: &str,
     entry_func: &str,
