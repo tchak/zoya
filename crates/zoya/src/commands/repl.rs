@@ -217,6 +217,28 @@ impl State {
         all_items.extend(items.clone());
         all_items.extend(run_functions);
 
+        // Create combined run function that calls all run_N and returns tuple
+        if !run_function_names.is_empty() {
+            let call_exprs: Vec<Expr> = run_function_names
+                .iter()
+                .map(|name| Expr::Call {
+                    path: zoya_ast::Path::simple(name.clone()),
+                    args: vec![],
+                })
+                .collect();
+
+            let combined_fn = Item::Function(FunctionDef {
+                visibility: Visibility::Public,
+                name: "run".to_string(),
+                type_params: vec![],
+                params: vec![],
+                return_type: None, // inferred as tuple
+                body: Expr::Tuple(call_exprs),
+            });
+
+            all_items.push(combined_fn);
+        }
+
         let tree = build_repl_tree(self.base_tree.as_ref(), all_items);
 
         // Type check the module tree
@@ -252,36 +274,52 @@ impl State {
             }
         }
 
-        // Process each run function to get results
-        for run_name in &run_function_names {
-            // Find typed function in checked tree to get return type
-            let typed_fn = find_typed_function(&checked_tree, run_name)
-                .ok_or_else(|| format!("Internal error: run function {} not found", run_name))?;
+        // Call combined run function once and unpack tuple result
+        if !run_function_names.is_empty() {
+            // Collect return types from individual functions
+            let return_types: Vec<Type> = run_function_names
+                .iter()
+                .map(|name| {
+                    find_typed_function(&checked_tree, name)
+                        .map(|f| f.return_type.clone())
+                        .ok_or_else(|| format!("Internal error: run function {} not found", name))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
 
-            // Call the function via module import
-            let entry_func = format!("$root$repl${}", run_name);
-            let value = self.context.with(|ctx| {
-                eval::eval_module(
-                    &ctx,
-                    &module_name,
-                    &entry_func,
-                    typed_fn.return_type.clone(),
-                )
-                .map_err(|e| e.to_string())
+            // Build combined return type
+            let combined_type = Type::Tuple(return_types.clone());
+
+            // Call combined function once
+            let combined_value = self.context.with(|ctx| {
+                eval::eval_module(&ctx, &module_name, "$root$repl$run", combined_type)
+                    .map_err(|e| e.to_string())
             })?;
 
-            // If unit type, this was a let-only block
-            if typed_fn.return_type == Type::Tuple(vec![]) {
-                // Extract the LAST binding from the function body (the one just added)
-                let all_bindings = extract_bindings_from_typed_expr(&typed_fn.body);
-                if let Some(last_binding) = all_bindings.last() {
-                    results.push(ReplResult::LetBinding {
-                        bindings: last_binding.clone(),
-                    });
+            // Unpack tuple result
+            let individual_values = match combined_value {
+                Value::Tuple(values) => values,
+                _ => return Err("Internal error: combined run did not return tuple".to_string()),
+            };
+
+            // Process each result
+            for ((run_name, return_type), value) in run_function_names
+                .iter()
+                .zip(return_types.iter())
+                .zip(individual_values.into_iter())
+            {
+                if *return_type == Type::Tuple(vec![]) {
+                    // Let-only block
+                    let typed_fn = find_typed_function(&checked_tree, run_name).unwrap();
+                    let all_bindings = extract_bindings_from_typed_expr(&typed_fn.body);
+                    if let Some(last_binding) = all_bindings.last() {
+                        results.push(ReplResult::LetBinding {
+                            bindings: last_binding.clone(),
+                        });
+                    }
+                } else {
+                    // Expression result
+                    results.push(ReplResult::Expression(value));
                 }
-            } else {
-                // We have an expression result
-                results.push(ReplResult::Expression(value));
             }
         }
 
