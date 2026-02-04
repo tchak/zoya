@@ -4,24 +4,31 @@ use zoya_check::check;
 use zoya_codegen::codegen;
 use zoya_ir::{CheckedItem, CheckedPackage};
 use zoya_loader::{load_package, load_package_with, MemorySource};
+use zoya_package::ModulePath;
 
 use crate::eval::{self, EvalError, Value, VirtualModules};
 
 /// Run an already-checked package by executing its main function
-pub fn run(package: CheckedPackage) -> Result<Value, EvalError> {
-    // Find main in root module
-    let root_module = package
-        .root()
-        .ok_or_else(|| EvalError::RuntimeError("root module not found".to_string()))?;
+///
+/// If `module` is `None`, the root module is used.
+pub fn run(package: CheckedPackage, module: Option<ModulePath>) -> Result<Value, EvalError> {
+    let module_path = module.unwrap_or_else(ModulePath::root);
 
-    let main_func = root_module
+    // Find main in the specified module
+    let target_module = package
+        .get(&module_path)
+        .ok_or_else(|| EvalError::RuntimeError(format!("module {} not found", module_path)))?;
+
+    let main_func = target_module
         .items
         .iter()
         .find_map(|item| match item {
             CheckedItem::Function(f) if f.name == "main" => Some(f.as_ref()),
             _ => None,
         })
-        .ok_or_else(|| EvalError::RuntimeError("no main() function found".to_string()))?;
+        .ok_or_else(|| {
+            EvalError::RuntimeError(format!("no main() function found in {}", module_path))
+        })?;
 
     if !main_func.params.is_empty() {
         return Err(EvalError::RuntimeError(
@@ -37,18 +44,17 @@ pub fn run(package: CheckedPackage) -> Result<Value, EvalError> {
     let module_name = format!("root_{}", output.hash);
     virtual_modules.register(&module_name, output.code);
 
+    // Build the entry function path from module path segments
+    // e.g., ["root", "utils"] -> "$root$utils$main"
+    let entry_func = format!("${}$main", module_path.segments().join("$"));
+
     // Create runtime with module loader
     let (_runtime, context) = eval::create_module_runtime(virtual_modules)
         .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
 
     // Evaluate the module and call main
     context.with(|ctx| {
-        eval::eval_module(
-            &ctx,
-            &module_name,
-            "$root$main",
-            main_func.return_type.clone(),
-        )
+        eval::eval_module(&ctx, &module_name, &entry_func, main_func.return_type.clone())
     })
 }
 
@@ -59,7 +65,7 @@ pub fn run_source(source: &str) -> Result<Value, EvalError> {
     let package = load_package_with(&mem_source, &"root".to_string())
         .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
     let checked = check(&package).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-    run(checked)
+    run(checked, None)
 }
 
 /// Load, check, and run source code from a file
@@ -67,7 +73,7 @@ pub fn run_file(path: &Path) -> Result<Value, EvalError> {
     let package =
         load_package(path).map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?;
     let checked = check(&package).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-    run(checked)
+    run(checked, None)
 }
 
 #[cfg(test)]

@@ -318,4 +318,9 @@ impl CheckedPackage {
     pub fn root(&self) -> Option<&CheckedModule> {
         self.modules.get(&zoya_package::ModulePath::root())
     }
+
+    /// Get a module by path
+    pub fn get(&self, path: &zoya_package::ModulePath) -> Option<&CheckedModule> {
+        self.modules.get(path)
+    }
 }
