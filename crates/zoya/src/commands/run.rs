@@ -1,11 +1,11 @@
 use std::path::Path;
 
 use crate::eval::EvalError;
-use crate::runner::{run, RunInput};
+use crate::runner::run_file;
 
 /// Run a Zoya source file and print the result
 pub fn execute(path: &Path) -> Result<(), EvalError> {
-    let value = run(RunInput::File(path))?;
+    let value = run_file(path)?;
     println!("{}", value);
     Ok(())
 }
