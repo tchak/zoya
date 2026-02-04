@@ -509,7 +509,7 @@ pub fn execute(file_path: Option<&Path>) {
                                 }
                                 ReplResult::LetBinding { bindings } => {
                                     for (name, ty) in bindings {
-                                        println!("let {}: {}", name, ty);
+                                        println!("let {}: {}", name, zoya_ir::pretty_type(&ty));
                                     }
                                 }
                             }
