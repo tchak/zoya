@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use zoya_ast::TypeAnnotation;
 use zoya_ir::{Definition, Type, TypeError, TypeVarId};
-use zoya_module::ModulePath;
+use zoya_package::ModulePath;
 
 use crate::check::{TypeEnv, substitute_type_vars, substitute_variant_type_vars};
 use crate::resolution::{self, ResolvedPath};

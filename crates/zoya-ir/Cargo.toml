@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 zoya-ast = { path = "../zoya-ast" }
-zoya-module = { path = "../zoya-module" }
+zoya-package = { path = "../zoya-package" }

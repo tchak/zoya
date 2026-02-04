@@ -6,7 +6,7 @@ Transforms typed IR into executable JavaScript code.
 
 ## Features
 
-- **Module codegen** - Generates JS for complete module trees
+- **Package codegen** - Generates JS for complete packages
 - **Pattern matching** - Compiles patterns to JS conditionals and bindings
 - **Function generation** - Handles generic functions, lambdas, and closures
 - **Runtime helpers** - Includes prelude functions for deep equality, division checks, etc.
@@ -16,12 +16,12 @@ Transforms typed IR into executable JavaScript code.
 ```rust
 use zoya_codegen::codegen;
 
-// Generate JS for a complete module tree (includes prelude)
-let js_code = codegen(&checked_module_tree);
+// Generate JS for a complete package (includes prelude)
+let js_code = codegen(&checked_package);
 ```
 
 ## Dependencies
 
 - [zoya-ast](../zoya-ast) - AST types (for operators)
 - [zoya-ir](../zoya-ir) - Typed IR types
-- [zoya-module](../zoya-module) - Module path types
+- [zoya-package](../zoya-package) - Module path types

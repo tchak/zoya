@@ -7,4 +7,4 @@ edition = "2024"
 blake3 = "1"
 zoya-ast = { path = "../zoya-ast" }
 zoya-ir = { path = "../zoya-ir" }
-zoya-module = { path = "../zoya-module" }
+zoya-package = { path = "../zoya-package" }

@@ -1,5 +1,5 @@
 use zoya_ast::{BinOp, EnumDef, StructDef, TypeAliasDef, UnaryOp};
-use zoya_module::ModulePath;
+use zoya_package::ModulePath;
 
 use crate::types::Type;
 
@@ -307,15 +307,15 @@ pub struct CheckedModule {
     pub items: Vec<CheckedItem>,
 }
 
-/// The complete checked module tree
+/// The complete checked package
 #[derive(Debug, Clone, PartialEq)]
-pub struct CheckedModuleTree {
-    pub modules: std::collections::HashMap<zoya_module::ModulePath, CheckedModule>,
+pub struct CheckedPackage {
+    pub modules: std::collections::HashMap<zoya_package::ModulePath, CheckedModule>,
 }
 
-impl CheckedModuleTree {
+impl CheckedPackage {
     /// Get the root module
     pub fn root(&self) -> Option<&CheckedModule> {
-        self.modules.get(&zoya_module::ModulePath::root())
+        self.modules.get(&zoya_package::ModulePath::root())
     }
 }

@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Display};
 use std::path::{Path, PathBuf};
 
-// Re-export module types from zoya-module
-pub use zoya_module::{Module, ModulePath, ModuleTree};
+// Re-export module types from zoya-package
+pub use zoya_package::{Module, ModulePath, Package};
 
 // ============================================================================
 // Path Wrapper (PathBuf with Display)
@@ -302,29 +302,29 @@ impl<P: Clone + Debug + Display> std::fmt::Display for LoaderError<P> {
 
 impl<P: Clone + Debug + Display> std::error::Error for LoaderError<P> {}
 
-/// Load module tree starting from root file (convenience wrapper for filesystem)
-pub fn load_modules(path: &Path) -> Result<ModuleTree, LoaderError<FilePath>> {
+/// Load package starting from root file (convenience wrapper for filesystem)
+pub fn load_package(path: &Path) -> Result<Package, LoaderError<FilePath>> {
     let source = FsSource::from_file(path);
-    load_modules_with(&source, &FilePath::new(path))
+    load_package_with(&source, &FilePath::new(path))
 }
 
-/// Load module tree using a generic module source
-pub fn load_modules_with<S: ModuleSource>(
+/// Load package using a generic module source
+pub fn load_package_with<S: ModuleSource>(
     source: &S,
     root_path: &S::Path,
-) -> Result<ModuleTree, LoaderError<S::Path>> {
-    let mut tree = ModuleTree {
+) -> Result<Package, LoaderError<S::Path>> {
+    let mut pkg = Package {
         modules: HashMap::new(),
     };
-    load_module_recursive(source, root_path, ModulePath::root(), &mut tree)?;
-    Ok(tree)
+    load_module_recursive(source, root_path, ModulePath::root(), &mut pkg)?;
+    Ok(pkg)
 }
 
 fn load_module_recursive<S: ModuleSource>(
     source: &S,
     file_path: &S::Path,
     module_path: ModulePath,
-    tree: &mut ModuleTree,
+    pkg: &mut Package,
 ) -> Result<(), LoaderError<S::Path>> {
     // Read file
     let content = source.read(file_path).map_err(|e| LoaderError::SourceError {
@@ -373,7 +373,7 @@ fn load_module_recursive<S: ModuleSource>(
     }
 
     // Store module
-    tree.modules.insert(
+    pkg.modules.insert(
         module_path.clone(),
         Module {
             items: module_def.items,
@@ -385,7 +385,7 @@ fn load_module_recursive<S: ModuleSource>(
 
     // Recursively load submodules
     for (submodule_file, child_path) in submodules {
-        load_module_recursive(source, &submodule_file, child_path, tree)?;
+        load_module_recursive(source, &submodule_file, child_path, pkg)?;
     }
 
     Ok(())
@@ -478,7 +478,7 @@ mod integration_tests {
         let dir = TempDir::new().unwrap();
         create_file(dir.path(), "main.zoya", "fn foo() -> Int 42");
 
-        let tree = load_modules(&dir.path().join("main.zoya")).unwrap();
+        let tree = load_package(&dir.path().join("main.zoya")).unwrap();
 
         assert_eq!(tree.modules.len(), 1);
         let root = tree.root().unwrap();
@@ -492,7 +492,7 @@ mod integration_tests {
         let dir = TempDir::new().unwrap();
         create_file(dir.path(), "main.zoya", "");
 
-        let tree = load_modules(&dir.path().join("main.zoya")).unwrap();
+        let tree = load_package(&dir.path().join("main.zoya")).unwrap();
 
         let root = tree.root().unwrap();
         assert!(root.items.is_empty());
@@ -509,7 +509,7 @@ mod integration_tests {
             "fn add(x: Int, y: Int) -> Int x + y",
         );
 
-        let tree = load_modules(&dir.path().join("main.zoya")).unwrap();
+        let tree = load_package(&dir.path().join("main.zoya")).unwrap();
 
         assert_eq!(tree.modules.len(), 2);
 
@@ -538,7 +538,7 @@ mod integration_tests {
             "struct Point { x: Int, y: Int }",
         );
 
-        let tree = load_modules(&dir.path().join("main.zoya")).unwrap();
+        let tree = load_package(&dir.path().join("main.zoya")).unwrap();
 
         assert_eq!(tree.modules.len(), 4);
 
@@ -553,7 +553,7 @@ mod integration_tests {
         create_file(dir.path(), "utils.zoya", "mod helpers");
         create_file(dir.path(), "utils/helpers.zoya", "fn deep_fn() -> Int 42");
 
-        let tree = load_modules(&dir.path().join("main.zoya")).unwrap();
+        let tree = load_package(&dir.path().join("main.zoya")).unwrap();
 
         assert_eq!(tree.modules.len(), 3);
 
@@ -580,7 +580,7 @@ mod integration_tests {
         create_file(dir.path(), "a/b.zoya", "mod c");
         create_file(dir.path(), "a/b/c.zoya", "fn deep() -> Int 1");
 
-        let tree = load_modules(&dir.path().join("main.zoya")).unwrap();
+        let tree = load_package(&dir.path().join("main.zoya")).unwrap();
 
         assert_eq!(tree.modules.len(), 4);
 
@@ -601,7 +601,7 @@ mod integration_tests {
         let dir = TempDir::new().unwrap();
         create_file(dir.path(), "main.zoya", "mod missing");
 
-        let result = load_modules(&dir.path().join("main.zoya"));
+        let result = load_package(&dir.path().join("main.zoya"));
 
         assert!(
             matches!(result, Err(LoaderError::ModuleNotFound { mod_name, .. }) if mod_name == "missing")
@@ -614,7 +614,7 @@ mod integration_tests {
         create_file(dir.path(), "main.zoya", "mod utils mod utils");
         create_file(dir.path(), "utils.zoya", "");
 
-        let result = load_modules(&dir.path().join("main.zoya"));
+        let result = load_package(&dir.path().join("main.zoya"));
 
         assert!(
             matches!(result, Err(LoaderError::DuplicateMod { mod_name }) if mod_name == "utils")
@@ -624,7 +624,7 @@ mod integration_tests {
     #[test]
     fn test_error_io_file_not_found() {
         let dir = TempDir::new().unwrap();
-        let result = load_modules(&dir.path().join("nonexistent.zoya"));
+        let result = load_package(&dir.path().join("nonexistent.zoya"));
 
         assert!(matches!(result, Err(LoaderError::SourceError { .. })));
     }
@@ -634,7 +634,7 @@ mod integration_tests {
         let dir = TempDir::new().unwrap();
         create_file(dir.path(), "main.zoya", "fn foo() # invalid");
 
-        let result = load_modules(&dir.path().join("main.zoya"));
+        let result = load_package(&dir.path().join("main.zoya"));
 
         assert!(matches!(result, Err(LoaderError::LexError { .. })));
     }
@@ -644,20 +644,20 @@ mod integration_tests {
         let dir = TempDir::new().unwrap();
         create_file(dir.path(), "main.zoya", "fn fn fn");
 
-        let result = load_modules(&dir.path().join("main.zoya"));
+        let result = load_package(&dir.path().join("main.zoya"));
 
         assert!(matches!(result, Err(LoaderError::ParseError { .. })));
     }
 
-    // === ModuleTree API tests ===
+    // === Package API tests ===
 
     #[test]
-    fn test_module_tree_get() {
+    fn test_package_get() {
         let dir = TempDir::new().unwrap();
         create_file(dir.path(), "main.zoya", "mod utils");
         create_file(dir.path(), "utils.zoya", "");
 
-        let tree = load_modules(&dir.path().join("main.zoya")).unwrap();
+        let tree = load_package(&dir.path().join("main.zoya")).unwrap();
 
         assert!(tree.get(&ModulePath::root()).is_some());
         assert!(tree
@@ -678,7 +678,7 @@ mod integration_tests {
         let source = MemorySource::new()
             .with_module("root", "fn foo() -> Int 42");
 
-        let tree = load_modules_with(&source, &"root".to_string()).unwrap();
+        let tree = load_package_with(&source, &"root".to_string()).unwrap();
 
         assert_eq!(tree.modules.len(), 1);
         let root = tree.root().unwrap();
@@ -693,7 +693,7 @@ mod integration_tests {
             .with_module("root", "mod utils\nfn main() -> Int 42")
             .with_module("utils", "fn helper() -> Int 10");
 
-        let tree = load_modules_with(&source, &"root".to_string()).unwrap();
+        let tree = load_package_with(&source, &"root".to_string()).unwrap();
 
         assert_eq!(tree.modules.len(), 2);
 
@@ -714,7 +714,7 @@ mod integration_tests {
             .with_module("utils", "mod helpers")
             .with_module("utils/helpers", "fn deep_fn() -> Int 42");
 
-        let tree = load_modules_with(&source, &"root".to_string()).unwrap();
+        let tree = load_package_with(&source, &"root".to_string()).unwrap();
 
         assert_eq!(tree.modules.len(), 3);
 
@@ -732,7 +732,7 @@ mod integration_tests {
         let source = MemorySource::new()
             .with_module("root", "mod missing");
 
-        let result = load_modules_with(&source, &"root".to_string());
+        let result = load_package_with(&source, &"root".to_string());
 
         assert!(
             matches!(result, Err(LoaderError::ModuleNotFound { mod_name, .. }) if mod_name == "missing")
@@ -743,7 +743,7 @@ mod integration_tests {
     fn test_memory_source_error_source_not_found() {
         let source = MemorySource::new();
 
-        let result = load_modules_with(&source, &"nonexistent".to_string());
+        let result = load_package_with(&source, &"nonexistent".to_string());
 
         assert!(matches!(result, Err(LoaderError::SourceError { .. })));
     }

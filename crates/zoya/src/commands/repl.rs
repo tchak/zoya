@@ -8,8 +8,8 @@ use crate::eval::{self, Context, Value, VirtualModules};
 use zoya_ast::{Expr, FunctionDef, Item, LetBinding, Stmt, Visibility};
 use zoya_check::check;
 use zoya_codegen::codegen;
-use zoya_ir::{CheckedItem, CheckedModuleTree, Type, TypedExpr, TypedPattern};
-use zoya_module::{Module, ModulePath, ModuleTree};
+use zoya_ir::{CheckedItem, CheckedPackage, Type, TypedExpr, TypedPattern};
+use zoya_package::{Module, ModulePath, Package};
 
 /// Extract all variable bindings from a typed pattern.
 /// Returns a list of (name, type) pairs for each bound variable.
@@ -153,8 +153,8 @@ pub struct State {
     context: Context,
     /// Virtual modules storage (shared with runtime loader)
     virtual_modules: VirtualModules,
-    /// Base module tree loaded from file (if provided)
-    base_tree: Option<ModuleTree>,
+    /// Base package loaded from file (if provided)
+    base_pkg: Option<Package>,
 }
 
 impl State {
@@ -163,10 +163,10 @@ impl State {
         let virtual_modules = VirtualModules::new();
         let (runtime, context) = eval::create_module_runtime(virtual_modules.clone())?;
 
-        let base_tree = if let Some(path) = file_path {
+        let base_pkg = if let Some(path) = file_path {
             Some(
-                zoya_loader::load_modules(path)
-                    .map_err(|e| format!("Failed to load modules: {}", e))?,
+                zoya_loader::load_package(path)
+                    .map_err(|e| format!("Failed to load package: {}", e))?,
             )
         } else {
             None
@@ -179,7 +179,7 @@ impl State {
             runtime,
             context,
             virtual_modules,
-            base_tree,
+            base_pkg,
         })
     }
 
@@ -239,13 +239,13 @@ impl State {
             all_items.push(combined_fn);
         }
 
-        let tree = build_repl_tree(self.base_tree.as_ref(), all_items);
+        let pkg = build_repl_package(self.base_pkg.as_ref(), all_items);
 
-        // Type check the module tree
-        let checked_tree = check(&tree).map_err(|e| e.to_string())?;
+        // Type check the package
+        let checked_pkg = check(&pkg).map_err(|e| e.to_string())?;
 
         // Generate JavaScript code (ESM with exports)
-        let output = codegen(&checked_tree);
+        let output = codegen(&checked_pkg);
 
         // Generate unique module name to avoid QuickJS module caching
         let module_name = format!("root_{}", output.hash);
@@ -280,7 +280,7 @@ impl State {
             let return_types: Vec<Type> = run_function_names
                 .iter()
                 .map(|name| {
-                    find_typed_function(&checked_tree, name)
+                    find_typed_function(&checked_pkg, name)
                         .map(|f| f.return_type.clone())
                         .ok_or_else(|| format!("Internal error: run function {} not found", name))
                 })
@@ -309,7 +309,7 @@ impl State {
             {
                 if *return_type == Type::Tuple(vec![]) {
                     // Let-only block
-                    let typed_fn = find_typed_function(&checked_tree, run_name).unwrap();
+                    let typed_fn = find_typed_function(&checked_pkg, run_name).unwrap();
                     let all_bindings = extract_bindings_from_typed_expr(&typed_fn.body);
                     if let Some(last_binding) = all_bindings.last() {
                         results.push(ReplResult::LetBinding {
@@ -399,12 +399,12 @@ fn create_run_function(name: &str, block: &EvalBlock) -> Item {
     })
 }
 
-/// Build a ModuleTree with REPL items in a "repl" submodule.
-fn build_repl_tree(base_tree: Option<&ModuleTree>, items: Vec<Item>) -> ModuleTree {
+/// Build a Package with REPL items in a "repl" submodule.
+fn build_repl_package(base_pkg: Option<&Package>, items: Vec<Item>) -> Package {
     let repl_path = ModulePath::root().child("repl");
 
-    let mut modules = if let Some(tree) = base_tree {
-        tree.modules.clone()
+    let mut modules = if let Some(pkg) = base_pkg {
+        pkg.modules.clone()
     } else {
         HashMap::new()
     };
@@ -429,16 +429,16 @@ fn build_repl_tree(base_tree: Option<&ModuleTree>, items: Vec<Item>) -> ModuleTr
         },
     );
 
-    ModuleTree { modules }
+    Package { modules }
 }
 
-/// Find a typed function by name in the repl submodule of the checked module tree.
+/// Find a typed function by name in the repl submodule of the checked package.
 fn find_typed_function<'a>(
-    tree: &'a CheckedModuleTree,
+    pkg: &'a CheckedPackage,
     name: &str,
 ) -> Option<&'a zoya_ir::TypedFunction> {
     let repl_path = ModulePath::root().child("repl");
-    let repl_module = tree.modules.get(&repl_path)?;
+    let repl_module = pkg.modules.get(&repl_path)?;
     for item in &repl_module.items {
         if let CheckedItem::Function(f) = item
             && f.name == name

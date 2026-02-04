@@ -3,7 +3,7 @@ use std::path::Path;
 use zoya_check::check;
 use zoya_codegen::codegen;
 use zoya_ir::CheckedItem;
-use zoya_loader::{load_modules, load_modules_with, MemorySource};
+use zoya_loader::{load_package, load_package_with, MemorySource};
 
 use crate::eval::{self, EvalError, Value, VirtualModules};
 
@@ -18,23 +18,23 @@ pub enum RunInput<'a> {
 
 /// Run Zoya code from either a source string or file path
 pub fn run(input: RunInput) -> Result<Value, EvalError> {
-    // Load modules based on input type
-    let tree = match input {
+    // Load package based on input type
+    let pkg = match input {
         RunInput::Source(source) => {
             let mem_source = MemorySource::new().with_module("root", source);
-            load_modules_with(&mem_source, &"root".to_string())
+            load_package_with(&mem_source, &"root".to_string())
                 .map_err(|e| EvalError::RuntimeError(e.to_string()))?
         }
         RunInput::File(path) => {
-            load_modules(path).map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?
+            load_package(path).map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?
         }
     };
 
-    // Type check module tree
-    let checked_tree = check(&tree).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+    // Type check package
+    let checked_pkg = check(&pkg).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
 
     // Find main in root module
-    let root_module = checked_tree
+    let root_module = checked_pkg
         .root()
         .ok_or_else(|| EvalError::RuntimeError("root module not found".to_string()))?;
 
@@ -54,7 +54,7 @@ pub fn run(input: RunInput) -> Result<Value, EvalError> {
     }
 
     // Generate JS module code (ESM with exports)
-    let output = codegen(&checked_tree);
+    let output = codegen(&checked_pkg);
 
     // Create virtual modules and register the generated code
     let virtual_modules = VirtualModules::new();

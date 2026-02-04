@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use zoya_ast::{Path, PathPrefix};
 use zoya_ir::{Definition, QualifiedPath, TypeError, TypeScheme, Visibility};
-use zoya_module::ModulePath;
+use zoya_package::ModulePath;
 
 /// Resolve an AST path to a fully qualified path.
 ///

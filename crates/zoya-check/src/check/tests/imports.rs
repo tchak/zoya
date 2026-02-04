@@ -7,15 +7,15 @@ use zoya_ast::{
     Pattern, StructFieldPattern, TuplePattern, TypeAnnotation, UseDecl, UsePath, Visibility,
 };
 use zoya_ir::Type;
-use zoya_module::{Module, ModulePath, ModuleTree};
+use zoya_package::{Module, ModulePath, Package};
 
 use crate::check::check;
 
 use super::find_test_function;
 
-/// Build a multi-module test tree with the given modules.
+/// Build a multi-module test package with the given modules.
 /// Properly sets up parent-child relationships.
-fn build_multi_module_tree(modules_data: Vec<(ModulePath, Vec<Item>, Vec<UseDecl>)>) -> ModuleTree {
+fn build_multi_module_package(modules_data: Vec<(ModulePath, Vec<Item>, Vec<UseDecl>)>) -> Package {
     let mut modules = HashMap::new();
 
     // First pass: insert all modules with empty children
@@ -43,7 +43,7 @@ fn build_multi_module_tree(modules_data: Vec<(ModulePath, Vec<Item>, Vec<UseDecl
         }
     }
 
-    ModuleTree { modules }
+    Package { modules }
 }
 
 fn make_use(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
@@ -85,7 +85,7 @@ fn test_import_function_from_submodule() {
 
     let root_uses = vec![make_use(PathPrefix::Root, &["utils", "helper"])];
 
-    let tree = build_multi_module_tree(vec![
+    let tree = build_multi_module_package(vec![
         (ModulePath::root(), root_items, root_uses),
         (ModulePath::root().child("utils"), utils_items, vec![]),
     ]);
@@ -111,7 +111,7 @@ fn test_import_private_function_fails() {
     let root_items = vec![];
     let root_uses = vec![make_use(PathPrefix::Root, &["utils", "secret"])];
 
-    let tree = build_multi_module_tree(vec![
+    let tree = build_multi_module_package(vec![
         (ModulePath::root(), root_items, root_uses),
         (ModulePath::root().child("utils"), utils_items, vec![]),
     ]);
@@ -126,7 +126,7 @@ fn test_import_not_found_fails() {
     let root_items = vec![];
     let root_uses = vec![make_use(PathPrefix::Root, &["utils", "nonexistent"])];
 
-    let tree = build_multi_module_tree(vec![
+    let tree = build_multi_module_package(vec![
         (ModulePath::root(), root_items, root_uses),
     ]);
 
@@ -196,8 +196,8 @@ fn test_duplicate_import_fails() {
         },
     );
 
-    let tree = ModuleTree { modules };
-    let result = check(&tree);
+    let pkg = Package { modules };
+    let result = check(&pkg);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("already imported"));
 }
@@ -235,7 +235,7 @@ fn test_local_shadows_import() {
 
     let root_uses = vec![make_use(PathPrefix::Root, &["utils", "x"])];
 
-    let tree = build_multi_module_tree(vec![
+    let tree = build_multi_module_package(vec![
         (ModulePath::root(), root_items, root_uses),
         (ModulePath::root().child("utils"), utils_items, vec![]),
     ]);
@@ -285,7 +285,7 @@ fn test_import_shadows_module_level_definition() {
 
     let root_uses = vec![make_use(PathPrefix::Root, &["utils", "foo"])];
 
-    let tree = build_multi_module_tree(vec![
+    let tree = build_multi_module_package(vec![
         (ModulePath::root(), root_items, root_uses),
         (ModulePath::root().child("utils"), utils_items, vec![]),
     ]);
@@ -325,7 +325,7 @@ fn test_import_with_super_prefix() {
 
     let child_uses = vec![make_use(PathPrefix::Super, &["parent_fn"])];
 
-    let tree = build_multi_module_tree(vec![
+    let tree = build_multi_module_package(vec![
         (ModulePath::root(), root_items, vec![]),
         (ModulePath::root().child("child"), child_items, child_uses),
     ]);
@@ -393,7 +393,7 @@ fn test_imported_enum_variant_in_match_pattern() {
         make_use(PathPrefix::Root, &["types", "Option", "None"]),
     ];
 
-    let tree = build_multi_module_tree(vec![
+    let tree = build_multi_module_package(vec![
         (ModulePath::root(), root_items, root_uses),
         (ModulePath::root().child("types"), types_items, vec![]),
     ]);
@@ -483,7 +483,7 @@ fn test_imported_enum_variant_in_struct_pattern() {
         make_use(PathPrefix::Root, &["types", "Message", "Quit"]),
     ];
 
-    let tree = build_multi_module_tree(vec![
+    let tree = build_multi_module_package(vec![
         (ModulePath::root(), root_items, root_uses),
         (ModulePath::root().child("types"), types_items, vec![]),
     ]);

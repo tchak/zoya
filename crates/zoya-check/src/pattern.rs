@@ -5,7 +5,7 @@ use zoya_ir::{
     Definition, EnumVariantType, QualifiedPath, Type, TypeError, TypeScheme, TypeVarId,
     TypedLetBinding, TypedMatchArm, TypedPattern,
 };
-use zoya_module::ModulePath;
+use zoya_package::ModulePath;
 
 use crate::check::{TypeEnv, check_expr, substitute_type_vars, substitute_variant_type_vars};
 use crate::naming::{is_snake_case, to_snake_case};

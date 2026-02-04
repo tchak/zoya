@@ -4,11 +4,11 @@ use zoya_check::check;
 
 /// Type-check a file without executing it
 pub fn execute(path: &Path) -> Result<(), String> {
-    // Load and parse modules
-    let tree = zoya_loader::load_modules(path).map_err(|e| format!("error: {}", e))?;
+    // Load and parse package
+    let pkg = zoya_loader::load_package(path).map_err(|e| format!("error: {}", e))?;
 
-    // Type check entire module tree
-    check(&tree).map_err(|e| format!("error: {}", e))?;
+    // Type check entire package
+    check(&pkg).map_err(|e| format!("error: {}", e))?;
 
     // Success
     eprintln!("✓ Type checking passed: {}", path.display());

@@ -1,9 +1,9 @@
 use zoya_ast::{BinOp, UnaryOp};
 use zoya_ir::{
-    CheckedItem, CheckedModuleTree, QualifiedPath, Type, TypedEnumConstructFields, TypedExpr,
+    CheckedItem, CheckedPackage, QualifiedPath, Type, TypedEnumConstructFields, TypedExpr,
     TypedFunction, TypedMatchArm, TypedPattern,
 };
-use zoya_module::ModulePath;
+use zoya_package::ModulePath;
 
 /// Output of code generation containing JS code and content hash
 #[derive(Debug, Clone)]
@@ -77,11 +77,11 @@ fn codegen_items(items: &[CheckedItem], module_path: &ModulePath) -> String {
     js
 }
 
-/// Generate JavaScript code for all modules in the checked module tree.
+/// Generate JavaScript code for all modules in the checked package.
 /// Processes modules in dependency order (parents before children).
 /// Includes the prelude (runtime helper functions) at the start.
 /// Returns a `CodegenOutput` containing the generated code and its Blake3 hash.
-pub fn codegen(tree: &CheckedModuleTree) -> CodegenOutput {
+pub fn codegen(pkg: &CheckedPackage) -> CodegenOutput {
     let mut js = String::new();
 
     // Include prelude at the start
@@ -89,11 +89,11 @@ pub fn codegen(tree: &CheckedModuleTree) -> CodegenOutput {
     js.push('\n');
 
     // Sort modules by depth (parents before children)
-    let mut module_paths: Vec<_> = tree.modules.keys().collect();
+    let mut module_paths: Vec<_> = pkg.modules.keys().collect();
     module_paths.sort_by_key(|p| p.depth());
 
     for path in module_paths {
-        if let Some(module) = tree.modules.get(path) {
+        if let Some(module) = pkg.modules.get(path) {
             js.push_str(&codegen_items(&module.items, path));
         }
     }

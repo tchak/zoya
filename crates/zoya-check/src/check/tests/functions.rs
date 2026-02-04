@@ -1,12 +1,12 @@
 use zoya_ast::{BinOp, Expr, FunctionDef, Item, MatchArm, Param, Path, Pattern, TypeAnnotation, Visibility};
 use zoya_ir::{CheckedItem, Definition, FunctionType, QualifiedPath, Type};
-use zoya_module::ModulePath;
+use zoya_package::ModulePath;
 
 use crate::check::{check, check_expr, check_function, TypeEnv};
 use crate::definition::function_type_from_def;
 use crate::unify::UnifyCtx;
 
-use super::{build_test_module, build_test_module_with_expr, find_test_function};
+use super::{build_test_package, build_test_package_with_expr, find_test_function};
 
 fn qpath(path: &str) -> QualifiedPath {
     QualifiedPath::new(path.split("::").map(|s| s.to_string()).collect())
@@ -278,7 +278,7 @@ fn test_check_function_definition() {
         return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
         body: Expr::Int(42),
     })];
-    let tree = build_test_module(items);
+    let tree = build_test_package(items);
     let checked_tree = check(&tree).unwrap();
     let root = checked_tree.root().unwrap();
     assert_eq!(root.items.len(), 1);
@@ -306,7 +306,7 @@ fn test_check_function_call_in_module() {
         path: Path::simple("double".to_string()),
         args: vec![Expr::Int(5)],
     };
-    let tree = build_test_module_with_expr(items, test_expr);
+    let tree = build_test_package_with_expr(items, test_expr);
     let checked_tree = check(&tree).unwrap();
     let root = checked_tree.root().unwrap();
     // double + __test
@@ -343,7 +343,7 @@ fn test_check_forward_reference() {
             body: Expr::Int(42),
         }),
     ];
-    let tree = build_test_module(items);
+    let tree = build_test_package(items);
     let result = check(&tree);
     assert!(result.is_ok(), "Forward reference should succeed: {:?}", result.err());
     let checked_tree = result.unwrap();
@@ -421,7 +421,7 @@ fn test_check_mutual_recursion() {
             },
         }),
     ];
-    let tree = build_test_module(items);
+    let tree = build_test_package(items);
     let result = check(&tree);
     assert!(result.is_ok(), "Mutual recursion should succeed: {:?}", result.err());
 }
@@ -464,7 +464,7 @@ fn test_check_module_with_test_expr() {
             right: Box::new(Expr::Int(1)),
         }),
     };
-    let tree = build_test_module_with_expr(items, test_expr);
+    let tree = build_test_package_with_expr(items, test_expr);
     let result = check(&tree);
     assert!(result.is_ok(), "Mixed items and expr should succeed: {:?}", result.err());
     let checked_tree = result.unwrap();
@@ -491,7 +491,7 @@ fn test_check_undefined_variable_error() {
         return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
         body: Expr::Path(Path::simple("x".to_string())),
     })];
-    let tree = build_test_module(items);
+    let tree = build_test_package(items);
     let result = check(&tree);
     assert!(result.is_err(), "Unknown variable should fail, but got: {:?}", result);
     let err_msg = result.unwrap_err().message;
@@ -539,7 +539,7 @@ fn test_check_self_recursion() {
             ],
         },
     })];
-    let tree = build_test_module(items);
+    let tree = build_test_package(items);
     let result = check(&tree);
     assert!(result.is_ok(), "Self-recursion should succeed: {:?}", result.err());
 }

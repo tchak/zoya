@@ -4,11 +4,11 @@ use zoya_ast::{
     BinOp, Expr, FunctionDef, Item, LetBinding, MatchArm, Path, TypeAnnotation, UnaryOp,
 };
 use zoya_ir::{
-    CheckedItem, CheckedModule, CheckedModuleTree, Definition, EnumType, EnumVariantType,
+    CheckedItem, CheckedModule, CheckedPackage, Definition, EnumType, EnumVariantType,
     FunctionType, QualifiedPath, StructType, Type, TypeError, TypeScheme, TypeVarId,
     TypedEnumConstructFields, TypedExpr, TypedFunction,
 };
-use zoya_module::{ModulePath, ModuleTree};
+use zoya_package::{ModulePath, Package};
 
 use crate::builtin::{builtin_method, is_numeric_type};
 use crate::definition::{
@@ -1528,24 +1528,24 @@ fn is_syntactic_value(expr: &Expr) -> bool {
 /// This performs multi-module type checking:
 /// 1. Register all declarations from all modules
 /// 2. Type-check all function bodies with module context for path resolution
-pub fn check(tree: &ModuleTree) -> Result<CheckedModuleTree, TypeError> {
+pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
     let mut env = TypeEnv::default();
     let mut ctx = UnifyCtx::new();
 
     // Phase 1: Register ALL declarations from ALL modules
     // Process modules in dependency order (parents before children)
-    let mut module_paths: Vec<_> = tree.modules.keys().cloned().collect();
+    let mut module_paths: Vec<_> = pkg.modules.keys().cloned().collect();
     module_paths.sort_by_key(|p| p.depth());
 
     for path in &module_paths {
-        if let Some(module) = tree.modules.get(path) {
+        if let Some(module) = pkg.modules.get(path) {
             register_module_declarations(&module.items, path, &mut env, &mut ctx)?;
         }
     }
 
     // Phase 1.5: Resolve imports for all modules
     for path in &module_paths {
-        if let Some(module) = tree.modules.get(path) {
+        if let Some(module) = pkg.modules.get(path) {
             let module_imports = resolve_module_imports(&module.uses, path, &env.definitions)?;
             env.imports.insert(path.clone(), module_imports);
         }
@@ -1554,13 +1554,13 @@ pub fn check(tree: &ModuleTree) -> Result<CheckedModuleTree, TypeError> {
     // Phase 2: Type-check ALL function bodies
     let mut checked_modules = HashMap::new();
     for path in &module_paths {
-        if let Some(module) = tree.modules.get(path) {
+        if let Some(module) = pkg.modules.get(path) {
             let checked = check_module_bodies(&module.items, path, &env, &mut ctx)?;
             checked_modules.insert(path.clone(), checked);
         }
     }
 
-    Ok(CheckedModuleTree {
+    Ok(CheckedPackage {
         modules: checked_modules,
     })
 }

@@ -2,7 +2,7 @@ use zoya_ast::{Expr, FunctionDef, Item, Path, TypeAliasDef, TypeAnnotation, Visi
 
 use crate::check::check;
 
-use super::build_test_module;
+use super::build_test_package;
 
 #[test]
 fn test_type_alias_simple() {
@@ -23,7 +23,7 @@ fn test_type_alias_simple() {
             body: Expr::Int(42),
         }),
     ];
-    let tree = build_test_module(items);
+    let tree = build_test_package(items);
     let result = check(&tree);
     assert!(result.is_ok());
 }
@@ -56,7 +56,7 @@ fn test_type_alias_generic() {
             body: Expr::Tuple(vec![Expr::Int(1), Expr::Bool(true)]),
         }),
     ];
-    let tree = build_test_module(items);
+    let tree = build_test_package(items);
     let result = check(&tree);
     assert!(result.is_ok());
 }
@@ -69,7 +69,7 @@ fn test_type_alias_non_pascal_case_error() {
         type_params: vec![],
         typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
     })];
-    let tree = build_test_module(items);
+    let tree = build_test_package(items);
     let result = check(&tree);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("PascalCase"));
@@ -100,7 +100,7 @@ fn test_type_alias_wrong_arity_error() {
             body: Expr::Tuple(vec![Expr::Int(1), Expr::Int(2)]),
         }),
     ];
-    let tree = build_test_module(items);
+    let tree = build_test_package(items);
     let result = check(&tree);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("type argument"));

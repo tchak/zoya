@@ -1235,7 +1235,7 @@ dependencies = [
  "zoya-ir",
  "zoya-lexer",
  "zoya-loader",
- "zoya-module",
+ "zoya-package",
  "zoya-parser",
 ]
 
@@ -1249,7 +1249,7 @@ version = "0.1.0"
 dependencies = [
  "zoya-ast",
  "zoya-ir",
- "zoya-module",
+ "zoya-package",
 ]
 
 [[package]]
@@ -1259,7 +1259,7 @@ dependencies = [
  "blake3",
  "zoya-ast",
  "zoya-ir",
- "zoya-module",
+ "zoya-package",
 ]
 
 [[package]]
@@ -1267,7 +1267,7 @@ name = "zoya-ir"
 version = "0.1.0"
 dependencies = [
  "zoya-ast",
- "zoya-module",
+ "zoya-package",
 ]
 
 [[package]]
@@ -1284,12 +1284,12 @@ dependencies = [
  "tempfile",
  "zoya-ast",
  "zoya-lexer",
- "zoya-module",
+ "zoya-package",
  "zoya-parser",
 ]
 
 [[package]]
-name = "zoya-module"
+name = "zoya-package"
 version = "0.1.0"
 dependencies = [
  "zoya-ast",

@@ -1,9 +1,9 @@
-//! Module data structures for Zoya.
+//! Package data structures for Zoya.
 //!
-//! This crate provides the core module-related types used across the Zoya compiler:
-//! - `ModulePath`: Logical path to a module in the module tree
+//! This crate provides the core package-related types used across the Zoya compiler:
+//! - `ModulePath`: Logical path to a module in the package
 //! - `Module`: A loaded module containing parsed items
-//! - `ModuleTree`: The complete tree of loaded modules
+//! - `Package`: The complete package of loaded modules
 
 use std::collections::HashMap;
 
@@ -64,13 +64,13 @@ pub struct Module {
     pub children: HashMap<String, ModulePath>,
 }
 
-/// The complete module tree
+/// The complete package of loaded modules
 #[derive(Debug, Clone)]
-pub struct ModuleTree {
+pub struct Package {
     pub modules: HashMap<ModulePath, Module>,
 }
 
-impl ModuleTree {
+impl Package {
     pub fn root(&self) -> Option<&Module> {
         self.modules.get(&ModulePath::root())
     }

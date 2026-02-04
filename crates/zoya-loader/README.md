@@ -1,12 +1,12 @@
 # zoya-loader
 
-Module file loading for the Zoya programming language.
+Package file loading for the Zoya programming language.
 
-Handles reading, parsing, and organizing Zoya source files into a module tree. Supports both filesystem and in-memory sources for flexibility in testing and tooling.
+Handles reading, parsing, and organizing Zoya source files into a package. Supports both filesystem and in-memory sources for flexibility in testing and tooling.
 
 ## Features
 
-- **Recursive module loading** - Follows `mod` declarations to build complete module trees
+- **Recursive module loading** - Follows `mod` declarations to build complete packages
 - **Pluggable sources** - `FsSource` for filesystem, `MemorySource` for testing
 - **Error handling** - Detailed errors for missing modules, duplicates, and parse failures
 
@@ -14,20 +14,20 @@ Handles reading, parsing, and organizing Zoya source files into a module tree. S
 
 ```rust
 use std::path::Path;
-use zoya_loader::{load_modules, load_modules_with, FsSource, MemorySource};
+use zoya_loader::{load_package, load_package_with, FsSource, MemorySource};
 
 // Load from filesystem
-let tree = load_modules(Path::new("src/main.zoya"))?;
+let pkg = load_package(Path::new("src/main.zoya"))?;
 
 // Load with custom source
 let source = FsSource::new("/project/src");
-let tree = load_modules_with(&source, &FilePath::new("/project/src/main.zoya"))?;
+let pkg = load_package_with(&source, &FilePath::new("/project/src/main.zoya"))?;
 
 // In-memory source for testing
 let source = MemorySource::new()
     .with_module("root", "mod utils\nfn main() -> Int 42")
     .with_module("utils", "fn helper() -> Int 10");
-let tree = load_modules_with(&source, &"root".to_string())?;
+let pkg = load_package_with(&source, &"root".to_string())?;
 ```
 
 ## Module Resolution
@@ -42,5 +42,5 @@ For nested modules like `mod helpers` inside `utils.zoya`:
 
 - [zoya-ast](../zoya-ast) - AST types
 - [zoya-lexer](../zoya-lexer) - Tokenizer
-- [zoya-module](../zoya-module) - Module data structures
+- [zoya-package](../zoya-package) - Package data structures
 - [zoya-parser](../zoya-parser) - Parser

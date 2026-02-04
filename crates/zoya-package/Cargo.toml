@@ -1,5 +1,5 @@
 [package]
-name = "zoya-module"
+name = "zoya-package"
 version = "0.1.0"
 edition = "2024"
 

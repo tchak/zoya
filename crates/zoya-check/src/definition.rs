@@ -4,7 +4,7 @@ use zoya_ast::{EnumDef, FunctionDef, StructDef, TypeAliasDef};
 use zoya_ir::{
     EnumType, EnumVariantType, FunctionType, StructType, Type, TypeAliasType, TypeError,
 };
-use zoya_module::ModulePath;
+use zoya_package::ModulePath;
 
 use crate::check::TypeEnv;
 use crate::naming::{is_pascal_case, to_pascal_case};

@@ -3,7 +3,7 @@ use zoya_ir::Type;
 
 use crate::check::check;
 
-use super::{build_test_module_with_expr, check_expr_with_env, find_test_function};
+use super::{build_test_package_with_expr, check_expr_with_env, find_test_function};
 
 #[test]
 fn test_check_let_binding_in_block() {
@@ -15,7 +15,7 @@ fn test_check_let_binding_in_block() {
         }],
         result: Box::new(Expr::Tuple(vec![])),
     };
-    let tree = build_test_module_with_expr(vec![], test_expr);
+    let tree = build_test_package_with_expr(vec![], test_expr);
     let checked_tree = check(&tree).unwrap();
     let root = checked_tree.root().unwrap();
     // Only the __test function should be present
@@ -40,7 +40,7 @@ fn test_check_let_binding_usage() {
             right: Box::new(Expr::Int(1)),
         }),
     };
-    let tree = build_test_module_with_expr(vec![], test_expr);
+    let tree = build_test_package_with_expr(vec![], test_expr);
     let checked_tree = check(&tree).unwrap();
     let root = checked_tree.root().unwrap();
     // Only __test function
@@ -60,7 +60,7 @@ fn test_check_let_with_type_annotation() {
         }],
         result: Box::new(Expr::Tuple(vec![])),
     };
-    let tree = build_test_module_with_expr(vec![], test_expr);
+    let tree = build_test_package_with_expr(vec![], test_expr);
     let checked_tree = check(&tree).unwrap();
     let root = checked_tree.root().unwrap();
     // Only __test function
@@ -79,7 +79,7 @@ fn test_check_let_type_mismatch() {
         }],
         result: Box::new(Expr::Tuple(vec![])),
     };
-    let tree = build_test_module_with_expr(vec![], test_expr);
+    let tree = build_test_package_with_expr(vec![], test_expr);
     let result = check(&tree);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("declares type"));

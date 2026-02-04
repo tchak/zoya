@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use zoya_ast::{Expr, FunctionDef, Item, Visibility};
 use zoya_ir::{CheckedItem, TypeError, TypedExpr, TypedFunction};
-use zoya_module::{Module, ModulePath, ModuleTree};
+use zoya_package::{Module, ModulePath, Package};
 
 use crate::check::{check_expr, TypeEnv};
 use crate::unify::UnifyCtx;
@@ -27,8 +27,8 @@ pub fn check_expr_with_env(expr: &Expr) -> Result<TypedExpr, TypeError> {
     check_expr(expr, &ModulePath::root(), &TypeEnv::default(), &mut ctx)
 }
 
-/// Build a test module from items only.
-pub fn build_test_module(items: Vec<Item>) -> ModuleTree {
+/// Build a test package from items only.
+pub fn build_test_package(items: Vec<Item>) -> Package {
     let module = Module {
         items,
         uses: vec![],
@@ -37,12 +37,12 @@ pub fn build_test_module(items: Vec<Item>) -> ModuleTree {
     };
     let mut modules = HashMap::new();
     modules.insert(ModulePath::root(), module);
-    ModuleTree { modules }
+    Package { modules }
 }
 
-/// Build a test module with items and a test expression.
+/// Build a test package with items and a test expression.
 /// The test expression is wrapped in a synthetic `__test` function.
-pub fn build_test_module_with_expr(items: Vec<Item>, test_expr: Expr) -> ModuleTree {
+pub fn build_test_package_with_expr(items: Vec<Item>, test_expr: Expr) -> Package {
     let mut all_items = items;
     all_items.push(Item::Function(FunctionDef {
         visibility: Visibility::Public,
@@ -52,7 +52,7 @@ pub fn build_test_module_with_expr(items: Vec<Item>, test_expr: Expr) -> ModuleT
         return_type: None,
         body: test_expr,
     }));
-    build_test_module(all_items)
+    build_test_package(all_items)
 }
 
 /// Find the `__test` function from checked items

@@ -5,14 +5,14 @@ use zoya_codegen::codegen;
 
 /// Compile a file to JavaScript without executing
 pub fn execute(path: &Path, output: Option<&Path>) -> Result<(), String> {
-    // Load and parse modules
-    let tree = zoya_loader::load_modules(path).map_err(|e| format!("error: {}", e))?;
+    // Load and parse package
+    let pkg = zoya_loader::load_package(path).map_err(|e| format!("error: {}", e))?;
 
-    // Type check entire module tree
-    let checked_tree = check(&tree).map_err(|e| format!("error: {}", e))?;
+    // Type check entire package
+    let checked_pkg = check(&pkg).map_err(|e| format!("error: {}", e))?;
 
     // Generate JS code
-    let output_data = codegen(&checked_tree);
+    let output_data = codegen(&checked_pkg);
 
     // Write output
     match output {

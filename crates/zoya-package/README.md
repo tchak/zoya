@@ -1,17 +1,17 @@
-# zoya-module
+# zoya-package
 
-Module data structures for the Zoya programming language.
+Package data structures for the Zoya programming language.
 
-This crate defines the core module-related types used across the Zoya compiler:
+This crate defines the core package-related types used across the Zoya compiler:
 
-- **ModulePath** - Logical path to a module in the module tree (e.g., `root::utils::helpers`)
+- **ModulePath** - Logical path to a module in the package (e.g., `root::utils::helpers`)
 - **Module** - A loaded module containing parsed items and child module references
-- **ModuleTree** - The complete tree of loaded modules
+- **Package** - The complete package of loaded modules
 
 ## Usage
 
 ```rust
-use zoya_module::{ModulePath, Module, ModuleTree};
+use zoya_package::{ModulePath, Module, Package};
 
 // Create a root path
 let root = ModulePath::root();

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use zoya_ast::{Expr, LetBinding, ListPattern, Path, PathPrefix, Pattern, TuplePattern, TypeAnnotation};
 use zoya_ir::{Definition, FunctionType, QualifiedPath, Type, TypeScheme, Visibility};
-use zoya_module::ModulePath;
+use zoya_package::ModulePath;
 
 fn qpath(path: &str) -> QualifiedPath {
     QualifiedPath::new(path.split("::").map(|s| s.to_string()).collect())
@@ -11,7 +11,7 @@ fn qpath(path: &str) -> QualifiedPath {
 use crate::check::{check, check_expr, substitute_type_vars, TypeEnv};
 use crate::unify::UnifyCtx;
 
-use super::build_test_module_with_expr;
+use super::build_test_package_with_expr;
 
 // ===== Type Substitution Tests =====
 
@@ -96,7 +96,7 @@ fn test_let_literal_pattern_rejected() {
         }],
         result: Box::new(Expr::Tuple(vec![])),
     };
-    let tree = build_test_module_with_expr(vec![], test_expr);
+    let tree = build_test_package_with_expr(vec![], test_expr);
     let result = check(&tree);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("refutable"));
@@ -112,7 +112,7 @@ fn test_let_list_pattern_rejected() {
         }],
         result: Box::new(Expr::Tuple(vec![])),
     };
-    let tree = build_test_module_with_expr(vec![], test_expr);
+    let tree = build_test_package_with_expr(vec![], test_expr);
     let result = check(&tree);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("refutable"));
@@ -136,7 +136,7 @@ fn test_let_call_pattern_rejected() {
         }],
         result: Box::new(Expr::Tuple(vec![])),
     };
-    let tree = build_test_module_with_expr(vec![], test_expr);
+    let tree = build_test_package_with_expr(vec![], test_expr);
     let result = check(&tree);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("refutable"));
@@ -155,7 +155,7 @@ fn test_let_tuple_pattern_irrefutable() {
         }],
         result: Box::new(Expr::Tuple(vec![])),
     };
-    let tree = build_test_module_with_expr(vec![], test_expr);
+    let tree = build_test_package_with_expr(vec![], test_expr);
     let result = check(&tree);
     // Type checking should succeed
     assert!(result.is_ok());

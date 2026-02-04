@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use zoya_ast::{PathPrefix, UseDecl};
 use zoya_ir::{Definition, QualifiedPath, TypeError, Visibility};
-use zoya_module::ModulePath;
+use zoya_package::ModulePath;
 
 /// Resolved import entry: maps a local name to a qualified path
 pub type ImportTable = HashMap<String, QualifiedPath>;

@@ -1,6 +1,6 @@
 use zoya_ast::{Expr, Path};
 use zoya_ir::{Definition, QualifiedPath, StructType, Type};
-use zoya_module::ModulePath;
+use zoya_package::ModulePath;
 
 use crate::check::{check_expr, TypeEnv};
 use crate::unify::UnifyCtx;

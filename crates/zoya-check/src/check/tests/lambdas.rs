@@ -1,6 +1,6 @@
 use zoya_ast::{BinOp, Expr, LambdaParam, Path, PathPrefix, Pattern, TuplePattern, TypeAnnotation};
 use zoya_ir::{Type, TypeScheme};
-use zoya_module::ModulePath;
+use zoya_package::ModulePath;
 
 use crate::check::{check_expr, TypeEnv};
 use crate::unify::UnifyCtx;

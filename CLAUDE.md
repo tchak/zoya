@@ -24,7 +24,7 @@ crates/
 ├── zoya-ir/           # Typed IR and type definitions
 ├── zoya-lexer/        # Tokenizer (logos)
 ├── zoya-loader/       # Module file loading
-├── zoya-module/       # Module data structures
+├── zoya-package/      # Package data structures
 └── zoya-parser/       # Parser (chumsky)
 ```
 
@@ -79,8 +79,8 @@ New features need tests at each pipeline stage:
 |-------|-------|
 | `zoya-lexer` | Token recognition |
 | `zoya-parser` | AST structure |
-| `zoya-module` | Module path operations |
-| `zoya-loader` | Module loading and resolution |
+| `zoya-package` | Module path operations |
+| `zoya-loader` | Package loading and resolution |
 | `zoya` (check) | Type checking pass/fail |
 | `zoya-codegen` | Generated JS correctness |
 | `zoya` (runner) | End-to-end execution |
