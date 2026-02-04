@@ -1,25 +1,37 @@
-#[cfg(test)]
-use zoya_check::check;
-#[cfg(test)]
-use crate::eval::{self, EvalError, Value, VirtualModules};
-#[cfg(test)]
-use zoya_codegen::codegen;
-#[cfg(test)]
-use zoya_ir::CheckedItem;
-#[cfg(test)]
-use zoya_loader::{load_modules_with, MemorySource};
+use std::path::Path;
 
-/// Run Zoya source code and return the result
-#[cfg(test)]
-pub fn run(source: &str) -> Result<Value, EvalError> {
-    // Load module using memory source
-    let mem_source = MemorySource::new().with_module("root", source);
-    let tree = load_modules_with(&mem_source, &"root".to_string())
-        .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+use zoya_check::check;
+use zoya_codegen::codegen;
+use zoya_ir::CheckedItem;
+use zoya_loader::{load_modules, load_modules_with, MemorySource};
+
+use crate::eval::{self, EvalError, Value, VirtualModules};
+
+/// Input source for running Zoya code
+pub enum RunInput<'a> {
+    /// Source code as a string (for tests and in-memory execution)
+    #[cfg_attr(not(test), allow(dead_code))]
+    Source(&'a str),
+    /// Path to a file on the filesystem
+    File(&'a Path),
+}
+
+/// Run Zoya code from either a source string or file path
+pub fn run(input: RunInput) -> Result<Value, EvalError> {
+    // Load modules based on input type
+    let tree = match input {
+        RunInput::Source(source) => {
+            let mem_source = MemorySource::new().with_module("root", source);
+            load_modules_with(&mem_source, &"root".to_string())
+                .map_err(|e| EvalError::RuntimeError(e.to_string()))?
+        }
+        RunInput::File(path) => {
+            load_modules(path).map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?
+        }
+    };
 
     // Type check module tree
-    let checked_tree =
-        check(&tree).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+    let checked_tree = check(&tree).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
 
     // Find main in root module
     let root_module = checked_tree
@@ -46,7 +58,8 @@ pub fn run(source: &str) -> Result<Value, EvalError> {
 
     // Create virtual modules and register the generated code
     let virtual_modules = VirtualModules::new();
-    virtual_modules.register("root", output.code);
+    let module_name = format!("root_{}", output.hash);
+    virtual_modules.register(&module_name, output.code);
 
     // Create runtime with module loader
     let (_runtime, context) = eval::create_module_runtime(virtual_modules)
@@ -54,7 +67,12 @@ pub fn run(source: &str) -> Result<Value, EvalError> {
 
     // Evaluate the module and call main
     context.with(|ctx| {
-        eval::eval_module(&ctx, "root", "$root$main", main_func.return_type.clone())
+        eval::eval_module(
+            &ctx,
+            &module_name,
+            "$root$main",
+            main_func.return_type.clone(),
+        )
     })
 }
 
@@ -65,14 +83,14 @@ mod tests {
     #[test]
     fn test_run_simple_main() {
         let source = "fn main() -> Int { 42 }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
     #[test]
     fn test_run_main_with_expression() {
         let source = "fn main() -> Int { 1 + 2 * 3 }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(7));
     }
 
@@ -82,28 +100,28 @@ mod tests {
             fn add(x: Int, y: Int) -> Int { x + y }
             fn main() -> Int { add(10, 20) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(30));
     }
 
     #[test]
     fn test_run_main_with_float() {
         let source = "fn main() -> Float { 3.14 }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Float(3.14));
     }
 
     #[test]
     fn test_run_no_main_error() {
         let source = "fn foo() -> Int { 42 }";
-        let result = run(source);
+        let result = run(RunInput::Source(source));
         assert!(matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("no main()")));
     }
 
     #[test]
     fn test_run_main_with_params_error() {
         let source = "fn main(x: Int) -> Int { x }";
-        let result = run(source);
+        let result = run(RunInput::Source(source));
         assert!(
             matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("must not take any parameters"))
         );
@@ -116,7 +134,7 @@ mod tests {
             fn double(x: Int) -> Int { x + x }
             fn main() -> Int { square(double(3)) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(36)); // double(3) = 6, square(6) = 36
     }
 
@@ -127,7 +145,7 @@ mod tests {
             fn square(x: Int) -> Int x * x
             fn main() -> Int { square(5) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(25));
     }
 
@@ -139,175 +157,175 @@ mod tests {
             fn double(x: Int) -> Int x * 2
             fn main() -> Int add(double(3), 4)
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(10)); // double(3) = 6, add(6, 4) = 10
     }
 
     #[test]
     fn test_run_division_by_zero() {
         let source = "fn main() -> Int { 1 / 0 }";
-        let result = run(source);
+        let result = run(RunInput::Source(source));
         assert!(matches!(result, Err(EvalError::DivisionByZero)));
     }
 
     #[test]
     fn test_run_bool_true() {
         let source = "fn main() -> Bool { true }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn test_run_bool_false() {
         let source = "fn main() -> Bool { false }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(false));
     }
 
     #[test]
     fn test_run_equality_true() {
         let source = "fn main() -> Bool { 1 == 1 }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn test_run_equality_false() {
         let source = "fn main() -> Bool { 1 == 2 }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(false));
     }
 
     #[test]
     fn test_run_inequality() {
         let source = "fn main() -> Bool { 1 != 2 }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn test_run_less_than() {
         let source = "fn main() -> Bool { 1 < 2 }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn test_run_greater_than() {
         let source = "fn main() -> Bool { 2 > 1 }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn test_run_less_equal() {
         let source = "fn main() -> Bool { 2 <= 2 }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn test_run_greater_equal() {
         let source = "fn main() -> Bool { 2 >= 2 }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn test_run_bool_equality() {
         let source = "fn main() -> Bool { true == false }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(false));
     }
 
     #[test]
     fn test_run_float_comparison() {
         let source = "fn main() -> Bool { 1.5 < 2.5 }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn test_run_comparison_with_arithmetic() {
         let source = "fn main() -> Bool { 1 + 2 == 3 }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn test_run_string_len() {
         let source = r#"fn main() -> Int { "hello".len() }"#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(5));
     }
 
     #[test]
     fn test_run_string_is_empty_false() {
         let source = r#"fn main() -> Bool { "hello".is_empty() }"#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(false));
     }
 
     #[test]
     fn test_run_string_is_empty_true() {
         let source = r#"fn main() -> Bool { "".is_empty() }"#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn test_run_string_contains_true() {
         let source = r#"fn main() -> Bool { "hello world".contains("world") }"#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn test_run_string_contains_false() {
         let source = r#"fn main() -> Bool { "hello".contains("xyz") }"#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(false));
     }
 
     #[test]
     fn test_run_string_starts_with() {
         let source = r#"fn main() -> Bool { "hello".starts_with("he") }"#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn test_run_string_ends_with() {
         let source = r#"fn main() -> Bool { "hello".ends_with("lo") }"#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn test_run_string_to_uppercase() {
         let source = r#"fn main() -> String { "hello".to_uppercase() }"#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::String("HELLO".to_string()));
     }
 
     #[test]
     fn test_run_string_to_lowercase() {
         let source = r#"fn main() -> String { "HELLO".to_lowercase() }"#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::String("hello".to_string()));
     }
 
     #[test]
     fn test_run_string_trim() {
         let source = r#"fn main() -> String { "  hello  ".trim() }"#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::String("hello".to_string()));
     }
 
     #[test]
     fn test_run_chained_method_calls() {
         let source = r#"fn main() -> Int { "hello".to_uppercase().len() }"#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(5));
     }
 
@@ -317,7 +335,7 @@ mod tests {
             fn get_length(s: String) -> Int { s.len() }
             fn main() -> Int { get_length("hello") }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(5));
     }
 
@@ -325,35 +343,35 @@ mod tests {
     #[test]
     fn test_run_int32_abs() {
         let source = "fn main() -> Int { (-5).abs() }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(5));
     }
 
     #[test]
     fn test_run_int32_to_string() {
         let source = "fn main() -> String { 42.to_string() }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::String("42".to_string()));
     }
 
     #[test]
     fn test_run_int32_to_float() {
         let source = "fn main() -> Float { 42.to_float() }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Float(42.0));
     }
 
     #[test]
     fn test_run_int32_min() {
         let source = "fn main() -> Int { 3.min(5) }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(3));
     }
 
     #[test]
     fn test_run_int32_max() {
         let source = "fn main() -> Int { 3.max(5) }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(5));
     }
 
@@ -361,35 +379,35 @@ mod tests {
     #[test]
     fn test_run_int64_literal() {
         let source = "fn main() -> BigInt { 42n }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::BigInt(42));
     }
 
     #[test]
     fn test_run_int64_large_literal() {
         let source = "fn main() -> BigInt { 9_000_000_000n }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::BigInt(9_000_000_000));
     }
 
     #[test]
     fn test_run_int64_addition() {
         let source = "fn main() -> BigInt { 1n + 2n }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::BigInt(3));
     }
 
     #[test]
     fn test_run_int64_method_abs() {
         let source = "fn main() -> BigInt { (-42n).abs() }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::BigInt(42));
     }
 
     #[test]
     fn test_run_int64_method_to_string() {
         let source = "fn main() -> String { 42n.to_string() }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::String("42".to_string()));
     }
 
@@ -397,63 +415,63 @@ mod tests {
     #[test]
     fn test_run_float_abs() {
         let source = "fn main() -> Float { (-3.14).abs() }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Float(3.14));
     }
 
     #[test]
     fn test_run_float_to_string() {
         let source = "fn main() -> String { 3.14.to_string() }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::String("3.14".to_string()));
     }
 
     #[test]
     fn test_run_float_to_int() {
         let source = "fn main() -> Int { 3.7.to_int() }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(3));
     }
 
     #[test]
     fn test_run_float_floor() {
         let source = "fn main() -> Float { 3.7.floor() }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Float(3.0));
     }
 
     #[test]
     fn test_run_float_ceil() {
         let source = "fn main() -> Float { 3.2.ceil() }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Float(4.0));
     }
 
     #[test]
     fn test_run_float_round() {
         let source = "fn main() -> Float { 3.5.round() }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Float(4.0));
     }
 
     #[test]
     fn test_run_float_sqrt() {
         let source = "fn main() -> Float { 9.0.sqrt() }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Float(3.0));
     }
 
     #[test]
     fn test_run_float_min() {
         let source = "fn main() -> Float { 3.5.min(2.5) }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Float(2.5));
     }
 
     #[test]
     fn test_run_float_max() {
         let source = "fn main() -> Float { 3.5.max(2.5) }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Float(3.5));
     }
 
@@ -461,7 +479,7 @@ mod tests {
     #[test]
     fn test_run_list_literal() {
         let source = "fn main() -> List<Int> { [1, 2, 3] }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(
             result,
             Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
@@ -471,63 +489,63 @@ mod tests {
     #[test]
     fn test_run_empty_list() {
         let source = "fn main() -> List<Int> { [] }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::List(vec![]));
     }
 
     #[test]
     fn test_run_list_equality_true() {
         let source = "fn main() -> Bool { [1, 2, 3] == [1, 2, 3] }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn test_run_list_equality_false_different_elements() {
         let source = "fn main() -> Bool { [1, 2, 3] == [1, 2, 4] }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(false));
     }
 
     #[test]
     fn test_run_list_equality_false_different_length() {
         let source = "fn main() -> Bool { [1, 2] == [1, 2, 3] }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(false));
     }
 
     #[test]
     fn test_run_list_inequality() {
         let source = "fn main() -> Bool { [1, 2] != [1, 3] }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn test_run_empty_list_equality() {
         let source = "fn main() -> Bool { [] == [] }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn test_run_tuple_equality_true() {
         let source = "fn main() -> Bool { (1, 2) == (1, 2) }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn test_run_tuple_equality_false() {
         let source = "fn main() -> Bool { (1, 2) == (1, 3) }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(false));
     }
 
     #[test]
     fn test_run_tuple_inequality() {
         let source = "fn main() -> Bool { (1, 2) != (1, 3) }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
@@ -542,7 +560,7 @@ mod tests {
             }
             fn main() -> Bool { is_empty([]) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
@@ -557,7 +575,7 @@ mod tests {
             }
             fn main() -> Bool { is_empty([1, 2, 3]) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(false));
     }
 
@@ -572,7 +590,7 @@ mod tests {
             }
             fn main() -> Int { head_or_zero([42, 1, 2]) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -587,7 +605,7 @@ mod tests {
             }
             fn main() -> Int { head_or_zero([]) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(0));
     }
 
@@ -602,7 +620,7 @@ mod tests {
             }
             fn main() -> Int { sum_pair([10, 20]) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(30));
     }
 
@@ -617,7 +635,7 @@ mod tests {
             }
             fn main() -> Int { sum_pair([1, 2, 3]) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(0));
     }
 
@@ -633,7 +651,7 @@ mod tests {
             }
             fn main() -> Bool { starts_with_one([1, 2, 3]) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
@@ -649,7 +667,7 @@ mod tests {
             }
             fn main() -> Bool { starts_with_one([2, 3, 4]) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(false));
     }
 
@@ -664,7 +682,7 @@ mod tests {
             }
             fn main() -> Int { bad([1]) }
         "#;
-        let result = run(source);
+        let result = run(RunInput::Source(source));
         assert!(matches!(
             result,
             Err(EvalError::RuntimeError(msg)) if msg.contains("non-exhaustive")
@@ -674,7 +692,7 @@ mod tests {
     #[test]
     fn test_run_list_string() {
         let source = r#"fn main() -> List<String> { ["hello", "world"] }"#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(
             result,
             Value::List(vec![
@@ -697,7 +715,7 @@ mod tests {
             }
             fn main() -> Bool { len_check([1, 2]) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
@@ -713,7 +731,7 @@ mod tests {
             }
             fn main() -> Int { last_elem([1, 2, 3]) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(3));
     }
 
@@ -728,7 +746,7 @@ mod tests {
             }
             fn main() -> Int { last_elem([42]) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -744,7 +762,7 @@ mod tests {
             }
             fn main() -> Int { last_two([1, 2, 3, 4]) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(7)); // 3 + 4
     }
 
@@ -760,7 +778,7 @@ mod tests {
             }
             fn main() -> Bool { ends_with_zero([1, 2, 0]) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
@@ -777,7 +795,7 @@ mod tests {
             }
             fn main() -> Int { first_and_last([1, 2, 3, 4]) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(5)); // 1 + 4
     }
 
@@ -794,7 +812,7 @@ mod tests {
             }
             fn main() -> Int { first_and_last([10, 20]) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(30)); // 10 + 20
     }
 
@@ -810,7 +828,7 @@ mod tests {
             }
             fn main() -> Bool { bookended_by_ones([1, 2, 3, 1]) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
@@ -828,7 +846,7 @@ mod tests {
             }
             fn main() -> Int { middle_free([1, 2, 3, 4, 5, 6]) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(14)); // 1 + 2 + 5 + 6
     }
 
@@ -837,35 +855,35 @@ mod tests {
     #[test]
     fn test_run_list_len() {
         let source = "fn main() -> Int { [1, 2, 3].len() }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(3));
     }
 
     #[test]
     fn test_run_list_len_empty() {
         let source = "fn main() -> Int { [].len() }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(0));
     }
 
     #[test]
     fn test_run_list_is_empty_true() {
         let source = "fn main() -> Bool { [].is_empty() }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn test_run_list_is_empty_false() {
         let source = "fn main() -> Bool { [1, 2].is_empty() }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(false));
     }
 
     #[test]
     fn test_run_list_reverse() {
         let source = "fn main() -> List<Int> { [1, 2, 3].reverse() }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(
             result,
             Value::List(vec![Value::Int(3), Value::Int(2), Value::Int(1)])
@@ -875,14 +893,14 @@ mod tests {
     #[test]
     fn test_run_list_reverse_empty() {
         let source = "fn main() -> List<Int> { [].reverse() }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::List(vec![]));
     }
 
     #[test]
     fn test_run_list_push() {
         let source = "fn main() -> List<Int> { [1, 2].push(3) }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(
             result,
             Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
@@ -892,14 +910,14 @@ mod tests {
     #[test]
     fn test_run_list_push_empty() {
         let source = "fn main() -> List<Int> { [].push(1) }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::List(vec![Value::Int(1)]));
     }
 
     #[test]
     fn test_run_list_concat() {
         let source = "fn main() -> List<Int> { [1, 2].concat([3, 4]) }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(
             result,
             Value::List(vec![
@@ -914,14 +932,14 @@ mod tests {
     #[test]
     fn test_run_list_concat_empty() {
         let source = "fn main() -> List<Int> { [1, 2].concat([]) }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::List(vec![Value::Int(1), Value::Int(2)]));
     }
 
     #[test]
     fn test_run_list_chained_methods() {
         let source = "fn main() -> List<Int> { [1, 2].push(3).reverse() }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(
             result,
             Value::List(vec![Value::Int(3), Value::Int(2), Value::Int(1)])
@@ -932,7 +950,7 @@ mod tests {
     #[test]
     fn test_run_tuple_literal() {
         let source = r#"fn main() -> (Int, String) { (42, "hello") }"#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(
             result,
             Value::Tuple(vec![Value::Int(42), Value::String("hello".to_string())])
@@ -942,14 +960,14 @@ mod tests {
     #[test]
     fn test_run_empty_tuple() {
         let source = "fn main() -> () { () }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Tuple(vec![]));
     }
 
     #[test]
     fn test_run_single_element_tuple() {
         let source = "fn main() -> (Int,) { (42,) }";
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Tuple(vec![Value::Int(42)]));
     }
 
@@ -963,7 +981,7 @@ mod tests {
             }
             fn main() -> Int { first((10, "hello")) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(10));
     }
 
@@ -977,7 +995,7 @@ mod tests {
             }
             fn main() -> Int { get_first((1, 2, 3)) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(1));
     }
 
@@ -991,7 +1009,7 @@ mod tests {
             }
             fn main() -> Int { get_last((1, 2, 3)) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(3));
     }
 
@@ -1005,7 +1023,7 @@ mod tests {
             }
             fn main() -> Int { first_and_last((1, 2, 3)) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(4)); // 1 + 3
     }
 
@@ -1019,7 +1037,7 @@ mod tests {
             }
             fn main() -> Int { get_int((42, "hello", true)) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -1028,7 +1046,7 @@ mod tests {
         let source = r#"
             fn main() -> (Int, List<Int>) { (1, [2, 3]) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(
             result,
             Value::Tuple(vec![
@@ -1046,7 +1064,7 @@ mod tests {
                 match 1 { 0 => 0, 1 => 10, _ => 100 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(10));
     }
 
@@ -1057,7 +1075,7 @@ mod tests {
                 match 1 { 0 => { 0 }, 1 => { 10 }, _ => { 100 } }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(10));
     }
 
@@ -1073,7 +1091,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(11)); // 5 * 2 + 1
     }
 
@@ -1091,7 +1109,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(14)); // ((3 * 2) + 1) * 2
     }
 
@@ -1107,7 +1125,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(25)); // 10 + 15
     }
 
@@ -1125,7 +1143,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(22)); // 2 * 10 + 2
     }
 
@@ -1144,7 +1162,7 @@ mod tests {
             }
             fn main() -> Int { sum_first_two([5, 7, 9]) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(12));
     }
 
@@ -1162,7 +1180,7 @@ mod tests {
             }
             fn main() -> Int { process((3, 4)) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(19)); // (3 + 4) + (3 * 4) = 7 + 12
     }
 
@@ -1175,7 +1193,7 @@ mod tests {
             fn callee() -> Int { 42 }
             fn main() -> Int { caller() }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -1197,7 +1215,7 @@ mod tests {
             }
             fn main() -> Bool { is_even(4) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
@@ -1218,7 +1236,7 @@ mod tests {
             }
             fn main() -> Bool { is_odd(3) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
@@ -1231,7 +1249,7 @@ mod tests {
                 f(41)
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -1243,7 +1261,7 @@ mod tests {
                 add(10, 32)
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -1255,7 +1273,7 @@ mod tests {
                 f(21)
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -1270,7 +1288,7 @@ mod tests {
                 f(20)
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(41));
     }
 
@@ -1283,7 +1301,7 @@ mod tests {
                 add10(32)
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -1298,7 +1316,7 @@ mod tests {
                 a
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -1312,7 +1330,7 @@ mod tests {
                 always42(true)
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -1324,7 +1342,7 @@ mod tests {
                 f()
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -1338,7 +1356,7 @@ mod tests {
                 f(32)
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -1350,7 +1368,7 @@ mod tests {
                 f(21)
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -1362,7 +1380,7 @@ mod tests {
                 add(10, 32)
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -1374,7 +1392,7 @@ mod tests {
                 f()
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -1387,7 +1405,7 @@ mod tests {
                 apply(|x| x * 2, 21)
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -1401,7 +1419,7 @@ mod tests {
                 add5(37)
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -1413,7 +1431,7 @@ mod tests {
                 0
             }
         "#;
-        let result = run(source);
+        let result = run(RunInput::Source(source));
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
@@ -1433,7 +1451,7 @@ mod tests {
                 p.x + p.y
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(30));
     }
 
@@ -1446,7 +1464,7 @@ mod tests {
                 p.name
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::String("Alice".to_string()));
     }
 
@@ -1459,7 +1477,7 @@ mod tests {
                 42
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -1472,7 +1490,7 @@ mod tests {
                 p.first + p.second
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(3));
     }
 
@@ -1487,7 +1505,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(30));
     }
 
@@ -1502,7 +1520,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(10));
     }
 
@@ -1517,7 +1535,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(200));
     }
 
@@ -1534,7 +1552,7 @@ mod tests {
                 l.end.x + l.end.y
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(30));
     }
 
@@ -1549,7 +1567,7 @@ mod tests {
                 p.x + p.y
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(30));
     }
 
@@ -1563,7 +1581,7 @@ mod tests {
                 p1 == p2
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
@@ -1577,7 +1595,7 @@ mod tests {
                 p1 != p2
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
@@ -1595,7 +1613,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(0));
     }
 
@@ -1611,7 +1629,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -1628,7 +1646,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(30));
     }
 
@@ -1656,7 +1674,7 @@ mod tests {
                 handle_quit() + handle_write()
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(6)); // 1 + 5
     }
 
@@ -1678,7 +1696,7 @@ mod tests {
                 a + b
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(15)); // 10 + 5
     }
 
@@ -1694,7 +1712,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(3));
     }
 
@@ -1710,7 +1728,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(1));
     }
 
@@ -1726,7 +1744,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -1740,7 +1758,7 @@ mod tests {
                 x == y
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
@@ -1754,7 +1772,7 @@ mod tests {
                 x != y
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
@@ -1770,7 +1788,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -1788,7 +1806,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(0));
     }
 
@@ -1804,7 +1822,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -1816,7 +1834,7 @@ mod tests {
                 identity::<Int>(42)
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -1832,7 +1850,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -1848,7 +1866,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -1864,7 +1882,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(10));
     }
 
@@ -1884,7 +1902,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(2));
     }
 
@@ -1904,7 +1922,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(3));
     }
 
@@ -1924,7 +1942,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(2));
     }
 
@@ -1943,7 +1961,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(2));
     }
 
@@ -1962,7 +1980,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(2));
     }
 
@@ -1976,7 +1994,7 @@ mod tests {
                 a + b
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(3));
     }
 
@@ -1988,7 +2006,7 @@ mod tests {
                 a + b + c
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(6));
     }
 
@@ -2002,7 +2020,7 @@ mod tests {
                 x + y
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(30));
     }
 
@@ -2016,7 +2034,7 @@ mod tests {
                 x
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(1));
     }
 
@@ -2028,7 +2046,7 @@ mod tests {
                 first
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(1));
     }
 
@@ -2040,7 +2058,7 @@ mod tests {
                 last
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(4));
     }
 
@@ -2052,7 +2070,7 @@ mod tests {
                 0
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(0));
     }
 
@@ -2066,7 +2084,7 @@ mod tests {
                 }
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(6));
     }
 
@@ -2078,7 +2096,7 @@ mod tests {
                 42
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -2091,7 +2109,7 @@ mod tests {
                 x * 10 + y
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(21)); // x=2, y=1, so 2*10+1=21
     }
 
@@ -2101,7 +2119,7 @@ mod tests {
             fn nested(((a, b), c): ((Int, Int), Int)) -> Int a + b + c
             fn main() -> Int { nested(((1, 2), 3)) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(6));
     }
 
@@ -2112,7 +2130,7 @@ mod tests {
             fn get_x(Point { x, .. }: Point) -> Int x
             fn main() -> Int { get_x(Point { x: 42, y: 0 }) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -2124,7 +2142,7 @@ mod tests {
                 add((3, 4))
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(7));
     }
 
@@ -2136,7 +2154,7 @@ mod tests {
                 add((3, 4))
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(7));
     }
 
@@ -2146,7 +2164,7 @@ mod tests {
             fn first((a, _): (Int, Int)) -> Int a
             fn main() -> Int { first((5, 10)) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(5));
     }
 
@@ -2159,7 +2177,7 @@ mod tests {
             }
             fn main() -> Int { with_as((1, 2)) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(6)); // 1+2+1+2=6
     }
 
@@ -2170,7 +2188,7 @@ mod tests {
             fn get_id() -> UserId { 42 }
             fn main() -> Int { get_id() }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -2184,7 +2202,7 @@ mod tests {
                 x
             }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(1));
     }
 
@@ -2196,7 +2214,7 @@ mod tests {
             fn apply(f: IntOp, x: Int) -> Int { f(x) }
             fn main() -> Int { apply(|x| x * 2, 21) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
@@ -2212,7 +2230,7 @@ mod tests {
             }
             fn main() -> Int { sum([1, 2, 3, 4]) }
         "#;
-        let result = run(source).unwrap();
+        let result = run(RunInput::Source(source)).unwrap();
         assert_eq!(result, Value::Int(10));
     }
 }
