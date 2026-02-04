@@ -14,19 +14,22 @@ Handles reading, parsing, and organizing Zoya source files into a package. Suppo
 
 ```rust
 use std::path::Path;
-use zoya_loader::{load_package, load_package_with, FsSource, MemorySource};
+use zoya_loader::{load_package, load_package_with, MemorySource, ModulePath};
 
 // Load from filesystem
 let pkg = load_package(Path::new("src/main.zoya"))?;
 
-// Load with custom source
-let source = FsSource::new("/project/src");
-let pkg = load_package_with(&source, &FilePath::new("/project/src/main.zoya"))?;
+// Access loaded modules
+let root = pkg.root().unwrap();
+println!("Root module has {} items", root.items.len());
+for (name, child_path) in &root.children {
+    println!("  Child module: {}", name);
+}
 
 // In-memory source for testing
 let source = MemorySource::new()
-    .with_module("root", "mod utils\nfn main() -> Int 42")
-    .with_module("utils", "fn helper() -> Int 10");
+    .with_module("root", "mod utils\nfn main() -> Int { 42 }")
+    .with_module("utils", "pub fn helper() -> Int { 10 }");
 let pkg = load_package_with(&source, &"root".to_string())?;
 ```
 
@@ -37,6 +40,31 @@ Given a file `main.zoya` containing `mod utils`, the loader looks for:
 
 For nested modules like `mod helpers` inside `utils.zoya`:
 - `utils/helpers.zoya` relative to the base directory
+
+## Error Types
+
+```rust
+use zoya_loader::{load_package, LoaderError};
+
+match load_package(Path::new("missing.zoya")) {
+    Err(LoaderError::SourceError { path, error }) => {
+        println!("Failed to read {}: {}", path, error);
+    }
+    Err(LoaderError::ModuleNotFound { mod_name, expected_path }) => {
+        println!("Module '{}' not found at {}", mod_name, expected_path);
+    }
+    Err(LoaderError::DuplicateMod { mod_name }) => {
+        println!("Duplicate module declaration: {}", mod_name);
+    }
+    Err(LoaderError::LexError { path, message }) => {
+        println!("Lexer error in {}: {}", path, message);
+    }
+    Err(LoaderError::ParseError { path, message }) => {
+        println!("Parse error in {}: {}", path, message);
+    }
+    Ok(pkg) => { /* success */ }
+}
+```
 
 ## Dependencies
 

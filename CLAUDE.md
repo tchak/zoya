@@ -15,15 +15,19 @@ crates/
 ├── zoya/              # Main compiler & CLI
 │   └── src/
 │       ├── main.rs        # CLI (clap)
-│       ├── check.rs       # Type checker → TypedExpr
 │       ├── eval.rs        # JS execution (rquickjs)
-│       ├── repl.rs        # REPL (rustyline)
 │       └── runner.rs      # File runner
+│       └── commands/
+│           ├── build.rs   # Build command
+│           ├── check.rs   # Check command
+│           ├── repl.rs    # REPL (rustyline)
+│           └── run.rs     # Run command
 ├── zoya-ast/          # Untyped AST types
+├── zoya-check/        # Type checker (Hindley-Milner)
 ├── zoya-codegen/      # JavaScript code generation
 ├── zoya-ir/           # Typed IR and type definitions
 ├── zoya-lexer/        # Tokenizer (logos)
-├── zoya-loader/       # Module file loading
+├── zoya-loader/       # Package file loading
 ├── zoya-package/      # Package data structures
 └── zoya-parser/       # Parser (chumsky)
 ```
@@ -81,14 +85,14 @@ New features need tests at each pipeline stage:
 | `zoya-parser` | AST structure |
 | `zoya-package` | Module path operations |
 | `zoya-loader` | Package loading and resolution |
-| `zoya` (check) | Type checking pass/fail |
+| `zoya-check` | Type inference and errors |
 | `zoya-codegen` | Generated JS correctness |
 | `zoya` (runner) | End-to-end execution |
 
 ```bash
 cargo test --workspace              # All tests
 cargo test -p zoya-parser           # Single crate
-cargo test -p zoya check            # Module tests
+cargo test -p zoya-check            # Type checker tests
 cargo test -- --nocapture
 ```
 

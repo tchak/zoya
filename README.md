@@ -50,11 +50,12 @@ Zoya is organized as a Cargo workspace with multiple crates:
 |-------|-------------|
 | [zoya](crates/zoya) | Main compiler and CLI |
 | [zoya-ast](crates/zoya-ast) | Abstract Syntax Tree types |
+| [zoya-check](crates/zoya-check) | Type checker with Hindley-Milner inference |
 | [zoya-codegen](crates/zoya-codegen) | JavaScript code generation |
 | [zoya-ir](crates/zoya-ir) | Typed IR and type definitions |
 | [zoya-lexer](crates/zoya-lexer) | Tokenizer (logos) |
-| [zoya-loader](crates/zoya-loader) | Module file loading |
-| [zoya-module](crates/zoya-module) | Module data structures |
+| [zoya-loader](crates/zoya-loader) | Package file loading |
+| [zoya-package](crates/zoya-package) | Package data structures |
 | [zoya-parser](crates/zoya-parser) | Parser (chumsky) |
 
 ## Usage
