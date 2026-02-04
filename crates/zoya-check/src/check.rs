@@ -478,51 +478,70 @@ fn check_lambda_call(
     let func_ty = ctx.instantiate(scheme);
     let resolved = ctx.resolve(&func_ty);
 
-    // Must be a function type
-    if let Type::Function { params, ret } = resolved {
-        // Check argument count
-        if args.len() != params.len() {
-            return Err(TypeError {
-                message: format!(
-                    "'{}' expects {} arguments, got {}",
-                    name,
-                    params.len(),
-                    args.len()
-                ),
-            });
-        }
+    // Get function params and return type, unifying if needed
+    let (params, ret) = match resolved {
+        Type::Function { params, ret } => (params, *ret),
+        Type::Var(_) => {
+            // Create fresh type variables for params and return
+            let param_types: Vec<Type> = args.iter().map(|_| ctx.fresh_var()).collect();
+            let ret_type = ctx.fresh_var();
 
-        // Type check arguments and unify with parameter types
-        let mut typed_args = Vec::new();
-        for (arg, param_type) in args.iter().zip(params.iter()) {
-            let typed_arg = check_expr(arg, current_module, env, ctx)?;
-            let arg_type = typed_arg.ty();
-
-            ctx.unify(&arg_type, param_type).map_err(|e| TypeError {
-                message: format!(
-                    "argument type mismatch in call to '{}': expected {}, got {}: {}",
-                    name,
-                    ctx.resolve(param_type),
-                    ctx.resolve(&arg_type),
-                    e.message
-                ),
+            // Unify the variable with a function type
+            let func_type = Type::Function {
+                params: param_types.clone(),
+                ret: Box::new(ret_type.clone()),
+            };
+            ctx.unify(&func_ty, &func_type).map_err(|e| TypeError {
+                message: format!("cannot call '{}' as a function: {}", name, e.message),
             })?;
 
-            typed_args.push(typed_arg);
+            (param_types, ret_type)
         }
+        _ => {
+            return Err(TypeError {
+                message: format!("'{}' is not a function, has type {}", name, resolved),
+            });
+        }
+    };
 
-        let return_type = ctx.resolve(&ret);
-
-        Ok(TypedExpr::Call {
-            path: QualifiedPath::local(name.to_string()),
-            args: typed_args,
-            ty: return_type,
-        })
-    } else {
-        Err(TypeError {
-            message: format!("'{}' is not a function, has type {}", name, resolved),
-        })
+    // Check argument count
+    if args.len() != params.len() {
+        return Err(TypeError {
+            message: format!(
+                "'{}' expects {} arguments, got {}",
+                name,
+                params.len(),
+                args.len()
+            ),
+        });
     }
+
+    // Type check arguments and unify with parameter types
+    let mut typed_args = Vec::new();
+    for (arg, param_type) in args.iter().zip(params.iter()) {
+        let typed_arg = check_expr(arg, current_module, env, ctx)?;
+        let arg_type = typed_arg.ty();
+
+        ctx.unify(&arg_type, param_type).map_err(|e| TypeError {
+            message: format!(
+                "argument type mismatch in call to '{}': expected {}, got {}: {}",
+                name,
+                ctx.resolve(param_type),
+                ctx.resolve(&arg_type),
+                e.message
+            ),
+        })?;
+
+        typed_args.push(typed_arg);
+    }
+
+    let return_type = ctx.resolve(&ret);
+
+    Ok(TypedExpr::Call {
+        path: QualifiedPath::local(name.to_string()),
+        args: typed_args,
+        ty: return_type,
+    })
 }
 
 /// Check an enum tuple variant construction with a resolved enum type: Enum::Variant(args)

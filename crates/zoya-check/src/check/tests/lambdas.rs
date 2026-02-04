@@ -187,3 +187,78 @@ fn test_call_lambda_wrong_arity() {
     let err = result.unwrap_err();
     assert!(err.message.contains("expects 2 arguments"));
 }
+
+#[test]
+fn test_call_type_variable_infers_function() {
+    // Simulates: let apply = |f, x| f(x)
+    // f starts as a type variable, calling f(x) should infer f: ?a -> ?b
+    let mut env = TypeEnv::default();
+    let mut ctx = UnifyCtx::new();
+
+    // f has an unbound type variable
+    let f_type = ctx.fresh_var();
+    env.locals.insert("f".to_string(), TypeScheme::mono(f_type));
+    env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
+
+    let expr = Expr::Call {
+        path: Path::simple("f".to_string()),
+        args: vec![Expr::Path(Path::simple("x".to_string()))],
+    };
+
+    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
+    assert!(
+        result.is_ok(),
+        "calling type variable should unify to function: {:?}",
+        result
+    );
+}
+
+#[test]
+fn test_higher_order_function_inference() {
+    // |f, x| f(x) should infer: (a -> b, a) -> b
+    let expr = Expr::Lambda {
+        params: vec![
+            LambdaParam {
+                pattern: Pattern::Path(Path::simple("f".to_string())),
+                typ: None,
+            },
+            LambdaParam {
+                pattern: Pattern::Path(Path::simple("x".to_string())),
+                typ: None,
+            },
+        ],
+        return_type: None,
+        body: Box::new(Expr::Call {
+            path: Path::simple("f".to_string()),
+            args: vec![Expr::Path(Path::simple("x".to_string()))],
+        }),
+    };
+
+    let result = check_expr_with_env(&expr);
+    assert!(
+        result.is_ok(),
+        "higher-order function should type check: {:?}",
+        result
+    );
+
+    // Verify it's a function type
+    let ty = result.unwrap().ty();
+    assert!(matches!(ty, Type::Function { .. }));
+}
+
+#[test]
+fn test_call_concrete_non_function_still_errors() {
+    // Calling an Int should still fail
+    let mut env = TypeEnv::default();
+    env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
+
+    let mut ctx = UnifyCtx::new();
+    let expr = Expr::Call {
+        path: Path::simple("x".to_string()),
+        args: vec![Expr::Int(1)],
+    };
+
+    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().message.contains("is not a function"));
+}
