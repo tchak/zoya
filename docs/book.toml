@@ -1,0 +1,20 @@
+[book]
+title = "Zoya"
+description = "A strongly-typed functional programming language that compiles to JavaScript"
+authors = ["Paul Chavard"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+
+[output.html]
+git-repository-url = "https://github.com/tchak/zoya"
+edit-url-template = "https://github.com/tchak/zoya/edit/main/docs/{path}"
+site-url = "/zoya/"
+default-theme = "light"
+preferred-dark-theme = "navy"
+
+[output.html.fold]
+enable = true
+level = 1
