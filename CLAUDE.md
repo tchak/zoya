@@ -15,8 +15,6 @@ crates/
 ├── zoya/              # Main compiler & CLI
 │   └── src/
 │       ├── main.rs        # CLI (clap)
-│       ├── eval.rs        # JS execution (rquickjs)
-│       └── runner.rs      # File runner
 │       └── commands/
 │           ├── build.rs   # Build command
 │           ├── check.rs   # Check command
@@ -29,7 +27,12 @@ crates/
 ├── zoya-lexer/        # Tokenizer (logos)
 ├── zoya-loader/       # Package file loading
 ├── zoya-package/      # Package data structures
-└── zoya-parser/       # Parser (chumsky)
+├── zoya-parser/       # Parser (chumsky)
+└── zoya-run/          # Runtime execution (rquickjs)
+    └── src/
+        ├── lib.rs         # Public API
+        ├── eval.rs        # JS execution
+        └── runner.rs      # Run functions
 ```
 
 ## Commands
@@ -87,7 +90,8 @@ New features need tests at each pipeline stage:
 | `zoya-loader` | Package loading and resolution |
 | `zoya-check` | Type inference and errors |
 | `zoya-codegen` | Generated JS correctness |
-| `zoya` (runner) | End-to-end execution |
+| `zoya-run` | End-to-end execution |
+| `zoya` | CLI commands and REPL |
 
 ```bash
 cargo test --workspace              # All tests

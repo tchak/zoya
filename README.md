@@ -57,6 +57,7 @@ Zoya is organized as a Cargo workspace with multiple crates:
 | [zoya-loader](crates/zoya-loader) | Package file loading |
 | [zoya-package](crates/zoya-package) | Package data structures |
 | [zoya-parser](crates/zoya-parser) | Parser (chumsky) |
+| [zoya-run](crates/zoya-run) | Runtime execution (QuickJS) |
 
 ## Usage
 

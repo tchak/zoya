@@ -1,16 +1,8 @@
 # zoya
 
-The Zoya programming language compiler and runtime.
+The Zoya programming language CLI.
 
 This is the main binary crate that provides the `zoya` CLI tool for compiling and running Zoya programs.
-
-## Components
-
-- **Type checker** - Hindley-Milner type inference with unification
-- **Pattern exhaustiveness** - Ensures all cases are covered (Maranget algorithm)
-- **Code generator** - Compiles to JavaScript (ESM)
-- **Runtime** - Executes JS via QuickJS (rquickjs)
-- **REPL** - Interactive development environment with persistent state
 
 ## Commands
 
@@ -23,21 +15,6 @@ zoya build file.zoya           # Compile to JavaScript (stdout)
 zoya build file.zoya -o out.js # Compile to file
 ```
 
-## Library Usage
-
-The crate also exposes a library API for programmatic use:
-
-```rust
-use zoya::runner::{run, RunInput};
-
-// Run from source string
-let result = run(RunInput::Source("fn main() -> Int { 42 }"))?;
-println!("Result: {:?}", result);
-
-// Run from file
-let result = run(RunInput::File(Path::new("program.zoya")))?;
-```
-
 ## REPL Features
 
 - Persistent function and type definitions across inputs
@@ -47,13 +24,30 @@ let result = run(RunInput::File(Path::new("program.zoya")))?;
 
 ```
 > fn double(x: Int) -> Int { x * 2 }
-fn double: Int -> Int
+defined: double
 > double(21)
 42
 > let nums = [1, 2, 3]
 let nums: List<Int>
 > nums.len()
 3
+```
+
+## Programmatic Usage
+
+For programmatic execution, use the [zoya-run](../zoya-run) crate:
+
+```rust
+use zoya_run::{run_source, run_file, Value};
+use std::path::Path;
+
+// Run from source string
+let result = run_source("fn main() -> Int { 42 }")?;
+assert_eq!(result, Value::Int(42));
+
+// Run from file
+let result = run_file(Path::new("program.zoya"))?;
+println!("Result: {}", result);
 ```
 
 ## Dependencies
@@ -66,6 +60,6 @@ let nums: List<Int>
 - [zoya-loader](../zoya-loader) - Package file loading
 - [zoya-package](../zoya-package) - Package data structures
 - [zoya-parser](../zoya-parser) - Parser
+- [zoya-run](../zoya-run) - Runtime execution
 - [clap](https://github.com/clap-rs/clap) - CLI argument parsing
-- [rquickjs](https://github.com/DelSkaorth/rquickjs) - JavaScript runtime
 - [rustyline](https://github.com/kkawakam/rustyline) - REPL line editing
