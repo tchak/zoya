@@ -40,6 +40,7 @@ fn parse_string(lex: &logos::Lexer<Token>) -> Option<String> {
 
 #[derive(Logos, Debug, Clone, PartialEq)]
 #[logos(skip r"[ \t\n\r]+")]
+#[logos(skip r"//[^\n]*")]
 pub enum Token {
     // Keywords (must come before Ident)
     #[token("fn")]
@@ -870,5 +871,41 @@ mod tests {
                 Token::Ident("baz".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn test_line_comment() {
+        let tokens = lex("// this is a comment").unwrap();
+        assert_eq!(tokens, vec![]);
+    }
+
+    #[test]
+    fn test_comment_after_code() {
+        let tokens = lex("42 // comment").unwrap();
+        assert_eq!(tokens, vec![Token::Int(42)]);
+    }
+
+    #[test]
+    fn test_comment_before_code() {
+        let tokens = lex("// comment\n42").unwrap();
+        assert_eq!(tokens, vec![Token::Int(42)]);
+    }
+
+    #[test]
+    fn test_multiple_comments() {
+        let tokens = lex("// first\n1\n// second\n2").unwrap();
+        assert_eq!(tokens, vec![Token::Int(1), Token::Int(2)]);
+    }
+
+    #[test]
+    fn test_comment_with_operators() {
+        let tokens = lex("// + - * /").unwrap();
+        assert_eq!(tokens, vec![]);
+    }
+
+    #[test]
+    fn test_empty_comment() {
+        let tokens = lex("//").unwrap();
+        assert_eq!(tokens, vec![]);
     }
 }
