@@ -19,8 +19,8 @@ let max = 9223372036854775807
 Arbitrary precision integer, denoted with `n` suffix.
 
 ```zoya
-let big = 123456789012345678901234567890n
-let negative = -999999999999999999999n
+let big = 9_000_000_000_000_000n
+let negative = -42n
 ```
 
 ### Float
@@ -30,7 +30,6 @@ let negative = -999999999999999999999n
 ```zoya
 let pi = 3.14159
 let negative = -2.5
-let scientific = 1.0e10
 ```
 
 ### Bool
@@ -99,7 +98,7 @@ Single-element tuples require a trailing comma to distinguish from parenthesized
 
 ```zoya
 let single = (42,)
-let not_tuple = (42)  -- This is just Int
+let not_tuple = (42)  // This is just Int
 ```
 
 ### Multi-Element Tuples
@@ -124,24 +123,24 @@ T -> U
 Function types are right-associative:
 
 ```zoya
--- A -> B -> C is parsed as A -> (B -> C)
-fn add(x: Int) -> Int -> Int = |y| x + y
+// A -> B -> C is parsed as A -> (B -> C)
+fn add(x: Int) -> Int -> Int |y| x + y
 ```
 
 ### Examples
 
 ```zoya
--- Single argument
-fn negate(x: Int) -> Int = -x
+// Single argument
+fn negate(x: Int) -> Int -x
 
--- Multiple arguments
-fn add(x: Int, y: Int) -> Int = x + y
+// Multiple arguments
+fn add(x: Int, y: Int) -> Int { x + y }
 
--- No arguments
-fn answer() -> Int = 42
+// No arguments
+fn answer() -> Int 42
 
--- Higher-order functions
-fn apply(f: Int -> Int, x: Int) -> Int = f(x)
+// Higher-order functions
+fn apply(f: Int -> Int, x: Int) -> Int f(x)
 ```
 
 ## Struct Types
@@ -256,7 +255,7 @@ Generic type parameters use PascalCase names.
 ### Declaration
 
 ```zoya
-fn identity<T>(x: T) -> T = x
+fn identity<T>(x: T) -> T x
 
 struct Box<T> {
   value: T,
@@ -291,8 +290,8 @@ let numbers: List<Int> = [1, 2, 3]
 ### In Function Signatures
 
 ```zoya
-fn greet(name: String) -> String = "Hello, " ++ name
-fn add(x: Int, y: Int) -> Int = x + y
+fn double(x: Int) -> Int x * 2
+fn add(x: Int, y: Int) -> Int { x + y }
 ```
 
 ### In Lambda Expressions
@@ -307,6 +306,6 @@ let pred = |x: Int| -> Bool x > 0
 Type annotations are often optional when types can be inferred:
 
 ```zoya
-let x = 42           -- Inferred as Int
-let f = |x| x + 1    -- Inferred as Int -> Int from usage
+let x = 42           // Inferred as Int
+let f = |x| x + 1    // Inferred as Int -> Int from usage
 ```
