@@ -16,8 +16,8 @@ struct Cli {
 enum Command {
     /// Run a file
     Run {
-        /// File to execute
-        file: PathBuf,
+        /// Path to a .zoya file or directory with package.toml (defaults to current directory)
+        path: Option<PathBuf>,
     },
     /// Start the interactive REPL
     Repl {
@@ -26,8 +26,8 @@ enum Command {
     },
     /// Type-check a file without executing
     Check {
-        /// File to type-check
-        file: PathBuf,
+        /// Path to a .zoya file or directory with package.toml (defaults to current directory)
+        path: Option<PathBuf>,
     },
     /// Compile a file to JavaScript
     Build {
@@ -51,15 +51,29 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Command::Run { file }) => {
-            if let Err(e) = commands::run::execute(&file) {
+        Some(Command::Run { path }) => {
+            let entry_point = match commands::resolve::resolve_entry_point(path.as_deref()) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            if let Err(e) = commands::run::execute(&entry_point) {
                 eprintln!("Error: {e}");
                 std::process::exit(1);
             }
         }
         Some(Command::Repl { file }) => commands::repl::execute(file.as_deref()),
-        Some(Command::Check { file }) => {
-            if let Err(e) = commands::check::execute(&file) {
+        Some(Command::Check { path }) => {
+            let entry_point = match commands::resolve::resolve_entry_point(path.as_deref()) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            if let Err(e) = commands::check::execute(&entry_point) {
                 eprintln!("{}", e);
                 std::process::exit(1);
             }
