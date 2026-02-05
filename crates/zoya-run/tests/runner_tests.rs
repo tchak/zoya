@@ -2160,18 +2160,21 @@ fn test_type_alias_to_list() {
 // Module Integration Tests
 // ============================================================================
 
-/// Helper function to run a multi-module package and return the result.
+/// Helper function to run a multi-module package and assert the result.
 /// Modules are specified as (path, source) tuples.
 /// The first module should be "root" containing `fn main()`.
-fn run_multi_module(modules: Vec<(&str, &str)>) -> Result<Value, EvalError> {
+/// The expected value is compared using Display representation.
+fn run_multi_module(modules: Vec<(&str, &str)>, expected: &str) {
     let mut source = MemorySource::new();
     for (path, content) in modules {
         source.add_module(path, content);
     }
     let package = load_package_with(&source, &"root".to_string())
-        .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-    let checked = check(&package).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-    run(checked, None, None)
+        .unwrap_or_else(|e| panic!("failed to load package: {}", e));
+    let checked =
+        check(&package).unwrap_or_else(|e| panic!("failed to type check package: {}", e));
+    let result = run(checked, None, None).unwrap_or_else(|e| panic!("failed to run package: {}", e));
+    assert_eq!(result.to_string(), expected, "unexpected result");
 }
 
 /// Helper function to run multi-module code expecting a type check error containing substring.
@@ -2214,136 +2217,144 @@ fn expect_check_error(modules: Vec<(&str, &str)>, expected_substring: &str) {
 
 #[test]
 fn test_module_pub_fn_qualified_call() {
-    let result = run_multi_module(vec![
-        ("root", "mod utils\nfn main() -> Int { utils::add(1, 2) }"),
-        ("utils", "pub fn add(x: Int, y: Int) -> Int { x + y }"),
-    ])
-    .unwrap();
-    assert_eq!(result, Value::Int(3));
+    run_multi_module(
+        vec![
+            ("root", "mod utils\nfn main() -> Int { utils::add(1, 2) }"),
+            ("utils", "pub fn add(x: Int, y: Int) -> Int { x + y }"),
+        ],
+        "3",
+    );
 }
 
 #[test]
 fn test_module_pub_fn_with_use() {
-    let result = run_multi_module(vec![
-        (
-            "root",
-            r#"
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
             mod utils
             use root::utils::add
             fn main() -> Int { add(1, 2) }
         "#,
-        ),
-        ("utils", "pub fn add(x: Int, y: Int) -> Int { x + y }"),
-    ])
-    .unwrap();
-    assert_eq!(result, Value::Int(3));
+            ),
+            ("utils", "pub fn add(x: Int, y: Int) -> Int { x + y }"),
+        ],
+        "3",
+    );
 }
 
 #[test]
 fn test_module_call_same_module_no_import() {
-    let result = run_multi_module(vec![(
-        "root",
-        r#"
+    run_multi_module(
+        vec![(
+            "root",
+            r#"
             fn helper() -> Int { 42 }
             fn main() -> Int { helper() }
         "#,
-    )])
-    .unwrap();
-    assert_eq!(result, Value::Int(42));
+        )],
+        "42",
+    );
 }
 
 #[test]
 fn test_module_private_fn_same_module() {
-    let result = run_multi_module(vec![(
-        "root",
-        r#"
+    run_multi_module(
+        vec![(
+            "root",
+            r#"
             fn secret() -> Int { 42 }
             fn main() -> Int { secret() }
         "#,
-    )])
-    .unwrap();
-    assert_eq!(result, Value::Int(42));
+        )],
+        "42",
+    );
 }
 
 // ===== Use Path Prefixes =====
 
 #[test]
 fn test_use_root_prefix() {
-    let result = run_multi_module(vec![
-        (
-            "root",
-            r#"
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
             mod utils
             use root::utils::helper
             fn main() -> Int { helper() }
         "#,
-        ),
-        ("utils", "pub fn helper() -> Int { 42 }"),
-    ])
-    .unwrap();
-    assert_eq!(result, Value::Int(42));
+            ),
+            ("utils", "pub fn helper() -> Int { 42 }"),
+        ],
+        "42",
+    );
 }
 
 #[test]
 fn test_use_self_prefix() {
-    let result = run_multi_module(vec![(
-        "root",
-        r#"
+    run_multi_module(
+        vec![(
+            "root",
+            r#"
             use self::helper
             fn helper() -> Int { 42 }
             fn main() -> Int { helper() }
         "#,
-    )])
-    .unwrap();
-    assert_eq!(result, Value::Int(42));
+        )],
+        "42",
+    );
 }
 
 #[test]
 fn test_use_super_prefix() {
-    let result = run_multi_module(vec![
-        (
-            "root",
-            r#"
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
             mod child
             pub fn parent_fn() -> Int { 42 }
             fn main() -> Int { child::test() }
         "#,
-        ),
-        (
-            "child",
-            r#"
+            ),
+            (
+                "child",
+                r#"
             use super::parent_fn
             pub fn test() -> Int { parent_fn() }
         "#,
-        ),
-    ])
-    .unwrap();
-    assert_eq!(result, Value::Int(42));
+            ),
+        ],
+        "42",
+    );
 }
 
 #[test]
 fn test_use_super_nested() {
     // Use root:: prefix to access root-level functions from nested modules
-    let result = run_multi_module(vec![
-        (
-            "root",
-            r#"
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
             mod level1
             pub fn root_fn() -> Int { 100 }
             fn main() -> Int { level1::level2::test() }
         "#,
-        ),
-        ("level1", "mod level2"),
-        (
-            "level1/level2",
-            r#"
+            ),
+            ("level1", "mod level2"),
+            (
+                "level1/level2",
+                r#"
             use root::root_fn
             pub fn test() -> Int { root_fn() }
         "#,
-        ),
-    ])
-    .unwrap();
-    assert_eq!(result, Value::Int(100));
+            ),
+        ],
+        "100",
+    );
 }
 
 #[test]
@@ -2364,80 +2375,84 @@ fn test_use_super_from_root_fails() {
 
 #[test]
 fn test_visibility_pub_fn_accessible_everywhere() {
-    let result = run_multi_module(vec![
-        (
-            "root",
-            r#"
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
             mod utils
             fn main() -> Int { utils::helper() }
         "#,
-        ),
-        ("utils", "pub fn helper() -> Int { 42 }"),
-    ])
-    .unwrap();
-    assert_eq!(result, Value::Int(42));
+            ),
+            ("utils", "pub fn helper() -> Int { 42 }"),
+        ],
+        "42",
+    );
 }
 
 #[test]
 fn test_visibility_private_fn_accessible_in_same_module() {
-    let result = run_multi_module(vec![(
-        "root",
-        r#"
+    run_multi_module(
+        vec![(
+            "root",
+            r#"
             fn private_helper() -> Int { 42 }
             fn main() -> Int { private_helper() }
         "#,
-    )])
-    .unwrap();
-    assert_eq!(result, Value::Int(42));
+        )],
+        "42",
+    );
 }
 
 #[test]
 fn test_visibility_private_fn_accessible_in_child_module() {
-    let result = run_multi_module(vec![
-        (
-            "root",
-            r#"
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
             mod child
             fn private_helper() -> Int { 42 }
             fn main() -> Int { child::test() }
         "#,
-        ),
-        (
-            "child",
-            r#"
+            ),
+            (
+                "child",
+                r#"
             use super::private_helper
             pub fn test() -> Int { private_helper() }
         "#,
-        ),
-    ])
-    .unwrap();
-    assert_eq!(result, Value::Int(42));
+            ),
+        ],
+        "42",
+    );
 }
 
 #[test]
 fn test_visibility_private_fn_accessible_in_deep_descendant() {
     // Deep descendants can access root's private functions via root:: prefix
-    let result = run_multi_module(vec![
-        (
-            "root",
-            r#"
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
             mod level1
             fn root_secret() -> Int { 99 }
             fn main() -> Int { level1::level2::level3::test() }
         "#,
-        ),
-        ("level1", "mod level2"),
-        ("level1/level2", "mod level3"),
-        (
-            "level1/level2/level3",
-            r#"
+            ),
+            ("level1", "mod level2"),
+            ("level1/level2", "mod level3"),
+            (
+                "level1/level2/level3",
+                r#"
             use root::root_secret
             pub fn test() -> Int { root_secret() }
         "#,
-        ),
-    ])
-    .unwrap();
-    assert_eq!(result, Value::Int(99));
+            ),
+        ],
+        "99",
+    );
 }
 
 #[test]
@@ -2494,29 +2509,31 @@ fn test_visibility_private_fn_not_accessible_from_parent() {
 
 #[test]
 fn test_visibility_struct_always_public() {
-    let result = run_multi_module(vec![
-        (
-            "root",
-            r#"
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
             mod types
             fn main() -> Int {
                 let p = types::Point { x: 10, y: 20 };
                 p.x + p.y
             }
         "#,
-        ),
-        ("types", "struct Point { x: Int, y: Int }"),
-    ])
-    .unwrap();
-    assert_eq!(result, Value::Int(30));
+            ),
+            ("types", "struct Point { x: Int, y: Int }"),
+        ],
+        "30",
+    );
 }
 
 #[test]
 fn test_visibility_enum_always_public() {
-    let result = run_multi_module(vec![
-        (
-            "root",
-            r#"
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
             mod types
             fn main() -> Int {
                 let opt = types::Option::Some(42);
@@ -2526,122 +2543,127 @@ fn test_visibility_enum_always_public() {
                 }
             }
         "#,
-        ),
-        ("types", "enum Option<T> { None, Some(T) }"),
-    ])
-    .unwrap();
-    assert_eq!(result, Value::Int(42));
+            ),
+            ("types", "enum Option<T> { None, Some(T) }"),
+        ],
+        "42",
+    );
 }
 
 // ===== Complex Module Hierarchies =====
 
 #[test]
 fn test_module_three_level_hierarchy() {
-    let result = run_multi_module(vec![
-        (
-            "root",
-            r#"
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
             mod utils
             fn main() -> Int { utils::helpers::deep_fn() }
         "#,
-        ),
-        ("utils", "mod helpers"),
-        ("utils/helpers", "pub fn deep_fn() -> Int { 42 }"),
-    ])
-    .unwrap();
-    assert_eq!(result, Value::Int(42));
+            ),
+            ("utils", "mod helpers"),
+            ("utils/helpers", "pub fn deep_fn() -> Int { 42 }"),
+        ],
+        "42",
+    );
 }
 
 #[test]
 fn test_module_sibling_imports() {
-    let result = run_multi_module(vec![
-        (
-            "root",
-            r#"
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
             mod a
             mod b
             fn main() -> Int { b::use_a() }
         "#,
-        ),
-        ("a", "pub fn get_val() -> Int { 10 }"),
-        (
-            "b",
-            r#"
+            ),
+            ("a", "pub fn get_val() -> Int { 10 }"),
+            (
+                "b",
+                r#"
             use root::a::get_val
             pub fn use_a() -> Int { get_val() * 2 }
         "#,
-        ),
-    ])
-    .unwrap();
-    assert_eq!(result, Value::Int(20));
+            ),
+        ],
+        "20",
+    );
 }
 
 #[test]
 fn test_module_diamond_imports() {
     // root imports from a and b, both of which import from common
-    let result = run_multi_module(vec![
-        (
-            "root",
-            r#"
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
             mod common
             mod a
             mod b
             fn main() -> Int { a::from_a() + b::from_b() }
         "#,
-        ),
-        ("common", "pub fn base() -> Int { 5 }"),
-        (
-            "a",
-            r#"
+            ),
+            ("common", "pub fn base() -> Int { 5 }"),
+            (
+                "a",
+                r#"
             use root::common::base
             pub fn from_a() -> Int { base() * 2 }
         "#,
-        ),
-        (
-            "b",
-            r#"
+            ),
+            (
+                "b",
+                r#"
             use root::common::base
             pub fn from_b() -> Int { base() * 3 }
         "#,
-        ),
-    ])
-    .unwrap();
-    assert_eq!(result, Value::Int(25)); // 5*2 + 5*3
+            ),
+        ],
+        "25", // 5*2 + 5*3
+    );
 }
 
 #[test]
 fn test_module_grandchild_to_root_access() {
     // Grandchild can access root's public function via root:: prefix
-    let result = run_multi_module(vec![
-        (
-            "root",
-            r#"
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
             mod parent
             pub fn grandparent_fn() -> Int { 77 }
             fn main() -> Int { parent::child::test() }
         "#,
-        ),
-        ("parent", "mod child"),
-        (
-            "parent/child",
-            r#"
+            ),
+            ("parent", "mod child"),
+            (
+                "parent/child",
+                r#"
             use root::grandparent_fn
             pub fn test() -> Int { grandparent_fn() }
         "#,
-        ),
-    ])
-    .unwrap();
-    assert_eq!(result, Value::Int(77));
+            ),
+        ],
+        "77",
+    );
 }
 
 // ===== Type Imports =====
 
 #[test]
 fn test_import_struct_and_use() {
-    let result = run_multi_module(vec![
-        (
-            "root",
-            r#"
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
             mod types
             use root::types::Point
             fn main() -> Int {
@@ -2649,19 +2671,20 @@ fn test_import_struct_and_use() {
                 p.x + p.y
             }
         "#,
-        ),
-        ("types", "struct Point { x: Int, y: Int }"),
-    ])
-    .unwrap();
-    assert_eq!(result, Value::Int(30));
+            ),
+            ("types", "struct Point { x: Int, y: Int }"),
+        ],
+        "30",
+    );
 }
 
 #[test]
 fn test_import_struct_pattern_match() {
-    let result = run_multi_module(vec![
-        (
-            "root",
-            r#"
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
             mod types
             use root::types::Point
             fn main() -> Int {
@@ -2671,19 +2694,20 @@ fn test_import_struct_pattern_match() {
                 }
             }
         "#,
-        ),
-        ("types", "struct Point { x: Int, y: Int }"),
-    ])
-    .unwrap();
-    assert_eq!(result, Value::Int(200));
+            ),
+            ("types", "struct Point { x: Int, y: Int }"),
+        ],
+        "200",
+    );
 }
 
 #[test]
 fn test_import_enum_type_and_variants() {
-    let result = run_multi_module(vec![
-        (
-            "root",
-            r#"
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
             mod types
             use root::types::Option::Some
             use root::types::Option::None
@@ -2695,19 +2719,20 @@ fn test_import_enum_type_and_variants() {
                 }
             }
         "#,
-        ),
-        ("types", "enum Option<T> { None, Some(T) }"),
-    ])
-    .unwrap();
-    assert_eq!(result, Value::Int(42));
+            ),
+            ("types", "enum Option<T> { None, Some(T) }"),
+        ],
+        "42",
+    );
 }
 
 #[test]
 fn test_import_enum_variant_in_pattern() {
-    let result = run_multi_module(vec![
-        (
-            "root",
-            r#"
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
             mod types
             use root::types::Result::Ok
             use root::types::Result::Err
@@ -2719,19 +2744,20 @@ fn test_import_enum_variant_in_pattern() {
                 }
             }
         "#,
-        ),
-        ("types", "enum Result<T, E> { Ok(T), Err(E) }"),
-    ])
-    .unwrap();
-    assert_eq!(result, Value::Int(100));
+            ),
+            ("types", "enum Result<T, E> { Ok(T), Err(E) }"),
+        ],
+        "100",
+    );
 }
 
 #[test]
 fn test_import_type_alias() {
-    let result = run_multi_module(vec![
-        (
-            "root",
-            r#"
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
             mod types
             use root::types::IntPair
             fn main() -> Int {
@@ -2741,19 +2767,20 @@ fn test_import_type_alias() {
                 }
             }
         "#,
-        ),
-        ("types", "type IntPair = (Int, Int)"),
-    ])
-    .unwrap();
-    assert_eq!(result, Value::Int(30));
+            ),
+            ("types", "type IntPair = (Int, Int)"),
+        ],
+        "30",
+    );
 }
 
 #[test]
 fn test_imported_generic_struct() {
-    let result = run_multi_module(vec![
-        (
-            "root",
-            r#"
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
             mod types
             use root::types::Pair
             fn main() -> Int {
@@ -2761,11 +2788,11 @@ fn test_imported_generic_struct() {
                 p.first
             }
         "#,
-        ),
-        ("types", "struct Pair<A, B> { first: A, second: B }"),
-    ])
-    .unwrap();
-    assert_eq!(result, Value::Int(42));
+            ),
+            ("types", "struct Pair<A, B> { first: A, second: B }"),
+        ],
+        "42",
+    );
 }
 
 // ===== Error Cases =====
@@ -2889,10 +2916,11 @@ fn test_error_call_private_via_qualified_path() {
 
 #[test]
 fn test_shadowing_local_shadows_import() {
-    let result = run_multi_module(vec![
-        (
-            "root",
-            r#"
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
             mod utils
             use root::utils::x
             fn main() -> Bool {
@@ -2900,38 +2928,41 @@ fn test_shadowing_local_shadows_import() {
                 x
             }
         "#,
-        ),
-        ("utils", "pub fn x() -> Int { 42 }"),
-    ])
-    .unwrap();
-    assert_eq!(result, Value::Bool(true));
+            ),
+            ("utils", "pub fn x() -> Int { 42 }"),
+        ],
+        "true",
+    );
 }
 
 #[test]
 fn test_shadowing_import_shadows_module_level() {
-    let result = run_multi_module(vec![
-        (
-            "root",
-            r#"
+    // Import takes priority over module-level definition
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
             mod utils
             use root::utils::foo
             fn foo() -> Bool { true }
             fn main() -> Int { foo() }
         "#,
-        ),
-        ("utils", "pub fn foo() -> Int { 42 }"),
-    ])
-    .unwrap();
-    // Import takes priority over module-level definition
-    assert_eq!(result, Value::Int(42));
+            ),
+            ("utils", "pub fn foo() -> Int { 42 }"),
+        ],
+        "42",
+    );
 }
 
 #[test]
 fn test_resolution_qualified_path_bypasses_import() {
-    let result = run_multi_module(vec![
-        (
-            "root",
-            r#"
+    // helper() uses import (100), self::helper() uses local definition (1)
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
             mod utils
             use root::utils::helper
             fn helper() -> Int { 1 }
@@ -2941,20 +2972,21 @@ fn test_resolution_qualified_path_bypasses_import() {
                 a + b
             }
         "#,
-        ),
-        ("utils", "pub fn helper() -> Int { 100 }"),
-    ])
-    .unwrap();
-    // helper() uses import (100), self::helper() uses local definition (1)
-    assert_eq!(result, Value::Int(101));
+            ),
+            ("utils", "pub fn helper() -> Int { 100 }"),
+        ],
+        "101",
+    );
 }
 
 #[test]
 fn test_multiple_paths_same_function() {
-    let result = run_multi_module(vec![
-        (
-            "root",
-            r#"
+    // 3 + 7 + 11 = 21
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
             mod utils
             use root::utils::add
             fn main() -> Int {
@@ -2964,10 +2996,9 @@ fn test_multiple_paths_same_function() {
                 a + b + c
             }
         "#,
-        ),
-        ("utils", "pub fn add(x: Int, y: Int) -> Int { x + y }"),
-    ])
-    .unwrap();
-    // 3 + 7 + 11 = 21
-    assert_eq!(result, Value::Int(21));
+            ),
+            ("utils", "pub fn add(x: Int, y: Int) -> Int { x + y }"),
+        ],
+        "21",
+    );
 }
