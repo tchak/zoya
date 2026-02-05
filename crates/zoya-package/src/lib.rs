@@ -4,6 +4,11 @@
 //! - `ModulePath`: Logical path to a module in the package
 //! - `Module`: A loaded module containing parsed items
 //! - `Package`: The complete package of loaded modules
+//! - `PackageConfig`: Configuration from `package.toml`
+
+mod config;
+
+pub use config::{ConfigError, PackageConfig};
 
 use std::collections::HashMap;
 

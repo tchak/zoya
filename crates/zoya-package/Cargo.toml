@@ -5,3 +5,8 @@ edition = "2024"
 
 [dependencies]
 zoya-ast = { path = "../zoya-ast" }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+[dev-dependencies]
+tempfile = "3"

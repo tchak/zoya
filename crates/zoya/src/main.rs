@@ -37,6 +37,14 @@ enum Command {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+    /// Create a new Zoya project
+    New {
+        /// Path to create the project at
+        path: PathBuf,
+        /// Package name (defaults to directory name sanitized)
+        #[arg(short, long)]
+        name: Option<String>,
+    },
 }
 
 fn main() {
@@ -59,6 +67,12 @@ fn main() {
         Some(Command::Build { file, output }) => {
             if let Err(e) = commands::build::execute(&file, output.as_deref()) {
                 eprintln!("{}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Command::New { path, name }) => {
+            if let Err(e) = commands::new::execute(&path, name.as_deref()) {
+                eprintln!("Error: {}", e);
                 std::process::exit(1);
             }
         }
