@@ -15,16 +15,15 @@ use super::find_test_function;
 
 /// Build a multi-module test package with the given modules.
 /// Properly sets up parent-child relationships.
-fn build_multi_module_package(modules_data: Vec<(ModulePath, Vec<Item>, Vec<UseDecl>)>) -> Package {
+fn build_multi_module_package(modules_data: Vec<(ModulePath, Vec<Item>)>) -> Package {
     let mut modules = HashMap::new();
 
     // First pass: insert all modules with empty children
-    for (path, items, uses) in &modules_data {
+    for (path, items) in &modules_data {
         modules.insert(
             path.clone(),
             Module {
                 items: items.clone(),
-                uses: uses.clone(),
                 path: path.clone(),
                 children: HashMap::new(),
             },
@@ -32,7 +31,7 @@ fn build_multi_module_package(modules_data: Vec<(ModulePath, Vec<Item>, Vec<UseD
     }
 
     // Second pass: set up parent-child relationships
-    for (path, _, _) in &modules_data {
+    for (path, _) in &modules_data {
         if !path.is_root() {
             if let Some(parent_path) = path.parent() {
                 let child_name = path.segments().last().unwrap().clone();
@@ -83,11 +82,12 @@ fn test_import_function_from_submodule() {
         },
     })];
 
-    let root_uses = vec![make_use(PathPrefix::Root, &["utils", "helper"])];
+    let mut root_items_with_uses = vec![Item::Use(make_use(PathPrefix::Root, &["utils", "helper"]))];
+    root_items_with_uses.extend(root_items);
 
     let tree = build_multi_module_package(vec![
-        (ModulePath::root(), root_items, root_uses),
-        (ModulePath::root().child("utils"), utils_items, vec![]),
+        (ModulePath::root(), root_items_with_uses),
+        (ModulePath::root().child("utils"), utils_items),
     ]);
 
     let result = check(&tree).unwrap();
@@ -108,12 +108,11 @@ fn test_import_private_function_fails() {
         body: Expr::Int(42),
     })];
 
-    let root_items = vec![];
-    let root_uses = vec![make_use(PathPrefix::Root, &["utils", "secret"])];
+    let root_items = vec![Item::Use(make_use(PathPrefix::Root, &["utils", "secret"]))];
 
     let tree = build_multi_module_package(vec![
-        (ModulePath::root(), root_items, root_uses),
-        (ModulePath::root().child("utils"), utils_items, vec![]),
+        (ModulePath::root(), root_items),
+        (ModulePath::root().child("utils"), utils_items),
     ]);
 
     let result = check(&tree);
@@ -123,11 +122,10 @@ fn test_import_private_function_fails() {
 
 #[test]
 fn test_import_not_found_fails() {
-    let root_items = vec![];
-    let root_uses = vec![make_use(PathPrefix::Root, &["utils", "nonexistent"])];
+    let root_items = vec![Item::Use(make_use(PathPrefix::Root, &["utils", "nonexistent"]))];
 
     let tree = build_multi_module_package(vec![
-        (ModulePath::root(), root_items, root_uses),
+        (ModulePath::root(), root_items),
     ]);
 
     let result = check(&tree);
@@ -156,10 +154,9 @@ fn test_duplicate_import_fails() {
         body: Expr::Int(2),
     })];
 
-    let root_items = vec![];
-    let root_uses = vec![
-        make_use(PathPrefix::Root, &["utils", "helper"]),
-        make_use(PathPrefix::Root, &["other", "helper"]),
+    let root_items = vec![
+        Item::Use(make_use(PathPrefix::Root, &["utils", "helper"])),
+        Item::Use(make_use(PathPrefix::Root, &["other", "helper"])),
     ];
 
     let mut modules = HashMap::new();
@@ -172,7 +169,6 @@ fn test_duplicate_import_fails() {
         ModulePath::root(),
         Module {
             items: root_items,
-            uses: root_uses,
             path: ModulePath::root(),
             children: root_children,
         },
@@ -181,7 +177,6 @@ fn test_duplicate_import_fails() {
         ModulePath::root().child("utils"),
         Module {
             items: utils_items,
-            uses: vec![],
             path: ModulePath::root().child("utils"),
             children: HashMap::new(),
         },
@@ -190,7 +185,6 @@ fn test_duplicate_import_fails() {
         ModulePath::root().child("other"),
         Module {
             items: other_items,
-            uses: vec![],
             path: ModulePath::root().child("other"),
             children: HashMap::new(),
         },
@@ -233,11 +227,12 @@ fn test_local_shadows_import() {
         },
     })];
 
-    let root_uses = vec![make_use(PathPrefix::Root, &["utils", "x"])];
+    let mut root_items_with_uses = vec![Item::Use(make_use(PathPrefix::Root, &["utils", "x"]))];
+    root_items_with_uses.extend(root_items);
 
     let tree = build_multi_module_package(vec![
-        (ModulePath::root(), root_items, root_uses),
-        (ModulePath::root().child("utils"), utils_items, vec![]),
+        (ModulePath::root(), root_items_with_uses),
+        (ModulePath::root().child("utils"), utils_items),
     ]);
 
     let result = check(&tree).unwrap();
@@ -283,11 +278,12 @@ fn test_import_shadows_module_level_definition() {
         }),
     ];
 
-    let root_uses = vec![make_use(PathPrefix::Root, &["utils", "foo"])];
+    let mut root_items_with_uses = vec![Item::Use(make_use(PathPrefix::Root, &["utils", "foo"]))];
+    root_items_with_uses.extend(root_items);
 
     let tree = build_multi_module_package(vec![
-        (ModulePath::root(), root_items, root_uses),
-        (ModulePath::root().child("utils"), utils_items, vec![]),
+        (ModulePath::root(), root_items_with_uses),
+        (ModulePath::root().child("utils"), utils_items),
     ]);
 
     let result = check(&tree).unwrap();
@@ -323,11 +319,12 @@ fn test_import_with_super_prefix() {
         },
     })];
 
-    let child_uses = vec![make_use(PathPrefix::Super, &["parent_fn"])];
+    let mut child_items_with_uses = vec![Item::Use(make_use(PathPrefix::Super, &["parent_fn"]))];
+    child_items_with_uses.extend(child_items);
 
     let tree = build_multi_module_package(vec![
-        (ModulePath::root(), root_items, vec![]),
-        (ModulePath::root().child("child"), child_items, child_uses),
+        (ModulePath::root(), root_items),
+        (ModulePath::root().child("child"), child_items_with_uses),
     ]);
 
     let result = check(&tree).unwrap();
@@ -388,14 +385,15 @@ fn test_imported_enum_variant_in_match_pattern() {
         },
     })];
 
-    let root_uses = vec![
-        make_use(PathPrefix::Root, &["types", "Option", "Some"]),
-        make_use(PathPrefix::Root, &["types", "Option", "None"]),
+    let mut root_items_with_uses = vec![
+        Item::Use(make_use(PathPrefix::Root, &["types", "Option", "Some"])),
+        Item::Use(make_use(PathPrefix::Root, &["types", "Option", "None"])),
     ];
+    root_items_with_uses.extend(root_items);
 
     let tree = build_multi_module_package(vec![
-        (ModulePath::root(), root_items, root_uses),
-        (ModulePath::root().child("types"), types_items, vec![]),
+        (ModulePath::root(), root_items_with_uses),
+        (ModulePath::root().child("types"), types_items),
     ]);
 
     let result = check(&tree).unwrap();
@@ -478,14 +476,15 @@ fn test_imported_enum_variant_in_struct_pattern() {
         },
     })];
 
-    let root_uses = vec![
-        make_use(PathPrefix::Root, &["types", "Message", "Move"]),
-        make_use(PathPrefix::Root, &["types", "Message", "Quit"]),
+    let mut root_items_with_uses = vec![
+        Item::Use(make_use(PathPrefix::Root, &["types", "Message", "Move"])),
+        Item::Use(make_use(PathPrefix::Root, &["types", "Message", "Quit"])),
     ];
+    root_items_with_uses.extend(root_items);
 
     let tree = build_multi_module_package(vec![
-        (ModulePath::root(), root_items, root_uses),
-        (ModulePath::root().child("types"), types_items, vec![]),
+        (ModulePath::root(), root_items_with_uses),
+        (ModulePath::root().child("types"), types_items),
     ]);
 
     let result = check(&tree).unwrap();

@@ -248,6 +248,7 @@ impl State {
                 Item::TypeAlias(t) => {
                     results.push(ReplResult::TypeAliasDefined(t.name.clone()));
                 }
+                Item::Use(_) => {}
             }
         }
 
@@ -302,7 +303,9 @@ impl State {
 
         // Update accumulated state (HashMap handles replacement automatically)
         for item in items {
-            self.accumulated_items.insert(item.name().to_string(), item);
+            if let Some(name) = item.name() {
+                self.accumulated_items.insert(name.to_string(), item);
+            }
         }
         self.accumulated_lets = new_lets;
 
@@ -389,7 +392,6 @@ fn build_repl_package(base_pkg: Option<&Package>, items: Vec<Item>) -> Package {
     // Create or update root module to include "repl" as child
     let root = modules.entry(ModulePath::root()).or_insert_with(|| Module {
         items: vec![],
-        uses: vec![],
         path: ModulePath::root(),
         children: HashMap::new(),
     });
@@ -400,7 +402,6 @@ fn build_repl_package(base_pkg: Option<&Package>, items: Vec<Item>) -> Package {
         repl_path.clone(),
         Module {
             items,
-            uses: vec![],
             path: repl_path,
             children: HashMap::new(),
         },

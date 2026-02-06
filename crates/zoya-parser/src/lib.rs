@@ -1,6 +1,6 @@
 use chumsky::prelude::*;
 
-use zoya_ast::{Item, ModDecl, ModuleDef, Stmt, UseDecl};
+use zoya_ast::{Item, ModDecl, ModuleDef, Stmt};
 use zoya_lexer::Token;
 
 mod expressions;
@@ -28,7 +28,6 @@ enum InputElement {
 /// Element type for module parsing
 enum ModuleElement {
     Mod(ModDecl),
-    Use(UseDecl),
     Item(Box<Item>),
 }
 
@@ -85,22 +84,20 @@ pub fn parse_input(tokens: Vec<Token>) -> Result<(Vec<Item>, Vec<Stmt>), ParseEr
 pub fn parse_module(tokens: Vec<Token>) -> Result<ModuleDef, ParseError> {
     let element = choice((
         mod_decl_parser().map(ModuleElement::Mod),
-        use_decl_parser().map(ModuleElement::Use),
+        use_decl_parser().map(|u| ModuleElement::Item(Box::new(Item::Use(u)))),
         item_parser().map(|i| ModuleElement::Item(Box::new(i))),
     ));
 
     let parser = element.repeated().collect::<Vec<_>>().map(|elements| {
         let mut mods = vec![];
-        let mut uses = vec![];
         let mut items = vec![];
         for elem in elements {
             match elem {
                 ModuleElement::Mod(m) => mods.push(m),
-                ModuleElement::Use(u) => uses.push(u),
                 ModuleElement::Item(i) => items.push(*i),
             }
         }
-        ModuleDef { mods, uses, items }
+        ModuleDef { mods, items }
     });
 
     parser
@@ -2602,26 +2599,28 @@ mod tests {
     fn test_parse_module_use_root() {
         let module = parse_module_str("use root::foo::bar").unwrap();
         assert!(module.mods.is_empty());
-        assert_eq!(module.uses.len(), 1);
-        assert!(module.items.is_empty());
-        assert_eq!(module.uses[0].path.prefix, PathPrefix::Root);
-        assert_eq!(module.uses[0].path.segments, vec!["foo", "bar"]);
+        let uses: Vec<_> = module.items.iter().filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None }).collect();
+        assert_eq!(uses.len(), 1);
+        assert_eq!(uses[0].path.prefix, PathPrefix::Root);
+        assert_eq!(uses[0].path.segments, vec!["foo", "bar"]);
     }
 
     #[test]
     fn test_parse_module_use_self() {
         let module = parse_module_str("use self::helper").unwrap();
-        assert_eq!(module.uses.len(), 1);
-        assert_eq!(module.uses[0].path.prefix, PathPrefix::Self_);
-        assert_eq!(module.uses[0].path.segments, vec!["helper"]);
+        let uses: Vec<_> = module.items.iter().filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None }).collect();
+        assert_eq!(uses.len(), 1);
+        assert_eq!(uses[0].path.prefix, PathPrefix::Self_);
+        assert_eq!(uses[0].path.segments, vec!["helper"]);
     }
 
     #[test]
     fn test_parse_module_use_super() {
         let module = parse_module_str("use super::parent_fn").unwrap();
-        assert_eq!(module.uses.len(), 1);
-        assert_eq!(module.uses[0].path.prefix, PathPrefix::Super);
-        assert_eq!(module.uses[0].path.segments, vec!["parent_fn"]);
+        let uses: Vec<_> = module.items.iter().filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None }).collect();
+        assert_eq!(uses.len(), 1);
+        assert_eq!(uses[0].path.prefix, PathPrefix::Super);
+        assert_eq!(uses[0].path.segments, vec!["parent_fn"]);
     }
 
     #[test]
@@ -2634,15 +2633,18 @@ mod tests {
     #[test]
     fn test_parse_module_use_multiple() {
         let module = parse_module_str("use root::a::b use root::c::d").unwrap();
-        assert_eq!(module.uses.len(), 2);
+        let uses_count = module.items.iter().filter(|i| matches!(i, Item::Use(_))).count();
+        assert_eq!(uses_count, 2);
     }
 
     #[test]
     fn test_parse_module_mods_uses_items() {
         let module = parse_module_str("mod utils use root::types::Option fn main() -> Int 42").unwrap();
         assert_eq!(module.mods.len(), 1);
-        assert_eq!(module.uses.len(), 1);
-        assert_eq!(module.items.len(), 1);
+        let uses_count = module.items.iter().filter(|i| matches!(i, Item::Use(_))).count();
+        let non_use_count = module.items.iter().filter(|i| !matches!(i, Item::Use(_))).count();
+        assert_eq!(uses_count, 1);
+        assert_eq!(non_use_count, 1);
     }
 
     // Path prefix tests

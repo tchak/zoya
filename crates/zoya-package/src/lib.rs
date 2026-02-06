@@ -12,7 +12,7 @@ pub use config::{ConfigError, PackageConfig};
 
 use std::collections::HashMap;
 
-use zoya_ast::{Item, UseDecl};
+use zoya_ast::Item;
 
 /// Module path: root is `["root"]`, `utils::helpers` is `["root", "utils", "helpers"]`
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -64,7 +64,6 @@ impl std::fmt::Display for ModulePath {
 #[derive(Debug, Clone)]
 pub struct Module {
     pub items: Vec<Item>,
-    pub uses: Vec<UseDecl>,
     pub path: ModulePath,
     pub children: HashMap<String, ModulePath>,
 }

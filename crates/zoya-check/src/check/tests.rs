@@ -31,7 +31,6 @@ pub fn check_expr_with_env(expr: &Expr) -> Result<TypedExpr, TypeError> {
 pub fn build_test_package(items: Vec<Item>) -> Package {
     let module = Module {
         items,
-        uses: vec![],
         path: ModulePath::root(),
         children: HashMap::new(),
     };

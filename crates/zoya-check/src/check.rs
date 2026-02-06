@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use zoya_ast::{
-    BinOp, Expr, FunctionDef, Item, LetBinding, MatchArm, Path, TypeAnnotation, UnaryOp,
+    BinOp, Expr, FunctionDef, Item, LetBinding, MatchArm, Path, TypeAnnotation, UnaryOp, UseDecl,
 };
 use zoya_ir::{
     CheckedItem, CheckedModule, CheckedPackage, Definition, EnumType, EnumVariantType,
@@ -1565,7 +1565,10 @@ pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
     // Phase 1.5: Resolve imports for all modules
     for path in &module_paths {
         if let Some(module) = pkg.modules.get(path) {
-            let module_imports = resolve_module_imports(&module.uses, path, &env.definitions)?;
+            let uses: Vec<UseDecl> = module.items.iter().filter_map(|item| {
+                if let Item::Use(u) = item { Some(u.clone()) } else { None }
+            }).collect();
+            let module_imports = resolve_module_imports(&uses, path, &env.definitions)?;
             env.imports.insert(path.clone(), module_imports);
         }
     }
@@ -1704,6 +1707,7 @@ fn check_module_bodies(
             Item::TypeAlias(def) => {
                 checked_items.push(CheckedItem::TypeAlias(def.clone()));
             }
+            Item::Use(_) => {}
         }
     }
 

@@ -75,23 +75,25 @@ impl std::fmt::Display for Path {
     }
 }
 
-/// Top-level item (function, enum, struct, type alias, etc.)
+/// Top-level item (function, enum, struct, type alias, use declaration, etc.)
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     Function(FunctionDef),
     Struct(StructDef),
     Enum(EnumDef),
     TypeAlias(TypeAliasDef),
+    Use(UseDecl),
 }
 
 impl Item {
-    /// Returns the name of this item
-    pub fn name(&self) -> &str {
+    /// Returns the name of this item, or `None` for items without a name (e.g., `Use`)
+    pub fn name(&self) -> Option<&str> {
         match self {
-            Item::Function(f) => &f.name,
-            Item::Struct(s) => &s.name,
-            Item::Enum(e) => &e.name,
-            Item::TypeAlias(t) => &t.name,
+            Item::Function(f) => Some(&f.name),
+            Item::Struct(s) => Some(&s.name),
+            Item::Enum(e) => Some(&e.name),
+            Item::TypeAlias(t) => Some(&t.name),
+            Item::Use(_) => None,
         }
     }
 }
@@ -431,11 +433,10 @@ pub struct UsePath {
     pub segments: Vec<String>,
 }
 
-/// A parsed module file containing mod declarations, use declarations, and items
+/// A parsed module file containing mod declarations and items
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModuleDef {
     pub mods: Vec<ModDecl>,
-    pub uses: Vec<UseDecl>,
     pub items: Vec<Item>,
 }
 
