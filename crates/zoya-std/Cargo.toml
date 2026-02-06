@@ -1,0 +1,9 @@
+[package]
+name = "zoya-std"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+zoya-check = { path = "../zoya-check" }
+zoya-ir = { path = "../zoya-ir" }
+zoya-loader = { path = "../zoya-loader" }
