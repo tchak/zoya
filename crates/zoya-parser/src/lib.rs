@@ -2094,6 +2094,7 @@ mod tests {
         assert!(matches!(
             item,
             Item::TypeAlias(TypeAliasDef {
+                visibility: Visibility::Private,
                 name,
                 type_params,
                 typ: TypeAnnotation::Named(_),
@@ -2106,6 +2107,7 @@ mod tests {
         let tokens = lex("type Pair<A, B> = (A, B)").unwrap();
         let item = parse_item(tokens).unwrap();
         let Item::TypeAlias(TypeAliasDef {
+            visibility: _,
             name,
             type_params,
             typ: TypeAnnotation::Tuple(elems),
@@ -2125,6 +2127,7 @@ mod tests {
         assert!(matches!(
             item,
             Item::TypeAlias(TypeAliasDef {
+                visibility: Visibility::Private,
                 name,
                 type_params,
                 typ: TypeAnnotation::Parameterized(_, _),
@@ -2139,10 +2142,85 @@ mod tests {
         assert!(matches!(
             item,
             Item::TypeAlias(TypeAliasDef {
+                visibility: Visibility::Private,
                 name,
                 type_params,
                 typ: TypeAnnotation::Function(_, _),
             }) if name == "Callback" && type_params.is_empty()
+        ));
+    }
+
+    // ===== pub struct/enum/type visibility parsing =====
+
+    use zoya_ast::{EnumDef, StructDef};
+
+    #[test]
+    fn test_parse_pub_struct() {
+        let tokens = lex("pub struct Point { x: Int, y: Int }").unwrap();
+        let item = parse_item(tokens).unwrap();
+        assert!(matches!(
+            item,
+            Item::Struct(StructDef {
+                visibility: Visibility::Public,
+                name,
+                ..
+            }) if name == "Point"
+        ));
+    }
+
+    #[test]
+    fn test_parse_private_struct() {
+        let tokens = lex("struct Point { x: Int, y: Int }").unwrap();
+        let item = parse_item(tokens).unwrap();
+        assert!(matches!(
+            item,
+            Item::Struct(StructDef {
+                visibility: Visibility::Private,
+                name,
+                ..
+            }) if name == "Point"
+        ));
+    }
+
+    #[test]
+    fn test_parse_pub_enum() {
+        let tokens = lex("pub enum Color { Red, Blue }").unwrap();
+        let item = parse_item(tokens).unwrap();
+        assert!(matches!(
+            item,
+            Item::Enum(EnumDef {
+                visibility: Visibility::Public,
+                name,
+                ..
+            }) if name == "Color"
+        ));
+    }
+
+    #[test]
+    fn test_parse_private_enum() {
+        let tokens = lex("enum Color { Red, Blue }").unwrap();
+        let item = parse_item(tokens).unwrap();
+        assert!(matches!(
+            item,
+            Item::Enum(EnumDef {
+                visibility: Visibility::Private,
+                name,
+                ..
+            }) if name == "Color"
+        ));
+    }
+
+    #[test]
+    fn test_parse_pub_type_alias() {
+        let tokens = lex("pub type UserId = Int").unwrap();
+        let item = parse_item(tokens).unwrap();
+        assert!(matches!(
+            item,
+            Item::TypeAlias(TypeAliasDef {
+                visibility: Visibility::Public,
+                name,
+                ..
+            }) if name == "UserId"
         ));
     }
 

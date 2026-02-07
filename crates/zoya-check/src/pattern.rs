@@ -1532,7 +1532,7 @@ pub fn check_let_binding(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zoya_ast::{Expr, Path, PathPrefix, StructFieldPattern};
+    use zoya_ast::{Expr, Path, PathPrefix, StructFieldPattern, Visibility};
     use zoya_ir::{Definition, EnumType, QualifiedPath, StructType};
 
     fn qpath(path: &str) -> QualifiedPath {
@@ -2341,6 +2341,7 @@ mod tests {
         env.register(
             qpath("root::Point"),
             Definition::Struct(StructType {
+                visibility: Visibility::Public,
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -2483,6 +2484,7 @@ mod tests {
     fn env_with_option() -> TypeEnv {
         let mut env = TypeEnv::default();
         let enum_type = EnumType {
+            visibility: Visibility::Public,
             name: "Option".to_string(),
             type_params: vec!["T".to_string()],
             type_var_ids: vec![TypeVarId(1)],
@@ -2508,6 +2510,7 @@ mod tests {
     fn env_with_message() -> TypeEnv {
         let mut env = TypeEnv::default();
         let enum_type = EnumType {
+            visibility: Visibility::Public,
             name: "Message".to_string(),
             type_params: vec![],
             type_var_ids: vec![],
@@ -3099,6 +3102,7 @@ mod tests {
     fn env_with_multi_tuple_enum() -> TypeEnv {
         let mut env = TypeEnv::default();
         let enum_type = EnumType {
+            visibility: Visibility::Public,
             name: "Data".to_string(),
             type_params: vec![],
             type_var_ids: vec![],

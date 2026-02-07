@@ -2521,7 +2521,7 @@ fn test_visibility_struct_always_public() {
             }
         "#,
             ),
-            ("types", "struct Point { x: Int, y: Int }"),
+            ("types", "pub struct Point { x: Int, y: Int }"),
         ],
         "30",
     );
@@ -2544,7 +2544,7 @@ fn test_visibility_enum_always_public() {
             }
         "#,
             ),
-            ("types", "enum Option<T> { None, Some(T) }"),
+            ("types", "pub enum Option<T> { None, Some(T) }"),
         ],
         "42",
     );
@@ -2672,7 +2672,7 @@ fn test_import_struct_and_use() {
             }
         "#,
             ),
-            ("types", "struct Point { x: Int, y: Int }"),
+            ("types", "pub struct Point { x: Int, y: Int }"),
         ],
         "30",
     );
@@ -2695,7 +2695,7 @@ fn test_import_struct_pattern_match() {
             }
         "#,
             ),
-            ("types", "struct Point { x: Int, y: Int }"),
+            ("types", "pub struct Point { x: Int, y: Int }"),
         ],
         "200",
     );
@@ -2720,7 +2720,7 @@ fn test_import_enum_type_and_variants() {
             }
         "#,
             ),
-            ("types", "enum Option<T> { None, Some(T) }"),
+            ("types", "pub enum Option<T> { None, Some(T) }"),
         ],
         "42",
     );
@@ -2745,7 +2745,7 @@ fn test_import_enum_variant_in_pattern() {
             }
         "#,
             ),
-            ("types", "enum Result<T, E> { Ok(T), Err(E) }"),
+            ("types", "pub enum Result<T, E> { Ok(T), Err(E) }"),
         ],
         "100",
     );
@@ -2768,7 +2768,7 @@ fn test_import_type_alias() {
             }
         "#,
             ),
-            ("types", "type IntPair = (Int, Int)"),
+            ("types", "pub type IntPair = (Int, Int)"),
         ],
         "30",
     );
@@ -2789,7 +2789,7 @@ fn test_imported_generic_struct() {
             }
         "#,
             ),
-            ("types", "struct Pair<A, B> { first: A, second: B }"),
+            ("types", "pub struct Pair<A, B> { first: A, second: B }"),
         ],
         "42",
     );

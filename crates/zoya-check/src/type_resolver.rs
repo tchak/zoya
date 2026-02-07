@@ -314,7 +314,7 @@ pub fn resolve_type_annotation(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zoya_ast::{Path, PathPrefix, TypeAnnotation};
+    use zoya_ast::{Path, PathPrefix, TypeAnnotation, Visibility};
     use zoya_ir::{Definition, EnumType, EnumVariantType, QualifiedPath, StructType, TypeAliasType};
 
     fn empty_env() -> TypeEnv {
@@ -525,6 +525,7 @@ mod tests {
         env.register(
             qpath("root::Point"),
             Definition::Struct(StructType {
+                visibility: Visibility::Public,
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -555,6 +556,7 @@ mod tests {
         env.register(
             qpath("root::Container"),
             Definition::Struct(StructType {
+                visibility: Visibility::Public,
                 name: "Container".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
@@ -578,6 +580,7 @@ mod tests {
         env.register(
             qpath("root::Pair"),
             Definition::Struct(StructType {
+                visibility: Visibility::Public,
                 name: "Pair".to_string(),
                 type_params: vec!["A".to_string(), "B".to_string()],
                 type_var_ids: vec![TypeVarId(1), TypeVarId(2)],
@@ -608,6 +611,7 @@ mod tests {
         env.register(
             qpath("root::Container"),
             Definition::Struct(StructType {
+                visibility: Visibility::Public,
                 name: "Container".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
@@ -646,6 +650,7 @@ mod tests {
         env.register(
             qpath("root::Status"),
             Definition::Enum(EnumType {
+                visibility: Visibility::Public,
                 name: "Status".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -679,6 +684,7 @@ mod tests {
         env.register(
             qpath("root::Option"),
             Definition::Enum(EnumType {
+                visibility: Visibility::Public,
                 name: "Option".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
@@ -705,6 +711,7 @@ mod tests {
         env.register(
             qpath("root::Result"),
             Definition::Enum(EnumType {
+                visibility: Visibility::Public,
                 name: "Result".to_string(),
                 type_params: vec!["T".to_string(), "E".to_string()],
                 type_var_ids: vec![TypeVarId(1), TypeVarId(2)],
@@ -745,6 +752,7 @@ mod tests {
         env.register(
             qpath("root::Option"),
             Definition::Enum(EnumType {
+                visibility: Visibility::Public,
                 name: "Option".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
@@ -789,6 +797,7 @@ mod tests {
         env.register(
             qpath("root::IntList"),
             Definition::TypeAlias(TypeAliasType {
+                visibility: Visibility::Public,
                 name: "IntList".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -808,6 +817,7 @@ mod tests {
         env.register(
             qpath("root::MyList"),
             Definition::TypeAlias(TypeAliasType {
+                visibility: Visibility::Public,
                 name: "MyList".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
@@ -831,6 +841,7 @@ mod tests {
         env.register(
             qpath("root::MyPair"),
             Definition::TypeAlias(TypeAliasType {
+                visibility: Visibility::Public,
                 name: "MyPair".to_string(),
                 type_params: vec!["A".to_string(), "B".to_string()],
                 type_var_ids: vec![TypeVarId(1), TypeVarId(2)],
@@ -857,6 +868,7 @@ mod tests {
         env.register(
             qpath("root::MyList"),
             Definition::TypeAlias(TypeAliasType {
+                visibility: Visibility::Public,
                 name: "MyList".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],

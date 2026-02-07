@@ -80,19 +80,24 @@ fn check_import_visible(
     // Get visibility
     let visibility = match def {
         Definition::Function(f) => f.visibility,
-        // Structs, enums, type aliases, and enum variants are always public for now
-        Definition::Struct(_) | Definition::Enum(_) | Definition::TypeAlias(_) => {
-            Visibility::Public
-        }
-        Definition::EnumVariant(_, _) => Visibility::Public,
+        Definition::Struct(s) => s.visibility,
+        Definition::Enum(e) => e.visibility,
+        Definition::TypeAlias(a) => a.visibility,
+        Definition::EnumVariant(parent_enum, _) => parent_enum.visibility,
     };
 
     if visibility == Visibility::Public {
         return Ok(());
     }
 
-    // Get target's module (all segments except last, which is the item name)
-    let target_module: Vec<&str> = qualified.segments[..qualified.segments.len() - 1]
+    // Get target's module: strip the item name from the path.
+    // For enum variants (e.g., root::mod::Color::Red), strip 2 segments (variant + enum name).
+    // For other items (e.g., root::mod::foo), strip 1 segment.
+    let strip_count = match def {
+        Definition::EnumVariant(..) => 2,
+        _ => 1,
+    };
+    let target_module: Vec<&str> = qualified.segments[..qualified.segments.len() - strip_count]
         .iter()
         .map(|s| s.as_str())
         .collect();
@@ -166,7 +171,7 @@ pub fn resolve_module_imports(
 mod tests {
     use super::*;
     use zoya_ast::UsePath;
-    use zoya_ir::{FunctionType, Type};
+    use zoya_ir::{EnumType, FunctionType, StructType, Type};
 
     fn make_use(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
         UseDecl {
@@ -301,6 +306,50 @@ mod tests {
         );
 
         let uses = vec![make_use(PathPrefix::Root, &["other", "secret"])];
+        let current = ModulePath::root().child("mine"); // sibling module
+        let result = resolve_module_imports(&uses, &current, &definitions);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("private"));
+    }
+
+    #[test]
+    fn test_import_private_struct_error() {
+        let mut definitions = HashMap::new();
+        definitions.insert(
+            qpath("root::other::Point"),
+            Definition::Struct(StructType {
+                visibility: Visibility::Private,
+                name: "Point".to_string(),
+                type_params: vec![],
+                type_var_ids: vec![],
+                fields: vec![],
+            }),
+        );
+
+        let uses = vec![make_use(PathPrefix::Root, &["other", "Point"])];
+        let current = ModulePath::root().child("mine"); // sibling module
+        let result = resolve_module_imports(&uses, &current, &definitions);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("private"));
+    }
+
+    #[test]
+    fn test_import_private_enum_error() {
+        let mut definitions = HashMap::new();
+        definitions.insert(
+            qpath("root::other::Color"),
+            Definition::Enum(EnumType {
+                visibility: Visibility::Private,
+                name: "Color".to_string(),
+                type_params: vec![],
+                type_var_ids: vec![],
+                variants: vec![],
+            }),
+        );
+
+        let uses = vec![make_use(PathPrefix::Root, &["other", "Color"])];
         let current = ModulePath::root().child("mine"); // sibling module
         let result = resolve_module_imports(&uses, &current, &definitions);
 

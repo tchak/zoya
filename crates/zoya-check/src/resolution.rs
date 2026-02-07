@@ -79,22 +79,42 @@ fn resolve_relative_path(
     Ok(QualifiedPath::new(segments))
 }
 
-/// Check if a function is visible from the accessor module.
+/// Get the visibility of any definition.
+fn definition_visibility(def: &Definition) -> Visibility {
+    match def {
+        Definition::Function(f) => f.visibility,
+        Definition::Struct(s) => s.visibility,
+        Definition::Enum(e) => e.visibility,
+        Definition::TypeAlias(a) => a.visibility,
+        Definition::EnumVariant(parent_enum, _) => parent_enum.visibility,
+    }
+}
+
+/// Check if an item is visible from the accessor module.
 ///
 /// Visibility rules:
-/// - Public functions are always visible
-/// - Private functions are visible if the accessor is in the same module or a descendant
-fn check_function_visibility(
-    visibility: Visibility,
+/// - Public items are always visible
+/// - Private items are visible if the accessor is in the same module or a descendant
+fn check_item_visibility(
+    def: &Definition,
     target_path: &QualifiedPath,
     accessor_module: &ModulePath,
 ) -> Result<(), TypeError> {
+    let visibility = definition_visibility(def);
+
     if visibility == Visibility::Public {
         return Ok(());
     }
 
-    // Get target's module (all segments except last, which is the function name)
-    let target_module: Vec<&str> = target_path.segments[..target_path.segments.len() - 1]
+    // Get target's module: strip the item name from the path.
+    // For enum variants (e.g., root::mod::Color::Red), strip 2 segments (variant + enum name).
+    // For other items (e.g., root::mod::foo), strip 1 segment.
+    let strip_count = match def {
+        Definition::EnumVariant(..) => 2,
+        _ => 1,
+    };
+    let target_module: Vec<&str> = target_path.segments
+        [..target_path.segments.len() - strip_count]
         .iter()
         .map(|s| s.as_str())
         .collect();
@@ -114,7 +134,8 @@ fn check_function_visibility(
     } else {
         Err(TypeError {
             message: format!(
-                "function '{}' is private to module '{}'",
+                "{} '{}' is private to module '{}'",
+                def.kind_name(),
                 target_path.segments.last().unwrap(),
                 target_module.join("::")
             ),
@@ -187,10 +208,7 @@ pub fn resolve_expr_path<'a>(
 
     // Try exact match in definitions
     if let Some(def) = definitions.get(&qualified_path) {
-        // Check visibility for functions
-        if let Definition::Function(func_type) = def {
-            check_function_visibility(func_type.visibility, &qualified_path, current_module)?;
-        }
+        check_item_visibility(def, &qualified_path, current_module)?;
         return Ok(ResolvedPath::Definition {
             qualified_path,
             def,
@@ -240,6 +258,7 @@ pub fn resolve_pattern_path<'a>(
 
     // Try exact match in definitions
     if let Some(def) = definitions.get(&qualified_path) {
+        check_item_visibility(def, &qualified_path, current_module)?;
         return Ok(ResolvedPath::Definition {
             qualified_path,
             def,
@@ -347,7 +366,7 @@ mod tests {
     // Visibility Tests
     // ========================================================================
 
-    use zoya_ir::{FunctionType, Type, Definition};
+    use zoya_ir::{EnumType, EnumVariantType, FunctionType, StructType, Type, TypeAliasType, Definition};
 
     fn qpath(path: &str) -> QualifiedPath {
         QualifiedPath::new(path.split("::").map(|s| s.to_string()).collect())
@@ -481,6 +500,162 @@ mod tests {
         let current = ModulePath::root().child("a").child("b").child("c"); // deeply nested
         let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions);
         assert!(result.is_ok());
+    }
+
+    // ========================================================================
+    // Struct/Enum/TypeAlias Visibility Tests
+    // ========================================================================
+
+    #[test]
+    fn test_visibility_private_struct_from_sibling_error() {
+        let mut definitions = HashMap::new();
+        definitions.insert(
+            qpath("root::a::Point"),
+            Definition::Struct(StructType {
+                visibility: Visibility::Private,
+                name: "Point".to_string(),
+                type_params: vec![],
+                type_var_ids: vec![],
+                fields: vec![],
+            }),
+        );
+        let locals = HashMap::new();
+        let imports = HashMap::new();
+        let path = path_from_segments(PathPrefix::Root, &["a", "Point"]);
+        let current = ModulePath::root().child("b"); // sibling
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("private"));
+    }
+
+    #[test]
+    fn test_visibility_private_enum_from_sibling_error() {
+        let mut definitions = HashMap::new();
+        definitions.insert(
+            qpath("root::a::Color"),
+            Definition::Enum(EnumType {
+                visibility: Visibility::Private,
+                name: "Color".to_string(),
+                type_params: vec![],
+                type_var_ids: vec![],
+                variants: vec![],
+            }),
+        );
+        let locals = HashMap::new();
+        let imports = HashMap::new();
+        let path = path_from_segments(PathPrefix::Root, &["a", "Color"]);
+        let current = ModulePath::root().child("b");
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("private"));
+    }
+
+    #[test]
+    fn test_visibility_private_type_alias_from_sibling_error() {
+        let mut definitions = HashMap::new();
+        definitions.insert(
+            qpath("root::a::MyInt"),
+            Definition::TypeAlias(TypeAliasType {
+                visibility: Visibility::Private,
+                name: "MyInt".to_string(),
+                type_params: vec![],
+                type_var_ids: vec![],
+                typ: Type::Int,
+            }),
+        );
+        let locals = HashMap::new();
+        let imports = HashMap::new();
+        let path = path_from_segments(PathPrefix::Root, &["a", "MyInt"]);
+        let current = ModulePath::root().child("b");
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("private"));
+    }
+
+    #[test]
+    fn test_visibility_private_enum_variant_from_sibling_error() {
+        let parent_enum = EnumType {
+            visibility: Visibility::Private,
+            name: "Color".to_string(),
+            type_params: vec![],
+            type_var_ids: vec![],
+            variants: vec![("Red".to_string(), EnumVariantType::Unit)],
+        };
+        let mut definitions = HashMap::new();
+        definitions.insert(
+            qpath("root::a::Color::Red"),
+            Definition::EnumVariant(parent_enum, EnumVariantType::Unit),
+        );
+        let locals = HashMap::new();
+        let imports = HashMap::new();
+        let path = path_from_segments(PathPrefix::Root, &["a", "Color", "Red"]);
+        let current = ModulePath::root().child("b");
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("private"));
+    }
+
+    #[test]
+    fn test_visibility_public_struct_accessible() {
+        let mut definitions = HashMap::new();
+        definitions.insert(
+            qpath("root::a::Point"),
+            Definition::Struct(StructType {
+                visibility: Visibility::Public,
+                name: "Point".to_string(),
+                type_params: vec![],
+                type_var_ids: vec![],
+                fields: vec![],
+            }),
+        );
+        let locals = HashMap::new();
+        let imports = HashMap::new();
+        let path = path_from_segments(PathPrefix::Root, &["a", "Point"]);
+        let current = ModulePath::root().child("b");
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_visibility_private_struct_from_descendant_ok() {
+        let mut definitions = HashMap::new();
+        definitions.insert(
+            qpath("root::Point"),
+            Definition::Struct(StructType {
+                visibility: Visibility::Private,
+                name: "Point".to_string(),
+                type_params: vec![],
+                type_var_ids: vec![],
+                fields: vec![],
+            }),
+        );
+        let locals = HashMap::new();
+        let imports = HashMap::new();
+        let path = path_from_segments(PathPrefix::Root, &["Point"]);
+        let current = ModulePath::root().child("child"); // descendant
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_visibility_private_struct_in_pattern_from_sibling_error() {
+        let mut definitions = HashMap::new();
+        definitions.insert(
+            qpath("root::a::Point"),
+            Definition::Struct(StructType {
+                visibility: Visibility::Private,
+                name: "Point".to_string(),
+                type_params: vec![],
+                type_var_ids: vec![],
+                fields: vec![],
+            }),
+        );
+        let imports = HashMap::new();
+        let path = path_from_segments(PathPrefix::Root, &["a", "Point"]);
+        let current = ModulePath::root().child("b");
+        let result = resolve_pattern_path(&path, &current, &imports, &definitions);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("private"));
     }
 
     // ========================================================================

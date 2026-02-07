@@ -1,4 +1,4 @@
-use zoya_ast::{Expr, Path, PathPrefix};
+use zoya_ast::{Expr, Path, PathPrefix, Visibility};
 use zoya_ir::{Definition, EnumType, EnumVariantType, QualifiedPath, Type};
 use zoya_package::ModulePath;
 
@@ -12,6 +12,7 @@ fn qpath(path: &str) -> QualifiedPath {
 fn env_with_message_enum() -> TypeEnv {
     let mut env = TypeEnv::default();
     let enum_type = EnumType {
+        visibility: Visibility::Public,
         name: "Message".to_string(),
         type_params: vec![],
         type_var_ids: vec![],

@@ -98,9 +98,10 @@ impl Item {
     }
 }
 
-/// Struct definition: `struct Name<T, U> { field: Type, ... }`
+/// Struct definition: `[pub] struct Name<T, U> { field: Type, ... }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructDef {
+    pub visibility: Visibility,
     pub name: String,
     pub type_params: Vec<String>,
     pub fields: Vec<StructFieldDef>,
@@ -113,9 +114,10 @@ pub struct StructFieldDef {
     pub typ: TypeAnnotation,
 }
 
-/// Enum definition: `enum Option<T> { None, Some(T), Move { x: Int, y: Int } }`
+/// Enum definition: `[pub] enum Option<T> { None, Some(T), Move { x: Int, y: Int } }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumDef {
+    pub visibility: Visibility,
     pub name: String,
     pub type_params: Vec<String>,
     pub variants: Vec<EnumVariant>,
@@ -139,9 +141,10 @@ pub enum EnumVariantKind {
     Struct(Vec<StructFieldDef>),
 }
 
-/// Type alias definition: `type Name<T, U> = TypeAnnotation`
+/// Type alias definition: `[pub] type Name<T, U> = TypeAnnotation`
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeAliasDef {
+    pub visibility: Visibility,
     pub name: String,
     pub type_params: Vec<String>,
     pub typ: TypeAnnotation,

@@ -119,6 +119,8 @@ pub struct FunctionType {
 /// Struct type definition (stored in type environment)
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructType {
+    /// Visibility of the struct
+    pub visibility: Visibility,
     /// Struct name
     pub name: String,
     /// Source-level type parameter names (e.g., ["T", "U"])
@@ -132,6 +134,8 @@ pub struct StructType {
 /// Enum type definition (stored in type environment)
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumType {
+    /// Visibility of the enum
+    pub visibility: Visibility,
     /// Enum name
     pub name: String,
     /// Source-level type parameter names (e.g., ["T", "E"])
@@ -146,6 +150,8 @@ pub struct EnumType {
 /// Type aliases are transparent - they resolve to their underlying type
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeAliasType {
+    /// Visibility of the type alias
+    pub visibility: Visibility,
     /// Alias name
     pub name: String,
     /// Source-level type parameter names (e.g., ["T", "U"])

@@ -99,6 +99,7 @@ pub fn struct_type_from_def(
     }
 
     Ok(StructType {
+        visibility: def.visibility,
         name: def.name.clone(),
         type_params: def.type_params.clone(),
         type_var_ids,
@@ -182,6 +183,7 @@ pub fn enum_type_from_def(
     }
 
     Ok(EnumType {
+        visibility: def.visibility,
         name: def.name.clone(),
         type_params: def.type_params.clone(),
         type_var_ids,
@@ -232,6 +234,7 @@ pub fn type_alias_from_def(
     let typ = resolve_type_annotation(&def.typ, &type_param_map, current_module, env)?;
 
     Ok(TypeAliasType {
+        visibility: def.visibility,
         name: def.name.clone(),
         type_params: def.type_params.clone(),
         type_var_ids,
@@ -255,6 +258,7 @@ mod tests {
     #[test]
     fn test_struct_valid_name() {
         let def = StructDef {
+            visibility: Visibility::Public,
             name: "Point".to_string(),
             type_params: vec![],
             fields: vec![
@@ -274,6 +278,7 @@ mod tests {
     #[test]
     fn test_struct_invalid_name_lowercase() {
         let def = StructDef {
+            visibility: Visibility::Public,
             name: "point".to_string(),
             type_params: vec![],
             fields: vec![],
@@ -290,6 +295,7 @@ mod tests {
     #[test]
     fn test_struct_invalid_name_snake_case() {
         let def = StructDef {
+            visibility: Visibility::Public,
             name: "my_point".to_string(),
             type_params: vec![],
             fields: vec![],
@@ -306,6 +312,7 @@ mod tests {
     #[test]
     fn test_struct_invalid_type_param_lowercase() {
         let def = StructDef {
+            visibility: Visibility::Public,
             name: "Container".to_string(),
             type_params: vec!["t".to_string()],
             fields: vec![],
@@ -322,6 +329,7 @@ mod tests {
     #[test]
     fn test_struct_invalid_type_param_snake_case() {
         let def = StructDef {
+            visibility: Visibility::Public,
             name: "Container".to_string(),
             type_params: vec!["my_type".to_string()],
             fields: vec![],
@@ -338,6 +346,7 @@ mod tests {
     #[test]
     fn test_struct_with_valid_type_params() {
         let def = StructDef {
+            visibility: Visibility::Public,
             name: "Container".to_string(),
             type_params: vec!["T".to_string(), "U".to_string()],
             fields: vec![
@@ -363,6 +372,7 @@ mod tests {
     #[test]
     fn test_enum_valid_name() {
         let def = EnumDef {
+            visibility: Visibility::Public,
             name: "Option".to_string(),
             type_params: vec!["T".to_string()],
             variants: vec![
@@ -386,6 +396,7 @@ mod tests {
     #[test]
     fn test_enum_invalid_name_lowercase() {
         let def = EnumDef {
+            visibility: Visibility::Public,
             name: "option".to_string(),
             type_params: vec![],
             variants: vec![],
@@ -402,6 +413,7 @@ mod tests {
     #[test]
     fn test_enum_invalid_name_snake_case() {
         let def = EnumDef {
+            visibility: Visibility::Public,
             name: "my_enum".to_string(),
             type_params: vec![],
             variants: vec![],
@@ -417,6 +429,7 @@ mod tests {
     #[test]
     fn test_enum_invalid_type_param() {
         let def = EnumDef {
+            visibility: Visibility::Public,
             name: "Result".to_string(),
             type_params: vec!["ok_type".to_string()],
             variants: vec![],
@@ -432,6 +445,7 @@ mod tests {
     #[test]
     fn test_enum_invalid_variant_name_lowercase() {
         let def = EnumDef {
+            visibility: Visibility::Public,
             name: "Status".to_string(),
             type_params: vec![],
             variants: vec![
@@ -453,6 +467,7 @@ mod tests {
     #[test]
     fn test_enum_invalid_variant_name_snake_case() {
         let def = EnumDef {
+            visibility: Visibility::Public,
             name: "Status".to_string(),
             type_params: vec![],
             variants: vec![
@@ -473,6 +488,7 @@ mod tests {
     #[test]
     fn test_enum_unit_variant() {
         let def = EnumDef {
+            visibility: Visibility::Public,
             name: "Status".to_string(),
             type_params: vec![],
             variants: vec![
@@ -499,6 +515,7 @@ mod tests {
     #[test]
     fn test_enum_tuple_variant() {
         let def = EnumDef {
+            visibility: Visibility::Public,
             name: "Message".to_string(),
             type_params: vec![],
             variants: vec![
@@ -527,6 +544,7 @@ mod tests {
     #[test]
     fn test_enum_struct_variant() {
         let def = EnumDef {
+            visibility: Visibility::Public,
             name: "Shape".to_string(),
             type_params: vec![],
             variants: vec![
@@ -566,6 +584,7 @@ mod tests {
     #[test]
     fn test_enum_tuple_variant_with_unknown_type() {
         let def = EnumDef {
+            visibility: Visibility::Public,
             name: "Container".to_string(),
             type_params: vec![],
             variants: vec![
@@ -586,6 +605,7 @@ mod tests {
     #[test]
     fn test_enum_struct_variant_with_unknown_type() {
         let def = EnumDef {
+            visibility: Visibility::Public,
             name: "Container".to_string(),
             type_params: vec![],
             variants: vec![
@@ -615,6 +635,7 @@ mod tests {
     #[test]
     fn test_type_alias_valid_name() {
         let def = TypeAliasDef {
+            visibility: Visibility::Public,
             name: "IntList".to_string(),
             type_params: vec![],
             typ: TypeAnnotation::Parameterized(
@@ -632,6 +653,7 @@ mod tests {
     #[test]
     fn test_type_alias_invalid_name_lowercase() {
         let def = TypeAliasDef {
+            visibility: Visibility::Public,
             name: "intList".to_string(),
             type_params: vec![],
             typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
@@ -648,6 +670,7 @@ mod tests {
     #[test]
     fn test_type_alias_invalid_name_snake_case() {
         let def = TypeAliasDef {
+            visibility: Visibility::Public,
             name: "int_list".to_string(),
             type_params: vec![],
             typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
@@ -663,6 +686,7 @@ mod tests {
     #[test]
     fn test_type_alias_invalid_type_param() {
         let def = TypeAliasDef {
+            visibility: Visibility::Public,
             name: "Container".to_string(),
             type_params: vec!["elem_type".to_string()],
             typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
@@ -678,6 +702,7 @@ mod tests {
     #[test]
     fn test_type_alias_with_valid_type_params() {
         let def = TypeAliasDef {
+            visibility: Visibility::Public,
             name: "Pair".to_string(),
             type_params: vec!["A".to_string(), "B".to_string()],
             typ: TypeAnnotation::Tuple(vec![
@@ -697,6 +722,7 @@ mod tests {
     #[test]
     fn test_type_alias_unknown_underlying_type() {
         let def = TypeAliasDef {
+            visibility: Visibility::Public,
             name: "MyAlias".to_string(),
             type_params: vec![],
             typ: TypeAnnotation::Named(Path::simple("NonExistentType".to_string())),

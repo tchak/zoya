@@ -1,4 +1,4 @@
-use zoya_ast::{Expr, Path};
+use zoya_ast::{Expr, Path, Visibility};
 use zoya_ir::{Definition, QualifiedPath, StructType, Type};
 use zoya_package::ModulePath;
 
@@ -14,6 +14,7 @@ fn env_with_point_struct() -> TypeEnv {
     env.register(
         qpath("root::Point"),
         Definition::Struct(StructType {
+            visibility: Visibility::Public,
             name: "Point".to_string(),
             type_params: vec![],
             type_var_ids: vec![],

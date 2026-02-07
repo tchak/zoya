@@ -121,6 +121,28 @@ fn test_import_private_function_fails() {
 }
 
 #[test]
+fn test_import_private_struct_fails() {
+    // utils module has private struct Secret
+    let utils_items = vec![Item::Struct(zoya_ast::StructDef {
+        visibility: Visibility::Private,
+        name: "Secret".to_string(),
+        type_params: vec![],
+        fields: vec![],
+    })];
+
+    let root_items = vec![Item::Use(make_use(PathPrefix::Root, &["utils", "Secret"]))];
+
+    let tree = build_multi_module_package(vec![
+        (ModulePath::root(), root_items),
+        (ModulePath::root().child("utils"), utils_items),
+    ]);
+
+    let result = check(&tree);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().message.contains("private"));
+}
+
+#[test]
 fn test_import_not_found_fails() {
     let root_items = vec![Item::Use(make_use(PathPrefix::Root, &["utils", "nonexistent"]))];
 
@@ -339,6 +361,7 @@ fn test_import_with_super_prefix() {
 fn test_imported_enum_variant_in_match_pattern() {
     // types module has enum Option<T> { None, Some(T) }
     let types_items = vec![Item::Enum(EnumDef {
+        visibility: Visibility::Public,
         name: "Option".to_string(),
         type_params: vec!["T".to_string()],
         variants: vec![
@@ -406,6 +429,7 @@ fn test_imported_enum_variant_in_match_pattern() {
 fn test_imported_enum_variant_in_struct_pattern() {
     // types module has enum Message { Move { x: Int, y: Int }, Quit }
     let types_items = vec![Item::Enum(EnumDef {
+        visibility: Visibility::Public,
         name: "Message".to_string(),
         type_params: vec![],
         variants: vec![

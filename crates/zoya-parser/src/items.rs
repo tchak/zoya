@@ -103,13 +103,20 @@ pub(crate) fn item_parser<'a>(
         .collect::<Vec<_>>()
         .delimited_by(just(Token::LBrace), just(Token::RBrace));
 
-    // struct Name<T> { field: Type, ... }
-    let struct_def = just(Token::Struct)
-        .ignore_then(ident())
+    // [pub] struct Name<T> { field: Type, ... }
+    let struct_def = just(Token::Pub)
+        .or_not()
+        .then_ignore(just(Token::Struct))
+        .then(ident())
         .then(type_params.clone())
         .then(struct_fields.clone())
-        .map(|((name, type_params), fields)| {
+        .map(|(((is_pub, name), type_params), fields)| {
             Item::Struct(StructDef {
+                visibility: if is_pub.is_some() {
+                    Visibility::Public
+                } else {
+                    Visibility::Private
+                },
                 name,
                 type_params,
                 fields,
@@ -151,27 +158,41 @@ pub(crate) fn item_parser<'a>(
         .collect::<Vec<_>>()
         .delimited_by(just(Token::LBrace), just(Token::RBrace));
 
-    // enum Name<T> { Variant, Variant(T), Variant { field: Type } }
-    let enum_def = just(Token::Enum)
-        .ignore_then(ident())
+    // [pub] enum Name<T> { Variant, Variant(T), Variant { field: Type } }
+    let enum_def = just(Token::Pub)
+        .or_not()
+        .then_ignore(just(Token::Enum))
+        .then(ident())
         .then(type_params.clone())
         .then(enum_variants)
-        .map(|((name, type_params), variants)| {
+        .map(|(((is_pub, name), type_params), variants)| {
             Item::Enum(EnumDef {
+                visibility: if is_pub.is_some() {
+                    Visibility::Public
+                } else {
+                    Visibility::Private
+                },
                 name,
                 type_params,
                 variants,
             })
         });
 
-    // type Name<T> = TypeAnnotation
-    let type_alias_def = just(Token::Type)
-        .ignore_then(ident())
+    // [pub] type Name<T> = TypeAnnotation
+    let type_alias_def = just(Token::Pub)
+        .or_not()
+        .then_ignore(just(Token::Type))
+        .then(ident())
         .then(type_params)
         .then_ignore(just(Token::Eq))
         .then(type_annotation())
-        .map(|((name, type_params), typ)| {
+        .map(|(((is_pub, name), type_params), typ)| {
             Item::TypeAlias(TypeAliasDef {
+                visibility: if is_pub.is_some() {
+                    Visibility::Public
+                } else {
+                    Visibility::Private
+                },
                 name,
                 type_params,
                 typ,
