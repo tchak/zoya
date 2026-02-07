@@ -311,6 +311,18 @@ mod internal
 
 Modules form a tree rooted at the root module. Each module has a path (e.g., `root::utils::helpers`).
 
+### Naming Conventions
+
+Module names use `snake_case`: must start with a lowercase letter, followed by lowercase letters, digits, or underscores.
+
+```zoya
+mod utils          // OK
+mod my_helpers     // OK
+mod v2             // OK
+mod MyModule       // Error: should be 'my_module'
+mod _private       // Error: must start with a letter
+```
+
 A private module is only accessible from the declaring module and its descendants. A public module is accessible from any module. To access an item in a nested module, all modules along the path must be visible to the accessor:
 
 ```zoya

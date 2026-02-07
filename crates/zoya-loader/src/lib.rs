@@ -32,6 +32,10 @@ pub enum LoaderError<P: Clone + Debug + Display = FilePath> {
         path: P,
         message: String,
     },
+    InvalidModName {
+        mod_name: String,
+        suggestion: String,
+    },
 }
 
 impl<P: Clone + Debug + Display> std::fmt::Display for LoaderError<P> {
@@ -55,11 +59,49 @@ impl<P: Clone + Debug + Display> std::fmt::Display for LoaderError<P> {
             LoaderError::ParseError { path, message } => {
                 write!(f, "parse error in '{}': {}", path, message)
             }
+            LoaderError::InvalidModName {
+                mod_name,
+                suggestion,
+            } => {
+                write!(
+                    f,
+                    "invalid module name '{}': module names must be snake_case (try '{}')",
+                    mod_name, suggestion
+                )
+            }
         }
     }
 }
 
 impl<P: Clone + Debug + Display> std::error::Error for LoaderError<P> {}
+
+/// Check if a module name is valid: starts with a lowercase letter,
+/// followed by lowercase letters, digits, or underscores.
+fn is_valid_module_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_lowercase() => name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'),
+        _ => false,
+    }
+}
+
+/// Convert a name to snake_case for error message suggestions.
+fn to_snake_case(name: &str) -> String {
+    let mut result = String::new();
+    for (i, c) in name.chars().enumerate() {
+        if c.is_ascii_uppercase() {
+            if i > 0 {
+                result.push('_');
+            }
+            result.push(c.to_ascii_lowercase());
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
 
 /// Load package starting from root file (convenience wrapper for filesystem)
 pub fn load_package(path: &Path) -> Result<Package, LoaderError<FilePath>> {
@@ -102,6 +144,16 @@ fn load_module_recursive<S: ModuleSource>(
         path: file_path.clone(),
         message: e.message,
     })?;
+
+    // Validate module names
+    for mod_decl in &module_def.mods {
+        if !is_valid_module_name(&mod_decl.name) {
+            return Err(LoaderError::InvalidModName {
+                mod_name: mod_decl.name.clone(),
+                suggestion: to_snake_case(&mod_decl.name),
+            });
+        }
+    }
 
     // Check for duplicate mods
     let mut seen_mods = HashSet::new();
@@ -153,6 +205,47 @@ fn load_module_recursive<S: ModuleSource>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // === is_valid_module_name tests ===
+
+    #[test]
+    fn test_valid_module_names() {
+        assert!(is_valid_module_name("utils"));
+        assert!(is_valid_module_name("my_helpers"));
+        assert!(is_valid_module_name("v2"));
+        assert!(is_valid_module_name("a"));
+        assert!(is_valid_module_name("foo_bar_baz"));
+        assert!(is_valid_module_name("mod123"));
+    }
+
+    #[test]
+    fn test_invalid_module_name_pascal_case() {
+        assert!(!is_valid_module_name("MyModule"));
+        assert!(!is_valid_module_name("Utils"));
+    }
+
+    #[test]
+    fn test_invalid_module_name_leading_underscore() {
+        assert!(!is_valid_module_name("_private"));
+        assert!(!is_valid_module_name("_"));
+    }
+
+    #[test]
+    fn test_invalid_module_name_uppercase() {
+        assert!(!is_valid_module_name("UPPER"));
+        assert!(!is_valid_module_name("FOO_BAR"));
+    }
+
+    #[test]
+    fn test_invalid_module_name_empty() {
+        assert!(!is_valid_module_name(""));
+    }
+
+    #[test]
+    fn test_invalid_module_name_starts_with_digit() {
+        assert!(!is_valid_module_name("1foo"));
+        assert!(!is_valid_module_name("123"));
+    }
 
     // === FsSource tests ===
 
@@ -494,6 +587,32 @@ mod integration_tests {
 
         assert!(
             matches!(result, Err(LoaderError::ModuleNotFound { mod_name, .. }) if mod_name == "missing")
+        );
+    }
+
+    #[test]
+    fn test_memory_source_error_invalid_mod_name_pascal_case() {
+        let source = MemorySource::new()
+            .with_module("root", "mod MyModule")
+            .with_module("my_module", "");
+
+        let result = load_package_with(&source, &"root".to_string());
+
+        assert!(
+            matches!(result, Err(LoaderError::InvalidModName { mod_name, suggestion }) if mod_name == "MyModule" && suggestion == "my_module")
+        );
+    }
+
+    #[test]
+    fn test_memory_source_error_invalid_mod_name_leading_underscore() {
+        let source = MemorySource::new()
+            .with_module("root", "mod _private")
+            .with_module("_private", "");
+
+        let result = load_package_with(&source, &"root".to_string());
+
+        assert!(
+            matches!(result, Err(LoaderError::InvalidModName { mod_name, .. }) if mod_name == "_private")
         );
     }
 
