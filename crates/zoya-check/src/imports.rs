@@ -90,17 +90,8 @@ fn check_import_visible(
         return Ok(());
     }
 
-    // Get target's module: strip the item name from the path.
-    // For enum variants (e.g., root::mod::Color::Red), strip 2 segments (variant + enum name).
-    // For other items (e.g., root::mod::foo), strip 1 segment.
-    let strip_count = match def {
-        Definition::EnumVariant(..) => 2,
-        _ => 1,
-    };
-    let target_module: Vec<&str> = qualified.segments[..qualified.segments.len() - strip_count]
-        .iter()
-        .map(|s| s.as_str())
-        .collect();
+    let target_module = def.module();
+    let target_segments: Vec<&str> = target_module.segments().iter().map(|s| s.as_str()).collect();
 
     let accessor: Vec<&str> = accessor_module
         .segments()
@@ -110,7 +101,7 @@ fn check_import_visible(
 
     // Private visible if accessor is same module or descendant
     let is_visible =
-        accessor.len() >= target_module.len() && accessor[..target_module.len()] == target_module[..];
+        accessor.len() >= target_segments.len() && accessor[..target_segments.len()] == target_segments[..];
 
     if is_visible {
         Ok(())
@@ -226,6 +217,7 @@ mod tests {
             qpath("root::foo::bar"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Public,
+                module: ModulePath::root().child("foo"),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -251,6 +243,7 @@ mod tests {
             qpath("root::foo::bar"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Public,
+                module: ModulePath::root().child("foo"),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -261,6 +254,7 @@ mod tests {
             qpath("root::baz::bar"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Public,
+                module: ModulePath::root().child("baz"),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -298,6 +292,7 @@ mod tests {
             qpath("root::other::secret"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Private,
+                module: ModulePath::root().child("other"),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -320,6 +315,7 @@ mod tests {
             qpath("root::other::Point"),
             Definition::Struct(StructType {
                 visibility: Visibility::Private,
+                module: ModulePath::root().child("other"),
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -342,6 +338,7 @@ mod tests {
             qpath("root::other::Color"),
             Definition::Enum(EnumType {
                 visibility: Visibility::Private,
+                module: ModulePath::root().child("other"),
                 name: "Color".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],

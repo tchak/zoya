@@ -45,6 +45,7 @@ pub fn function_type_from_def(
 
     Ok(FunctionType {
         visibility: func.visibility,
+        module: current_module.clone(),
         type_params: func.type_params.clone(),
         type_var_ids,
         params: param_types,
@@ -100,6 +101,7 @@ pub fn struct_type_from_def(
 
     Ok(StructType {
         visibility: def.visibility,
+        module: current_module.clone(),
         name: def.name.clone(),
         type_params: def.type_params.clone(),
         type_var_ids,
@@ -184,6 +186,7 @@ pub fn enum_type_from_def(
 
     Ok(EnumType {
         visibility: def.visibility,
+        module: current_module.clone(),
         name: def.name.clone(),
         type_params: def.type_params.clone(),
         type_var_ids,
@@ -235,6 +238,7 @@ pub fn type_alias_from_def(
 
     Ok(TypeAliasType {
         visibility: def.visibility,
+        module: current_module.clone(),
         name: def.name.clone(),
         type_params: def.type_params.clone(),
         type_var_ids,

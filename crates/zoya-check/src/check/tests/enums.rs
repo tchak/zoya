@@ -13,6 +13,7 @@ fn env_with_message_enum() -> TypeEnv {
     let mut env = TypeEnv::default();
     let enum_type = EnumType {
         visibility: Visibility::Public,
+        module: ModulePath::root(),
         name: "Message".to_string(),
         type_params: vec![],
         type_var_ids: vec![],

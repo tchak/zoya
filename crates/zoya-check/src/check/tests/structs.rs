@@ -15,6 +15,7 @@ fn env_with_point_struct() -> TypeEnv {
         qpath("root::Point"),
         Definition::Struct(StructType {
             visibility: Visibility::Public,
+            module: ModulePath::root(),
             name: "Point".to_string(),
             type_params: vec![],
             type_var_ids: vec![],

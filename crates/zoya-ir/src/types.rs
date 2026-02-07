@@ -1,6 +1,7 @@
 use std::fmt;
 
 use zoya_ast::Visibility;
+use zoya_package::ModulePath;
 
 /// Unique identifier for a type variable
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -106,6 +107,8 @@ impl fmt::Display for Type {
 pub struct FunctionType {
     /// Visibility of the function
     pub visibility: Visibility,
+    /// Module where this function is defined
+    pub module: ModulePath,
     /// Source-level type parameter names (e.g., ["T", "U"])
     pub type_params: Vec<String>,
     /// TypeVarIds corresponding to each type parameter
@@ -121,6 +124,8 @@ pub struct FunctionType {
 pub struct StructType {
     /// Visibility of the struct
     pub visibility: Visibility,
+    /// Module where this struct is defined
+    pub module: ModulePath,
     /// Struct name
     pub name: String,
     /// Source-level type parameter names (e.g., ["T", "U"])
@@ -136,6 +141,8 @@ pub struct StructType {
 pub struct EnumType {
     /// Visibility of the enum
     pub visibility: Visibility,
+    /// Module where this enum is defined
+    pub module: ModulePath,
     /// Enum name
     pub name: String,
     /// Source-level type parameter names (e.g., ["T", "E"])
@@ -152,6 +159,8 @@ pub struct EnumType {
 pub struct TypeAliasType {
     /// Visibility of the type alias
     pub visibility: Visibility,
+    /// Module where this type alias is defined
+    pub module: ModulePath,
     /// Alias name
     pub name: String,
     /// Source-level type parameter names (e.g., ["T", "U"])
@@ -208,6 +217,16 @@ impl Definition {
             Definition::Enum(_) => "enum",
             Definition::EnumVariant(..) => "enum variant",
             Definition::TypeAlias(_) => "type alias",
+        }
+    }
+
+    pub fn module(&self) -> &ModulePath {
+        match self {
+            Definition::Function(f) => &f.module,
+            Definition::Struct(s) => &s.module,
+            Definition::Enum(e) => &e.module,
+            Definition::EnumVariant(parent_enum, _) => &parent_enum.module,
+            Definition::TypeAlias(a) => &a.module,
         }
     }
 }

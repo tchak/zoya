@@ -174,6 +174,7 @@ fn test_turbofish_correct_count() {
         qpath("root::identity"),
         Definition::Function(FunctionType {
             visibility: Visibility::Public,
+            module: ModulePath::root(),
             type_params: vec!["T".to_string()],
             type_var_ids: vec![t_id],
             params: vec![Type::Var(t_id)],
@@ -205,6 +206,7 @@ fn test_turbofish_wrong_count_error() {
         qpath("root::identity"),
         Definition::Function(FunctionType {
             visibility: Visibility::Public,
+            module: ModulePath::root(),
             type_params: vec!["T".to_string()],
             type_var_ids: vec![t_id],
             params: vec![Type::Var(t_id)],

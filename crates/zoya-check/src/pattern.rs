@@ -2342,6 +2342,7 @@ mod tests {
             qpath("root::Point"),
             Definition::Struct(StructType {
                 visibility: Visibility::Public,
+                module: ModulePath::root(),
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -2485,6 +2486,7 @@ mod tests {
         let mut env = TypeEnv::default();
         let enum_type = EnumType {
             visibility: Visibility::Public,
+            module: ModulePath::root(),
             name: "Option".to_string(),
             type_params: vec!["T".to_string()],
             type_var_ids: vec![TypeVarId(1)],
@@ -2511,6 +2513,7 @@ mod tests {
         let mut env = TypeEnv::default();
         let enum_type = EnumType {
             visibility: Visibility::Public,
+            module: ModulePath::root(),
             name: "Message".to_string(),
             type_params: vec![],
             type_var_ids: vec![],
@@ -3103,6 +3106,7 @@ mod tests {
         let mut env = TypeEnv::default();
         let enum_type = EnumType {
             visibility: Visibility::Public,
+            module: ModulePath::root(),
             name: "Data".to_string(),
             type_params: vec![],
             type_var_ids: vec![],

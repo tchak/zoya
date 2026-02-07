@@ -1610,6 +1610,7 @@ fn register_module_declarations(
                 qualified_path,
                 Definition::Struct(StructType {
                     visibility: def.visibility,
+                    module: current_module.clone(),
                     name: def.name.clone(),
                     type_params: def.type_params.clone(),
                     type_var_ids,
@@ -1630,6 +1631,7 @@ fn register_module_declarations(
                 qualified_path,
                 Definition::Enum(EnumType {
                     visibility: def.visibility,
+                    module: current_module.clone(),
                     name: def.name.clone(),
                     type_params: def.type_params.clone(),
                     type_var_ids,

@@ -19,6 +19,7 @@ fn test_check_function_call() {
         qpath("root::square"),
         Definition::Function(FunctionType {
             visibility: Visibility::Public,
+            module: ModulePath::root(),
             type_params: vec![],
             type_var_ids: vec![],
             params: vec![Type::Int],
@@ -42,6 +43,7 @@ fn test_check_function_call_wrong_arg_type() {
         qpath("root::square"),
         Definition::Function(FunctionType {
             visibility: Visibility::Public,
+            module: ModulePath::root(),
             type_params: vec![],
             type_var_ids: vec![],
             params: vec![Type::Int],
@@ -66,6 +68,7 @@ fn test_check_function_call_wrong_arity() {
         qpath("root::add"),
         Definition::Function(FunctionType {
             visibility: Visibility::Public,
+            module: ModulePath::root(),
             type_params: vec![],
             type_var_ids: vec![],
             params: vec![Type::Int, Type::Int],
@@ -94,6 +97,7 @@ fn test_check_generic_function_call() {
         qpath("root::identity"),
         Definition::Function(FunctionType {
             visibility: Visibility::Public,
+            module: ModulePath::root(),
             type_params: vec!["T".to_string()],
             type_var_ids: vec![t_id],
             params: vec![Type::Var(t_id)],
@@ -121,6 +125,7 @@ fn test_check_generic_function_call_float() {
         qpath("root::identity"),
         Definition::Function(FunctionType {
             visibility: Visibility::Public,
+            module: ModulePath::root(),
             type_params: vec!["T".to_string()],
             type_var_ids: vec![t_id],
             params: vec![Type::Var(t_id)],
@@ -190,6 +195,7 @@ fn test_check_function_def_with_call() {
         qpath("root::add"),
         Definition::Function(FunctionType {
             visibility: Visibility::Public,
+            module: ModulePath::root(),
             type_params: vec![],
             type_var_ids: vec![],
             params: vec![Type::Int, Type::Int],

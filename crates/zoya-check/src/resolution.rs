@@ -79,17 +79,6 @@ fn resolve_relative_path(
     Ok(QualifiedPath::new(segments))
 }
 
-/// Get the visibility of any definition.
-fn definition_visibility(def: &Definition) -> Visibility {
-    match def {
-        Definition::Function(f) => f.visibility,
-        Definition::Struct(s) => s.visibility,
-        Definition::Enum(e) => e.visibility,
-        Definition::TypeAlias(a) => a.visibility,
-        Definition::EnumVariant(parent_enum, _) => parent_enum.visibility,
-    }
-}
-
 /// Check if an item is visible from the accessor module.
 ///
 /// Visibility rules:
@@ -97,27 +86,23 @@ fn definition_visibility(def: &Definition) -> Visibility {
 /// - Private items are visible if the accessor is in the same module or a descendant
 fn check_item_visibility(
     def: &Definition,
-    target_path: &QualifiedPath,
+    item_name: &str,
     accessor_module: &ModulePath,
 ) -> Result<(), TypeError> {
-    let visibility = definition_visibility(def);
+    let visibility = match def {
+        Definition::Function(f) => f.visibility,
+        Definition::Struct(s) => s.visibility,
+        Definition::Enum(e) => e.visibility,
+        Definition::TypeAlias(a) => a.visibility,
+        Definition::EnumVariant(parent_enum, _) => parent_enum.visibility,
+    };
 
     if visibility == Visibility::Public {
         return Ok(());
     }
 
-    // Get target's module: strip the item name from the path.
-    // For enum variants (e.g., root::mod::Color::Red), strip 2 segments (variant + enum name).
-    // For other items (e.g., root::mod::foo), strip 1 segment.
-    let strip_count = match def {
-        Definition::EnumVariant(..) => 2,
-        _ => 1,
-    };
-    let target_module: Vec<&str> = target_path.segments
-        [..target_path.segments.len() - strip_count]
-        .iter()
-        .map(|s| s.as_str())
-        .collect();
+    let target_module = def.module();
+    let target_segments: Vec<&str> = target_module.segments().iter().map(|s| s.as_str()).collect();
 
     let accessor: Vec<&str> = accessor_module
         .segments()
@@ -127,7 +112,7 @@ fn check_item_visibility(
 
     // Private visible if accessor is same module or descendant
     let is_visible =
-        accessor.len() >= target_module.len() && accessor[..target_module.len()] == target_module[..];
+        accessor.len() >= target_segments.len() && accessor[..target_segments.len()] == target_segments[..];
 
     if is_visible {
         Ok(())
@@ -136,8 +121,8 @@ fn check_item_visibility(
             message: format!(
                 "{} '{}' is private to module '{}'",
                 def.kind_name(),
-                target_path.segments.last().unwrap(),
-                target_module.join("::")
+                item_name,
+                target_module,
             ),
         })
     }
@@ -208,7 +193,7 @@ pub fn resolve_expr_path<'a>(
 
     // Try exact match in definitions
     if let Some(def) = definitions.get(&qualified_path) {
-        check_item_visibility(def, &qualified_path, current_module)?;
+        check_item_visibility(def, qualified_path.segments.last().unwrap(), current_module)?;
         return Ok(ResolvedPath::Definition {
             qualified_path,
             def,
@@ -258,7 +243,7 @@ pub fn resolve_pattern_path<'a>(
 
     // Try exact match in definitions
     if let Some(def) = definitions.get(&qualified_path) {
-        check_item_visibility(def, &qualified_path, current_module)?;
+        check_item_visibility(def, qualified_path.segments.last().unwrap(), current_module)?;
         return Ok(ResolvedPath::Definition {
             qualified_path,
             def,
@@ -379,6 +364,7 @@ mod tests {
             qpath("root::utils::helper"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Public,
+                module: ModulePath::root().child("utils"),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -400,6 +386,7 @@ mod tests {
             qpath("root::utils::helper"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Private,
+                module: ModulePath::root().child("utils"),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -421,6 +408,7 @@ mod tests {
             qpath("root::helper"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Private,
+                module: ModulePath::root(),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -442,6 +430,7 @@ mod tests {
             qpath("root::utils::helper"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Private,
+                module: ModulePath::root().child("utils"),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -465,6 +454,7 @@ mod tests {
             qpath("root::a::helper"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Private,
+                module: ModulePath::root().child("a"),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -488,6 +478,7 @@ mod tests {
             qpath("root::helper"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Private,
+                module: ModulePath::root(),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -513,6 +504,7 @@ mod tests {
             qpath("root::a::Point"),
             Definition::Struct(StructType {
                 visibility: Visibility::Private,
+                module: ModulePath::root().child("a"),
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -535,6 +527,7 @@ mod tests {
             qpath("root::a::Color"),
             Definition::Enum(EnumType {
                 visibility: Visibility::Private,
+                module: ModulePath::root().child("a"),
                 name: "Color".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -557,6 +550,7 @@ mod tests {
             qpath("root::a::MyInt"),
             Definition::TypeAlias(TypeAliasType {
                 visibility: Visibility::Private,
+                module: ModulePath::root().child("a"),
                 name: "MyInt".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -576,6 +570,7 @@ mod tests {
     fn test_visibility_private_enum_variant_from_sibling_error() {
         let parent_enum = EnumType {
             visibility: Visibility::Private,
+            module: ModulePath::root().child("a"),
             name: "Color".to_string(),
             type_params: vec![],
             type_var_ids: vec![],
@@ -602,6 +597,7 @@ mod tests {
             qpath("root::a::Point"),
             Definition::Struct(StructType {
                 visibility: Visibility::Public,
+                module: ModulePath::root().child("a"),
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -623,6 +619,7 @@ mod tests {
             qpath("root::Point"),
             Definition::Struct(StructType {
                 visibility: Visibility::Private,
+                module: ModulePath::root(),
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -644,6 +641,7 @@ mod tests {
             qpath("root::a::Point"),
             Definition::Struct(StructType {
                 visibility: Visibility::Private,
+                module: ModulePath::root().child("a"),
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -670,6 +668,7 @@ mod tests {
             qpath("root::utils::helper"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Public,
+                module: ModulePath::root().child("utils"),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -680,6 +679,7 @@ mod tests {
             qpath("root::helper"), // Would be the local one if no import
             Definition::Function(FunctionType {
                 visibility: Visibility::Public,
+                module: ModulePath::root(),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -713,6 +713,7 @@ mod tests {
             qpath("root::utils::helper"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Public,
+                module: ModulePath::root().child("utils"),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],

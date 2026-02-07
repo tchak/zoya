@@ -526,6 +526,7 @@ mod tests {
             qpath("root::Point"),
             Definition::Struct(StructType {
                 visibility: Visibility::Public,
+                module: ModulePath::root(),
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -557,6 +558,7 @@ mod tests {
             qpath("root::Container"),
             Definition::Struct(StructType {
                 visibility: Visibility::Public,
+                module: ModulePath::root(),
                 name: "Container".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
@@ -581,6 +583,7 @@ mod tests {
             qpath("root::Pair"),
             Definition::Struct(StructType {
                 visibility: Visibility::Public,
+                module: ModulePath::root(),
                 name: "Pair".to_string(),
                 type_params: vec!["A".to_string(), "B".to_string()],
                 type_var_ids: vec![TypeVarId(1), TypeVarId(2)],
@@ -612,6 +615,7 @@ mod tests {
             qpath("root::Container"),
             Definition::Struct(StructType {
                 visibility: Visibility::Public,
+                module: ModulePath::root(),
                 name: "Container".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
@@ -651,6 +655,7 @@ mod tests {
             qpath("root::Status"),
             Definition::Enum(EnumType {
                 visibility: Visibility::Public,
+                module: ModulePath::root(),
                 name: "Status".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -685,6 +690,7 @@ mod tests {
             qpath("root::Option"),
             Definition::Enum(EnumType {
                 visibility: Visibility::Public,
+                module: ModulePath::root(),
                 name: "Option".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
@@ -712,6 +718,7 @@ mod tests {
             qpath("root::Result"),
             Definition::Enum(EnumType {
                 visibility: Visibility::Public,
+                module: ModulePath::root(),
                 name: "Result".to_string(),
                 type_params: vec!["T".to_string(), "E".to_string()],
                 type_var_ids: vec![TypeVarId(1), TypeVarId(2)],
@@ -753,6 +760,7 @@ mod tests {
             qpath("root::Option"),
             Definition::Enum(EnumType {
                 visibility: Visibility::Public,
+                module: ModulePath::root(),
                 name: "Option".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
@@ -798,6 +806,7 @@ mod tests {
             qpath("root::IntList"),
             Definition::TypeAlias(TypeAliasType {
                 visibility: Visibility::Public,
+                module: ModulePath::root(),
                 name: "IntList".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -818,6 +827,7 @@ mod tests {
             qpath("root::MyList"),
             Definition::TypeAlias(TypeAliasType {
                 visibility: Visibility::Public,
+                module: ModulePath::root(),
                 name: "MyList".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
@@ -842,6 +852,7 @@ mod tests {
             qpath("root::MyPair"),
             Definition::TypeAlias(TypeAliasType {
                 visibility: Visibility::Public,
+                module: ModulePath::root(),
                 name: "MyPair".to_string(),
                 type_params: vec!["A".to_string(), "B".to_string()],
                 type_var_ids: vec![TypeVarId(1), TypeVarId(2)],
@@ -869,6 +880,7 @@ mod tests {
             qpath("root::MyList"),
             Definition::TypeAlias(TypeAliasType {
                 visibility: Visibility::Public,
+                module: ModulePath::root(),
                 name: "MyList".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
