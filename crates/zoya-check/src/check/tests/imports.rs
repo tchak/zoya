@@ -36,7 +36,7 @@ fn build_multi_module_package(modules_data: Vec<(ModulePath, Vec<Item>)>) -> Pac
             if let Some(parent_path) = path.parent() {
                 let child_name = path.segments().last().unwrap().clone();
                 if let Some(parent) = modules.get_mut(&parent_path) {
-                    parent.children.insert(child_name, path.clone());
+                    parent.children.insert(child_name, (path.clone(), Visibility::Public));
                 }
             }
         }
@@ -47,6 +47,7 @@ fn build_multi_module_package(modules_data: Vec<(ModulePath, Vec<Item>)>) -> Pac
 
 fn make_use(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
     UseDecl {
+        visibility: Visibility::Private,
         path: UsePath {
             prefix,
             segments: segments.iter().map(|s| s.to_string()).collect(),
@@ -182,9 +183,9 @@ fn test_duplicate_import_fails() {
     ];
 
     let mut modules = HashMap::new();
-    let root_children: HashMap<String, ModulePath> = [
-        ("utils".to_string(), ModulePath::root().child("utils")),
-        ("other".to_string(), ModulePath::root().child("other")),
+    let root_children: HashMap<String, (ModulePath, Visibility)> = [
+        ("utils".to_string(), (ModulePath::root().child("utils"), Visibility::Public)),
+        ("other".to_string(), (ModulePath::root().child("other"), Visibility::Public)),
     ].into_iter().collect();
 
     modules.insert(

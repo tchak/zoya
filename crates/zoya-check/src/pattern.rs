@@ -540,7 +540,7 @@ pub fn check_pattern(
             };
 
             // Try to resolve as imported/defined enum unit variant
-            match resolution::resolve_pattern_path(path, current_module, &env.imports, &env.definitions) {
+            match resolution::resolve_pattern_path(path, current_module, &env.imports, &env.definitions, &env.pkg) {
                 Ok(resolved) => {
                     // Try to use the resolved path as a pattern
                     match check_path_pattern_resolved(resolved, path, scrutinee_ty, current_module, env, ctx) {
@@ -714,7 +714,7 @@ fn check_call_pattern(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
-    let resolved = resolution::resolve_pattern_path(path, current_module, &env.imports, &env.definitions)?;
+    let resolved = resolution::resolve_pattern_path(path, current_module, &env.imports, &env.definitions, &env.pkg)?;
 
     match resolved {
         ResolvedPath::Definition {
@@ -830,7 +830,7 @@ fn check_struct_pattern(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
-    let resolved = resolution::resolve_pattern_path(path, current_module, &env.imports, &env.definitions)?;
+    let resolved = resolution::resolve_pattern_path(path, current_module, &env.imports, &env.definitions, &env.pkg)?;
 
     match resolved {
         ResolvedPath::Definition {

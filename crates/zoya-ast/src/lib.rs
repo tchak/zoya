@@ -417,15 +417,17 @@ pub enum Stmt {
     Let(LetBinding),
 }
 
-/// Module declaration: `mod name`
+/// Module declaration: `[pub] mod name`
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModDecl {
+    pub visibility: Visibility,
     pub name: String,
 }
 
-/// Use declaration: `use root::foo::bar`
+/// Use declaration: `[pub] use root::foo::bar`
 #[derive(Debug, Clone, PartialEq)]
 pub struct UseDecl {
+    pub visibility: Visibility,
     pub path: UsePath,
 }
 

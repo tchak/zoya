@@ -2660,8 +2660,20 @@ mod tests {
         let module = parse_module_str("mod foo mod bar").unwrap();
         assert_eq!(module.mods.len(), 2);
         assert_eq!(module.mods[0].name, "foo");
+        assert_eq!(module.mods[0].visibility, Visibility::Private);
         assert_eq!(module.mods[1].name, "bar");
+        assert_eq!(module.mods[1].visibility, Visibility::Private);
         assert!(module.items.is_empty());
+    }
+
+    #[test]
+    fn test_parse_module_pub_mod() {
+        let module = parse_module_str("pub mod foo mod bar").unwrap();
+        assert_eq!(module.mods.len(), 2);
+        assert_eq!(module.mods[0].name, "foo");
+        assert_eq!(module.mods[0].visibility, Visibility::Public);
+        assert_eq!(module.mods[1].name, "bar");
+        assert_eq!(module.mods[1].visibility, Visibility::Private);
     }
 
     #[test]
@@ -2679,6 +2691,17 @@ mod tests {
         assert!(module.mods.is_empty());
         let uses: Vec<_> = module.items.iter().filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None }).collect();
         assert_eq!(uses.len(), 1);
+        assert_eq!(uses[0].visibility, Visibility::Private);
+        assert_eq!(uses[0].path.prefix, PathPrefix::Root);
+        assert_eq!(uses[0].path.segments, vec!["foo", "bar"]);
+    }
+
+    #[test]
+    fn test_parse_module_pub_use() {
+        let module = parse_module_str("pub use root::foo::bar").unwrap();
+        let uses: Vec<_> = module.items.iter().filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None }).collect();
+        assert_eq!(uses.len(), 1);
+        assert_eq!(uses[0].visibility, Visibility::Public);
         assert_eq!(uses[0].path.prefix, PathPrefix::Root);
         assert_eq!(uses[0].path.segments, vec!["foo", "bar"]);
     }

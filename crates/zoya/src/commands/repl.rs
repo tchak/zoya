@@ -395,7 +395,7 @@ fn build_repl_package(base_pkg: Option<&Package>, items: Vec<Item>) -> Package {
         path: ModulePath::root(),
         children: HashMap::new(),
     });
-    root.children.insert("repl".to_string(), repl_path.clone());
+    root.children.insert("repl".to_string(), (repl_path.clone(), Visibility::Private));
 
     // Create the repl submodule with REPL items
     modules.insert(

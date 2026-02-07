@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use zoya_ast::{PathPrefix, UseDecl};
 use zoya_ir::{Definition, QualifiedPath, TypeError, Visibility};
-use zoya_package::ModulePath;
+use zoya_package::{ModulePath, Package};
 
 /// Resolved import entry: maps a local name to a qualified path
 pub type ImportTable = HashMap<String, QualifiedPath>;
@@ -115,6 +115,54 @@ fn check_import_visible(
     }
 }
 
+/// Check that all intermediate modules in a qualified path are visible from the accessor module.
+fn check_import_module_path_visible(
+    qualified: &QualifiedPath,
+    accessor_module: &ModulePath,
+    pkg: &Package,
+) -> Result<(), TypeError> {
+    let segments = &qualified.segments;
+
+    if segments.len() < 3 {
+        return Ok(());
+    }
+
+    for i in 1..segments.len() - 1 {
+        let parent_module_path = ModulePath(segments[0..i].to_vec());
+        let child_name = &segments[i];
+
+        if let Some(parent_module) = pkg.get(&parent_module_path)
+            && let Some((_, visibility)) = parent_module.children.get(child_name)
+        {
+            if *visibility == Visibility::Public {
+                continue;
+            }
+
+            let accessor: Vec<&str> = accessor_module
+                .segments()
+                .iter()
+                .map(|s| s.as_str())
+                .collect();
+            let parent_segments: Vec<&str> =
+                parent_module_path.segments().iter().map(|s| s.as_str()).collect();
+
+            let is_visible = accessor.len() >= parent_segments.len()
+                && accessor[..parent_segments.len()] == parent_segments[..];
+
+            if !is_visible {
+                return Err(TypeError {
+                    message: format!(
+                        "module '{}' is private to module '{}'",
+                        child_name, parent_module_path
+                    ),
+                });
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Resolve all imports for a module and return an import table.
 ///
 /// The import table maps local names (the last segment of each use path)
@@ -123,11 +171,15 @@ pub fn resolve_module_imports(
     uses: &[UseDecl],
     current_module: &ModulePath,
     definitions: &HashMap<QualifiedPath, Definition>,
+    pkg: &Package,
 ) -> Result<ImportTable, TypeError> {
     let mut imports = HashMap::new();
 
     for use_decl in uses {
         let qualified = resolve_use_path(use_decl, current_module)?;
+
+        // Check intermediate modules are visible
+        check_import_module_path_visible(&qualified, current_module, pkg)?;
 
         // Check target exists and is visible
         check_import_visible(&qualified, current_module, definitions)?;
@@ -166,6 +218,7 @@ mod tests {
 
     fn make_use(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
         UseDecl {
+            visibility: Visibility::Private,
             path: UsePath {
                 prefix,
                 segments: segments.iter().map(|s| s.to_string()).collect(),
@@ -175,6 +228,12 @@ mod tests {
 
     fn qpath(path: &str) -> QualifiedPath {
         QualifiedPath::new(path.split("::").map(|s| s.to_string()).collect())
+    }
+
+    fn empty_pkg() -> Package {
+        Package {
+            modules: HashMap::new(),
+        }
     }
 
     #[test]
@@ -227,7 +286,7 @@ mod tests {
 
         let uses = vec![make_use(PathPrefix::Root, &["foo", "bar"])];
         let current = ModulePath::root();
-        let imports = resolve_module_imports(&uses, &current, &definitions).unwrap();
+        let imports = resolve_module_imports(&uses, &current, &definitions, &empty_pkg()).unwrap();
 
         assert_eq!(imports.len(), 1);
         assert_eq!(
@@ -267,7 +326,7 @@ mod tests {
             make_use(PathPrefix::Root, &["baz", "bar"]),
         ];
         let current = ModulePath::root();
-        let result = resolve_module_imports(&uses, &current, &definitions);
+        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg());
 
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("already imported"));
@@ -279,7 +338,7 @@ mod tests {
 
         let uses = vec![make_use(PathPrefix::Root, &["foo", "bar"])];
         let current = ModulePath::root();
-        let result = resolve_module_imports(&uses, &current, &definitions);
+        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg());
 
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("cannot find"));
@@ -302,7 +361,7 @@ mod tests {
 
         let uses = vec![make_use(PathPrefix::Root, &["other", "secret"])];
         let current = ModulePath::root().child("mine"); // sibling module
-        let result = resolve_module_imports(&uses, &current, &definitions);
+        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg());
 
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
@@ -325,7 +384,7 @@ mod tests {
 
         let uses = vec![make_use(PathPrefix::Root, &["other", "Point"])];
         let current = ModulePath::root().child("mine"); // sibling module
-        let result = resolve_module_imports(&uses, &current, &definitions);
+        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg());
 
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
@@ -348,7 +407,7 @@ mod tests {
 
         let uses = vec![make_use(PathPrefix::Root, &["other", "Color"])];
         let current = ModulePath::root().child("mine"); // sibling module
-        let result = resolve_module_imports(&uses, &current, &definitions);
+        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg());
 
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));

@@ -2339,12 +2339,12 @@ fn test_use_super_nested() {
             (
                 "root",
                 r#"
-            mod level1
+            pub mod level1
             pub fn root_fn() -> Int { 100 }
             fn main() -> Int { level1::level2::test() }
         "#,
             ),
-            ("level1", "mod level2"),
+            ("level1", "pub mod level2"),
             (
                 "level1/level2",
                 r#"
@@ -2436,13 +2436,13 @@ fn test_visibility_private_fn_accessible_in_deep_descendant() {
             (
                 "root",
                 r#"
-            mod level1
+            pub mod level1
             fn root_secret() -> Int { 99 }
             fn main() -> Int { level1::level2::level3::test() }
         "#,
             ),
-            ("level1", "mod level2"),
-            ("level1/level2", "mod level3"),
+            ("level1", "pub mod level2"),
+            ("level1/level2", "pub mod level3"),
             (
                 "level1/level2/level3",
                 r#"
@@ -2559,11 +2559,11 @@ fn test_module_three_level_hierarchy() {
             (
                 "root",
                 r#"
-            mod utils
+            pub mod utils
             fn main() -> Int { utils::helpers::deep_fn() }
         "#,
             ),
-            ("utils", "mod helpers"),
+            ("utils", "pub mod helpers"),
             ("utils/helpers", "pub fn deep_fn() -> Int { 42 }"),
         ],
         "42",
@@ -2637,12 +2637,12 @@ fn test_module_grandchild_to_root_access() {
             (
                 "root",
                 r#"
-            mod parent
+            pub mod parent
             pub fn grandparent_fn() -> Int { 77 }
             fn main() -> Int { parent::child::test() }
         "#,
             ),
-            ("parent", "mod child"),
+            ("parent", "pub mod child"),
             (
                 "parent/child",
                 r#"
@@ -3000,5 +3000,336 @@ fn test_multiple_paths_same_function() {
             ("utils", "pub fn add(x: Int, y: Int) -> Int { x + y }"),
         ],
         "21",
+    );
+}
+
+// ===== Module Visibility (pub mod) Tests =====
+
+#[test]
+fn test_visibility_pub_mod_accessible_from_sibling() {
+    // root declares pub mod utils; sibling module accesses items through it
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+            pub mod utils
+            pub mod other
+            fn main() -> Int { other::call_utils() }
+        "#,
+            ),
+            ("utils", "pub fn helper() -> Int { 42 }"),
+            (
+                "other",
+                r#"
+            use root::utils::helper
+            pub fn call_utils() -> Int { helper() }
+        "#,
+            ),
+        ],
+        "42",
+    );
+}
+
+#[test]
+fn test_visibility_pub_mod_accessible_from_unrelated() {
+    // Chain of pub mods accessible end-to-end from unrelated module
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+            pub mod a
+            pub mod b
+            fn main() -> Int { b::test() }
+        "#,
+            ),
+            ("a", "pub mod inner\npub fn top() -> Int { 1 }"),
+            ("a/inner", "pub fn deep() -> Int { 2 }"),
+            (
+                "b",
+                r#"
+            use root::a::inner::deep
+            use root::a::top
+            pub fn test() -> Int { deep() + top() }
+        "#,
+            ),
+        ],
+        "3",
+    );
+}
+
+#[test]
+fn test_visibility_private_mod_not_accessible_from_non_descendant() {
+    // module `a` declares mod internal (private); module `b` (not a descendant of `a`) cannot access it
+    expect_check_error(
+        vec![
+            (
+                "root",
+                r#"
+            pub mod a
+            pub mod b
+            fn main() -> Int { 0 }
+        "#,
+            ),
+            ("a", "mod internal"),
+            ("a/internal", "pub fn helper() -> Int { 42 }"),
+            (
+                "b",
+                r#"
+            use root::a::internal::helper
+            pub fn test() -> Int { helper() }
+        "#,
+            ),
+        ],
+        "private",
+    );
+}
+
+#[test]
+fn test_visibility_private_mod_blocks_nested_pub_item() {
+    // Private module inside `a` contains pub fn, but `b` (non-descendant) can't reach through it
+    expect_check_error(
+        vec![
+            (
+                "root",
+                r#"
+            pub mod a
+            pub mod b
+            fn main() -> Int { 0 }
+        "#,
+            ),
+            ("a", "mod internal"),
+            ("a/internal", "pub fn secret() -> Int { 99 }"),
+            (
+                "b",
+                r#"
+            use root::a::internal::secret
+            pub fn test() -> Int { secret() }
+        "#,
+            ),
+        ],
+        "private",
+    );
+}
+
+#[test]
+fn test_visibility_private_mod_accessible_from_declaring_module() {
+    // Module that declares a private submodule can access its items
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+            mod internal
+            fn main() -> Int { internal::helper() }
+        "#,
+            ),
+            ("internal", "pub fn helper() -> Int { 42 }"),
+        ],
+        "42",
+    );
+}
+
+#[test]
+fn test_visibility_private_mod_accessible_from_descendant() {
+    // Descendant of declaring module can access the private submodule
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+            mod internal
+            pub mod child
+            fn main() -> Int { child::test() }
+        "#,
+            ),
+            ("internal", "pub fn helper() -> Int { 42 }"),
+            (
+                "child",
+                r#"
+            use root::internal::helper
+            pub fn test() -> Int { helper() }
+        "#,
+            ),
+        ],
+        "42",
+    );
+}
+
+#[test]
+fn test_visibility_all_modules_in_path_must_be_visible() {
+    // pub mod a -> mod b (private) -> pub fn f; accessing root::a::b::f from outside fails
+    expect_check_error(
+        vec![
+            (
+                "root",
+                r#"
+            pub mod a
+            pub mod outside
+            fn main() -> Int { 0 }
+        "#,
+            ),
+            ("a", "mod b"),
+            ("a/b", "pub fn f() -> Int { 42 }"),
+            (
+                "outside",
+                r#"
+            use root::a::b::f
+            pub fn test() -> Int { f() }
+        "#,
+            ),
+        ],
+        "private",
+    );
+}
+
+#[test]
+fn test_visibility_nested_pub_mods_chain() {
+    // Chain of pub mod all accessible end-to-end
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+            pub mod a
+            fn main() -> Int { a::b::c::deep() }
+        "#,
+            ),
+            ("a", "pub mod b"),
+            ("a/b", "pub mod c"),
+            ("a/b/c", "pub fn deep() -> Int { 42 }"),
+        ],
+        "42",
+    );
+}
+
+#[test]
+fn test_visibility_pub_use_parses() {
+    // pub use parses without error (used locally like a normal import)
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+            pub mod utils
+            pub use root::utils::helper
+            fn main() -> Int { helper() }
+        "#,
+            ),
+            ("utils", "pub fn helper() -> Int { 42 }"),
+        ],
+        "42",
+    );
+}
+
+#[test]
+fn test_visibility_struct_through_private_mod_error() {
+    // Private mod inside `a` contains pub struct; `b` (non-descendant of `a`) can't reach it
+    expect_check_error(
+        vec![
+            (
+                "root",
+                r#"
+            pub mod a
+            pub mod b
+            fn main() -> Int { 0 }
+        "#,
+            ),
+            (
+                "a",
+                r#"
+            mod types
+        "#,
+            ),
+            (
+                "a/types",
+                r#"
+            pub struct Point { x: Int, y: Int }
+        "#,
+            ),
+            (
+                "b",
+                r#"
+            use root::a::types::Point
+            pub fn test() -> Int { 0 }
+        "#,
+            ),
+        ],
+        "private",
+    );
+}
+
+#[test]
+fn test_visibility_enum_through_pub_mod() {
+    // pub mod contains pub enum; accessible from sibling via qualified path
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+            pub mod types
+            use root::types::Color::Red
+            fn main() -> Int {
+                match Red {
+                    _ => 1,
+                }
+            }
+        "#,
+            ),
+            (
+                "types",
+                r#"
+            pub enum Color { Red, Blue }
+        "#,
+            ),
+        ],
+        "1",
+    );
+}
+
+#[test]
+fn test_visibility_private_mod_qualified_path_error() {
+    // Accessing through private mod using qualified path (no import) also fails
+    expect_check_error(
+        vec![
+            (
+                "root",
+                r#"
+            pub mod a
+            pub mod b
+            fn main() -> Int { 0 }
+        "#,
+            ),
+            ("a", "mod internal"),
+            ("a/internal", "pub fn helper() -> Int { 42 }"),
+            (
+                "b",
+                r#"
+            pub fn test() -> Int { root::a::internal::helper() }
+        "#,
+            ),
+        ],
+        "private",
+    );
+}
+
+#[test]
+fn test_visibility_pub_mod_parsing() {
+    // Verify pub mod and mod both parse correctly in same file
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+            pub mod public_mod
+            mod private_mod
+            fn main() -> Int { public_mod::value() + private_mod::value() }
+        "#,
+            ),
+            ("public_mod", "pub fn value() -> Int { 10 }"),
+            ("private_mod", "pub fn value() -> Int { 20 }"),
+        ],
+        "30",
     );
 }

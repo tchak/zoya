@@ -44,6 +44,7 @@ pub fn resolve_type_annotation(
                 &empty_locals,
                 &env.imports,
                 &env.definitions,
+                &env.pkg,
             )?;
 
             match resolved {
@@ -151,6 +152,7 @@ pub fn resolve_type_annotation(
                 &empty_locals,
                 &env.imports,
                 &env.definitions,
+                &env.pkg,
             )?;
 
             match resolved {

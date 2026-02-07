@@ -171,7 +171,7 @@ fn load_module_recursive<S: ModuleSource>(
 
     for mod_decl in &module_def.mods {
         let child_path = module_path.child(&mod_decl.name);
-        children.insert(mod_decl.name.clone(), child_path.clone());
+        children.insert(mod_decl.name.clone(), (child_path.clone(), mod_decl.visibility));
 
         let submodule_file = source.resolve_submodule(&module_path, &mod_decl.name);
         if !source.exists(&submodule_file) {
