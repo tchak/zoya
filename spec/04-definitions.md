@@ -295,26 +295,44 @@ Type alias names and type parameter names use `PascalCase`.
 ## Module Declarations
 
 ```
-mod_decl ::= 'mod' identifier
+mod_decl ::= visibility 'mod' identifier
 ```
 
-A module declaration declares a submodule. Module declarations do not have a visibility modifier. Each declaration corresponds to a source file:
+A module declaration declares a submodule. Each declaration corresponds to a source file:
 
 - `mod foo` in the root module expects `foo.zoya` in the same directory
 - `mod bar` in module `foo` expects `foo/bar.zoya`
 
 ```zoya
 // root module (main.zoya)
-mod utils
-mod types
+pub mod utils
+mod internal
 ```
 
 Modules form a tree rooted at the root module. Each module has a path (e.g., `root::utils::helpers`).
 
+A private module is only accessible from the declaring module and its descendants. A public module is accessible from any module. To access an item in a nested module, all modules along the path must be visible to the accessor:
+
+```zoya
+// Module: root
+pub mod api
+mod internal
+
+// Module: root::api
+pub fn endpoint() -> Int 42
+
+// Module: root::internal
+pub fn helper() -> Int 1
+
+// Module: root::other
+use root::api::endpoint          // OK: api is public
+use root::internal::helper       // Error: module 'internal' is private
+```
+
 ## Use Declarations
 
 ```
-use_decl    ::= 'use' use_path
+use_decl    ::= visibility 'use' use_path
 use_path    ::= path_prefix identifier ('::' identifier)*
 path_prefix ::= 'root' '::' | 'self' '::' | 'super' '::'
 ```
@@ -335,7 +353,18 @@ use self::types::Config        // imports 'Config'
 use super::shared              // imports 'shared'
 ```
 
-Use declarations do not have a visibility modifier. Imports are always local to the declaring module and are not re-exported.
+A private use declaration (the default) imports the name locally. A `pub use` declaration re-exports the imported name, making it accessible through the current module:
+
+```zoya
+// Module: root::prelude
+pub use root::option::Option
+pub use root::result::Result
+
+// Module: root::app
+use root::prelude::Option       // OK: Option is re-exported by prelude
+```
+
+The re-exported name follows the same visibility rules as any other public item. The visibility consistency rule applies: a `pub use` can only re-export items that are themselves public.
 
 ### Visibility and Imports
 
