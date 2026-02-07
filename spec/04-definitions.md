@@ -133,7 +133,12 @@ param        ::= pattern ':' type
 body         ::= '{' (let_binding ';')* expr '}' | expr
 ```
 
-The return type annotation is optional. When omitted, the return type is inferred from the body expression.
+The return type annotation is optional. When omitted, the return type is inferred from the body expression:
+
+```zoya
+fn square(x: Int) x * x         // return type inferred as Int
+fn add(x: Int, y: Int) x + y    // return type inferred as Int
+```
 
 ### Function Body
 
