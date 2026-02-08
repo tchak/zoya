@@ -9,7 +9,9 @@ Implements Hindley-Milner type inference with constraint-based unification, tran
 - **Type inference** - Hindley-Milner algorithm with let-polymorphism
 - **Unification** - Constraint-based type unification with occurs check
 - **Pattern exhaustiveness** - Maranget algorithm for match completeness
-- **Cross-module checking** - Handles imports, visibility, and qualified paths
+- **Cross-module checking** - Handles imports, qualified paths, and `pub use` re-exports
+- **Visibility enforcement** - Validates public/private access across modules
+- **Naming conventions** - Enforces PascalCase/snake_case at compile time
 - **Generics** - Parametric polymorphism for structs, enums, and functions
 
 ## Usage
@@ -17,6 +19,7 @@ Implements Hindley-Milner type inference with constraint-based unification, tran
 ```rust
 use zoya_check::check;
 use zoya_loader::load_package;
+use std::path::Path;
 
 // Load and type-check a package
 let pkg = load_package(Path::new("src/main.zoya"))?;
@@ -36,10 +39,11 @@ for item in &root.items {
 
 ## Type Checking Pipeline
 
-1. **Declaration registration** - Register all type/function signatures
-2. **Import resolution** - Resolve `use` declarations to qualified paths
-3. **Body checking** - Type-check function bodies with inference
-4. **Exhaustiveness checking** - Verify pattern match coverage
+1. **Declaration registration** - Register all type/function signatures across modules
+2. **Import resolution** - Resolve `use` and `pub use` declarations to qualified paths
+3. **Visibility checking** - Validate that private items are not accessed from other modules
+4. **Body checking** - Type-check function bodies with inference
+5. **Exhaustiveness checking** - Verify pattern match coverage
 
 ## Dependencies
 

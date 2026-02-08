@@ -27,6 +27,8 @@ fn main() -> Float {
 - **Type aliases** - Named type synonyms with generic support
 - **Pattern matching** - Exhaustive matching with destructuring everywhere
 - **First-class functions** - Lambdas, closures, and higher-order functions
+- **Module system** - Organize code into modules with public/private visibility
+- **Standard library** - `Option<T>` and `Result<T, E>` included
 - **Immutable by default** - All data structures are immutable
 - **Compiles to JavaScript** - Run anywhere JS runs
 
@@ -58,8 +60,32 @@ Zoya is organized as a Cargo workspace with multiple crates:
 | [zoya-package](crates/zoya-package) | Package data structures |
 | [zoya-parser](crates/zoya-parser) | Parser (chumsky) |
 | [zoya-run](crates/zoya-run) | Runtime execution (QuickJS) |
+| [zoya-std](crates/zoya-std) | Standard library (Option, Result) |
 
 ## Usage
+
+### Create a New Project
+
+```bash
+zoya new my_project
+cd my_project
+```
+
+This creates:
+
+```
+my_project/
+├── package.toml       # Package configuration
+└── src/
+    └── main.zoya      # Entry point
+```
+
+The `package.toml` file defines the package:
+
+```toml
+name = "my_project"
+main = "src/main.zoya"
+```
 
 ### REPL
 
@@ -83,7 +109,9 @@ let add: (?0, ?0) -> ?0
 ### Run a File
 
 ```bash
-zoya run program.zoya
+zoya run program.zoya         # Run a single file
+zoya run                      # Run package in current directory
+zoya run path/to/project      # Run package at path
 ```
 
 ### Type Check Only
@@ -91,7 +119,8 @@ zoya run program.zoya
 Validate types without executing:
 
 ```bash
-zoya check program.zoya
+zoya check program.zoya       # Check a single file
+zoya check                    # Check package in current directory
 ```
 
 ### Compile to JavaScript
@@ -102,6 +131,15 @@ zoya build program.zoya -o out.js # Output to file
 ```
 
 ## Language Tour
+
+### Comments
+
+```zoya
+// This is a line comment
+fn main() -> Int {
+    42 // inline comment
+}
+```
 
 ### Types
 
@@ -128,6 +166,9 @@ fn add(x: Int, y: Int) -> Int {
 
 // Single-expression bodies can omit braces
 fn square(x: Int) -> Int x * x
+
+// Return type annotation is optional
+fn double(x: Int) x * 2
 
 // Generic functions
 fn identity<T>(x: T) -> T x
@@ -242,6 +283,122 @@ match tuple {
 
 Pattern matching is exhaustive - the compiler ensures all cases are covered.
 
+### Modules
+
+Zoya organizes code into modules using `mod` declarations. Each module maps to a file:
+
+```zoya
+// src/main.zoya
+mod utils              // loads src/utils.zoya
+mod math               // loads src/math.zoya
+
+fn main() -> Int {
+    utils::helper()
+}
+```
+
+```zoya
+// src/utils.zoya
+pub fn helper() -> Int { 42 }
+```
+
+For nested modules:
+
+```zoya
+// src/math.zoya
+mod geometry           // loads src/math/geometry.zoya
+
+pub fn add(x: Int, y: Int) -> Int x + y
+```
+
+```zoya
+// src/math/geometry.zoya
+pub fn area(w: Int, h: Int) -> Int w * h
+```
+
+Module names must be `snake_case`.
+
+### Visibility
+
+Items are private by default. Use `pub` to make them accessible from other modules:
+
+```zoya
+pub fn public_function() -> Int { 42 }
+fn private_function() -> Int { 10 }
+
+pub struct Point { x: Int, y: Int }
+struct Internal { data: Int }
+
+pub enum Color { Red, Green, Blue }
+
+pub type UserId = Int
+
+pub mod submodule
+```
+
+Public items can reference only public types in their signatures:
+
+```zoya
+pub struct Pair { x: Int, y: Int }         // OK: Int is always visible
+pub fn make_pair() -> Pair { ... }         // OK: Pair is pub
+// pub fn get_internal() -> Internal { ... }  Error: Internal is private
+```
+
+### Imports
+
+Use `use` to bring items from other modules into scope:
+
+```zoya
+// Import a specific item
+use root::utils::helper
+
+// Use it without qualification
+fn main() -> Int {
+    helper()
+}
+```
+
+Path prefixes for navigation:
+
+| Prefix | Meaning |
+|--------|---------|
+| `root::` | Absolute path from the package root |
+| `self::` | Relative to the current module |
+| `super::` | Relative to the parent module |
+
+```zoya
+use root::math::add          // absolute import
+use self::helpers::format    // relative import
+use super::shared::Config    // parent module import
+```
+
+### Re-exports
+
+Use `pub use` to re-export imported items:
+
+```zoya
+// src/main.zoya
+mod math
+
+pub use root::math::add     // re-export add from root
+```
+
+This makes `add` available to anyone who can access the current module, even though it is defined in `math`.
+
+### Standard Library
+
+Zoya includes a standard library with common types:
+
+```zoya
+// Option<T> - represents an optional value
+let some_val = Option::Some(42)
+let no_val = Option::None::<Int>
+
+// Result<T, E> - represents success or failure
+let ok = Result::Ok::<Int, String>(42)
+let err = Result::Err::<Int, String>("oops")
+```
+
 ### Methods
 
 Built-in methods on primitive types:
@@ -274,7 +431,7 @@ Built-in methods on primitive types:
 Zoya enforces naming conventions at compile time:
 
 - **PascalCase**: struct names, enum names, variant names, type parameters
-- **snake_case**: function names, variable names, parameters
+- **snake_case**: function names, variable names, parameters, module names
 
 ```zoya
 struct MyStruct { }     // OK
@@ -282,13 +439,15 @@ struct myStruct { }     // Error!
 
 fn my_function() { }    // OK
 fn myFunction() { }     // Error!
+
+mod my_module           // OK
+mod MyModule            // Error!
 ```
 
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md) for planned features including:
 
-- Module system
 - impl blocks for user-defined methods
 - Traits
 - Expanded standard library

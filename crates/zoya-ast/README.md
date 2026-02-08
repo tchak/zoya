@@ -8,14 +8,15 @@ This crate defines the untyped AST produced by the parser. These types represent
 
 - **Expressions** - Literals, operators, function calls, match expressions, lambdas, blocks
 - **Patterns** - Variable bindings, destructuring, wildcards, rest patterns, as-patterns
-- **Items** - Function definitions, struct definitions, enum definitions, type aliases
+- **Items** - Function definitions, struct definitions, enum definitions, type aliases, use declarations
 - **Type annotations** - Named types, generics, tuples, function types
-- **Module structure** - Module declarations, use declarations
+- **Module structure** - Module declarations (`ModDecl`), use declarations (`UseDecl`), module definitions (`ModuleDef`)
+- **Visibility** - `Visibility` enum (`Private`, `Public`) for controlling item access
 
 ## Usage
 
 ```rust
-use zoya_ast::{Expr, Pattern, Item, FunctionDef, TypeAnnotation, Path};
+use zoya_ast::{Expr, Pattern, Item, FunctionDef, TypeAnnotation, Path, Visibility};
 
 // Create a simple integer expression
 let expr = Expr::Int(42);
@@ -37,6 +38,9 @@ let ty = TypeAnnotation::Parameterized(
     Path::simple("List".to_string()),
     vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
 );
+
+// Visibility defaults to Private
+let vis = Visibility::default(); // Private
 ```
 
 ## Key Types
@@ -45,9 +49,13 @@ let ty = TypeAnnotation::Parameterized(
 |------|-------------|
 | `Expr` | Expression nodes (literals, calls, operators, match, lambda) |
 | `Pattern` | Pattern nodes for destructuring and matching |
-| `Item` | Top-level items (functions, structs, enums, type aliases) |
+| `Item` | Top-level items (functions, structs, enums, type aliases, use declarations) |
 | `TypeAnnotation` | Type syntax in source code |
-| `Path` | Qualified paths with optional type arguments |
-| `ModuleDef` | A parsed module file |
+| `Path` | Qualified paths with optional type arguments and prefixes (`root::`, `self::`, `super::`) |
+| `PathPrefix` | Path prefix (`None`, `Root`, `Self_`, `Super`) |
+| `Visibility` | Item visibility (`Private`, `Public`) |
+| `ModDecl` | Module declaration with visibility and name |
+| `UseDecl` | Use/import declaration with visibility and path |
+| `ModuleDef` | A parsed module file (mods, items) |
 
 This crate has no dependencies - it contains only pure data structures.

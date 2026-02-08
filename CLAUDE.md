@@ -18,7 +18,9 @@ crates/
 │       └── commands/
 │           ├── build.rs   # Build command
 │           ├── check.rs   # Check command
+│           ├── new.rs     # New project command
 │           ├── repl.rs    # REPL (rustyline)
+│           ├── resolve.rs # Entry point resolution
 │           └── run.rs     # Run command
 ├── zoya-ast/          # Untyped AST types
 ├── zoya-check/        # Type checker (Hindley-Milner)
@@ -26,13 +28,20 @@ crates/
 ├── zoya-ir/           # Typed IR and type definitions
 ├── zoya-lexer/        # Tokenizer (logos)
 ├── zoya-loader/       # Package file loading
-├── zoya-package/      # Package data structures
+├── zoya-package/      # Package data structures & config
 ├── zoya-parser/       # Parser (chumsky)
-└── zoya-run/          # Runtime execution (rquickjs)
+├── zoya-run/          # Runtime execution (rquickjs)
+│   └── src/
+│       ├── lib.rs         # Public API
+│       ├── eval.rs        # JS execution
+│       └── runner.rs      # Run functions
+└── zoya-std/          # Standard library (Option, Result)
     └── src/
-        ├── lib.rs         # Public API
-        ├── eval.rs        # JS execution
-        └── runner.rs      # Run functions
+        ├── lib.rs         # Loads and caches std package
+        └── std/           # Zoya source files
+            ├── main.zoya
+            ├── option.zoya
+            └── result.zoya
 ```
 
 ## Commands
@@ -40,8 +49,10 @@ crates/
 ```bash
 cargo run -p zoya -- repl             # REPL
 cargo run -p zoya -- run file.zoya    # Run file
+cargo run -p zoya -- run              # Run package in current directory
 cargo run -p zoya -- check file.zoya  # Type-check only
 cargo run -p zoya -- build file.zoya  # Compile to JS
+cargo run -p zoya -- new my_project   # Create new project
 cargo test --workspace                # Run all tests
 cargo clippy --workspace              # Lint
 ```
@@ -86,12 +97,13 @@ New features need tests at each pipeline stage:
 |-------|-------|
 | `zoya-lexer` | Token recognition |
 | `zoya-parser` | AST structure |
-| `zoya-package` | Module path operations |
+| `zoya-package` | Module path operations, package config |
 | `zoya-loader` | Package loading and resolution |
-| `zoya-check` | Type inference and errors |
+| `zoya-check` | Type inference, visibility, and errors |
 | `zoya-codegen` | Generated JS correctness |
 | `zoya-run` | End-to-end execution |
-| `zoya` | CLI commands and REPL |
+| `zoya-std` | Standard library loading and caching |
+| `zoya` | CLI commands, REPL, and project creation |
 
 ```bash
 cargo test --workspace              # All tests

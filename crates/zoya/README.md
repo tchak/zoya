@@ -7,13 +7,28 @@ This is the main binary crate that provides the `zoya` CLI tool for compiling an
 ## Commands
 
 ```bash
-zoya repl                      # Start interactive REPL
-zoya repl file.zoya            # REPL with file preloaded
-zoya run file.zoya             # Execute a file
-zoya check file.zoya           # Type-check without running
-zoya build file.zoya           # Compile to JavaScript (stdout)
-zoya build file.zoya -o out.js # Compile to file
+zoya new my_project                # Create a new project
+zoya repl                          # Start interactive REPL
+zoya repl file.zoya                # REPL with file preloaded
+zoya run file.zoya                 # Execute a file
+zoya run                           # Run package in current directory
+zoya run path/to/project           # Run package at path
+zoya check file.zoya               # Type-check without running
+zoya check                         # Check package in current directory
+zoya build file.zoya               # Compile to JavaScript (stdout)
+zoya build file.zoya -o out.js     # Compile to file
 ```
+
+## New Project
+
+Create a new Zoya project with `zoya new`:
+
+```bash
+zoya new my_project
+zoya new my_project --name custom_name
+```
+
+This creates a directory with `package.toml` and `src/main.zoya`.
 
 ## REPL Features
 
@@ -58,8 +73,9 @@ println!("Result: {}", result);
 - [zoya-ir](../zoya-ir) - Typed IR and type definitions
 - [zoya-lexer](../zoya-lexer) - Tokenizer
 - [zoya-loader](../zoya-loader) - Package file loading
-- [zoya-package](../zoya-package) - Package data structures
+- [zoya-package](../zoya-package) - Package data structures and config
 - [zoya-parser](../zoya-parser) - Parser
 - [zoya-run](../zoya-run) - Runtime execution
+- [zoya-std](../zoya-std) - Standard library
 - [clap](https://github.com/clap-rs/clap) - CLI argument parsing
 - [rustyline](https://github.com/kkawakam/rustyline) - REPL line editing

@@ -9,6 +9,8 @@ Transforms a token stream into an Abstract Syntax Tree using [Chumsky](https://g
 - Recursive descent parsing with operator precedence
 - Rich pattern matching (lists, tuples, structs, enums, rest patterns, as-patterns)
 - Type annotation parsing (generics, function types, tuples)
+- Module declarations with visibility (`pub mod`)
+- Use declarations with path prefixes (`root::`, `self::`, `super::`)
 - Error recovery and reporting
 
 ## Usage
@@ -18,11 +20,10 @@ use zoya_lexer::lex;
 use zoya_parser::{parse_module, parse_input};
 
 // Parse a module file (for .zoya files)
-let tokens = lex("mod utils\nfn main() -> Int { 42 }").unwrap();
+let tokens = lex("pub mod utils\nuse root::utils::helper\nfn main() -> Int { helper() }").unwrap();
 let module = parse_module(tokens).unwrap();
-// module.mods - mod declarations
-// module.uses - use declarations
-// module.items - function/struct/enum definitions
+// module.mods - mod declarations (with visibility)
+// module.items - function/struct/enum definitions and use declarations
 
 // Parse REPL input (expressions, let bindings, and items)
 let tokens = lex("let x = 1 + 2").unwrap();
@@ -35,7 +36,7 @@ let (items, stmts) = parse_input(tokens).unwrap();
 
 | Function | Input | Output |
 |----------|-------|--------|
-| `parse_module` | Module file tokens | `ModuleDef` with mods, uses, items |
+| `parse_module` | Module file tokens | `ModuleDef` with mods and items |
 | `parse_input` | REPL input tokens | `(Vec<Item>, Vec<Stmt>)` |
 
 ## Error Handling

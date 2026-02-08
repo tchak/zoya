@@ -8,7 +8,8 @@ Handles reading, parsing, and organizing Zoya source files into a package. Suppo
 
 - **Recursive module loading** - Follows `mod` declarations to build complete packages
 - **Pluggable sources** - `FsSource` for filesystem, `MemorySource` for testing
-- **Error handling** - Detailed errors for missing modules, duplicates, and parse failures
+- **Module name validation** - Enforces `snake_case` module names
+- **Error handling** - Detailed errors for missing modules, duplicates, invalid names, and parse failures
 
 ## Usage
 
@@ -22,8 +23,8 @@ let pkg = load_package(Path::new("src/main.zoya"))?;
 // Access loaded modules
 let root = pkg.root().unwrap();
 println!("Root module has {} items", root.items.len());
-for (name, child_path) in &root.children {
-    println!("  Child module: {}", name);
+for (name, (child_path, visibility)) in &root.children {
+    println!("  Child module: {} ({})", name, child_path);
 }
 
 // In-memory source for testing
@@ -41,6 +42,8 @@ Given a file `main.zoya` containing `mod utils`, the loader looks for:
 For nested modules like `mod helpers` inside `utils.zoya`:
 - `utils/helpers.zoya` relative to the base directory
 
+Module names must be valid `snake_case` identifiers.
+
 ## Error Types
 
 ```rust
@@ -55,6 +58,9 @@ match load_package(Path::new("missing.zoya")) {
     }
     Err(LoaderError::DuplicateMod { mod_name }) => {
         println!("Duplicate module declaration: {}", mod_name);
+    }
+    Err(LoaderError::InvalidModName { mod_name }) => {
+        println!("Invalid module name: {}", mod_name);
     }
     Err(LoaderError::LexError { path, message }) => {
         println!("Lexer error in {}: {}", path, message);

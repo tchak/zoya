@@ -9,6 +9,7 @@ Transforms typed IR into executable JavaScript code with ESM exports.
 - **Package codegen** - Generates JS for complete packages with all modules
 - **Pattern compilation** - Compiles patterns to JS conditionals and bindings
 - **Function generation** - Handles generic functions, lambdas, and closures
+- **Enum encoding** - Tagged objects with `$tag` field for variant discrimination
 - **Runtime helpers** - Prelude functions for deep equality, division checks, BigInt operations
 
 ## Usage

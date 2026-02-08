@@ -6,11 +6,12 @@ Converts source text into a stream of tokens using [Logos](https://github.com/ma
 
 ## Tokens
 
-- **Keywords** - `fn`, `let`, `match`, `struct`, `enum`, `type`, `mod`, `use`, `pub`, `true`, `false`
+- **Keywords** - `fn`, `let`, `match`, `struct`, `enum`, `type`, `mod`, `use`, `pub`, `true`, `false`, `root`, `self`, `super`
 - **Literals** - Integers (`42`, `1_000`), floats (`3.14`), bigints (`42n`), strings (`"hello"`)
 - **Operators** - `+`, `-`, `*`, `/`, `==`, `!=`, `<`, `>`, `<=`, `>=`
 - **Delimiters** - `()`, `{}`, `[]`, `<>`, `,`, `:`, `::`, `.`, `..`, `|`, `@`
 - **Arrows** - `->`, `=>`
+- **Comments** - Line comments (`// ...`)
 
 ## Usage
 
@@ -24,6 +25,9 @@ let tokens = lex("fn main() -> Int { 42 }").unwrap();
 assert!(matches!(tokens[0], Token::Fn));
 assert!(matches!(tokens[1], Token::Ident(ref s) if s == "main"));
 assert!(matches!(tokens[2], Token::LParen));
+
+// Comments are stripped during lexing
+let tokens = lex("fn main() -> Int { 42 } // this is ignored").unwrap();
 ```
 
 ## Error Handling

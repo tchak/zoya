@@ -10,11 +10,12 @@ This crate defines the type-checked IR produced by the type checker. All express
 - **Compound types** - `List<T>`, tuples `(T, U, ...)`, functions `T -> U`
 - **User-defined types** - Structs, enums with generics
 - **Type variables** - For inference and polymorphism
+- **Visibility** - Re-exported from `zoya-ast` for use throughout the compiler
 
 ## Usage
 
 ```rust
-use zoya_ir::{Type, TypedExpr, CheckedItem, CheckedPackage};
+use zoya_ir::{Type, TypedExpr, CheckedItem, CheckedPackage, Visibility, QualifiedPath};
 
 // Type represents resolved types
 let list_int = Type::List(Box::new(Type::Int));
@@ -27,6 +28,10 @@ let func = Type::Function {
 // TypedExpr is an expression with type information
 let expr = TypedExpr::Int(42);
 assert_eq!(expr.ty(), Type::Int);
+
+// QualifiedPath represents fully resolved paths
+let path = QualifiedPath::new(vec!["root".into(), "utils".into(), "helper".into()]);
+assert_eq!(path.to_string(), "root::utils::helper");
 
 // CheckedPackage contains all type-checked modules
 fn process_package(pkg: &CheckedPackage) {
@@ -61,7 +66,14 @@ fn process_package(pkg: &CheckedPackage) {
 | `CheckedItem` | Type-checked function, struct, enum, or type alias |
 | `CheckedModule` | A module's checked items |
 | `CheckedPackage` | Complete package of checked modules |
-| `TypeError` | Type checking error with message and span |
+| `QualifiedPath` | Fully resolved path (e.g., `root::utils::helper`) |
+| `Definition` | Type definition with visibility and defining module |
+| `FunctionType` | Function signature with visibility, module, type params |
+| `StructType` | Struct definition with visibility, module, fields |
+| `EnumType` | Enum definition with visibility, module, variants |
+| `TypeAliasType` | Type alias with visibility, module, underlying type |
+| `Visibility` | Re-exported `Private`/`Public` enum from `zoya-ast` |
+| `TypeError` | Type checking error with message |
 
 ## Dependencies
 

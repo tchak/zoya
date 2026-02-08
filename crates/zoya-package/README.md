@@ -7,13 +7,14 @@ This crate defines the core package-related types used across the Zoya compiler 
 ## Types
 
 - **ModulePath** - Logical path to a module (e.g., `root::utils::helpers`)
-- **Module** - A loaded module containing parsed items and child references
+- **Module** - A loaded module containing parsed items and child references with visibility
 - **Package** - The complete package of loaded modules
+- **PackageConfig** - Package configuration loaded from `package.toml`
 
 ## Usage
 
 ```rust
-use zoya_package::{ModulePath, Module, Package};
+use zoya_package::{ModulePath, Module, Package, PackageConfig};
 use std::collections::HashMap;
 
 // Create module paths
@@ -47,6 +48,30 @@ if let Some(root_module) = pkg.root() {
 }
 ```
 
+## Package Configuration
+
+Load and create `package.toml` files:
+
+```rust
+use zoya_package::PackageConfig;
+use std::path::Path;
+
+// Load from directory
+let config = PackageConfig::load(Path::new("my_project"))?;
+println!("Package: {}", config.name);
+println!("Entry: {}", config.main.display());
+
+// Validate package names
+assert!(PackageConfig::is_valid_name("my_project"));   // OK
+assert!(!PackageConfig::is_valid_name("My-Project"));   // Invalid
+
+// Sanitize names
+assert_eq!(PackageConfig::sanitize_name("My-Project"), "my_project");
+
+// Serialize to TOML
+let toml = config.to_toml();
+```
+
 ## ModulePath Methods
 
 | Method | Description |
@@ -61,3 +86,5 @@ if let Some(root_module) = pkg.root() {
 ## Dependencies
 
 - [zoya-ast](../zoya-ast) - AST types (for Item and UseDecl)
+- [serde](https://github.com/serde-rs/serde) - Serialization
+- [toml](https://github.com/toml-rs/toml) - TOML parsing
