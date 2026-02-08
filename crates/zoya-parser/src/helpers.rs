@@ -1,6 +1,6 @@
 use chumsky::prelude::*;
 
-use zoya_ast::{ModDecl, Path, PathPrefix, Pattern, TypeAnnotation, UseDecl, UsePath, Visibility};
+use zoya_ast::{ModDecl, Path, PathPrefix, Pattern, TypeAnnotation, UseDecl, UseGroupItem, UsePath, UseTarget, Visibility};
 use zoya_lexer::Token;
 
 pub(crate) fn ident<'a>() -> impl Parser<'a, &'a [Token], String, extra::Err<Rich<'a, Token>>> + Clone
@@ -62,6 +62,27 @@ pub(crate) fn mod_decl_parser<'a>(
 
 pub(crate) fn use_decl_parser<'a>(
 ) -> impl Parser<'a, &'a [Token], UseDecl, extra::Err<Rich<'a, Token>>> + Clone {
+    // Parse the optional suffix: ::* or ::{a, b, c}
+    let glob_suffix = just(Token::ColonColon)
+        .then(just(Token::Star))
+        .to(UseTarget::Glob);
+
+    let group_item = ident().map(|name| UseGroupItem { name, alias: None });
+    let group_suffix = just(Token::ColonColon)
+        .ignore_then(
+            group_item
+                .separated_by(just(Token::Comma))
+                .allow_trailing()
+                .at_least(1)
+                .collect::<Vec<_>>()
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+        )
+        .map(UseTarget::Group);
+
+    let use_target = choice((glob_suffix, group_suffix))
+        .or_not()
+        .map(|opt| opt.unwrap_or(UseTarget::Single { alias: None }));
+
     just(Token::Pub)
         .or_not()
         .then_ignore(just(Token::Use))
@@ -72,8 +93,11 @@ pub(crate) fn use_decl_parser<'a>(
                 .at_least(1)
                 .collect::<Vec<_>>(),
         )
-        .map_with(|((is_pub, prefix), segments), e| (is_pub, prefix, segments, e.span()))
-        .try_map(|(is_pub, prefix, segments, span), _| {
+        .then(use_target)
+        .map_with(|(((is_pub, prefix), segments), target), e| {
+            (is_pub, prefix, segments, target, e.span())
+        })
+        .try_map(|(is_pub, prefix, segments, target, span), _| {
             if prefix == PathPrefix::None {
                 return Err(Rich::custom(
                     span,
@@ -86,7 +110,11 @@ pub(crate) fn use_decl_parser<'a>(
                 } else {
                     Visibility::Private
                 },
-                path: UsePath { prefix, segments },
+                path: UsePath {
+                    prefix,
+                    segments,
+                    target,
+                },
             })
         })
 }

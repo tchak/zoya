@@ -9,6 +9,8 @@ use zoya_ast::{Path, PathPrefix};
 use zoya_ir::{Definition, QualifiedPath, TypeError, TypeScheme, Visibility};
 use zoya_package::{ModulePath, Package};
 
+use crate::imports::ModuleImportTable;
+
 /// Resolve an AST path to a fully qualified path.
 ///
 /// # Path Resolution Rules
@@ -216,11 +218,13 @@ pub type ImportTable = HashMap<String, QualifiedPath>;
 /// 1. Locals (let bindings, function parameters)
 /// 2. Imports (use declarations)
 /// 3. Module-level definitions (functions, types in current module)
+#[allow(clippy::too_many_arguments)]
 pub fn resolve_expr_path<'a>(
     path: &Path,
     current_module: &ModulePath,
     locals: &'a HashMap<String, TypeScheme>,
     imports: &'a HashMap<ModulePath, ImportTable>,
+    module_imports_map: &HashMap<ModulePath, ModuleImportTable>,
     definitions: &'a HashMap<QualifiedPath, Definition>,
     pkg: &Package,
     reexports: &HashMap<QualifiedPath, QualifiedPath>,
@@ -238,8 +242,8 @@ pub fn resolve_expr_path<'a>(
         }
 
         // Priority 2: Imports
-        if let Some(module_imports) = imports.get(current_module)
-            && let Some(qualified) = module_imports.get(name)
+        if let Some(item_imports) = imports.get(current_module)
+            && let Some(qualified) = item_imports.get(name)
             && let Some(def) = definitions.get(qualified)
         {
             // Follow re-export chain to the original definition
@@ -249,6 +253,60 @@ pub fn resolve_expr_path<'a>(
                 qualified_path: canonical,
                 def: canonical_def,
             });
+        }
+    }
+
+    // Multi-segment path with no prefix: try item imports and module imports
+    if path.prefix == PathPrefix::None && path.segments.len() > 1 {
+        let first = &path.segments[0];
+
+        // Try item imports: e.g., `Color::Red` where `Color` is imported as `root::types::Color`
+        if let Some(item_imports) = imports.get(current_module)
+            && let Some(imported_path) = item_imports.get(first)
+        {
+            let canonical_base = follow_reexports(imported_path, reexports);
+            let mut segments = canonical_base.segments.clone();
+            segments.extend(path.segments[1..].iter().cloned());
+            let qualified_path = QualifiedPath::new(segments);
+
+            if let Some(def) = definitions.get(&qualified_path) {
+                check_module_path_visible(&qualified_path, current_module, pkg)?;
+                check_item_visibility(
+                    def,
+                    qualified_path.segments.last().unwrap(),
+                    current_module,
+                )?;
+                let canonical = follow_reexports(&qualified_path, reexports);
+                let canonical_def = definitions.get(&canonical).unwrap_or(def);
+                return Ok(ResolvedPath::Definition {
+                    qualified_path: canonical,
+                    def: canonical_def,
+                });
+            }
+        }
+
+        // Try module imports: e.g., `bar::add` where `bar` is a module import
+        if let Some(mod_imports) = module_imports_map.get(current_module)
+            && let Some(target_module) = mod_imports.get(first)
+        {
+            let mut segments = target_module.segments().to_vec();
+            segments.extend(path.segments[1..].iter().cloned());
+            let qualified_path = QualifiedPath::new(segments);
+
+            if let Some(def) = definitions.get(&qualified_path) {
+                check_module_path_visible(&qualified_path, current_module, pkg)?;
+                check_item_visibility(
+                    def,
+                    qualified_path.segments.last().unwrap(),
+                    current_module,
+                )?;
+                let canonical = follow_reexports(&qualified_path, reexports);
+                let canonical_def = definitions.get(&canonical).unwrap_or(def);
+                return Ok(ResolvedPath::Definition {
+                    qualified_path: canonical,
+                    def: canonical_def,
+                });
+            }
         }
     }
 
@@ -301,6 +359,7 @@ pub fn resolve_pattern_path<'a>(
     path: &Path,
     current_module: &ModulePath,
     imports: &'a HashMap<ModulePath, ImportTable>,
+    module_imports_map: &HashMap<ModulePath, ModuleImportTable>,
     definitions: &'a HashMap<QualifiedPath, Definition>,
     pkg: &Package,
     reexports: &HashMap<QualifiedPath, QualifiedPath>,
@@ -310,8 +369,8 @@ pub fn resolve_pattern_path<'a>(
         let name = &path.segments[0];
 
         // Check imports
-        if let Some(module_imports) = imports.get(current_module)
-            && let Some(qualified) = module_imports.get(name)
+        if let Some(item_imports) = imports.get(current_module)
+            && let Some(qualified) = item_imports.get(name)
             && let Some(def) = definitions.get(qualified)
         {
             // Follow re-export chain to the original definition
@@ -321,6 +380,60 @@ pub fn resolve_pattern_path<'a>(
                 qualified_path: canonical,
                 def: canonical_def,
             });
+        }
+    }
+
+    // Multi-segment path with no prefix: try item imports and module imports
+    if path.prefix == PathPrefix::None && path.segments.len() > 1 {
+        let first = &path.segments[0];
+
+        // Try item imports: e.g., `Color::Red` where `Color` is imported
+        if let Some(item_imports) = imports.get(current_module)
+            && let Some(imported_path) = item_imports.get(first)
+        {
+            let canonical_base = follow_reexports(imported_path, reexports);
+            let mut segments = canonical_base.segments.clone();
+            segments.extend(path.segments[1..].iter().cloned());
+            let qualified_path = QualifiedPath::new(segments);
+
+            if let Some(def) = definitions.get(&qualified_path) {
+                check_module_path_visible(&qualified_path, current_module, pkg)?;
+                check_item_visibility(
+                    def,
+                    qualified_path.segments.last().unwrap(),
+                    current_module,
+                )?;
+                let canonical = follow_reexports(&qualified_path, reexports);
+                let canonical_def = definitions.get(&canonical).unwrap_or(def);
+                return Ok(ResolvedPath::Definition {
+                    qualified_path: canonical,
+                    def: canonical_def,
+                });
+            }
+        }
+
+        // Try module imports: e.g., `bar::add` where `bar` is a module import
+        if let Some(mod_imports) = module_imports_map.get(current_module)
+            && let Some(target_module) = mod_imports.get(first)
+        {
+            let mut segments = target_module.segments().to_vec();
+            segments.extend(path.segments[1..].iter().cloned());
+            let qualified_path = QualifiedPath::new(segments);
+
+            if let Some(def) = definitions.get(&qualified_path) {
+                check_module_path_visible(&qualified_path, current_module, pkg)?;
+                check_item_visibility(
+                    def,
+                    qualified_path.segments.last().unwrap(),
+                    current_module,
+                )?;
+                let canonical = follow_reexports(&qualified_path, reexports);
+                let canonical_def = definitions.get(&canonical).unwrap_or(def);
+                return Ok(ResolvedPath::Definition {
+                    qualified_path: canonical,
+                    def: canonical_def,
+                });
+            }
         }
     }
 
@@ -471,7 +584,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["utils", "helper"]);
         let current = ModulePath::root(); // calling from root
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_ok());
     }
 
@@ -493,7 +606,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::None, &["helper"]);
         let current = ModulePath::root().child("utils"); // calling from same module
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_ok());
     }
 
@@ -515,7 +628,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Super, &["helper"]);
         let current = ModulePath::root().child("utils"); // child accessing parent
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_ok());
     }
 
@@ -537,7 +650,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::None, &["utils", "helper"]);
         let current = ModulePath::root(); // parent trying to access child's private
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("private"));
@@ -561,7 +674,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["a", "helper"]);
         let current = ModulePath::root().child("b"); // sibling trying to access
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("private"));
@@ -585,7 +698,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["helper"]);
         let current = ModulePath::root().child("a").child("b").child("c"); // deeply nested
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_ok());
     }
 
@@ -611,7 +724,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["a", "Point"]);
         let current = ModulePath::root().child("b"); // sibling
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
     }
@@ -634,7 +747,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["a", "Color"]);
         let current = ModulePath::root().child("b");
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
     }
@@ -657,7 +770,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["a", "MyInt"]);
         let current = ModulePath::root().child("b");
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
     }
@@ -681,7 +794,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["a", "Color", "Red"]);
         let current = ModulePath::root().child("b");
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
     }
@@ -704,7 +817,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["a", "Point"]);
         let current = ModulePath::root().child("b");
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_ok());
     }
 
@@ -726,7 +839,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["Point"]);
         let current = ModulePath::root().child("child"); // descendant
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_ok());
     }
 
@@ -747,7 +860,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["a", "Point"]);
         let current = ModulePath::root().child("b");
-        let result = resolve_pattern_path(&path, &current, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_pattern_path(&path, &current, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
     }
@@ -791,7 +904,7 @@ mod tests {
 
         let path = path_from_segments(PathPrefix::None, &["helper"]);
         let current = ModulePath::root();
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new()).unwrap();
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new()).unwrap();
 
         // Should resolve to the imported version (root::utils::helper)
         match result {
@@ -833,7 +946,7 @@ mod tests {
 
         let path = path_from_segments(PathPrefix::None, &["helper"]);
         let current = ModulePath::root();
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new()).unwrap();
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new()).unwrap();
 
         // Should resolve to the local variable, not the import
         match result {

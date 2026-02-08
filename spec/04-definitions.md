@@ -345,11 +345,48 @@ use root::internal::helper       // Error: module 'internal' is private
 
 ```
 use_decl    ::= visibility 'use' use_path
-use_path    ::= path_prefix identifier ('::' identifier)*
+use_path    ::= path_prefix identifier ('::' identifier)* use_suffix?
+use_suffix  ::= '::' '*' | '::' '{' use_group '}'
+use_group   ::= identifier (',' identifier)* ','?
 path_prefix ::= 'root' '::' | 'self' '::' | 'super' '::'
 ```
 
-A use declaration imports a name from another module into the current scope. A path prefix is required.
+A use declaration imports names from another module into the current scope. A path prefix is required. There are three import forms.
+
+### Single Import
+
+A single import (no suffix) brings one item or module into scope. The local name is the last path segment:
+
+```zoya
+use root::utils::helper        // imports item 'helper'
+use self::types::Config        // imports item 'Config'
+use super::shared              // imports 'shared' (item or module)
+```
+
+If the path resolves to a module rather than an item, the module is imported as a namespace. Items within it are accessed with qualified paths (e.g., `math::add()`).
+
+### Glob Import
+
+A glob import (`::*`) brings all public items from a module into scope:
+
+```zoya
+use root::math::*              // imports all public items from root::math
+```
+
+Private items are silently skipped. Enum variants are not directly imported — only the enum type itself.
+
+### Group Import
+
+A group import (`::{...}`) brings specific named items from a module into scope:
+
+```zoya
+use root::math::{add, subtract}    // imports add and subtract
+use root::math::{add, subtract,}   // trailing comma is permitted
+```
+
+An empty group `::{}` is a parse error. Each named item must exist and be visible.
+
+### Path Prefixes
 
 | Prefix | Meaning |
 |--------|---------|
@@ -357,26 +394,20 @@ A use declaration imports a name from another module into the current scope. A p
 | `self::` | Current module |
 | `super::` | Parent module |
 
-The imported name is the last segment of the path:
+### Re-exports
 
-```zoya
-use root::utils::helper        // imports 'helper'
-use self::types::Config        // imports 'Config'
-use super::shared              // imports 'shared'
-```
-
-A private use declaration (the default) imports the name locally. A `pub use` declaration re-exports the imported name, making it accessible through the current module:
+A private use declaration (the default) imports the name locally. A `pub use` declaration re-exports the imported names, making them accessible through the current module. All three forms support `pub`:
 
 ```zoya
 // Module: root::prelude
-pub use root::option::Option
-pub use root::result::Result
-
-// Module: root::app
-use root::prelude::Option       // OK: Option is re-exported by prelude
+pub use root::option::Option         // re-export single item
+pub use root::collections::*         // re-export all public items
+pub use root::math::{add, subtract}  // re-export specific items
 ```
 
-The re-exported name follows the same visibility rules as any other public item. The visibility consistency rule applies: a `pub use` can only re-export items that are themselves public.
+The re-exported names follow the same visibility rules as any other public item. The visibility consistency rule applies: a `pub use` can only re-export items that are themselves public.
+
+Re-exporting a module with `pub use` is not yet supported.
 
 ### Visibility and Imports
 

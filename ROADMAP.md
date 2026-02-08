@@ -6,6 +6,9 @@ Planned features in rough implementation order:
    - ~~Module definitions and imports~~
    - ~~Public/private visibility~~
    - ~~`pub use` re-exports~~
+   - ~~Glob imports (`use root::math::*`)~~
+   - ~~Group imports (`use root::math::{add, subtract}`)~~
+   - ~~Module namespace imports (`use root::math` → `math::add()`)~~
    - ~~Package configuration (`package.toml`)~~
    - ~~`zoya new` project scaffolding~~
 

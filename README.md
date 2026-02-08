@@ -358,6 +358,37 @@ fn main() -> Int {
 }
 ```
 
+Import a module as a namespace:
+
+```zoya
+use root::math
+
+fn main() -> Int {
+    math::add(1, 2)         // access items through the module name
+}
+```
+
+Glob imports bring all public items from a module:
+
+```zoya
+use root::types::*           // imports all public items from types
+
+fn main() -> Int {
+    let c = Color::Red;      // Color was imported via glob
+    helper()                 // helper was imported via glob
+}
+```
+
+Group imports bring specific items:
+
+```zoya
+use root::math::{add, subtract}
+
+fn main() -> Int {
+    add(1, subtract(5, 3))
+}
+```
+
 Path prefixes for navigation:
 
 | Prefix | Meaning |
@@ -374,16 +405,15 @@ use super::shared::Config    // parent module import
 
 ### Re-exports
 
-Use `pub use` to re-export imported items:
+Use `pub use` to re-export imported items. All import forms support `pub`:
 
 ```zoya
-// src/main.zoya
-mod math
-
-pub use root::math::add     // re-export add from root
+pub use root::math::add              // re-export single item
+pub use root::collections::*         // re-export all public items
+pub use root::math::{add, subtract}  // re-export specific items
 ```
 
-This makes `add` available to anyone who can access the current module, even though it is defined in `math`.
+This makes the items available to anyone who can access the current module, even though they are defined elsewhere.
 
 ### Standard Library
 

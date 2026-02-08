@@ -4,7 +4,8 @@ use std::collections::HashMap;
 
 use zoya_ast::{
     EnumDef, EnumVariant, EnumVariantKind, Expr, FunctionDef, Item, MatchArm, Path, PathPrefix,
-    Pattern, StructFieldPattern, TuplePattern, TypeAnnotation, UseDecl, UsePath, Visibility,
+    Pattern, StructFieldPattern, TuplePattern, TypeAnnotation, UseDecl, UsePath, UseTarget,
+    Visibility,
 };
 use zoya_ir::Type;
 use zoya_package::{Module, ModulePath, Package};
@@ -51,6 +52,7 @@ fn make_use(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
         path: UsePath {
             prefix,
             segments: segments.iter().map(|s| s.to_string()).collect(),
+            target: UseTarget::Single { alias: None },
         },
     }
 }
@@ -526,6 +528,7 @@ fn make_pub_use(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
         path: UsePath {
             prefix,
             segments: segments.iter().map(|s| s.to_string()).collect(),
+            target: UseTarget::Single { alias: None },
         },
     }
 }

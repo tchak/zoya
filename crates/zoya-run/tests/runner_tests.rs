@@ -3437,3 +3437,375 @@ fn test_pub_use_visibility_error_e2e() {
         "pub use cannot re-export private",
     );
 }
+
+// ============================================================================
+// Module Import Tests
+// ============================================================================
+
+#[test]
+fn test_module_import_basic() {
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+                mod math
+                use root::math
+                fn main() -> Int { math::add(1, 2) }
+            "#,
+            ),
+            (
+                "math",
+                r#"
+                pub fn add(x: Int, y: Int) -> Int { x + y }
+            "#,
+            ),
+        ],
+        "3",
+    );
+}
+
+#[test]
+fn test_module_import_enum_variant() {
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+                mod types
+                use root::types
+                fn main() -> Int {
+                    match types::Color::Red {
+                        types::Color::Red => 1,
+                        types::Color::Green => 2,
+                        types::Color::Blue => 3,
+                    }
+                }
+            "#,
+            ),
+            (
+                "types",
+                r#"
+                pub enum Color { Red, Green, Blue }
+            "#,
+            ),
+        ],
+        "1",
+    );
+}
+
+// ============================================================================
+// Glob Import Tests
+// ============================================================================
+
+#[test]
+fn test_glob_import_functions() {
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+                mod math
+                use root::math::*
+                fn main() -> Int { add(1, mul(2, 3)) }
+            "#,
+            ),
+            (
+                "math",
+                r#"
+                pub fn add(x: Int, y: Int) -> Int { x + y }
+                pub fn mul(x: Int, y: Int) -> Int { x * y }
+            "#,
+            ),
+        ],
+        "7",
+    );
+}
+
+#[test]
+fn test_glob_import_skips_private() {
+    // Private items in the module should NOT be imported by glob
+    expect_check_error(
+        vec![
+            (
+                "root",
+                r#"
+                mod math
+                use root::math::*
+                fn main() -> Int { secret() }
+            "#,
+            ),
+            (
+                "math",
+                r#"
+                pub fn add(x: Int, y: Int) -> Int { x + y }
+                fn secret() -> Int { 42 }
+            "#,
+            ),
+        ],
+        "unknown identifier: secret",
+    );
+}
+
+#[test]
+fn test_glob_import_enum() {
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+                mod types
+                use root::types::*
+                fn main() -> Int {
+                    match Color::Red {
+                        Color::Red => 1,
+                        Color::Green => 2,
+                        Color::Blue => 3,
+                    }
+                }
+            "#,
+            ),
+            (
+                "types",
+                r#"
+                pub enum Color { Red, Green, Blue }
+            "#,
+            ),
+        ],
+        "1",
+    );
+}
+
+#[test]
+fn test_glob_import_struct() {
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+                mod geom
+                use root::geom::*
+                fn main() -> Int {
+                    let p = Point { x: 3, y: 4 };
+                    p.x + p.y
+                }
+            "#,
+            ),
+            (
+                "geom",
+                r#"
+                pub struct Point { x: Int, y: Int }
+            "#,
+            ),
+        ],
+        "7",
+    );
+}
+
+// ============================================================================
+// Group Import Tests
+// ============================================================================
+
+#[test]
+fn test_group_import_basic() {
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+                mod math
+                use root::math::{add, mul}
+                fn main() -> Int { add(1, mul(2, 3)) }
+            "#,
+            ),
+            (
+                "math",
+                r#"
+                pub fn add(x: Int, y: Int) -> Int { x + y }
+                pub fn mul(x: Int, y: Int) -> Int { x * y }
+                pub fn sub(x: Int, y: Int) -> Int { x - y }
+            "#,
+            ),
+        ],
+        "7",
+    );
+}
+
+#[test]
+fn test_group_import_not_found() {
+    expect_check_error(
+        vec![
+            (
+                "root",
+                r#"
+                mod math
+                use root::math::{add, nonexistent}
+                fn main() -> Int { add(1, 2) }
+            "#,
+            ),
+            (
+                "math",
+                r#"
+                pub fn add(x: Int, y: Int) -> Int { x + y }
+            "#,
+            ),
+        ],
+        "cannot find",
+    );
+}
+
+#[test]
+fn test_group_import_private_error() {
+    expect_check_error(
+        vec![
+            (
+                "root",
+                r#"
+                mod math
+                use root::math::{add, secret}
+                fn main() -> Int { add(1, 2) }
+            "#,
+            ),
+            (
+                "math",
+                r#"
+                pub fn add(x: Int, y: Int) -> Int { x + y }
+                fn secret() -> Int { 42 }
+            "#,
+            ),
+        ],
+        "private",
+    );
+}
+
+#[test]
+fn test_group_import_enum_and_function() {
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+                mod types
+                use root::types::{Color, helper}
+                fn main() -> Int {
+                    match Color::Red {
+                        Color::Red => helper(),
+                        Color::Green => 2,
+                        Color::Blue => 3,
+                    }
+                }
+            "#,
+            ),
+            (
+                "types",
+                r#"
+                pub enum Color { Red, Green, Blue }
+                pub fn helper() -> Int { 42 }
+            "#,
+            ),
+        ],
+        "42",
+    );
+}
+
+// ============================================================================
+// Pub Use Glob/Group Re-export Tests
+// ============================================================================
+
+#[test]
+fn test_pub_use_glob_reexport() {
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+                mod a
+                mod b
+                use root::b::add
+                fn main() -> Int { add(1, 2) }
+            "#,
+            ),
+            (
+                "a",
+                r#"
+                pub fn add(x: Int, y: Int) -> Int { x + y }
+                pub fn mul(x: Int, y: Int) -> Int { x * y }
+            "#,
+            ),
+            ("b", "pub use root::a::*"),
+        ],
+        "3",
+    );
+}
+
+#[test]
+fn test_pub_use_group_reexport() {
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+                mod a
+                mod b
+                use root::b::add
+                fn main() -> Int { add(10, 20) }
+            "#,
+            ),
+            (
+                "a",
+                r#"
+                pub fn add(x: Int, y: Int) -> Int { x + y }
+                pub fn mul(x: Int, y: Int) -> Int { x * y }
+            "#,
+            ),
+            ("b", "pub use root::a::{add}"),
+        ],
+        "30",
+    );
+}
+
+#[test]
+fn test_pub_use_module_error() {
+    expect_check_error(
+        vec![
+            (
+                "root",
+                r#"
+                mod a
+                mod b
+                fn main() -> Int { 0 }
+            "#,
+            ),
+            ("a", "pub fn helper() -> Int { 42 }"),
+            ("b", "pub use root::a"),
+        ],
+        "re-exporting modules is not yet supported",
+    );
+}
+
+// ============================================================================
+// Duplicate Import Tests
+// ============================================================================
+
+#[test]
+fn test_duplicate_group_import_error() {
+    expect_check_error(
+        vec![
+            (
+                "root",
+                r#"
+                mod math
+                use root::math::{add, add}
+                fn main() -> Int { add(1, 2) }
+            "#,
+            ),
+            (
+                "math",
+                r#"
+                pub fn add(x: Int, y: Int) -> Int { x + y }
+            "#,
+            ),
+        ],
+        "already imported",
+    );
+}

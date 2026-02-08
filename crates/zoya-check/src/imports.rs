@@ -4,12 +4,15 @@
 
 use std::collections::HashMap;
 
-use zoya_ast::{PathPrefix, UseDecl};
+use zoya_ast::{PathPrefix, UseDecl, UseTarget};
 use zoya_ir::{Definition, QualifiedPath, TypeError, Visibility};
 use zoya_package::{ModulePath, Package};
 
 /// Resolved import entry: maps a local name to a qualified path
 pub type ImportTable = HashMap<String, QualifiedPath>;
+
+/// Module import table: maps a local module alias to a module path
+pub type ModuleImportTable = HashMap<String, ModulePath>;
 
 /// Resolve a use path to a fully qualified path.
 ///
@@ -63,6 +66,47 @@ pub(crate) fn resolve_use_path(
                     .to_string(),
             })
         }
+    }
+}
+
+/// Resolve a use path's segments to a ModulePath (for Glob/Group targets where
+/// segments is the module path, not including an item name).
+pub(crate) fn resolve_use_module_path(
+    use_decl: &UseDecl,
+    current_module: &ModulePath,
+) -> Result<ModulePath, TypeError> {
+    let path = &use_decl.path;
+
+    match path.prefix {
+        PathPrefix::Root => {
+            let mut segments = vec!["root".to_string()];
+            segments.extend(path.segments.iter().cloned());
+            Ok(ModulePath(segments))
+        }
+        PathPrefix::Self_ => {
+            let mut segments = current_module
+                .segments()
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>();
+            segments.extend(path.segments.iter().cloned());
+            Ok(ModulePath(segments))
+        }
+        PathPrefix::Super => {
+            let parent = current_module.parent().ok_or_else(|| TypeError {
+                message: "cannot use super:: in root module".to_string(),
+            })?;
+            let mut segments = parent
+                .segments()
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>();
+            segments.extend(path.segments.iter().cloned());
+            Ok(ModulePath(segments))
+        }
+        PathPrefix::None => Err(TypeError {
+            message: "use declarations require a prefix (root::, self::, or super::)".to_string(),
+        }),
     }
 }
 
@@ -163,77 +207,211 @@ fn check_import_module_path_visible(
     Ok(())
 }
 
-/// Resolve all imports for a module and return an import table.
+/// Insert an import into the table, checking for duplicates.
+fn insert_import(
+    imports: &mut ImportTable,
+    local_name: String,
+    qualified: QualifiedPath,
+) -> Result<(), TypeError> {
+    if let Some(existing) = imports.get(&local_name) {
+        return Err(TypeError {
+            message: format!(
+                "'{}' is already imported (from '{}')",
+                local_name, existing
+            ),
+        });
+    }
+    imports.insert(local_name, qualified);
+    Ok(())
+}
+
+/// Check that a pub use re-export target is public.
+fn check_pub_reexport_visible(
+    qualified: &QualifiedPath,
+    definitions: &HashMap<QualifiedPath, Definition>,
+) -> Result<(), TypeError> {
+    let def = definitions.get(qualified).expect("already checked above");
+    let target_visibility = match def {
+        Definition::Function(f) => f.visibility,
+        Definition::Struct(s) => s.visibility,
+        Definition::Enum(e) => e.visibility,
+        Definition::TypeAlias(a) => a.visibility,
+        Definition::EnumVariant(parent_enum, _) => parent_enum.visibility,
+    };
+    if target_visibility != Visibility::Public {
+        return Err(TypeError {
+            message: format!("pub use cannot re-export private item '{}'", qualified),
+        });
+    }
+    Ok(())
+}
+
+/// Get the visibility of a definition.
+fn definition_visibility(def: &Definition) -> Visibility {
+    match def {
+        Definition::Function(f) => f.visibility,
+        Definition::Struct(s) => s.visibility,
+        Definition::Enum(e) => e.visibility,
+        Definition::TypeAlias(a) => a.visibility,
+        Definition::EnumVariant(parent_enum, _) => parent_enum.visibility,
+    }
+}
+
+/// Resolve all imports for a module and return item imports and module imports.
 ///
 /// The import table maps local names (the last segment of each use path)
 /// to their fully qualified paths.
+/// The module import table maps local module aliases to module paths.
 pub fn resolve_module_imports(
     uses: &[UseDecl],
     current_module: &ModulePath,
     definitions: &HashMap<QualifiedPath, Definition>,
     pkg: &Package,
-) -> Result<ImportTable, TypeError> {
+) -> Result<(ImportTable, ModuleImportTable), TypeError> {
     let mut imports = HashMap::new();
+    let mut module_imports = HashMap::new();
 
     for use_decl in uses {
-        let qualified = resolve_use_path(use_decl, current_module)?;
+        match &use_decl.path.target {
+            UseTarget::Single { alias } => {
+                let qualified = resolve_use_path(use_decl, current_module)?;
 
-        // Check intermediate modules are visible
-        check_import_module_path_visible(&qualified, current_module, pkg)?;
+                // Check intermediate modules are visible
+                check_import_module_path_visible(&qualified, current_module, pkg)?;
 
-        // Check target exists and is visible
-        check_import_visible(&qualified, current_module, definitions)?;
+                // Try as item import first
+                if definitions.contains_key(&qualified) {
+                    check_import_visible(&qualified, current_module, definitions)?;
 
-        // pub use cannot re-export private items
-        if use_decl.visibility == Visibility::Public {
-            let def = definitions.get(&qualified).expect("already checked above");
-            let target_visibility = match def {
-                Definition::Function(f) => f.visibility,
-                Definition::Struct(s) => s.visibility,
-                Definition::Enum(e) => e.visibility,
-                Definition::TypeAlias(a) => a.visibility,
-                Definition::EnumVariant(parent_enum, _) => parent_enum.visibility,
-            };
-            if target_visibility != Visibility::Public {
-                return Err(TypeError {
-                    message: format!(
-                        "pub use cannot re-export private item '{}'",
-                        qualified
-                    ),
-                });
+                    if use_decl.visibility == Visibility::Public {
+                        check_pub_reexport_visible(&qualified, definitions)?;
+                    }
+
+                    let local_name = alias.clone().unwrap_or_else(|| {
+                        use_decl.path.segments.last().unwrap().clone()
+                    });
+                    insert_import(&mut imports, local_name, qualified)?;
+                } else {
+                    // Try as module import: resolve segments as a module path
+                    let target_module = resolve_use_module_path(use_decl, current_module)?;
+                    if pkg.get(&target_module).is_some() {
+                        if use_decl.visibility == Visibility::Public {
+                            return Err(TypeError {
+                                message: "re-exporting modules is not yet supported".to_string(),
+                            });
+                        }
+
+                        let local_name = alias.clone().unwrap_or_else(|| {
+                            use_decl.path.segments.last().unwrap().clone()
+                        });
+
+                        if module_imports.contains_key(&local_name) {
+                            return Err(TypeError {
+                                message: format!(
+                                    "module '{}' is already imported",
+                                    local_name
+                                ),
+                            });
+                        }
+                        // Also check for name collision with item imports
+                        if imports.contains_key(&local_name) {
+                            return Err(TypeError {
+                                message: format!(
+                                    "'{}' is already imported",
+                                    local_name
+                                ),
+                            });
+                        }
+
+                        module_imports.insert(local_name, target_module);
+                    } else {
+                        return Err(TypeError {
+                            message: format!("cannot find '{}' to import", qualified),
+                        });
+                    }
+                }
+            }
+            UseTarget::Glob => {
+                let target_module = resolve_use_module_path(use_decl, current_module)?;
+
+                // Verify the module exists
+                if pkg.get(&target_module).is_none() {
+                    return Err(TypeError {
+                        message: format!("cannot find module '{}'", target_module),
+                    });
+                }
+
+                // Check module path visibility
+                let module_qpath = QualifiedPath::new(target_module.segments().to_vec());
+                check_import_module_path_visible(&module_qpath, current_module, pkg)?;
+
+                // Find all definitions in the target module (exactly one segment deeper)
+                let module_segments = target_module.segments();
+                for (qpath, def) in definitions {
+                    // Check if this definition is directly in the target module
+                    if qpath.segments.len() == module_segments.len() + 1
+                        && qpath.segments[..module_segments.len()] == module_segments[..]
+                    {
+                        let item_name = qpath.segments.last().unwrap();
+
+                        // Skip private items silently
+                        if definition_visibility(def) != Visibility::Public {
+                            continue;
+                        }
+
+                        // Skip enum variants (they're imported via the enum itself)
+                        if matches!(def, Definition::EnumVariant(..)) {
+                            continue;
+                        }
+
+                        if use_decl.visibility == Visibility::Public {
+                            check_pub_reexport_visible(qpath, definitions)?;
+                        }
+
+                        insert_import(&mut imports, item_name.clone(), qpath.clone())?;
+                    }
+                }
+            }
+            UseTarget::Group(items) => {
+                let target_module = resolve_use_module_path(use_decl, current_module)?;
+
+                // Verify the module exists
+                if pkg.get(&target_module).is_none() {
+                    return Err(TypeError {
+                        message: format!("cannot find module '{}'", target_module),
+                    });
+                }
+
+                // Check module path visibility
+                let module_qpath = QualifiedPath::new(target_module.segments().to_vec());
+                check_import_module_path_visible(&module_qpath, current_module, pkg)?;
+
+                for group_item in items {
+                    let qualified = QualifiedPath::from_module(&target_module, &group_item.name);
+
+                    check_import_visible(&qualified, current_module, definitions)?;
+
+                    if use_decl.visibility == Visibility::Public {
+                        check_pub_reexport_visible(&qualified, definitions)?;
+                    }
+
+                    let local_name = group_item
+                        .alias
+                        .clone()
+                        .unwrap_or_else(|| group_item.name.clone());
+                    insert_import(&mut imports, local_name, qualified)?;
+                }
             }
         }
-
-        // Import uses the last segment as local name
-        let local_name = use_decl
-            .path
-            .segments
-            .last()
-            .ok_or_else(|| TypeError {
-                message: "use declaration has empty path".to_string(),
-            })?
-            .clone();
-
-        // Check for duplicate imports
-        if let Some(existing) = imports.get(&local_name) {
-            return Err(TypeError {
-                message: format!(
-                    "'{}' is already imported (from '{}')",
-                    local_name, existing
-                ),
-            });
-        }
-
-        imports.insert(local_name, qualified);
     }
 
-    Ok(imports)
+    Ok((imports, module_imports))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zoya_ast::UsePath;
+    use zoya_ast::{UsePath, UseTarget};
     use zoya_ir::{EnumType, FunctionType, StructType, Type};
 
     fn make_use(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
@@ -242,6 +420,7 @@ mod tests {
             path: UsePath {
                 prefix,
                 segments: segments.iter().map(|s| s.to_string()).collect(),
+                target: UseTarget::Single { alias: None },
             },
         }
     }
@@ -306,7 +485,7 @@ mod tests {
 
         let uses = vec![make_use(PathPrefix::Root, &["foo", "bar"])];
         let current = ModulePath::root();
-        let imports = resolve_module_imports(&uses, &current, &definitions, &empty_pkg()).unwrap();
+        let (imports, _) = resolve_module_imports(&uses, &current, &definitions, &empty_pkg()).unwrap();
 
         assert_eq!(imports.len(), 1);
         assert_eq!(
@@ -439,6 +618,7 @@ mod tests {
             path: UsePath {
                 prefix,
                 segments: segments.iter().map(|s| s.to_string()).collect(),
+                target: UseTarget::Single { alias: None },
             },
         }
     }
@@ -487,7 +667,7 @@ mod tests {
         let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg());
 
         assert!(result.is_ok());
-        let imports = result.unwrap();
+        let (imports, _) = result.unwrap();
         assert_eq!(imports.get("helper"), Some(&qpath("root::other::helper")));
     }
 }

@@ -431,11 +431,32 @@ pub struct UseDecl {
     pub path: UsePath,
 }
 
+/// A single item in a group import, e.g. `add` in `use root::foo::{add, divide}`
+/// The alias field is for future `as` support: `use root::foo::{add as a}`
+#[derive(Debug, Clone, PartialEq)]
+pub struct UseGroupItem {
+    pub name: String,
+    pub alias: Option<String>,
+}
+
+/// Target of a use declaration
+#[derive(Debug, Clone, PartialEq)]
+pub enum UseTarget {
+    /// Single item or module: `use root::foo::bar`
+    /// alias is for future `as` support: `use root::foo::bar as baz`
+    Single { alias: Option<String> },
+    /// Glob import: `use root::foo::bar::*`
+    Glob,
+    /// Group import: `use root::foo::bar::{add, divide}`
+    Group(Vec<UseGroupItem>),
+}
+
 /// Path in a use declaration
 #[derive(Debug, Clone, PartialEq)]
 pub struct UsePath {
     pub prefix: PathPrefix,
     pub segments: Vec<String>,
+    pub target: UseTarget,
 }
 
 /// A parsed module file containing mod declarations and items

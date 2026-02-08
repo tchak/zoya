@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use zoya_ast::{
     BinOp, Expr, FunctionDef, Item, LetBinding, MatchArm, Path, TypeAnnotation, UnaryOp, UseDecl,
+    UseTarget,
 };
 use zoya_ir::{
     CheckedItem, CheckedModule, CheckedPackage, Definition, EnumType, EnumVariantType,
@@ -14,7 +15,7 @@ use crate::builtin::{builtin_method, is_numeric_type};
 use crate::definition::{
     enum_type_from_def, function_type_from_def, struct_type_from_def, type_alias_from_def,
 };
-use crate::imports::{resolve_module_imports, resolve_use_path, ImportTable};
+use crate::imports::{resolve_module_imports, resolve_use_module_path, resolve_use_path, ImportTable, ModuleImportTable};
 use crate::naming::{is_pascal_case, is_snake_case, to_pascal_case, to_snake_case};
 use crate::pattern::{check_irrefutable, check_let_binding, check_match_arm, check_pattern};
 use crate::resolution::{self, ResolvedPath};
@@ -31,6 +32,8 @@ pub struct TypeEnv {
     pub locals: HashMap<String, TypeScheme>,
     /// Per-module import tables: module_path -> (local_name -> qualified_path)
     pub imports: HashMap<ModulePath, ImportTable>,
+    /// Per-module module import tables: module_path -> (local_alias -> target_module_path)
+    pub module_imports: HashMap<ModulePath, ModuleImportTable>,
     /// Re-export path mappings: re-export_path -> original_path
     /// Used to resolve re-exports to their original definition locations for codegen.
     pub reexports: HashMap<QualifiedPath, QualifiedPath>,
@@ -44,6 +47,7 @@ impl Default for TypeEnv {
             definitions: HashMap::new(),
             locals: HashMap::new(),
             imports: HashMap::new(),
+            module_imports: HashMap::new(),
             reexports: HashMap::new(),
             pkg: Package {
                 modules: HashMap::new(),
@@ -58,6 +62,7 @@ impl TypeEnv {
             definitions: self.definitions.clone(),
             locals,
             imports: self.imports.clone(),
+            module_imports: self.module_imports.clone(),
             reexports: self.reexports.clone(),
             pkg: self.pkg.clone(),
         }
@@ -192,7 +197,7 @@ fn check_path_expr(
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
     let resolved =
-        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.definitions, &env.pkg, &env.reexports)?;
+        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.module_imports, &env.definitions, &env.pkg, &env.reexports)?;
 
     match resolved {
         ResolvedPath::Local { name, scheme } => {
@@ -326,7 +331,7 @@ fn check_path_call(
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
     let resolved =
-        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.definitions, &env.pkg, &env.reexports)?;
+        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.module_imports, &env.definitions, &env.pkg, &env.reexports)?;
 
     match resolved {
         ResolvedPath::Local { name, scheme } => {
@@ -1079,7 +1084,7 @@ fn check_path_struct(
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
     let resolved =
-        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.definitions, &env.pkg, &env.reexports)?;
+        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.module_imports, &env.definitions, &env.pkg, &env.reexports)?;
 
     match resolved {
         ResolvedPath::Definition {
@@ -1577,6 +1582,53 @@ fn make_reexport_enum(e: &EnumType) -> EnumType {
     }
 }
 
+/// Register a re-export: check visibility, create re-export definition, handle enum variants.
+fn register_reexport(
+    env: &mut TypeEnv,
+    module_path: &ModulePath,
+    local_name: &str,
+    qualified: &QualifiedPath,
+) -> Result<(), TypeError> {
+    let def = env.definitions.get(qualified).ok_or_else(|| TypeError {
+        message: format!("cannot find '{}' to re-export", qualified),
+    })?;
+
+    let target_visibility = match def {
+        Definition::Function(f) => f.visibility,
+        Definition::Struct(s) => s.visibility,
+        Definition::Enum(e) => e.visibility,
+        Definition::TypeAlias(a) => a.visibility,
+        Definition::EnumVariant(parent_enum, _) => parent_enum.visibility,
+    };
+    if target_visibility != Visibility::Public {
+        return Err(TypeError {
+            message: format!("pub use cannot re-export private item '{}'", qualified),
+        });
+    }
+
+    let def = def.clone();
+    let reexport_path = QualifiedPath::from_module(module_path, local_name);
+    env.register(reexport_path.clone(), make_reexport_definition(&def));
+    env.reexports
+        .insert(reexport_path.clone(), qualified.clone());
+
+    // If re-exporting an enum, also re-export all its variants
+    if let Definition::Enum(ref enum_type) = def {
+        for (variant_name, variant_type) in &enum_type.variants {
+            let variant_path = reexport_path.with_variant(variant_name);
+            let original_variant_path = qualified.with_variant(variant_name);
+            let reexported_enum = make_reexport_enum(enum_type);
+            env.register(
+                variant_path.clone(),
+                Definition::EnumVariant(reexported_enum, variant_type.clone()),
+            );
+            env.reexports.insert(variant_path, original_variant_path);
+        }
+    }
+
+    Ok(())
+}
+
 /// Check an entire module tree, returning a checked module tree.
 ///
 /// This performs multi-module type checking:
@@ -1608,47 +1660,61 @@ pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
                 if let Item::Use(use_decl) = item
                     && use_decl.visibility == Visibility::Public
                 {
-                    let qualified = resolve_use_path(use_decl, path)?;
+                    match &use_decl.path.target {
+                        UseTarget::Single { .. } => {
+                            let qualified = resolve_use_path(use_decl, path)?;
+                            let local_name = use_decl.path.segments.last().unwrap();
+                            // Check if this resolves to a module rather than a definition
+                            if !env.definitions.contains_key(&qualified) {
+                                let module_path = ModulePath(qualified.segments.clone());
+                                if pkg.modules.contains_key(&module_path) {
+                                    return Err(TypeError {
+                                        message: "re-exporting modules is not yet supported".to_string(),
+                                    });
+                                }
+                            }
+                            register_reexport(&mut env, path, local_name, &qualified)?;
+                        }
+                        UseTarget::Glob => {
+                            let target_module = resolve_use_module_path(use_decl, path)?;
+                            let module_segments = target_module.segments().to_vec();
 
-                    // Check the target exists
-                    let def = env.definitions.get(&qualified).ok_or_else(|| TypeError {
-                        message: format!("cannot find '{}' to re-export", qualified),
-                    })?;
+                            // Collect items to re-export
+                            let items_to_reexport: Vec<(String, QualifiedPath)> = env
+                                .definitions
+                                .iter()
+                                .filter(|(qpath, def)| {
+                                    qpath.segments.len() == module_segments.len() + 1
+                                        && qpath.segments[..module_segments.len()] == module_segments[..]
+                                        && !matches!(def, Definition::EnumVariant(..))
+                                        && {
+                                            let vis = match def {
+                                                Definition::Function(f) => f.visibility,
+                                                Definition::Struct(s) => s.visibility,
+                                                Definition::Enum(e) => e.visibility,
+                                                Definition::TypeAlias(a) => a.visibility,
+                                                Definition::EnumVariant(parent, _) => parent.visibility,
+                                            };
+                                            vis == Visibility::Public
+                                        }
+                                })
+                                .map(|(qpath, _)| {
+                                    let name = qpath.segments.last().unwrap().clone();
+                                    (name, qpath.clone())
+                                })
+                                .collect();
 
-                    // pub use cannot re-export private items
-                    let target_visibility = match def {
-                        Definition::Function(f) => f.visibility,
-                        Definition::Struct(s) => s.visibility,
-                        Definition::Enum(e) => e.visibility,
-                        Definition::TypeAlias(a) => a.visibility,
-                        Definition::EnumVariant(parent_enum, _) => parent_enum.visibility,
-                    };
-                    if target_visibility != Visibility::Public {
-                        return Err(TypeError {
-                            message: format!(
-                                "pub use cannot re-export private item '{}'",
-                                qualified
-                            ),
-                        });
-                    }
-
-                    let local_name = use_decl.path.segments.last().unwrap();
-                    let def = def.clone();
-                    let reexport_path = QualifiedPath::from_module(path, local_name);
-                    env.register(reexport_path.clone(), make_reexport_definition(&def));
-                    env.reexports.insert(reexport_path.clone(), qualified.clone());
-
-                    // If re-exporting an enum, also re-export all its variants
-                    if let Definition::Enum(ref enum_type) = def {
-                        for (variant_name, variant_type) in &enum_type.variants {
-                            let variant_path = reexport_path.with_variant(variant_name);
-                            let original_variant_path = qualified.with_variant(variant_name);
-                            let reexported_enum = make_reexport_enum(enum_type);
-                            env.register(
-                                variant_path.clone(),
-                                Definition::EnumVariant(reexported_enum, variant_type.clone()),
-                            );
-                            env.reexports.insert(variant_path, original_variant_path);
+                            for (local_name, qualified) in items_to_reexport {
+                                register_reexport(&mut env, path, &local_name, &qualified)?;
+                            }
+                        }
+                        UseTarget::Group(items) => {
+                            let target_module = resolve_use_module_path(use_decl, path)?;
+                            for group_item in items {
+                                let qualified = QualifiedPath::from_module(&target_module, &group_item.name);
+                                let local_name = group_item.alias.as_deref().unwrap_or(&group_item.name);
+                                register_reexport(&mut env, path, local_name, &qualified)?;
+                            }
                         }
                     }
                 }
@@ -1662,8 +1728,9 @@ pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
             let uses: Vec<UseDecl> = module.items.iter().filter_map(|item| {
                 if let Item::Use(u) = item { Some(u.clone()) } else { None }
             }).collect();
-            let module_imports = resolve_module_imports(&uses, path, &env.definitions, &env.pkg)?;
-            env.imports.insert(path.clone(), module_imports);
+            let (item_imports, mod_imports) = resolve_module_imports(&uses, path, &env.definitions, &env.pkg)?;
+            env.imports.insert(path.clone(), item_imports);
+            env.module_imports.insert(path.clone(), mod_imports);
         }
     }
 

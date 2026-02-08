@@ -3235,4 +3235,139 @@ mod tests {
             _ => panic!("expected struct"),
         }
     }
+
+    // ========================================================================
+    // Use declaration parsing tests
+    // ========================================================================
+
+    use zoya_ast::{UseDecl, UseGroupItem, UsePath, UseTarget};
+
+    fn get_use_decl(input: &str) -> UseDecl {
+        let module = parse_module_str(input).unwrap();
+        match module.items.into_iter().next().unwrap() {
+            Item::Use(u) => u,
+            _ => panic!("expected use declaration"),
+        }
+    }
+
+    #[test]
+    fn test_parse_use_single() {
+        let u = get_use_decl("use root::foo::bar");
+        assert_eq!(u.visibility, Visibility::Private);
+        assert_eq!(u.path.prefix, PathPrefix::Root);
+        assert_eq!(u.path.segments, vec!["foo", "bar"]);
+        assert_eq!(u.path.target, UseTarget::Single { alias: None });
+    }
+
+    #[test]
+    fn test_parse_use_pub_single() {
+        let u = get_use_decl("pub use root::foo::bar");
+        assert_eq!(u.visibility, Visibility::Public);
+        assert_eq!(u.path.prefix, PathPrefix::Root);
+        assert_eq!(u.path.segments, vec!["foo", "bar"]);
+        assert_eq!(u.path.target, UseTarget::Single { alias: None });
+    }
+
+    #[test]
+    fn test_parse_use_glob() {
+        let u = get_use_decl("use root::foo::bar::*");
+        assert_eq!(u.visibility, Visibility::Private);
+        assert_eq!(u.path.prefix, PathPrefix::Root);
+        assert_eq!(u.path.segments, vec!["foo", "bar"]);
+        assert_eq!(u.path.target, UseTarget::Glob);
+    }
+
+    #[test]
+    fn test_parse_use_pub_glob() {
+        let u = get_use_decl("pub use root::foo::bar::*");
+        assert_eq!(u.visibility, Visibility::Public);
+        assert_eq!(u.path.target, UseTarget::Glob);
+    }
+
+    #[test]
+    fn test_parse_use_group() {
+        let u = get_use_decl("use root::foo::bar::{add, divide}");
+        assert_eq!(u.path.prefix, PathPrefix::Root);
+        assert_eq!(u.path.segments, vec!["foo", "bar"]);
+        match u.path.target {
+            UseTarget::Group(items) => {
+                assert_eq!(items.len(), 2);
+                assert_eq!(items[0].name, "add");
+                assert_eq!(items[0].alias, None);
+                assert_eq!(items[1].name, "divide");
+                assert_eq!(items[1].alias, None);
+            }
+            _ => panic!("expected Group target"),
+        }
+    }
+
+    #[test]
+    fn test_parse_use_group_trailing_comma() {
+        let u = get_use_decl("use root::foo::{add, divide,}");
+        match u.path.target {
+            UseTarget::Group(items) => {
+                assert_eq!(items.len(), 2);
+                assert_eq!(items[0].name, "add");
+                assert_eq!(items[1].name, "divide");
+            }
+            _ => panic!("expected Group target"),
+        }
+    }
+
+    #[test]
+    fn test_parse_use_group_single_item() {
+        let u = get_use_decl("use root::foo::{bar}");
+        match u.path.target {
+            UseTarget::Group(items) => {
+                assert_eq!(items.len(), 1);
+                assert_eq!(items[0].name, "bar");
+            }
+            _ => panic!("expected Group target"),
+        }
+    }
+
+    #[test]
+    fn test_parse_use_pub_group() {
+        let u = get_use_decl("pub use root::foo::{add, sub}");
+        assert_eq!(u.visibility, Visibility::Public);
+        match u.path.target {
+            UseTarget::Group(items) => {
+                assert_eq!(items.len(), 2);
+            }
+            _ => panic!("expected Group target"),
+        }
+    }
+
+    #[test]
+    fn test_parse_use_self_glob() {
+        let u = get_use_decl("use self::utils::*");
+        assert_eq!(u.path.prefix, PathPrefix::Self_);
+        assert_eq!(u.path.segments, vec!["utils"]);
+        assert_eq!(u.path.target, UseTarget::Glob);
+    }
+
+    #[test]
+    fn test_parse_use_super_group() {
+        let u = get_use_decl("use super::helpers::{add, mul}");
+        assert_eq!(u.path.prefix, PathPrefix::Super);
+        assert_eq!(u.path.segments, vec!["helpers"]);
+        match u.path.target {
+            UseTarget::Group(items) => {
+                assert_eq!(items.len(), 2);
+            }
+            _ => panic!("expected Group target"),
+        }
+    }
+
+    #[test]
+    fn test_parse_use_no_prefix_error() {
+        let result = parse_module_str("use foo::bar::*");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_use_empty_group_error() {
+        let result = parse_module_str("use root::foo::{}");
+        assert!(result.is_err());
+    }
 }
