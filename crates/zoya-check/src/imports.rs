@@ -20,7 +20,7 @@ pub type ImportTable = HashMap<String, QualifiedPath>;
 /// | `use root::foo::bar` | Absolute path from root module |
 /// | `use self::foo` | Explicit current module reference |
 /// | `use super::foo` | Parent module reference |
-fn resolve_use_path(
+pub(crate) fn resolve_use_path(
     use_decl: &UseDecl,
     current_module: &ModulePath,
 ) -> Result<QualifiedPath, TypeError> {
@@ -183,6 +183,26 @@ pub fn resolve_module_imports(
 
         // Check target exists and is visible
         check_import_visible(&qualified, current_module, definitions)?;
+
+        // pub use cannot re-export private items
+        if use_decl.visibility == Visibility::Public {
+            let def = definitions.get(&qualified).expect("already checked above");
+            let target_visibility = match def {
+                Definition::Function(f) => f.visibility,
+                Definition::Struct(s) => s.visibility,
+                Definition::Enum(e) => e.visibility,
+                Definition::TypeAlias(a) => a.visibility,
+                Definition::EnumVariant(parent_enum, _) => parent_enum.visibility,
+            };
+            if target_visibility != Visibility::Public {
+                return Err(TypeError {
+                    message: format!(
+                        "pub use cannot re-export private item '{}'",
+                        qualified
+                    ),
+                });
+            }
+        }
 
         // Import uses the last segment as local name
         let local_name = use_decl
@@ -411,5 +431,63 @@ mod tests {
 
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
+    }
+
+    fn make_pub_use(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
+        UseDecl {
+            visibility: Visibility::Public,
+            path: UsePath {
+                prefix,
+                segments: segments.iter().map(|s| s.to_string()).collect(),
+            },
+        }
+    }
+
+    #[test]
+    fn test_pub_use_reexport_private_function_error() {
+        let mut definitions = HashMap::new();
+        definitions.insert(
+            qpath("root::other::secret"),
+            Definition::Function(FunctionType {
+                visibility: Visibility::Private,
+                module: ModulePath::root().child("other"),
+                type_params: vec![],
+                type_var_ids: vec![],
+                params: vec![],
+                return_type: Type::Int,
+            }),
+        );
+
+        // pub use from same module (so import visibility passes), but target is private
+        let uses = vec![make_pub_use(PathPrefix::Root, &["other", "secret"])];
+        let current = ModulePath::root().child("other"); // same module
+        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg());
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("pub use cannot re-export private"));
+    }
+
+    #[test]
+    fn test_pub_use_reexport_public_function_ok() {
+        let mut definitions = HashMap::new();
+        definitions.insert(
+            qpath("root::other::helper"),
+            Definition::Function(FunctionType {
+                visibility: Visibility::Public,
+                module: ModulePath::root().child("other"),
+                type_params: vec![],
+                type_var_ids: vec![],
+                params: vec![],
+                return_type: Type::Int,
+            }),
+        );
+
+        let uses = vec![make_pub_use(PathPrefix::Root, &["other", "helper"])];
+        let current = ModulePath::root().child("reexporter");
+        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg());
+
+        assert!(result.is_ok());
+        let imports = result.unwrap();
+        assert_eq!(imports.get("helper"), Some(&qpath("root::other::helper")));
     }
 }

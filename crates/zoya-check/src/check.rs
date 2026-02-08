@@ -5,8 +5,8 @@ use zoya_ast::{
 };
 use zoya_ir::{
     CheckedItem, CheckedModule, CheckedPackage, Definition, EnumType, EnumVariantType,
-    FunctionType, QualifiedPath, StructType, Type, TypeError, TypeScheme, TypeVarId,
-    TypedEnumConstructFields, TypedExpr, TypedFunction,
+    FunctionType, QualifiedPath, StructType, Type, TypeAliasType, TypeError, TypeScheme, TypeVarId,
+    TypedEnumConstructFields, TypedExpr, TypedFunction, Visibility,
 };
 use zoya_package::{ModulePath, Package};
 
@@ -14,7 +14,7 @@ use crate::builtin::{builtin_method, is_numeric_type};
 use crate::definition::{
     enum_type_from_def, function_type_from_def, struct_type_from_def, type_alias_from_def,
 };
-use crate::imports::{resolve_module_imports, ImportTable};
+use crate::imports::{resolve_module_imports, resolve_use_path, ImportTable};
 use crate::naming::{is_pascal_case, is_snake_case, to_pascal_case, to_snake_case};
 use crate::pattern::{check_irrefutable, check_let_binding, check_match_arm, check_pattern};
 use crate::resolution::{self, ResolvedPath};
@@ -31,6 +31,9 @@ pub struct TypeEnv {
     pub locals: HashMap<String, TypeScheme>,
     /// Per-module import tables: module_path -> (local_name -> qualified_path)
     pub imports: HashMap<ModulePath, ImportTable>,
+    /// Re-export path mappings: re-export_path -> original_path
+    /// Used to resolve re-exports to their original definition locations for codegen.
+    pub reexports: HashMap<QualifiedPath, QualifiedPath>,
     /// The package (for module visibility checking)
     pub pkg: Package,
 }
@@ -41,6 +44,7 @@ impl Default for TypeEnv {
             definitions: HashMap::new(),
             locals: HashMap::new(),
             imports: HashMap::new(),
+            reexports: HashMap::new(),
             pkg: Package {
                 modules: HashMap::new(),
             },
@@ -54,6 +58,7 @@ impl TypeEnv {
             definitions: self.definitions.clone(),
             locals,
             imports: self.imports.clone(),
+            reexports: self.reexports.clone(),
             pkg: self.pkg.clone(),
         }
     }
@@ -187,7 +192,7 @@ fn check_path_expr(
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
     let resolved =
-        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.definitions, &env.pkg)?;
+        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.definitions, &env.pkg, &env.reexports)?;
 
     match resolved {
         ResolvedPath::Local { name, scheme } => {
@@ -328,7 +333,7 @@ fn check_path_call(
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
     let resolved =
-        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.definitions, &env.pkg)?;
+        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.definitions, &env.pkg, &env.reexports)?;
 
     match resolved {
         ResolvedPath::Local { name, scheme } => {
@@ -1087,7 +1092,7 @@ fn check_path_struct(
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
     let resolved =
-        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.definitions, &env.pkg)?;
+        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.definitions, &env.pkg, &env.reexports)?;
 
     match resolved {
         ResolvedPath::Definition {
@@ -1558,6 +1563,39 @@ fn is_syntactic_value(expr: &Expr) -> bool {
         _ => false,
     }
 }
+/// Create a re-exported definition by cloning and overriding visibility.
+/// The module is preserved from the original definition so codegen generates
+/// correct references to the actual definition location.
+fn make_reexport_definition(def: &Definition) -> Definition {
+    match def {
+        Definition::Function(f) => Definition::Function(FunctionType {
+            visibility: Visibility::Public,
+            ..f.clone()
+        }),
+        Definition::Struct(s) => Definition::Struct(StructType {
+            visibility: Visibility::Public,
+            ..s.clone()
+        }),
+        Definition::Enum(e) => Definition::Enum(make_reexport_enum(e)),
+        Definition::EnumVariant(parent_enum, variant_type) => Definition::EnumVariant(
+            make_reexport_enum(parent_enum),
+            variant_type.clone(),
+        ),
+        Definition::TypeAlias(a) => Definition::TypeAlias(TypeAliasType {
+            visibility: Visibility::Public,
+            ..a.clone()
+        }),
+    }
+}
+
+/// Create a re-exported enum type with overridden visibility.
+fn make_reexport_enum(e: &EnumType) -> EnumType {
+    EnumType {
+        visibility: Visibility::Public,
+        ..e.clone()
+    }
+}
+
 /// Check an entire module tree, returning a checked module tree.
 ///
 /// This performs multi-module type checking:
@@ -1581,7 +1619,63 @@ pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
         }
     }
 
-    // Phase 1.5: Resolve imports for all modules
+    // Phase 1.5a: Register re-exports from pub use declarations
+    // This must happen before import resolution so other modules can reference re-exported items.
+    for path in &module_paths {
+        if let Some(module) = pkg.modules.get(path) {
+            for item in &module.items {
+                if let Item::Use(use_decl) = item
+                    && use_decl.visibility == Visibility::Public
+                {
+                    let qualified = resolve_use_path(use_decl, path)?;
+
+                    // Check the target exists
+                    let def = env.definitions.get(&qualified).ok_or_else(|| TypeError {
+                        message: format!("cannot find '{}' to re-export", qualified),
+                    })?;
+
+                    // pub use cannot re-export private items
+                    let target_visibility = match def {
+                        Definition::Function(f) => f.visibility,
+                        Definition::Struct(s) => s.visibility,
+                        Definition::Enum(e) => e.visibility,
+                        Definition::TypeAlias(a) => a.visibility,
+                        Definition::EnumVariant(parent_enum, _) => parent_enum.visibility,
+                    };
+                    if target_visibility != Visibility::Public {
+                        return Err(TypeError {
+                            message: format!(
+                                "pub use cannot re-export private item '{}'",
+                                qualified
+                            ),
+                        });
+                    }
+
+                    let local_name = use_decl.path.segments.last().unwrap();
+                    let def = def.clone();
+                    let reexport_path = QualifiedPath::from_module(path, local_name);
+                    env.register(reexport_path.clone(), make_reexport_definition(&def));
+                    env.reexports.insert(reexport_path.clone(), qualified.clone());
+
+                    // If re-exporting an enum, also re-export all its variants
+                    if let Definition::Enum(ref enum_type) = def {
+                        for (variant_name, variant_type) in &enum_type.variants {
+                            let variant_path = reexport_path.with_variant(variant_name);
+                            let original_variant_path = qualified.with_variant(variant_name);
+                            let reexported_enum = make_reexport_enum(enum_type);
+                            env.register(
+                                variant_path.clone(),
+                                Definition::EnumVariant(reexported_enum, variant_type.clone()),
+                            );
+                            env.reexports.insert(variant_path, original_variant_path);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Phase 1.5b: Resolve imports for all modules
     for path in &module_paths {
         if let Some(module) = pkg.modules.get(path) {
             let uses: Vec<UseDecl> = module.items.iter().filter_map(|item| {

@@ -517,3 +517,175 @@ fn test_imported_enum_variant_in_struct_pattern() {
     let test_fn = find_test_function(&root_module.items).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
+
+// ===== pub use Re-export Tests =====
+
+fn make_pub_use(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
+    UseDecl {
+        visibility: Visibility::Public,
+        path: UsePath {
+            prefix,
+            segments: segments.iter().map(|s| s.to_string()).collect(),
+        },
+    }
+}
+
+#[test]
+fn test_pub_use_reexport_function() {
+    // Module A has pub fn helper() -> Int
+    // Module B does pub use root::a::helper
+    // Root module uses root::b::helper (the re-exported path)
+    let a_items = vec![Item::Function(FunctionDef {
+        visibility: Visibility::Public,
+        name: "helper".to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+        body: Expr::Int(42),
+    })];
+
+    let b_items = vec![Item::Use(make_pub_use(PathPrefix::Root, &["a", "helper"]))];
+
+    let root_items = vec![
+        Item::Use(make_use(PathPrefix::Root, &["b", "helper"])),
+        Item::Function(FunctionDef {
+            visibility: Visibility::Public,
+            name: "__test".to_string(),
+            type_params: vec![],
+            params: vec![],
+            return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+            body: Expr::Call {
+                path: Path::simple("helper".to_string()),
+                args: vec![],
+            },
+        }),
+    ];
+
+    let tree = build_multi_module_package(vec![
+        (ModulePath::root(), root_items),
+        (ModulePath::root().child("a"), a_items),
+        (ModulePath::root().child("b"), b_items),
+    ]);
+
+    let result = check(&tree).unwrap();
+    let root_module = result.modules.get(&ModulePath::root()).unwrap();
+    let test_fn = find_test_function(&root_module.items).unwrap();
+    assert_eq!(test_fn.return_type, Type::Int);
+}
+
+#[test]
+fn test_pub_use_reexport_enum() {
+    // Module types has pub enum Color { Red, Blue }
+    // Module reexporter does pub use root::types::Color
+    // Root module uses root::reexporter::Color::Red
+    let types_items = vec![Item::Enum(EnumDef {
+        visibility: Visibility::Public,
+        name: "Color".to_string(),
+        type_params: vec![],
+        variants: vec![
+            EnumVariant {
+                name: "Red".to_string(),
+                kind: EnumVariantKind::Unit,
+            },
+            EnumVariant {
+                name: "Blue".to_string(),
+                kind: EnumVariantKind::Unit,
+            },
+        ],
+    })];
+
+    let reexporter_items = vec![Item::Use(make_pub_use(PathPrefix::Root, &["types", "Color"]))];
+
+    let root_items = vec![
+        Item::Use(make_use(PathPrefix::Root, &["reexporter", "Color", "Red"])),
+        Item::Function(FunctionDef {
+            visibility: Visibility::Public,
+            name: "__test".to_string(),
+            type_params: vec![],
+            params: vec![],
+            return_type: None,
+            body: Expr::Path(Path::simple("Red".to_string())),
+        }),
+    ];
+
+    let tree = build_multi_module_package(vec![
+        (ModulePath::root(), root_items),
+        (ModulePath::root().child("types"), types_items),
+        (ModulePath::root().child("reexporter"), reexporter_items),
+    ]);
+
+    let result = check(&tree).unwrap();
+    let root_module = result.modules.get(&ModulePath::root()).unwrap();
+    let test_fn = find_test_function(&root_module.items).unwrap();
+    assert!(matches!(test_fn.return_type, Type::Enum { ref name, .. } if name == "Color"));
+}
+
+#[test]
+fn test_pub_use_cannot_reexport_private() {
+    // Module a has fn secret() -> Int (private)
+    // Module b tries pub use root::a::secret — should fail
+    let a_items = vec![Item::Function(FunctionDef {
+        visibility: Visibility::Private,
+        name: "secret".to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: None,
+        body: Expr::Int(42),
+    })];
+
+    let b_items = vec![Item::Use(make_pub_use(PathPrefix::Root, &["a", "secret"]))];
+
+    let tree = build_multi_module_package(vec![
+        (ModulePath::root(), vec![]),
+        (ModulePath::root().child("a"), a_items),
+        (ModulePath::root().child("b"), b_items),
+    ]);
+
+    let result = check(&tree);
+    assert!(result.is_err());
+    let msg = result.unwrap_err().message;
+    assert!(msg.contains("pub use cannot re-export private"), "unexpected error: {}", msg);
+}
+
+#[test]
+fn test_private_use_does_not_reexport() {
+    // Module a has pub fn helper() -> Int
+    // Module b has private use root::a::helper (no pub)
+    // Root tries to use root::b::helper — should fail because it's not re-exported
+    let a_items = vec![Item::Function(FunctionDef {
+        visibility: Visibility::Public,
+        name: "helper".to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+        body: Expr::Int(42),
+    })];
+
+    let b_items = vec![Item::Use(make_use(PathPrefix::Root, &["a", "helper"]))];
+
+    let root_items = vec![
+        Item::Use(make_use(PathPrefix::Root, &["b", "helper"])),
+        Item::Function(FunctionDef {
+            visibility: Visibility::Public,
+            name: "__test".to_string(),
+            type_params: vec![],
+            params: vec![],
+            return_type: None,
+            body: Expr::Call {
+                path: Path::simple("helper".to_string()),
+                args: vec![],
+            },
+        }),
+    ];
+
+    let tree = build_multi_module_package(vec![
+        (ModulePath::root(), root_items),
+        (ModulePath::root().child("a"), a_items),
+        (ModulePath::root().child("b"), b_items),
+    ]);
+
+    let result = check(&tree);
+    assert!(result.is_err());
+    let msg = result.unwrap_err().message;
+    assert!(msg.contains("cannot find"), "unexpected error: {}", msg);
+}

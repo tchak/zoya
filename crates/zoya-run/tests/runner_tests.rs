@@ -3333,3 +3333,90 @@ fn test_visibility_pub_mod_parsing() {
         "30",
     );
 }
+
+// ===== pub use Re-export Tests =====
+
+#[test]
+fn test_pub_use_reexport_function_e2e() {
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+            mod a
+            mod b
+            use root::b::helper
+            fn main() -> Int { helper() }
+        "#,
+            ),
+            ("a", "pub fn helper() -> Int { 42 }"),
+            ("b", "pub use root::a::helper"),
+        ],
+        "42",
+    );
+}
+
+#[test]
+fn test_pub_use_reexport_enum_e2e() {
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+            mod types
+            mod reexporter
+            use root::reexporter::Color::Red
+            fn main() -> Int {
+                let x = Red;
+                match x { Red => 1, _ => 2 }
+            }
+        "#,
+            ),
+            ("types", "pub enum Color { Red, Blue }"),
+            ("reexporter", "pub use root::types::Color"),
+        ],
+        "1",
+    );
+}
+
+#[test]
+fn test_pub_use_reexport_enum_via_qualified_path_e2e() {
+    // Also verify accessing via qualified path through the re-exporting module
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+            mod types
+            mod reexporter
+            fn main() -> Int {
+                let x = reexporter::Color::Red;
+                match x { reexporter::Color::Red => 10, _ => 20 }
+            }
+        "#,
+            ),
+            ("types", "pub enum Color { Red, Blue }"),
+            ("reexporter", "pub use root::types::Color"),
+        ],
+        "10",
+    );
+}
+
+#[test]
+fn test_pub_use_visibility_error_e2e() {
+    expect_check_error(
+        vec![
+            (
+                "root",
+                r#"
+            mod a
+            mod b
+            fn main() -> Int { 0 }
+        "#,
+            ),
+            ("a", "fn secret() -> Int { 42 }"),
+            ("b", "pub use root::a::secret"),
+        ],
+        "pub use cannot re-export private",
+    );
+}

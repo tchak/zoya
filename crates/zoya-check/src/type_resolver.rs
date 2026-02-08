@@ -45,6 +45,7 @@ pub fn resolve_type_annotation(
                 &env.imports,
                 &env.definitions,
                 &env.pkg,
+                &env.reexports,
             )?;
 
             match resolved {
@@ -153,6 +154,7 @@ pub fn resolve_type_annotation(
                 &env.imports,
                 &env.definitions,
                 &env.pkg,
+                &env.reexports,
             )?;
 
             match resolved {
