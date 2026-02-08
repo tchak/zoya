@@ -299,11 +299,30 @@ fn secret() -> Int 42             // private
 pub use root::a::secret           // Error: cannot re-export private item
 ```
 
-Re-exporting a module with `pub use` is not yet supported:
+### Module Re-exports
+
+A `pub use` targeting a module re-exports the entire module as a namespace. Other modules can then access the re-exported module through the re-exporting module's path:
 
 ```zoya
+// Module: root::a
+pub fn helper() -> Int 42
+pub fn add(x: Int, y: Int) -> Int x + y
+
 // Module: root::b
-pub use root::a                   // Error: re-exporting modules is not yet supported
+pub use root::a                   // re-exports module 'a' through 'b'
+
+// Module: root::consumer
+use root::b::a                    // imports module 'a' via the re-export in 'b'
+
+fn main() -> Int a::helper()      // resolves to root::a::helper
+```
+
+All import forms work through a re-exported module:
+
+```zoya
+use root::b::a::helper            // single item import through re-exported module
+use root::b::a::*                 // glob import through re-exported module
+use root::b::a::{add, helper}     // group import through re-exported module
 ```
 
 ## Visibility

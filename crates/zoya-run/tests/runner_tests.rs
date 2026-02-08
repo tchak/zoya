@@ -3765,21 +3765,97 @@ fn test_pub_use_group_reexport() {
 }
 
 #[test]
-fn test_pub_use_module_error() {
-    expect_check_error(
+fn test_pub_use_module_reexport_namespace() {
+    // Module b re-exports module a; root uses it as a namespace
+    run_multi_module(
         vec![
             (
                 "root",
                 r#"
                 mod a
                 mod b
-                fn main() -> Int { 0 }
+                use root::b::a
+                fn main() -> Int { a::helper() }
             "#,
             ),
             ("a", "pub fn helper() -> Int { 42 }"),
             ("b", "pub use root::a"),
         ],
-        "re-exporting modules is not yet supported",
+        "42",
+    );
+}
+
+#[test]
+fn test_pub_use_module_reexport_item_import() {
+    // Module b re-exports module a; root imports a specific item through b::a
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+                mod a
+                mod b
+                use root::b::a::helper
+                fn main() -> Int { helper() }
+            "#,
+            ),
+            ("a", "pub fn helper() -> Int { 42 }"),
+            ("b", "pub use root::a"),
+        ],
+        "42",
+    );
+}
+
+#[test]
+fn test_pub_use_module_reexport_glob() {
+    // Module b re-exports module a; root glob-imports through b::a
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+                mod a
+                mod b
+                use root::b::a::*
+                fn main() -> Int { add(10, 20) }
+            "#,
+            ),
+            (
+                "a",
+                r#"
+                pub fn add(x: Int, y: Int) -> Int { x + y }
+            "#,
+            ),
+            ("b", "pub use root::a"),
+        ],
+        "30",
+    );
+}
+
+#[test]
+fn test_pub_use_module_reexport_group() {
+    // Module b re-exports module a; root group-imports through b::a
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+                mod a
+                mod b
+                use root::b::a::{add, mul}
+                fn main() -> Int { add(2, 3) + mul(4, 5) }
+            "#,
+            ),
+            (
+                "a",
+                r#"
+                pub fn add(x: Int, y: Int) -> Int { x + y }
+                pub fn mul(x: Int, y: Int) -> Int { x * y }
+            "#,
+            ),
+            ("b", "pub use root::a"),
+        ],
+        "25",
     );
 }
 

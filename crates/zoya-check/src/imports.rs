@@ -257,6 +257,26 @@ fn definition_visibility(def: &Definition) -> Visibility {
     }
 }
 
+/// Resolve a module path, following module re-exports if needed.
+/// Returns the real module path if found (either directly or through re-exports).
+fn resolve_target_module(
+    target: &ModulePath,
+    pkg: &Package,
+    module_reexports: &HashMap<ModulePath, ModulePath>,
+) -> Option<ModulePath> {
+    if pkg.get(target).is_some() {
+        return Some(target.clone());
+    }
+    let mut current = target.clone();
+    while let Some(real) = module_reexports.get(&current) {
+        current = real.clone();
+        if pkg.get(&current).is_some() {
+            return Some(current);
+        }
+    }
+    None
+}
+
 /// Resolve all imports for a module and return item imports and module imports.
 ///
 /// The import table maps local names (the last segment of each use path)
@@ -267,6 +287,7 @@ pub fn resolve_module_imports(
     current_module: &ModulePath,
     definitions: &HashMap<QualifiedPath, Definition>,
     pkg: &Package,
+    module_reexports: &HashMap<ModulePath, ModulePath>,
 ) -> Result<(ImportTable, ModuleImportTable), TypeError> {
     let mut imports = HashMap::new();
     let mut module_imports = HashMap::new();
@@ -294,13 +315,7 @@ pub fn resolve_module_imports(
                 } else {
                     // Try as module import: resolve segments as a module path
                     let target_module = resolve_use_module_path(use_decl, current_module)?;
-                    if pkg.get(&target_module).is_some() {
-                        if use_decl.visibility == Visibility::Public {
-                            return Err(TypeError {
-                                message: "re-exporting modules is not yet supported".to_string(),
-                            });
-                        }
-
+                    if let Some(resolved) = resolve_target_module(&target_module, pkg, module_reexports) {
                         let local_name = alias.clone().unwrap_or_else(|| {
                             use_decl.path.segments.last().unwrap().clone()
                         });
@@ -323,30 +338,59 @@ pub fn resolve_module_imports(
                             });
                         }
 
-                        module_imports.insert(local_name, target_module);
+                        module_imports.insert(local_name, resolved);
                     } else {
-                        return Err(TypeError {
-                            message: format!("cannot find '{}' to import", qualified),
-                        });
+                        // Try as item import through module re-export
+                        // e.g., `use root::b::a::helper` where `root::b::a` → `root::a`
+                        let mut found = false;
+                        let segments = &qualified.segments;
+                        for prefix_len in (2..segments.len()).rev() {
+                            let candidate = ModulePath(segments[..prefix_len].to_vec());
+                            if let Some(real_module) = resolve_target_module(&candidate, pkg, module_reexports) {
+                                // Rewrite the qualified path through the real module
+                                let mut new_segments = real_module.segments().to_vec();
+                                new_segments.extend_from_slice(&segments[prefix_len..]);
+                                let resolved_qualified = QualifiedPath::new(new_segments);
+
+                                if definitions.contains_key(&resolved_qualified) {
+                                    check_import_visible(&resolved_qualified, current_module, definitions)?;
+
+                                    if use_decl.visibility == Visibility::Public {
+                                        check_pub_reexport_visible(&resolved_qualified, definitions)?;
+                                    }
+
+                                    let local_name = alias.clone().unwrap_or_else(|| {
+                                        use_decl.path.segments.last().unwrap().clone()
+                                    });
+                                    insert_import(&mut imports, local_name, resolved_qualified)?;
+                                    found = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if !found {
+                            return Err(TypeError {
+                                message: format!("cannot find '{}' to import", qualified),
+                            });
+                        }
                     }
                 }
             }
             UseTarget::Glob => {
                 let target_module = resolve_use_module_path(use_decl, current_module)?;
 
-                // Verify the module exists
-                if pkg.get(&target_module).is_none() {
-                    return Err(TypeError {
+                // Verify the module exists (following re-exports)
+                let resolved_module = resolve_target_module(&target_module, pkg, module_reexports)
+                    .ok_or_else(|| TypeError {
                         message: format!("cannot find module '{}'", target_module),
-                    });
-                }
+                    })?;
 
                 // Check module path visibility
-                let module_qpath = QualifiedPath::new(target_module.segments().to_vec());
+                let module_qpath = QualifiedPath::new(resolved_module.segments().to_vec());
                 check_import_module_path_visible(&module_qpath, current_module, pkg)?;
 
-                // Find all definitions in the target module (exactly one segment deeper)
-                let module_segments = target_module.segments();
+                // Find all definitions in the resolved module (exactly one segment deeper)
+                let module_segments = resolved_module.segments();
                 for (qpath, def) in definitions {
                     // Check if this definition is directly in the target module
                     if qpath.segments.len() == module_segments.len() + 1
@@ -375,19 +419,18 @@ pub fn resolve_module_imports(
             UseTarget::Group(items) => {
                 let target_module = resolve_use_module_path(use_decl, current_module)?;
 
-                // Verify the module exists
-                if pkg.get(&target_module).is_none() {
-                    return Err(TypeError {
+                // Verify the module exists (following re-exports)
+                let resolved_module = resolve_target_module(&target_module, pkg, module_reexports)
+                    .ok_or_else(|| TypeError {
                         message: format!("cannot find module '{}'", target_module),
-                    });
-                }
+                    })?;
 
                 // Check module path visibility
-                let module_qpath = QualifiedPath::new(target_module.segments().to_vec());
+                let module_qpath = QualifiedPath::new(resolved_module.segments().to_vec());
                 check_import_module_path_visible(&module_qpath, current_module, pkg)?;
 
                 for group_item in items {
-                    let qualified = QualifiedPath::from_module(&target_module, &group_item.name);
+                    let qualified = QualifiedPath::from_module(&resolved_module, &group_item.name);
 
                     check_import_visible(&qualified, current_module, definitions)?;
 
@@ -485,7 +528,7 @@ mod tests {
 
         let uses = vec![make_use(PathPrefix::Root, &["foo", "bar"])];
         let current = ModulePath::root();
-        let (imports, _) = resolve_module_imports(&uses, &current, &definitions, &empty_pkg()).unwrap();
+        let (imports, _) = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new()).unwrap();
 
         assert_eq!(imports.len(), 1);
         assert_eq!(
@@ -525,7 +568,7 @@ mod tests {
             make_use(PathPrefix::Root, &["baz", "bar"]),
         ];
         let current = ModulePath::root();
-        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg());
+        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new());
 
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("already imported"));
@@ -537,7 +580,7 @@ mod tests {
 
         let uses = vec![make_use(PathPrefix::Root, &["foo", "bar"])];
         let current = ModulePath::root();
-        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg());
+        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new());
 
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("cannot find"));
@@ -560,7 +603,7 @@ mod tests {
 
         let uses = vec![make_use(PathPrefix::Root, &["other", "secret"])];
         let current = ModulePath::root().child("mine"); // sibling module
-        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg());
+        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new());
 
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
@@ -583,7 +626,7 @@ mod tests {
 
         let uses = vec![make_use(PathPrefix::Root, &["other", "Point"])];
         let current = ModulePath::root().child("mine"); // sibling module
-        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg());
+        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new());
 
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
@@ -606,7 +649,7 @@ mod tests {
 
         let uses = vec![make_use(PathPrefix::Root, &["other", "Color"])];
         let current = ModulePath::root().child("mine"); // sibling module
-        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg());
+        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new());
 
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
@@ -641,7 +684,7 @@ mod tests {
         // pub use from same module (so import visibility passes), but target is private
         let uses = vec![make_pub_use(PathPrefix::Root, &["other", "secret"])];
         let current = ModulePath::root().child("other"); // same module
-        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg());
+        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new());
 
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("pub use cannot re-export private"));
@@ -664,7 +707,7 @@ mod tests {
 
         let uses = vec![make_pub_use(PathPrefix::Root, &["other", "helper"])];
         let current = ModulePath::root().child("reexporter");
-        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg());
+        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new());
 
         assert!(result.is_ok());
         let (imports, _) = result.unwrap();

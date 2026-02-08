@@ -692,3 +692,95 @@ fn test_private_use_does_not_reexport() {
     let msg = result.unwrap_err().message;
     assert!(msg.contains("cannot find"), "unexpected error: {}", msg);
 }
+
+// ===== pub use Module Re-export Tests =====
+
+#[test]
+fn test_pub_use_reexport_module() {
+    // Module A has pub fn helper() -> Int
+    // Module B does pub use root::a (re-exports the module)
+    // Root does use root::b::a and calls a::helper()
+    let a_items = vec![Item::Function(FunctionDef {
+        visibility: Visibility::Public,
+        name: "helper".to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+        body: Expr::Int(42),
+    })];
+
+    let b_items = vec![Item::Use(make_pub_use(PathPrefix::Root, &["a"]))];
+
+    let root_items = vec![
+        Item::Use(make_use(PathPrefix::Root, &["b", "a"])),
+        Item::Function(FunctionDef {
+            visibility: Visibility::Public,
+            name: "__test".to_string(),
+            type_params: vec![],
+            params: vec![],
+            return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+            body: Expr::Call {
+                path: Path {
+                    prefix: PathPrefix::None,
+                    segments: vec!["a".to_string(), "helper".to_string()],
+                    type_args: None,
+                },
+                args: vec![],
+            },
+        }),
+    ];
+
+    let tree = build_multi_module_package(vec![
+        (ModulePath::root(), root_items),
+        (ModulePath::root().child("a"), a_items),
+        (ModulePath::root().child("b"), b_items),
+    ]);
+
+    let result = check(&tree).unwrap();
+    let root_module = result.modules.get(&ModulePath::root()).unwrap();
+    let test_fn = find_test_function(&root_module.items).unwrap();
+    assert_eq!(test_fn.return_type, Type::Int);
+}
+
+#[test]
+fn test_pub_use_reexport_module_item_import() {
+    // Module A has pub fn helper() -> Int
+    // Module B does pub use root::a (re-exports the module)
+    // Root does use root::b::a::helper (imports item through re-exported module)
+    let a_items = vec![Item::Function(FunctionDef {
+        visibility: Visibility::Public,
+        name: "helper".to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+        body: Expr::Int(42),
+    })];
+
+    let b_items = vec![Item::Use(make_pub_use(PathPrefix::Root, &["a"]))];
+
+    let root_items = vec![
+        Item::Use(make_use(PathPrefix::Root, &["b", "a", "helper"])),
+        Item::Function(FunctionDef {
+            visibility: Visibility::Public,
+            name: "__test".to_string(),
+            type_params: vec![],
+            params: vec![],
+            return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+            body: Expr::Call {
+                path: Path::simple("helper".to_string()),
+                args: vec![],
+            },
+        }),
+    ];
+
+    let tree = build_multi_module_package(vec![
+        (ModulePath::root(), root_items),
+        (ModulePath::root().child("a"), a_items),
+        (ModulePath::root().child("b"), b_items),
+    ]);
+
+    let result = check(&tree).unwrap();
+    let root_module = result.modules.get(&ModulePath::root()).unwrap();
+    let test_fn = find_test_function(&root_module.items).unwrap();
+    assert_eq!(test_fn.return_type, Type::Int);
+}

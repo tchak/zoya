@@ -37,6 +37,9 @@ pub struct TypeEnv {
     /// Re-export path mappings: re-export_path -> original_path
     /// Used to resolve re-exports to their original definition locations for codegen.
     pub reexports: HashMap<QualifiedPath, QualifiedPath>,
+    /// Module re-export mappings: virtual_module_path -> real_module_path
+    /// Used when `pub use root::a` re-exports module `a` through another module.
+    pub module_reexports: HashMap<ModulePath, ModulePath>,
     /// The package (for module visibility checking)
     pub pkg: Package,
 }
@@ -49,6 +52,7 @@ impl Default for TypeEnv {
             imports: HashMap::new(),
             module_imports: HashMap::new(),
             reexports: HashMap::new(),
+            module_reexports: HashMap::new(),
             pkg: Package {
                 modules: HashMap::new(),
             },
@@ -64,6 +68,7 @@ impl TypeEnv {
             imports: self.imports.clone(),
             module_imports: self.module_imports.clone(),
             reexports: self.reexports.clone(),
+            module_reexports: self.module_reexports.clone(),
             pkg: self.pkg.clone(),
         }
     }
@@ -1668,9 +1673,10 @@ pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
                             if !env.definitions.contains_key(&qualified) {
                                 let module_path = ModulePath(qualified.segments.clone());
                                 if pkg.modules.contains_key(&module_path) {
-                                    return Err(TypeError {
-                                        message: "re-exporting modules is not yet supported".to_string(),
-                                    });
+                                    // Register module re-export: virtual path -> real path
+                                    let reexport_module = path.child(local_name);
+                                    env.module_reexports.insert(reexport_module, module_path);
+                                    continue;
                                 }
                             }
                             register_reexport(&mut env, path, local_name, &qualified)?;
@@ -1728,7 +1734,7 @@ pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
             let uses: Vec<UseDecl> = module.items.iter().filter_map(|item| {
                 if let Item::Use(u) = item { Some(u.clone()) } else { None }
             }).collect();
-            let (item_imports, mod_imports) = resolve_module_imports(&uses, path, &env.definitions, &env.pkg)?;
+            let (item_imports, mod_imports) = resolve_module_imports(&uses, path, &env.definitions, &env.pkg, &env.module_reexports)?;
             env.imports.insert(path.clone(), item_imports);
             env.module_imports.insert(path.clone(), mod_imports);
         }
