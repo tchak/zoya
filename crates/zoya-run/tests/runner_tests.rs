@@ -1655,6 +1655,23 @@ fn test_run_enum_partial_struct_pattern() {
 }
 
 #[test]
+fn test_run_match_multiple_unit_variants() {
+    let source = r#"
+        enum Color { Red, Green, Blue }
+        fn main() -> Int {
+            let x = Color::Blue;
+            match x {
+                Color::Red => 1,
+                Color::Green => 2,
+                Color::Blue => 3
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(3));
+}
+
+#[test]
 fn test_run_enum_wildcard_pattern() {
     let source = r#"
         enum Message { Quit, Move { x: Int, y: Int }, Write(String) }

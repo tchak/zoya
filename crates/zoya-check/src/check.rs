@@ -220,14 +220,7 @@ fn check_path_expr(
             }
 
             let enum_path = QualifiedPath::from_module(current_module, &enum_type.name);
-            let variant_name = enum_type
-                .variants
-                .iter()
-                .find(|(_, vt)| vt == variant_type)
-                .map(|(name, _)| name)
-                .ok_or_else(|| TypeError {
-                    message: format!("enum {} has no variant {:?}", enum_path, variant_type),
-                })?;
+            let variant_name = qualified_path.last();
             let qualified_variant_path = enum_path.with_variant(variant_name);
 
             // Handle explicit type arguments (turbofish) or create fresh type variables
@@ -356,6 +349,7 @@ fn check_path_call(
             EnumVariantType::Tuple(_) => check_enum_tuple_construct_resolved(
                 enum_type,
                 variant_type,
+                qualified_path.last(),
                 &path.type_args,
                 args,
                 current_module,
@@ -570,6 +564,7 @@ fn check_lambda_call(
 fn check_enum_tuple_construct_resolved(
     enum_type: &EnumType,
     variant_type: &EnumVariantType,
+    variant_name: &str,
     explicit_type_args: &Option<Vec<TypeAnnotation>>,
     args: &[Expr],
     current_module: &ModulePath,
@@ -577,14 +572,6 @@ fn check_enum_tuple_construct_resolved(
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
     let enum_path = QualifiedPath::from_module(current_module, &enum_type.name);
-    let variant_name = enum_type
-        .variants
-        .iter()
-        .find(|(_, vt)| vt == variant_type)
-        .map(|(name, _)| name)
-        .ok_or_else(|| TypeError {
-            message: format!("enum {} has no variant {:?}", enum_path, variant_type),
-        })?;
     let qualified_variant_path = enum_path.with_variant(variant_name);
 
     // Must be a tuple variant
@@ -1113,6 +1100,7 @@ fn check_path_struct(
             EnumVariantType::Struct(_) => check_enum_struct_construct_resolved(
                 def,
                 variant,
+                qualified_path.last(),
                 fields,
                 current_module,
                 env,
@@ -1258,20 +1246,13 @@ fn check_struct_construct_resolved(
 fn check_enum_struct_construct_resolved(
     enum_type: &EnumType,
     variant_type: &EnumVariantType,
+    variant_name: &str,
     provided_fields: &[(String, Expr)],
     current_module: &ModulePath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
     let enum_path = QualifiedPath::from_module(current_module, &enum_type.name);
-    let variant_name = enum_type
-        .variants
-        .iter()
-        .find(|(_, vt)| vt == variant_type)
-        .map(|(name, _)| name)
-        .ok_or_else(|| TypeError {
-            message: format!("enum {} has no variant {:?}", enum_path, variant_type),
-        })?;
     let qualified_variant_path = enum_path.with_variant(variant_name);
 
     // Must be a struct variant

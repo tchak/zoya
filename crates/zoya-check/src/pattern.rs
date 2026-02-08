@@ -633,15 +633,7 @@ fn check_path_pattern_resolved(
                 });
             }
 
-            // Find variant name from enum_type.variants
-            let variant_name = enum_type
-                .variants
-                .iter()
-                .find(|(_, vt)| vt == variant_type)
-                .map(|(name, _)| name)
-                .ok_or_else(|| TypeError {
-                    message: format!("enum variant not found in {:?}", variant_type),
-                })?;
+            let variant_name = qualified_path.last();
 
             // Create fresh type variables for generic parameters
             let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
@@ -680,7 +672,7 @@ fn check_path_pattern_resolved(
                 TypedPattern::EnumUnit {
                     path: QualifiedPath::new(vec![
                         enum_type.name.clone(),
-                        variant_name.clone(),
+                        variant_name.to_string(),
                     ]),
                 },
                 HashMap::new(),
@@ -742,15 +734,7 @@ fn check_call_pattern(
                 }
             };
 
-            // Find variant name from enum_type.variants
-            let variant_name = enum_type
-                .variants
-                .iter()
-                .find(|(_, vt)| vt == variant_type)
-                .map(|(name, _)| name)
-                .ok_or_else(|| TypeError {
-                    message: format!("enum variant not found in {:?}", variant_type),
-                })?;
+            let variant_name = qualified_path.last();
 
             // Create fresh type variables for generic parameters
             let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
@@ -850,15 +834,7 @@ fn check_struct_pattern(
             def: Definition::EnumVariant(enum_type, variant_type),
             qualified_path,
         } => {
-            // Find variant name from enum_type.variants
-            let variant_name = enum_type
-                .variants
-                .iter()
-                .find(|(_, vt)| vt == variant_type)
-                .map(|(name, _)| name)
-                .ok_or_else(|| TypeError {
-                    message: format!("enum variant not found in {:?}", variant_type),
-                })?;
+            let variant_name = qualified_path.last();
 
             match variant_type {
                 EnumVariantType::Struct(_) => check_enum_struct_variant_pattern(
