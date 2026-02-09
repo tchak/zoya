@@ -276,6 +276,36 @@ fn resolve_target_module(
     None
 }
 
+/// The kind of container a glob/group path can resolve to.
+enum ContainerKind {
+    /// A module — glob/group operates on its direct children definitions.
+    Module(QualifiedPath),
+    /// An enum — glob/group operates on its variants.
+    Enum(QualifiedPath),
+}
+
+/// Resolve a path that may refer to a module or an enum.
+/// Used for glob (`use path::*`) and group (`use path::{a, b}`) imports
+/// where the target can be either a module (importing items) or an enum (importing variants).
+fn resolve_target_container(
+    target: &QualifiedPath,
+    definitions: &HashMap<QualifiedPath, Definition>,
+    reexports: &HashMap<QualifiedPath, QualifiedPath>,
+) -> Option<ContainerKind> {
+    if let Some(def) = definitions.get(target) {
+        let mut resolved = target.clone();
+        while let Some(real) = reexports.get(&resolved) {
+            resolved = real.clone();
+        }
+        match def {
+            Definition::Module(_) => return Some(ContainerKind::Module(resolved)),
+            Definition::Enum(_) => return Some(ContainerKind::Enum(resolved)),
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Resolve all imports for a module and return a unified import table.
 ///
 /// The import table maps local names (the last segment of each use path)
@@ -350,72 +380,131 @@ pub fn resolve_module_imports(
                 }
             }
             UseTarget::Glob => {
-                let target_module = resolve_use_module_path(use_decl, current_module)?;
+                let target_path = resolve_use_module_path(use_decl, current_module)?;
 
-                // Verify the module exists (following re-exports)
-                let resolved_module = resolve_target_module(&target_module, definitions, reexports)
+                // Resolve target as module or enum
+                let container = resolve_target_container(&target_path, definitions, reexports)
                     .ok_or_else(|| TypeError {
-                        message: format!("cannot find module '{}'", target_module),
+                        message: format!("cannot find module or enum '{}'", target_path),
                     })?;
 
-                // Check module path visibility
-                let module_qpath = QualifiedPath::new(resolved_module.segments().to_vec());
-                check_import_module_path_visible(&module_qpath, current_module, pkg)?;
+                match container {
+                    ContainerKind::Module(resolved_module) => {
+                        // Check module path visibility
+                        let module_qpath =
+                            QualifiedPath::new(resolved_module.segments().to_vec());
+                        check_import_module_path_visible(&module_qpath, current_module, pkg)?;
 
-                // Find all definitions in the resolved module (exactly one segment deeper)
-                let module_segments = resolved_module.segments();
-                for (qpath, def) in definitions {
-                    // Check if this definition is directly in the target module
-                    if qpath.len() == module_segments.len() + 1
-                        && qpath.segments()[..module_segments.len()] == module_segments[..]
-                    {
-                        let item_name = qpath.last();
+                        // Find all definitions in the resolved module (exactly one segment deeper)
+                        let module_segments = resolved_module.segments();
+                        for (qpath, def) in definitions {
+                            if qpath.len() == module_segments.len() + 1
+                                && qpath.segments()[..module_segments.len()]
+                                    == module_segments[..]
+                            {
+                                let item_name = qpath.last();
 
-                        // Skip private items silently
-                        if definition_visibility(def) != Visibility::Public {
-                            continue;
+                                // Skip private items silently
+                                if definition_visibility(def) != Visibility::Public {
+                                    continue;
+                                }
+
+                                // Skip enum variants (they're children of enum types, not modules)
+                                if matches!(def, Definition::EnumVariant(..)) {
+                                    continue;
+                                }
+
+                                if use_decl.visibility == Visibility::Public {
+                                    check_pub_reexport_visible(qpath, definitions)?;
+                                }
+
+                                insert_import(
+                                    &mut imports,
+                                    item_name.to_string(),
+                                    qpath.clone(),
+                                )?;
+                            }
                         }
+                    }
+                    ContainerKind::Enum(resolved_enum) => {
+                        // Check enum path visibility
+                        check_import_visible(&resolved_enum, current_module, definitions)?;
 
-                        // Skip enum variants and modules (they're not imported via glob)
-                        if matches!(def, Definition::EnumVariant(..) | Definition::Module(..)) {
-                            continue;
+                        // Find all variants of this enum
+                        let enum_segments = resolved_enum.segments();
+                        for (qpath, def) in definitions {
+                            if qpath.len() == enum_segments.len() + 1
+                                && qpath.segments()[..enum_segments.len()]
+                                    == enum_segments[..]
+                                && matches!(def, Definition::EnumVariant(..))
+                            {
+                                let variant_name = qpath.last();
+
+                                if use_decl.visibility == Visibility::Public {
+                                    check_pub_reexport_visible(qpath, definitions)?;
+                                }
+
+                                insert_import(
+                                    &mut imports,
+                                    variant_name.to_string(),
+                                    qpath.clone(),
+                                )?;
+                            }
                         }
-
-                        if use_decl.visibility == Visibility::Public {
-                            check_pub_reexport_visible(qpath, definitions)?;
-                        }
-
-                        insert_import(&mut imports, item_name.to_string(), qpath.clone())?;
                     }
                 }
             }
             UseTarget::Group(items) => {
-                let target_module = resolve_use_module_path(use_decl, current_module)?;
+                let target_path = resolve_use_module_path(use_decl, current_module)?;
 
-                // Verify the module exists (following re-exports)
-                let resolved_module = resolve_target_module(&target_module, definitions, reexports)
+                // Resolve target as module or enum
+                let container = resolve_target_container(&target_path, definitions, reexports)
                     .ok_or_else(|| TypeError {
-                        message: format!("cannot find module '{}'", target_module),
+                        message: format!("cannot find module or enum '{}'", target_path),
                     })?;
 
-                // Check module path visibility
-                let module_qpath = QualifiedPath::new(resolved_module.segments().to_vec());
-                check_import_module_path_visible(&module_qpath, current_module, pkg)?;
+                match container {
+                    ContainerKind::Module(resolved_module) => {
+                        // Check module path visibility
+                        let module_qpath =
+                            QualifiedPath::new(resolved_module.segments().to_vec());
+                        check_import_module_path_visible(&module_qpath, current_module, pkg)?;
 
-                for group_item in items {
-                    let qualified = resolved_module.child(&group_item.name);
+                        for group_item in items {
+                            let qualified = resolved_module.child(&group_item.name);
 
-                    check_import_visible(&qualified, current_module, definitions)?;
+                            check_import_visible(&qualified, current_module, definitions)?;
 
-                    if use_decl.visibility == Visibility::Public {
-                        check_pub_reexport_visible(&qualified, definitions)?;
+                            if use_decl.visibility == Visibility::Public {
+                                check_pub_reexport_visible(&qualified, definitions)?;
+                            }
+
+                            let local_name = group_item
+                                .alias
+                                .clone()
+                                .unwrap_or_else(|| group_item.name.clone());
+                            insert_import(&mut imports, local_name, qualified)?;
+                        }
                     }
+                    ContainerKind::Enum(resolved_enum) => {
+                        // Check enum path visibility
+                        check_import_visible(&resolved_enum, current_module, definitions)?;
 
-                    let local_name = group_item
-                        .alias
-                        .clone()
-                        .unwrap_or_else(|| group_item.name.clone());
-                    insert_import(&mut imports, local_name, qualified)?;
+                        for group_item in items {
+                            let qualified = resolved_enum.child(&group_item.name);
+
+                            // Variant visibility is inherited from enum (already checked above)
+                            if use_decl.visibility == Visibility::Public {
+                                check_pub_reexport_visible(&qualified, definitions)?;
+                            }
+
+                            let local_name = group_item
+                                .alias
+                                .clone()
+                                .unwrap_or_else(|| group_item.name.clone());
+                            insert_import(&mut imports, local_name, qualified)?;
+                        }
+                    }
                 }
             }
         }

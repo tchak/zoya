@@ -3885,3 +3885,190 @@ fn test_duplicate_group_import_error() {
         "already imported",
     );
 }
+
+// ── Glob import on enum (use root::types::Color::*) ─────────────────
+
+#[test]
+fn test_glob_import_enum_variants() {
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+                mod types
+                use root::types::Color::*
+                fn main() -> Int {
+                    match Red {
+                        Red => 1,
+                        Green => 2,
+                        Blue => 3,
+                    }
+                }
+            "#,
+            ),
+            ("types", "pub enum Color { Red, Green, Blue }"),
+        ],
+        "1",
+    );
+}
+
+// ── Group import on enum (use root::types::Color::{Red, Green}) ─────
+
+#[test]
+fn test_group_import_enum_variants() {
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+                mod types
+                use root::types::Color::{Red, Green, Blue}
+                fn main() -> Int {
+                    match Red {
+                        Red => 1,
+                        Green => 2,
+                        Blue => 3,
+                    }
+                }
+            "#,
+            ),
+            ("types", "pub enum Color { Red, Green, Blue }"),
+        ],
+        "1",
+    );
+}
+
+// ── Glob import includes modules ────────────────────────────────────
+
+#[test]
+fn test_glob_import_includes_modules() {
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+                mod parent
+                use root::parent::*
+                fn main() -> Int { child::helper() }
+            "#,
+            ),
+            ("parent", "pub mod child"),
+            ("parent/child", "pub fn helper() -> Int { 42 }"),
+        ],
+        "42",
+    );
+}
+
+// ── pub use glob re-export includes modules ─────────────────────────
+
+#[test]
+fn test_pub_use_glob_reexport_module() {
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+                mod parent
+                mod reexporter
+                use root::reexporter::child::helper
+                fn main() -> Int { helper() }
+            "#,
+            ),
+            (
+                "parent",
+                r#"
+                pub mod child
+                pub fn ignored() -> Int { 0 }
+            "#,
+            ),
+            ("parent/child", "pub fn helper() -> Int { 99 }"),
+            ("reexporter", "pub use root::parent::*"),
+        ],
+        "99",
+    );
+}
+
+// ── pub use glob re-export enum variants ────────────────────────────
+
+#[test]
+fn test_pub_use_glob_reexport_enum_variants() {
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+                mod types
+                mod reexporter
+                use root::reexporter::{Some, None}
+                fn main() -> Int {
+                    match Some(42) {
+                        Some(x) => x,
+                        None => 0,
+                    }
+                }
+            "#,
+            ),
+            ("types", "pub enum Option<T> { None, Some(T) }"),
+            ("reexporter", "pub use root::types::Option::*"),
+        ],
+        "42",
+    );
+}
+
+// ── pub use group re-export enum variants ───────────────────────────
+
+#[test]
+fn test_pub_use_group_reexport_enum_variants() {
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+                mod types
+                mod reexporter
+                use root::reexporter::{Red, Green, Blue}
+                fn main() -> Int {
+                    match Green {
+                        Red => 1,
+                        Green => 2,
+                        Blue => 3,
+                    }
+                }
+            "#,
+            ),
+            ("types", "pub enum Color { Red, Green, Blue }"),
+            ("reexporter", "pub use root::types::Color::{Red, Green, Blue}"),
+        ],
+        "2",
+    );
+}
+
+// ── pub use group re-export mixing modules and items ────────────────
+
+#[test]
+fn test_pub_use_group_reexport_module_and_items() {
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+                mod parent
+                mod reexporter
+                use root::reexporter::{child, add}
+                fn main() -> Int { add(child::helper(), 1) }
+            "#,
+            ),
+            (
+                "parent",
+                r#"
+                pub mod child
+                pub fn add(x: Int, y: Int) -> Int { x + y }
+            "#,
+            ),
+            ("parent/child", "pub fn helper() -> Int { 10 }"),
+            ("reexporter", "pub use root::parent::{child, add}"),
+        ],
+        "11",
+    );
+}
+

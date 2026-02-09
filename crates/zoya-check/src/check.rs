@@ -1595,13 +1595,29 @@ fn register_reexport(
         message: format!("cannot find '{}' to re-export", qualified),
     })?;
 
+    // Modules need special handling: create a proper Module definition
+    // with the re-exporting module as parent. Module visibility is not checked
+    // because re-exporting a module just creates a namespace alias.
+    if matches!(def, Definition::Module(_)) {
+        let reexport_path = module_path.child(local_name);
+        let reexport_def = Definition::Module(ModuleType {
+            visibility: Visibility::Public,
+            module: module_path.clone(),
+            name: local_name.to_string(),
+        });
+        env.register(reexport_path.clone(), reexport_def);
+        env.reexports
+            .insert(reexport_path, qualified.clone());
+        return Ok(());
+    }
+
     let target_visibility = match def {
         Definition::Function(f) => f.visibility,
         Definition::Struct(s) => s.visibility,
         Definition::Enum(e) => e.visibility,
         Definition::TypeAlias(a) => a.visibility,
         Definition::EnumVariant(parent_enum, _) => parent_enum.visibility,
-        Definition::Module(m) => m.visibility,
+        Definition::Module(_) => unreachable!(),
     };
     if target_visibility != Visibility::Public {
         return Err(TypeError {
@@ -1611,6 +1627,7 @@ fn register_reexport(
 
     let def = def.clone();
     let reexport_path = module_path.child(local_name);
+
     env.register(reexport_path.clone(), make_reexport_definition(&def));
     env.reexports
         .insert(reexport_path.clone(), qualified.clone());
@@ -1694,61 +1711,122 @@ pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
                         UseTarget::Single { .. } => {
                             let qualified = resolve_use_path(use_decl, path)?;
                             let local_name = use_decl.path.segments.last().unwrap();
-                            // Check if this resolves to a module
-                            if let Some(Definition::Module(_)) = env.definitions.get(&qualified) {
-                                // Register module re-export as Definition::Module
-                                let reexport_module = path.child(local_name);
-                                let reexport_def = Definition::Module(ModuleType {
-                                    visibility: Visibility::Public,
-                                    module: path.clone(),
-                                    name: local_name.to_string(),
-                                });
-                                env.register(reexport_module.clone(), reexport_def);
-                                env.reexports
-                                    .insert(reexport_module, qualified.clone());
-                                continue;
-                            }
                             register_reexport(&mut env, path, local_name, &qualified)?;
                         }
                         UseTarget::Glob => {
-                            let target_module = resolve_use_module_path(use_decl, path)?;
-                            let module_segments = target_module.segments().to_vec();
+                            let target_path = resolve_use_module_path(use_decl, path)?;
 
-                            // Collect items to re-export
-                            let items_to_reexport: Vec<(String, QualifiedPath)> = env
-                                .definitions
-                                .iter()
-                                .filter(|(qpath, def)| {
-                                    qpath.len() == module_segments.len() + 1
-                                        && qpath.segments()[..module_segments.len()] == module_segments[..]
-                                        && !matches!(def, Definition::EnumVariant(..) | Definition::Module(..))
-                                        && {
-                                            let vis = match def {
-                                                Definition::Function(f) => f.visibility,
-                                                Definition::Struct(s) => s.visibility,
-                                                Definition::Enum(e) => e.visibility,
-                                                Definition::TypeAlias(a) => a.visibility,
-                                                Definition::EnumVariant(parent, _) => parent.visibility,
-                                                Definition::Module(m) => m.visibility,
-                                            };
-                                            vis == Visibility::Public
-                                        }
-                                })
-                                .map(|(qpath, _)| {
-                                    let name = qpath.last().to_string();
-                                    (name, qpath.clone())
-                                })
-                                .collect();
+                            // Determine container type and follow re-export chain
+                            let def = env.definitions.get(&target_path).cloned();
+                            let mut resolved = target_path.clone();
+                            while let Some(real) = env.reexports.get(&resolved) {
+                                resolved = real.clone();
+                            }
 
-                            for (local_name, qualified) in items_to_reexport {
-                                register_reexport(&mut env, path, &local_name, &qualified)?;
+                            match def {
+                                Some(Definition::Module(_)) => {
+                                    let module_segments = resolved.segments().to_vec();
+
+                                    // Collect public items to re-export (skip enum variants)
+                                    let items_to_reexport: Vec<(String, QualifiedPath)> = env
+                                        .definitions
+                                        .iter()
+                                        .filter(|(qpath, def)| {
+                                            qpath.len() == module_segments.len() + 1
+                                                && qpath.segments()[..module_segments.len()]
+                                                    == module_segments[..]
+                                                && !matches!(def, Definition::EnumVariant(..))
+                                                && {
+                                                    let vis = match def {
+                                                        Definition::Function(f) => f.visibility,
+                                                        Definition::Struct(s) => s.visibility,
+                                                        Definition::Enum(e) => e.visibility,
+                                                        Definition::TypeAlias(a) => a.visibility,
+                                                        Definition::EnumVariant(parent, _) => {
+                                                            parent.visibility
+                                                        }
+                                                        Definition::Module(m) => m.visibility,
+                                                    };
+                                                    vis == Visibility::Public
+                                                }
+                                        })
+                                        .map(|(qpath, _)| {
+                                            let name = qpath.last().to_string();
+                                            (name, qpath.clone())
+                                        })
+                                        .collect();
+
+                                    for (local_name, qualified) in items_to_reexport {
+                                        register_reexport(
+                                            &mut env,
+                                            path,
+                                            &local_name,
+                                            &qualified,
+                                        )?;
+                                    }
+                                }
+                                Some(Definition::Enum(_)) => {
+                                    let enum_segments = resolved.segments().to_vec();
+
+                                    // Collect all variants of this enum
+                                    let variants_to_reexport: Vec<(String, QualifiedPath)> = env
+                                        .definitions
+                                        .iter()
+                                        .filter(|(qpath, def)| {
+                                            qpath.len() == enum_segments.len() + 1
+                                                && qpath.segments()[..enum_segments.len()]
+                                                    == enum_segments[..]
+                                                && matches!(def, Definition::EnumVariant(..))
+                                        })
+                                        .map(|(qpath, _)| {
+                                            let name = qpath.last().to_string();
+                                            (name, qpath.clone())
+                                        })
+                                        .collect();
+
+                                    for (variant_name, qualified) in variants_to_reexport {
+                                        register_reexport(
+                                            &mut env,
+                                            path,
+                                            &variant_name,
+                                            &qualified,
+                                        )?;
+                                    }
+                                }
+                                _ => {
+                                    return Err(TypeError {
+                                        message: format!(
+                                            "cannot find module or enum '{}' for glob re-export",
+                                            target_path
+                                        ),
+                                    });
+                                }
                             }
                         }
                         UseTarget::Group(items) => {
-                            let target_module = resolve_use_module_path(use_decl, path)?;
+                            let target_path = resolve_use_module_path(use_decl, path)?;
+
+                            // Verify target is a module or enum, follow re-export chain
+                            match env.definitions.get(&target_path) {
+                                Some(Definition::Module(_) | Definition::Enum(_)) => {}
+                                _ => {
+                                    return Err(TypeError {
+                                        message: format!(
+                                            "cannot find module or enum '{}' for group re-export",
+                                            target_path
+                                        ),
+                                    });
+                                }
+                            }
+                            let mut resolved = target_path;
+                            while let Some(real) = env.reexports.get(&resolved) {
+                                resolved = real.clone();
+                            }
+
                             for group_item in items {
-                                let qualified = target_module.child(&group_item.name);
-                                let local_name = group_item.alias.as_deref().unwrap_or(&group_item.name);
+                                let qualified = resolved.child(&group_item.name);
+                                let local_name =
+                                    group_item.alias.as_deref().unwrap_or(&group_item.name);
                                 register_reexport(&mut env, path, local_name, &qualified)?;
                             }
                         }
