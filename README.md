@@ -368,14 +368,29 @@ fn main() -> Int {
 }
 ```
 
-Glob imports bring all public items from a module:
+Glob imports bring all public items from a module, including child modules:
 
 ```zoya
-use root::types::*           // imports all public items from types
+use root::types::*           // imports all public items and modules from types
 
 fn main() -> Int {
     let c = Color::Red;      // Color was imported via glob
     helper()                 // helper was imported via glob
+    child_mod::something()   // public child modules are also imported
+}
+```
+
+Glob and group imports can also target enums to import variants directly:
+
+```zoya
+use root::types::Color::*              // import all variants
+use root::types::Option::{Some, None}  // import specific variants
+
+fn main() -> Int {
+    match Some(Red) {
+        Some(Red) => 1,
+        _ => 0,
+    }
 }
 ```
 
@@ -409,8 +424,11 @@ Use `pub use` to re-export imported items. All import forms support `pub`:
 
 ```zoya
 pub use root::math::add              // re-export single item
-pub use root::collections::*         // re-export all public items
+pub use root::math                   // re-export a module
+pub use root::collections::*         // re-export all public items and modules
 pub use root::math::{add, subtract}  // re-export specific items
+pub use root::types::Color::*        // re-export all enum variants
+pub use root::types::Color::{Red}    // re-export specific variants
 ```
 
 This makes the items available to anyone who can access the current module, even though they are defined elsewhere.

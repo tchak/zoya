@@ -189,26 +189,42 @@ fn main() -> String {
 
 ### Glob Imports
 
-A glob import brings all public items from a module into scope:
+A glob import brings all public items from a module into scope, including public child modules:
 
 ```zoya
-use root::math::*                 // imports all public items from root::math
+use root::math::*                 // imports all public items and modules from root::math
 ```
 
-Private items are silently skipped. Enum variants are not imported directly — only the enum type itself is imported:
+Private items are silently skipped. Enum variants are not imported directly — only the enum type itself is imported. Public child modules are imported as namespaces:
 
 ```zoya
 // Module: root::types
 pub enum Color { Red, Green, Blue }
 pub fn helper() -> Int 42
+pub mod extras
 fn secret() -> Int 0              // private, not imported
 
 // Module: root
-use root::types::*                // imports Color and helper
+use root::types::*                // imports Color, helper, and extras
 
 fn main() -> String {
     let c = Color::Red;           // Color imported, variants accessed through it
     helper()                      // helper imported
+    extras::something()           // extras imported as namespace
+}
+```
+
+A glob import can also target an enum to bring its variants directly into scope:
+
+```zoya
+use root::types::Color::*        // imports Red, Green, Blue as bare names
+
+fn main() -> Int {
+    match Red {
+        Red => 1,
+        Green => 2,
+        Blue => 3,
+    }
 }
 ```
 
@@ -235,6 +251,20 @@ fn secret() -> Int 0
 
 // Module: root
 use root::math::{add, secret}    // Error: 'root::math::secret' is private
+```
+
+A group import can also target an enum to import specific variants:
+
+```zoya
+use root::types::Color::{Red, Green}  // imports Red and Green as bare names
+
+fn main() -> Int {
+    match Red {
+        Red => 1,
+        Green => 2,
+        Blue => 3,
+    }
+}
 ```
 
 ### Import Visibility Checks
@@ -279,7 +309,7 @@ A `pub use` declaration re-exports imported names, making them available through
 ```zoya
 // Module: root::prelude
 pub use root::option::Option           // re-export single item
-pub use root::collections::*           // re-export all public items
+pub use root::collections::*           // re-export all public items and modules
 pub use root::math::{add, subtract}    // re-export specific items
 ```
 
@@ -323,6 +353,44 @@ All import forms work through a re-exported module:
 use root::b::a::helper            // single item import through re-exported module
 use root::b::a::*                 // glob import through re-exported module
 use root::b::a::{add, helper}     // group import through re-exported module
+```
+
+Glob re-exports also include public child modules. Group re-exports can mix modules and items:
+
+```zoya
+// Module: root::lib
+pub mod utils
+pub fn helper() -> Int 42
+
+// Module: root::facade
+pub use root::lib::*              // re-exports helper and utils module
+pub use root::lib::{utils, helper}  // equivalent explicit form
+```
+
+### Enum Variant Re-exports
+
+Glob and group re-exports can target an enum to re-export its variants:
+
+```zoya
+// Module: root::types
+pub enum Color { Red, Green, Blue }
+
+// Module: root::prelude
+pub use root::types::Color::*             // re-exports Red, Green, Blue
+pub use root::types::Color::{Red, Green}  // re-exports specific variants
+```
+
+```zoya
+// Module: root::app
+use root::prelude::Red            // imports the re-exported variant
+
+fn main() -> Int {
+    match Red {
+        Red => 1,
+        Green => 2,
+        Blue => 3,
+    }
+}
 ```
 
 ## Visibility
