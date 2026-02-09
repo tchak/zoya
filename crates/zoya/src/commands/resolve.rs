@@ -75,11 +75,12 @@ fn resolve_from_directory(dir: &Path) -> Result<PathBuf, ResolveError> {
     }
 
     let config = PackageConfig::load(dir).map_err(ResolveError::Config)?;
-    let main_path = dir.join(&config.main);
+    let main = config.main_path();
+    let main_path = dir.join(&main);
 
     if !main_path.exists() {
         return Err(ResolveError::MainNotFound {
-            main: config.main,
+            main,
             package_dir: dir.to_path_buf(),
         });
     }
@@ -115,6 +116,28 @@ main = "src/main.zoya"
         .unwrap();
 
         // Create main file
+        std::fs::create_dir(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/main.zoya"), "fn main() { 1 }").unwrap();
+
+        let result = resolve_entry_point(Some(dir.path()));
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), dir.path().join("src/main.zoya"));
+    }
+
+    #[test]
+    fn test_resolve_directory_with_default_main() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Create package.toml without explicit main field
+        std::fs::write(
+            dir.path().join("package.toml"),
+            r#"
+name = "test_project"
+"#,
+        )
+        .unwrap();
+
+        // Create main file at default location
         std::fs::create_dir(dir.path().join("src")).unwrap();
         std::fs::write(dir.path().join("src/main.zoya"), "fn main() { 1 }").unwrap();
 

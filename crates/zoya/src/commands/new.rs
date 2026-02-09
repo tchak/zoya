@@ -42,11 +42,19 @@ pub fn execute(path: &Path, name_override: Option<&str>) -> Result<(), NewError>
     // Create package.toml
     let config = PackageConfig {
         name: name.clone(),
-        main: std::path::PathBuf::from("src/main.zoya"),
+        main: None,
+        output: None,
     };
     let config_path = path.join("package.toml");
     std::fs::write(&config_path, config.to_toml()).map_err(|e| NewError::Io {
         path: config_path,
+        source: e,
+    })?;
+
+    // Create .gitignore
+    let gitignore_path = path.join(".gitignore");
+    std::fs::write(&gitignore_path, "build/\n").map_err(|e| NewError::Io {
+        path: gitignore_path,
         source: e,
     })?;
 
@@ -89,7 +97,7 @@ impl std::fmt::Display for NewError {
             }
             NewError::InvalidName(name) => write!(
                 f,
-                "invalid package name '{}': must be lowercase alphanumeric with underscores, starting with a letter",
+                "invalid package name '{}': must be lowercase alphanumeric with underscores or hyphens, starting with a letter",
                 name
             ),
             NewError::Io { path, source } => {
@@ -124,14 +132,20 @@ mod tests {
         assert!(project_path.join("package.toml").exists());
         assert!(project_path.join("src").exists());
         assert!(project_path.join("src/main.zoya").exists());
+        assert!(project_path.join(".gitignore").exists());
 
-        // Check package.toml content
+        // Check package.toml content — main should be omitted (uses default)
         let config = PackageConfig::load(&project_path).unwrap();
         assert_eq!(config.name, "my_project");
+        assert_eq!(config.main, None);
         assert_eq!(
-            config.main,
+            config.main_path(),
             std::path::PathBuf::from("src/main.zoya")
         );
+
+        // Check .gitignore content
+        let gitignore = std::fs::read_to_string(project_path.join(".gitignore")).unwrap();
+        assert!(gitignore.contains("build/"));
 
         // Check main.zoya content
         let main_content = std::fs::read_to_string(project_path.join("src/main.zoya")).unwrap();
@@ -159,7 +173,21 @@ mod tests {
         assert!(result.is_ok());
 
         let config = PackageConfig::load(&project_path).unwrap();
-        assert_eq!(config.name, "my_project");
+        // Hyphens are preserved in sanitized names
+        assert_eq!(config.name, "my-project");
+    }
+
+    #[test]
+    fn test_execute_with_hyphenated_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_path = dir.path().join("test");
+
+        let result = execute(&project_path, Some("my-cool-app"));
+        assert!(result.is_ok());
+
+        let config = PackageConfig::load(&project_path).unwrap();
+        assert_eq!(config.name, "my-cool-app");
+        assert_eq!(config.module_name(), "my_cool_app");
     }
 
     #[test]
@@ -178,7 +206,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let project_path = dir.path().join("test");
 
-        let result = execute(&project_path, Some("Invalid-Name"));
+        let result = execute(&project_path, Some("Invalid Name"));
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), NewError::InvalidName(_)));
     }
