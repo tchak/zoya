@@ -90,14 +90,7 @@ fn check_item_visibility(
     item_name: &str,
     accessor_module: &QualifiedPath,
 ) -> Result<(), TypeError> {
-    let visibility = match def {
-        Definition::Function(f) => f.visibility,
-        Definition::Struct(s) => s.visibility,
-        Definition::Enum(e) => e.visibility,
-        Definition::TypeAlias(a) => a.visibility,
-        Definition::EnumVariant(parent_enum, _) => parent_enum.visibility,
-        Definition::Module(m) => m.visibility,
-    };
+    let visibility = def.visibility();
 
     if visibility == Visibility::Public {
         return Ok(());

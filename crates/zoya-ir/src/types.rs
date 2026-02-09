@@ -254,6 +254,17 @@ impl Definition {
             Definition::Module(m) => &m.module,
         }
     }
+
+    pub fn visibility(&self) -> Visibility {
+        match self {
+            Definition::Function(f) => f.visibility,
+            Definition::Struct(s) => s.visibility,
+            Definition::Enum(e) => e.visibility,
+            Definition::EnumVariant(parent_enum, _) => parent_enum.visibility,
+            Definition::TypeAlias(a) => a.visibility,
+            Definition::Module(m) => m.visibility,
+        }
+    }
 }
 
 /// Type scheme for polymorphic values (let polymorphism)

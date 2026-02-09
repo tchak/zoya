@@ -119,14 +119,7 @@ fn check_import_visible(
     })?;
 
     // Get visibility
-    let visibility = match def {
-        Definition::Function(f) => f.visibility,
-        Definition::Struct(s) => s.visibility,
-        Definition::Enum(e) => e.visibility,
-        Definition::TypeAlias(a) => a.visibility,
-        Definition::EnumVariant(parent_enum, _) => parent_enum.visibility,
-        Definition::Module(m) => m.visibility,
-    };
+    let visibility = def.visibility();
 
     if visibility == Visibility::Public {
         return Ok(());
@@ -229,32 +222,13 @@ fn check_pub_reexport_visible(
     definitions: &HashMap<QualifiedPath, Definition>,
 ) -> Result<(), TypeError> {
     let def = definitions.get(qualified).expect("already checked above");
-    let target_visibility = match def {
-        Definition::Function(f) => f.visibility,
-        Definition::Struct(s) => s.visibility,
-        Definition::Enum(e) => e.visibility,
-        Definition::TypeAlias(a) => a.visibility,
-        Definition::EnumVariant(parent_enum, _) => parent_enum.visibility,
-        Definition::Module(m) => m.visibility,
-    };
+    let target_visibility = def.visibility();
     if target_visibility != Visibility::Public {
         return Err(TypeError {
             message: format!("pub use cannot re-export private item '{}'", qualified),
         });
     }
     Ok(())
-}
-
-/// Get the visibility of a definition.
-fn definition_visibility(def: &Definition) -> Visibility {
-    match def {
-        Definition::Function(f) => f.visibility,
-        Definition::Struct(s) => s.visibility,
-        Definition::Enum(e) => e.visibility,
-        Definition::TypeAlias(a) => a.visibility,
-        Definition::EnumVariant(parent_enum, _) => parent_enum.visibility,
-        Definition::Module(m) => m.visibility,
-    }
 }
 
 /// Resolve a module path, following re-exports if needed.
@@ -405,7 +379,7 @@ pub fn resolve_module_imports(
                                 let item_name = qpath.last();
 
                                 // Skip private items silently
-                                if definition_visibility(def) != Visibility::Public {
+                                if def.visibility() != Visibility::Public {
                                     continue;
                                 }
 

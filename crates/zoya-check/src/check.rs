@@ -1611,14 +1611,7 @@ fn register_reexport(
         return Ok(());
     }
 
-    let target_visibility = match def {
-        Definition::Function(f) => f.visibility,
-        Definition::Struct(s) => s.visibility,
-        Definition::Enum(e) => e.visibility,
-        Definition::TypeAlias(a) => a.visibility,
-        Definition::EnumVariant(parent_enum, _) => parent_enum.visibility,
-        Definition::Module(_) => unreachable!(),
-    };
+    let target_visibility = def.visibility();
     if target_visibility != Visibility::Public {
         return Err(TypeError {
             message: format!("pub use cannot re-export private item '{}'", qualified),
