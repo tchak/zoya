@@ -2,7 +2,7 @@ use std::path::Path;
 
 use zoya_check::check;
 use zoya_codegen::codegen;
-use zoya_ir::{CheckedItem, CheckedPackage, Type};
+use zoya_ir::{CheckedPackage, Type};
 use zoya_loader::{load_package, load_package_with, MemorySource};
 use zoya_package::QualifiedPath;
 
@@ -29,10 +29,7 @@ pub fn run(
     let main_func = target_module
         .items
         .iter()
-        .find_map(|item| match item {
-            CheckedItem::Function(f) if f.name == "main" => Some(f.as_ref()),
-            _ => None,
-        })
+        .find(|f| f.name == "main")
         .ok_or_else(|| {
             EvalError::RuntimeError(format!("no main() function found in {}", module_path))
         })?;

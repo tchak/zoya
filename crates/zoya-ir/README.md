@@ -15,7 +15,7 @@ This crate defines the type-checked IR produced by the type checker. All express
 ## Usage
 
 ```rust
-use zoya_ir::{Type, TypedExpr, CheckedItem, CheckedPackage, Visibility, QualifiedPath};
+use zoya_ir::{Type, TypedExpr, Definition, CheckedPackage, Visibility, QualifiedPath};
 
 // Type represents resolved types
 let list_int = Type::List(Box::new(Type::Int));
@@ -33,24 +33,21 @@ assert_eq!(expr.ty(), Type::Int);
 let path = QualifiedPath::new(vec!["root".into(), "utils".into(), "helper".into()]);
 assert_eq!(path.to_string(), "root::utils::helper");
 
-// CheckedPackage contains all type-checked modules
+// CheckedPackage contains all type-checked modules and definitions
 fn process_package(pkg: &CheckedPackage) {
+    // Iterate over functions in each module
     for (path, module) in &pkg.modules {
-        for item in &module.items {
-            match item {
-                CheckedItem::Function(f) => {
-                    println!("fn {}: {:?}", f.name, f.return_type);
-                }
-                CheckedItem::Struct(s) => {
-                    println!("struct {}", s.name);
-                }
-                CheckedItem::Enum(e) => {
-                    println!("enum {}", e.name);
-                }
-                CheckedItem::TypeAlias(t) => {
-                    println!("type {}", t.name);
-                }
-            }
+        for f in &module.items {
+            println!("fn {}: {:?}", f.name, f.return_type);
+        }
+    }
+
+    // Inspect type definitions
+    for (path, def) in &pkg.definitions {
+        match def {
+            Definition::Struct(s) => println!("struct at {}", path),
+            Definition::Enum(e) => println!("enum at {}", path),
+            _ => {}
         }
     }
 }
@@ -63,9 +60,8 @@ fn process_package(pkg: &CheckedPackage) {
 | `Type` | Resolved type (Int, List<T>, structs, enums, functions) |
 | `TypedExpr` | Expression with attached type information |
 | `TypedPattern` | Pattern with resolved types for codegen |
-| `CheckedItem` | Type-checked function, struct, enum, or type alias |
-| `CheckedModule` | A module's checked items |
-| `CheckedPackage` | Complete package of checked modules |
+| `CheckedModule` | A module's checked functions |
+| `CheckedPackage` | Complete package of checked modules and definitions |
 | `QualifiedPath` | Fully resolved path (e.g., `root::utils::helper`) |
 | `Definition` | Type definition with visibility and defining module |
 | `FunctionType` | Function signature with visibility, module, type params |

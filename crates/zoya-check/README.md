@@ -25,15 +25,15 @@ use std::path::Path;
 let pkg = load_package(Path::new("src/main.zoya"))?;
 let checked_pkg = check(&pkg)?;
 
-// Access checked modules
+// Access checked functions
 let root = checked_pkg.root().unwrap();
-for item in &root.items {
-    match item {
-        CheckedItem::Function(f) => println!("{}: {}", f.name, f.return_type),
-        CheckedItem::Struct(s) => println!("struct {}", s.name),
-        CheckedItem::Enum(e) => println!("enum {}", e.name),
-        CheckedItem::TypeAlias(t) => println!("type {}", t.name),
-    }
+for f in &root.items {
+    println!("{}: {}", f.name, f.return_type);
+}
+
+// Access type definitions
+for (path, def) in &checked_pkg.definitions {
+    println!("{}: {}", path, def.kind_name());
 }
 ```
 

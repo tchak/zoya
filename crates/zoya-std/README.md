@@ -22,23 +22,16 @@ pub enum Result<T, E> { Ok(T), Err(E) }
 
 ```rust
 use zoya_std::std;
-use zoya_ir::CheckedItem;
+use zoya_ir::Definition;
 use zoya_loader::QualifiedPath;
 
 // Get the standard library (lazily compiled and cached)
 let std_pkg = std();
 
-// Access the option module
-let option_path = QualifiedPath::root().child("option");
-let option_module = std_pkg.get(&option_path).unwrap();
-
-// Inspect its items
-for item in &option_module.items {
-    match item {
-        CheckedItem::Enum(e) => println!("enum {}", e.name),
-        _ => {}
-    }
-}
+// Access the Option enum definition
+let option_path = QualifiedPath::root().child("option").child("Option");
+let def = std_pkg.definitions.get(&option_path).unwrap();
+assert!(matches!(def, Definition::Enum(_)));
 ```
 
 The standard library is a `&'static CheckedPackage` - it is compiled once and cached for the lifetime of the process.

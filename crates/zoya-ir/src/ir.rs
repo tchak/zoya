@@ -1,16 +1,7 @@
-use zoya_ast::{BinOp, EnumDef, StructDef, TypeAliasDef, UnaryOp};
+use zoya_ast::{BinOp, UnaryOp};
 use zoya_package::QualifiedPath;
 
-use crate::types::Type;
-
-/// A checked item from the type checker
-#[derive(Debug, Clone, PartialEq)]
-pub enum CheckedItem {
-    Function(Box<TypedFunction>),
-    Struct(StructDef),       // Structs are declarations, passed through as-is
-    Enum(EnumDef),           // Enums are declarations, passed through as-is
-    TypeAlias(TypeAliasDef), // Type aliases are transparent, passed through as-is
-}
+use crate::types::{Definition, Type};
 
 /// Typed function definition
 #[derive(Debug, Clone, PartialEq)]
@@ -259,16 +250,17 @@ impl TypedExpr {
     }
 }
 
-/// A checked module containing type-checked items
+/// A checked module containing type-checked functions
 #[derive(Debug, Clone, PartialEq)]
 pub struct CheckedModule {
-    pub items: Vec<CheckedItem>,
+    pub items: Vec<TypedFunction>,
 }
 
 /// The complete checked package
 #[derive(Debug, Clone, PartialEq)]
 pub struct CheckedPackage {
     pub modules: std::collections::HashMap<QualifiedPath, CheckedModule>,
+    pub definitions: std::collections::HashMap<QualifiedPath, Definition>,
 }
 
 impl CheckedPackage {

@@ -28,7 +28,7 @@ pub fn std() -> &'static CheckedPackage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zoya_ir::CheckedItem;
+    use zoya_ir::Definition;
     use zoya_loader::QualifiedPath;
 
     #[test]
@@ -40,19 +40,17 @@ mod tests {
     #[test]
     fn test_std_has_option_enum() {
         let pkg = std();
-        let path = QualifiedPath::root().child("option");
-        let module = pkg.get(&path).expect("option module");
-        assert_eq!(module.items.len(), 1);
-        assert!(matches!(&module.items[0], CheckedItem::Enum(_)));
+        let path = QualifiedPath::root().child("option").child("Option");
+        let def = pkg.definitions.get(&path).expect("Option definition");
+        assert!(matches!(def, Definition::Enum(_)));
     }
 
     #[test]
     fn test_std_has_result_enum() {
         let pkg = std();
-        let path = QualifiedPath::root().child("result");
-        let module = pkg.get(&path).expect("result module");
-        assert_eq!(module.items.len(), 1);
-        assert!(matches!(&module.items[0], CheckedItem::Enum(_)));
+        let path = QualifiedPath::root().child("result").child("Result");
+        let def = pkg.definitions.get(&path).expect("Result definition");
+        assert!(matches!(def, Definition::Enum(_)));
     }
 
     #[test]

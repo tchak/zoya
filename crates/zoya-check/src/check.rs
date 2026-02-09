@@ -5,7 +5,7 @@ use zoya_ast::{
     UseTarget,
 };
 use zoya_ir::{
-    CheckedItem, CheckedModule, CheckedPackage, Definition, EnumType, EnumVariantType,
+    CheckedModule, CheckedPackage, Definition, EnumType, EnumVariantType,
     FunctionType, ModuleType, QualifiedPath, StructType, Type, TypeAliasType, TypeError,
     TypeScheme, TypeVarId, TypedEnumConstructFields, TypedExpr, TypedFunction, Visibility,
 };
@@ -1780,6 +1780,7 @@ pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
 
     Ok(CheckedPackage {
         modules: checked_modules,
+        definitions: env.definitions,
     })
 }
 
@@ -1893,21 +1894,9 @@ fn check_module_bodies(
     let mut checked_items = Vec::new();
 
     for item in items {
-        match item {
-            Item::Function(func) => {
-                let typed = check_function_in_module(func, current_module, env, ctx)?;
-                checked_items.push(CheckedItem::Function(Box::new(typed)));
-            }
-            Item::Struct(def) => {
-                checked_items.push(CheckedItem::Struct(def.clone()));
-            }
-            Item::Enum(def) => {
-                checked_items.push(CheckedItem::Enum(def.clone()));
-            }
-            Item::TypeAlias(def) => {
-                checked_items.push(CheckedItem::TypeAlias(def.clone()));
-            }
-            Item::Use(_) => {}
+        if let Item::Function(func) = item {
+            let typed = check_function_in_module(func, current_module, env, ctx)?;
+            checked_items.push(typed);
         }
     }
 

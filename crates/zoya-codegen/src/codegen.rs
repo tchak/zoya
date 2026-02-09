@@ -1,7 +1,7 @@
 use zoya_ast::{BinOp, UnaryOp};
 use zoya_ir::{
-    CheckedItem, CheckedPackage, QualifiedPath, Type, TypedEnumConstructFields, TypedExpr,
-    TypedFunction, TypedMatchArm, TypedPattern,
+    CheckedPackage, QualifiedPath, Type, TypedEnumConstructFields, TypedExpr, TypedFunction,
+    TypedMatchArm, TypedPattern,
 };
 
 /// Output of code generation containing JS code and content hash
@@ -64,14 +64,11 @@ function $$eq(a, b) {
 }
 
 /// Generate JavaScript code for all functions in the checked items.
-/// Structs, enums, and type aliases are type-level only and produce no JS.
-fn codegen_items(items: &[CheckedItem], module_path: &QualifiedPath) -> String {
+fn codegen_items(items: &[TypedFunction], module_path: &QualifiedPath) -> String {
     let mut js = String::new();
-    for item in items {
-        if let CheckedItem::Function(f) = item {
-            js.push_str(&codegen_function(f, module_path));
-            js.push('\n');
-        }
+    for f in items {
+        js.push_str(&codegen_function(f, module_path));
+        js.push('\n');
     }
     js
 }

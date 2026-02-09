@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use zoya_ast::{Expr, FunctionDef, Item, Visibility};
-use zoya_ir::{CheckedItem, TypeError, TypedExpr, TypedFunction};
+use zoya_ir::{TypeError, TypedExpr, TypedFunction};
 use zoya_package::{Module, QualifiedPath, Package};
 
 use crate::check::{check_expr, TypeEnv};
@@ -55,13 +55,6 @@ pub fn build_test_package_with_expr(items: Vec<Item>, test_expr: Expr) -> Packag
 }
 
 /// Find the `__test` function from checked items
-pub fn find_test_function(items: &[CheckedItem]) -> Option<&TypedFunction> {
-    for item in items {
-        if let CheckedItem::Function(f) = item {
-            if f.name == "__test" {
-                return Some(f);
-            }
-        }
-    }
-    None
+pub fn find_test_function(items: &[TypedFunction]) -> Option<&TypedFunction> {
+    items.iter().find(|f| f.name == "__test")
 }

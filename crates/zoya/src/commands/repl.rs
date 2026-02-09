@@ -7,7 +7,7 @@ use rustyline::error::ReadlineError;
 use zoya_run::{self as runner, Value};
 use zoya_ast::{Expr, FunctionDef, Item, LetBinding, Stmt, Visibility};
 use zoya_check::check;
-use zoya_ir::{CheckedItem, CheckedPackage, Type, TypedExpr, TypedPattern};
+use zoya_ir::{CheckedPackage, Type, TypedExpr, TypedPattern};
 use zoya_package::{Module, QualifiedPath, Package};
 
 /// Extract all variable bindings from a typed pattern.
@@ -417,14 +417,7 @@ fn find_typed_function<'a>(
 ) -> Option<&'a zoya_ir::TypedFunction> {
     let repl_path = QualifiedPath::root().child("repl");
     let repl_module = pkg.modules.get(&repl_path)?;
-    for item in &repl_module.items {
-        if let CheckedItem::Function(f) = item
-            && f.name == name
-        {
-            return Some(f);
-        }
-    }
-    None
+    repl_module.items.iter().find(|f| f.name == name)
 }
 
 /// Extract binding information from a typed expression (for let-only blocks).

@@ -1,5 +1,5 @@
 use zoya_ast::{BinOp, Expr, FunctionDef, Item, MatchArm, Param, Path, Pattern, TypeAnnotation, Visibility};
-use zoya_ir::{CheckedItem, Definition, FunctionType, QualifiedPath, Type};
+use zoya_ir::{Definition, FunctionType, QualifiedPath, Type};
 
 use crate::check::{check, check_expr, check_function, TypeEnv};
 use crate::definition::function_type_from_def;
@@ -287,7 +287,7 @@ fn test_check_function_definition() {
     let checked_tree = check(&tree).unwrap();
     let root = checked_tree.root().unwrap();
     assert_eq!(root.items.len(), 1);
-    assert!(matches!(root.items[0], CheckedItem::Function(_)));
+
 }
 
 #[test]
@@ -316,7 +316,7 @@ fn test_check_function_call_in_module() {
     let root = checked_tree.root().unwrap();
     // double + __test
     assert_eq!(root.items.len(), 2);
-    assert!(matches!(root.items[0], CheckedItem::Function(_)));
+
     let test_fn = find_test_function(&root.items).unwrap();
     // The call expression becomes the return value of __test (returns Int)
     assert_eq!(test_fn.return_type, Type::Int);
@@ -355,8 +355,8 @@ fn test_check_forward_reference() {
     let root = checked_tree.root().unwrap();
     assert_eq!(root.items.len(), 2);
     // Both should be functions
-    assert!(matches!(root.items[0], CheckedItem::Function(_)));
-    assert!(matches!(root.items[1], CheckedItem::Function(_)));
+
+
 }
 
 #[test]
@@ -477,8 +477,8 @@ fn test_check_module_with_test_expr() {
     // f2 + f1 + __test = 3 functions
     assert_eq!(root.items.len(), 3);
     // Verify items (f2, f1)
-    assert!(matches!(root.items[0], CheckedItem::Function(_)));
-    assert!(matches!(root.items[1], CheckedItem::Function(_)));
+
+
     // Verify __test function has the correct return type
     let test_fn = find_test_function(&root.items).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
