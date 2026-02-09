@@ -784,3 +784,303 @@ fn test_pub_use_reexport_module_item_import() {
     let test_fn = find_test_function(&root_module.items).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
+
+// ===== External Visibility Filtering Tests =====
+
+/// Build a multi-module test package where child module visibility can be controlled.
+/// Each entry is (path, items, visibility_of_this_module_in_parent).
+/// The root module always exists and its visibility argument is ignored.
+fn build_package_with_visibility(
+    modules_data: Vec<(QualifiedPath, Vec<Item>, Visibility)>,
+) -> Package {
+    let mut modules = HashMap::new();
+
+    for (path, items, _) in &modules_data {
+        modules.insert(
+            path.clone(),
+            Module {
+                items: items.clone(),
+                path: path.clone(),
+                children: HashMap::new(),
+            },
+        );
+    }
+
+    for (path, _, vis) in &modules_data {
+        if *path != QualifiedPath::root() {
+            if let Some(parent_path) = path.parent() {
+                let child_name = path.segments().last().unwrap().clone();
+                if let Some(parent) = modules.get_mut(&parent_path) {
+                    parent.children.insert(child_name, (path.clone(), *vis));
+                }
+            }
+        }
+    }
+
+    Package { modules }
+}
+
+#[test]
+fn test_external_visibility_pub_items_in_pub_modules() {
+    let utils_items = vec![Item::Function(FunctionDef {
+        visibility: Visibility::Public,
+        name: "helper".to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+        body: Expr::Int(42),
+    })];
+
+    let tree = build_multi_module_package(vec![
+        (QualifiedPath::root(), vec![]),
+        (QualifiedPath::root().child("utils"), utils_items),
+    ]);
+
+    let result = check(&tree).unwrap();
+    let helper_path = QualifiedPath::root().child("utils").child("helper");
+    assert!(
+        result.definitions.contains_key(&helper_path),
+        "pub fn in pub module should be externally visible"
+    );
+}
+
+#[test]
+fn test_external_visibility_private_items_excluded() {
+    let utils_items = vec![Item::Function(FunctionDef {
+        visibility: Visibility::Private,
+        name: "secret".to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+        body: Expr::Int(42),
+    })];
+
+    let tree = build_multi_module_package(vec![
+        (QualifiedPath::root(), vec![]),
+        (QualifiedPath::root().child("utils"), utils_items),
+    ]);
+
+    let result = check(&tree).unwrap();
+    let secret_path = QualifiedPath::root().child("utils").child("secret");
+    assert!(
+        !result.definitions.contains_key(&secret_path),
+        "private fn should not be externally visible"
+    );
+}
+
+#[test]
+fn test_external_visibility_pub_item_in_private_module_excluded() {
+    let internal_items = vec![Item::Function(FunctionDef {
+        visibility: Visibility::Public,
+        name: "helper".to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+        body: Expr::Int(42),
+    })];
+
+    let tree = build_package_with_visibility(vec![
+        (QualifiedPath::root(), vec![], Visibility::Public),
+        (
+            QualifiedPath::root().child("internal"),
+            internal_items,
+            Visibility::Private,
+        ),
+    ]);
+
+    let result = check(&tree).unwrap();
+    let helper_path = QualifiedPath::root().child("internal").child("helper");
+    assert!(
+        !result.definitions.contains_key(&helper_path),
+        "pub fn in private module should not be externally visible"
+    );
+}
+
+#[test]
+fn test_external_visibility_pub_enum_variants_retained() {
+    let utils_items = vec![Item::Enum(EnumDef {
+        visibility: Visibility::Public,
+        name: "Color".to_string(),
+        type_params: vec![],
+        variants: vec![
+            EnumVariant {
+                name: "Red".to_string(),
+                kind: EnumVariantKind::Unit,
+            },
+            EnumVariant {
+                name: "Blue".to_string(),
+                kind: EnumVariantKind::Unit,
+            },
+        ],
+    })];
+
+    let tree = build_multi_module_package(vec![
+        (QualifiedPath::root(), vec![]),
+        (QualifiedPath::root().child("utils"), utils_items),
+    ]);
+
+    let result = check(&tree).unwrap();
+    let color_path = QualifiedPath::root().child("utils").child("Color");
+    let red_path = color_path.child("Red");
+    let blue_path = color_path.child("Blue");
+
+    assert!(
+        result.definitions.contains_key(&color_path),
+        "pub enum should be externally visible"
+    );
+    assert!(
+        result.definitions.contains_key(&red_path),
+        "variant of pub enum in pub module should be externally visible"
+    );
+    assert!(
+        result.definitions.contains_key(&blue_path),
+        "variant of pub enum in pub module should be externally visible"
+    );
+}
+
+#[test]
+fn test_external_visibility_deeply_nested_pub_items() {
+    let deep_items = vec![Item::Function(FunctionDef {
+        visibility: Visibility::Public,
+        name: "deep_fn".to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+        body: Expr::Int(1),
+    })];
+
+    let tree = build_multi_module_package(vec![
+        (QualifiedPath::root(), vec![]),
+        (QualifiedPath::root().child("a"), vec![]),
+        (QualifiedPath::root().child("a").child("b"), vec![]),
+        (
+            QualifiedPath::root().child("a").child("b").child("c"),
+            deep_items,
+        ),
+    ]);
+
+    let result = check(&tree).unwrap();
+    let deep_fn_path = QualifiedPath::root()
+        .child("a")
+        .child("b")
+        .child("c")
+        .child("deep_fn");
+    assert!(
+        result.definitions.contains_key(&deep_fn_path),
+        "pub fn through all-pub modules should be externally visible"
+    );
+}
+
+#[test]
+fn test_external_visibility_private_module_blocks_deeply_nested() {
+    let deep_items = vec![Item::Function(FunctionDef {
+        visibility: Visibility::Public,
+        name: "deep_fn".to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+        body: Expr::Int(1),
+    })];
+
+    let tree = build_package_with_visibility(vec![
+        (QualifiedPath::root(), vec![], Visibility::Public),
+        (
+            QualifiedPath::root().child("a"),
+            vec![],
+            Visibility::Public,
+        ),
+        (
+            QualifiedPath::root().child("a").child("b"),
+            vec![],
+            Visibility::Private,
+        ),
+        (
+            QualifiedPath::root().child("a").child("b").child("c"),
+            deep_items,
+            Visibility::Public,
+        ),
+    ]);
+
+    let result = check(&tree).unwrap();
+    let deep_fn_path = QualifiedPath::root()
+        .child("a")
+        .child("b")
+        .child("c")
+        .child("deep_fn");
+    assert!(
+        !result.definitions.contains_key(&deep_fn_path),
+        "pub fn behind a private module should not be externally visible"
+    );
+}
+
+#[test]
+fn test_external_visibility_root_level_pub_item() {
+    let root_items = vec![Item::Function(FunctionDef {
+        visibility: Visibility::Public,
+        name: "main".to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+        body: Expr::Int(0),
+    })];
+
+    let tree = build_multi_module_package(vec![(QualifiedPath::root(), root_items)]);
+
+    let result = check(&tree).unwrap();
+    let main_path = QualifiedPath::root().child("main");
+    assert!(
+        result.definitions.contains_key(&main_path),
+        "pub fn at root level should be externally visible"
+    );
+}
+
+#[test]
+fn test_external_visibility_root_level_private_item_excluded() {
+    let root_items = vec![Item::Function(FunctionDef {
+        visibility: Visibility::Private,
+        name: "internal".to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+        body: Expr::Int(0),
+    })];
+
+    let tree = build_multi_module_package(vec![(QualifiedPath::root(), root_items)]);
+
+    let result = check(&tree).unwrap();
+    let internal_path = QualifiedPath::root().child("internal");
+    assert!(
+        !result.definitions.contains_key(&internal_path),
+        "private fn at root level should not be externally visible"
+    );
+}
+
+#[test]
+fn test_external_visibility_modules_themselves() {
+    let tree = build_package_with_visibility(vec![
+        (QualifiedPath::root(), vec![], Visibility::Public),
+        (
+            QualifiedPath::root().child("public_mod"),
+            vec![],
+            Visibility::Public,
+        ),
+        (
+            QualifiedPath::root().child("private_mod"),
+            vec![],
+            Visibility::Private,
+        ),
+    ]);
+
+    let result = check(&tree).unwrap();
+    let pub_mod_path = QualifiedPath::root().child("public_mod");
+    let priv_mod_path = QualifiedPath::root().child("private_mod");
+
+    assert!(
+        result.definitions.contains_key(&pub_mod_path),
+        "pub module should be externally visible"
+    );
+    assert!(
+        !result.definitions.contains_key(&priv_mod_path),
+        "private module should not be externally visible"
+    );
+}

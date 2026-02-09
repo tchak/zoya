@@ -1642,6 +1642,32 @@ fn register_reexport(
     Ok(())
 }
 
+/// A definition is externally visible if it is public and all
+/// ancestor modules between root and the definition are also public.
+fn is_externally_visible(
+    path: &QualifiedPath,
+    def: &Definition,
+    definitions: &HashMap<QualifiedPath, Definition>,
+) -> bool {
+    if def.visibility() != Visibility::Public {
+        return false;
+    }
+    let segments = path.segments();
+    // Check ancestors: for ["root", "a", "b", "Foo"], check ["root", "a"] and ["root", "a", "b"]
+    for i in 2..segments.len() {
+        let ancestor = QualifiedPath::new(segments[..i].to_vec());
+        match definitions.get(&ancestor) {
+            Some(ancestor_def) => {
+                if ancestor_def.visibility() != Visibility::Public {
+                    return false;
+                }
+            }
+            None => return false,
+        }
+    }
+    true
+}
+
 /// Check an entire module tree, returning a checked module tree.
 ///
 /// This performs multi-module type checking:
@@ -1849,9 +1875,16 @@ pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
         }
     }
 
+    let external_definitions = env
+        .definitions
+        .iter()
+        .filter(|(path, def)| is_externally_visible(path, def, &env.definitions))
+        .map(|(path, def)| (path.clone(), def.clone()))
+        .collect();
+
     Ok(CheckedPackage {
         modules: checked_modules,
-        definitions: env.definitions,
+        definitions: external_definitions,
     })
 }
 
