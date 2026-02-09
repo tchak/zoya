@@ -1,12 +1,13 @@
 /// Path prefix for module resolution
-/// Examples: `root::foo`, `self::bar`, `super::baz`
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Examples: `root::foo`, `self::bar`, `super::baz`, `serde::Deserialize`
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum PathPrefix {
     #[default]
-    None,   // Relative path (child module or current scope)
-    Root,   // root::
-    Self_,  // self::
-    Super,  // super::
+    None,              // Relative path (child module or current scope)
+    Root,              // root::
+    Self_,             // self::
+    Super,             // super::
+    Package(String),   // package_name:: (external package path)
 }
 
 impl std::fmt::Display for PathPrefix {
@@ -16,6 +17,7 @@ impl std::fmt::Display for PathPrefix {
             PathPrefix::Root => write!(f, "root::"),
             PathPrefix::Self_ => write!(f, "self::"),
             PathPrefix::Super => write!(f, "super::"),
+            PathPrefix::Package(name) => write!(f, "{name}::"),
         }
     }
 }
@@ -552,6 +554,7 @@ mod tests {
         assert_eq!(PathPrefix::Root.to_string(), "root::");
         assert_eq!(PathPrefix::Self_.to_string(), "self::");
         assert_eq!(PathPrefix::Super.to_string(), "super::");
+        assert_eq!(PathPrefix::Package("serde".to_string()).to_string(), "serde::");
     }
 
     #[test]

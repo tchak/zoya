@@ -2873,7 +2873,7 @@ fn test_error_duplicate_import_names() {
 
 #[test]
 fn test_error_use_without_prefix() {
-    // Parser requires a prefix for use paths - test that missing prefix fails at parse time
+    // Parser now treats prefix-free use paths as package paths, which fail at check time
     let mut source = MemorySource::new();
     source.add_module(
         "root",
@@ -2885,7 +2885,7 @@ fn test_error_use_without_prefix() {
     );
     source.add_module("utils", "pub fn helper() -> Int { 42 }");
     let result = load_package_with(&source, &"root".to_string());
-    // This should fail at parse or resolution time
+    // Parsing succeeds but check fails with "package imports are not implemented yet"
     assert!(result.is_err() || {
         let pkg = result.unwrap();
         check(&pkg).is_err()

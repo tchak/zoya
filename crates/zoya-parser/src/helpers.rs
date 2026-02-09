@@ -97,13 +97,16 @@ pub(crate) fn use_decl_parser<'a>(
         .map_with(|(((is_pub, prefix), segments), target), e| {
             (is_pub, prefix, segments, target, e.span())
         })
-        .try_map(|(is_pub, prefix, segments, target, span), _| {
-            if prefix == PathPrefix::None {
-                return Err(Rich::custom(
-                    span,
-                    "external modules not supported; use root::, self::, or super:: prefix",
-                ));
-            }
+        .try_map(|(is_pub, prefix, segments, target, _span), _| {
+            let (prefix, segments) = if prefix == PathPrefix::None {
+                // No prefix: treat as package path
+                // `use serde::Deserialize` → Package("serde") + ["Deserialize"]
+                let mut segs = segments;
+                let pkg_name = segs.remove(0);
+                (PathPrefix::Package(pkg_name), segs)
+            } else {
+                (prefix, segments)
+            };
             Ok(UseDecl {
                 visibility: if is_pub.is_some() {
                     Visibility::Public

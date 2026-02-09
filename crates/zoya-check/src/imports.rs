@@ -26,7 +26,7 @@ pub(crate) fn resolve_use_path(
 ) -> Result<QualifiedPath, TypeError> {
     let path = &use_decl.path;
 
-    match path.prefix {
+    match &path.prefix {
         PathPrefix::Root => {
             // root::foo::bar → root::foo::bar
             let mut segments = vec!["root".to_string()];
@@ -56,8 +56,11 @@ pub(crate) fn resolve_use_path(
             segments.extend(path.segments.iter().cloned());
             Ok(QualifiedPath::new(segments))
         }
+        PathPrefix::Package(name) => Err(TypeError {
+            message: format!("package imports are not implemented yet: {name}"),
+        }),
         PathPrefix::None => {
-            // This should not happen - parser rejects paths without prefix
+            // This should not happen - parser transforms prefix-free paths to Package
             Err(TypeError {
                 message: "use declarations require a prefix (root::, self::, or super::)"
                     .to_string(),
@@ -74,7 +77,7 @@ pub(crate) fn resolve_use_module_path(
 ) -> Result<QualifiedPath, TypeError> {
     let path = &use_decl.path;
 
-    match path.prefix {
+    match &path.prefix {
         PathPrefix::Root => {
             let mut segments = vec!["root".to_string()];
             segments.extend(path.segments.iter().cloned());
@@ -101,6 +104,9 @@ pub(crate) fn resolve_use_module_path(
             segments.extend(path.segments.iter().cloned());
             Ok(QualifiedPath::new(segments))
         }
+        PathPrefix::Package(name) => Err(TypeError {
+            message: format!("package imports are not implemented yet: {name}"),
+        }),
         PathPrefix::None => Err(TypeError {
             message: "use declarations require a prefix (root::, self::, or super::)".to_string(),
         }),
@@ -748,5 +754,22 @@ mod tests {
         assert!(result.is_ok());
         let imports = result.unwrap();
         assert_eq!(imports.get("helper"), Some(&qpath("root::other::helper")));
+    }
+
+    #[test]
+    fn test_package_import_not_implemented() {
+        let definitions = HashMap::new();
+        let uses = vec![UseDecl {
+            visibility: Visibility::Private,
+            path: UsePath {
+                prefix: PathPrefix::Package("serde".to_string()),
+                segments: vec!["Deserialize".to_string()],
+                target: UseTarget::Single { alias: None },
+            },
+        }];
+        let current = QualifiedPath::root();
+        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("package imports are not implemented yet"));
     }
 }

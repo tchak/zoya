@@ -2725,10 +2725,36 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_module_use_without_prefix_fails() {
-        let result = parse_module_str("use serde::Deserialize");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("external modules not supported"));
+    fn test_parse_module_use_without_prefix_is_package() {
+        let module = parse_module_str("use serde::Deserialize").unwrap();
+        let uses: Vec<_> = module.items.iter().filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None }).collect();
+        assert_eq!(uses.len(), 1);
+        assert_eq!(uses[0].path.prefix, PathPrefix::Package("serde".to_string()));
+        assert_eq!(uses[0].path.segments, vec!["Deserialize"]);
+    }
+
+    #[test]
+    fn test_parse_module_use_package_glob() {
+        let module = parse_module_str("use serde::*").unwrap();
+        let uses: Vec<_> = module.items.iter().filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None }).collect();
+        assert_eq!(uses.len(), 1);
+        assert_eq!(uses[0].path.prefix, PathPrefix::Package("serde".to_string()));
+        assert!(matches!(uses[0].path.target, UseTarget::Glob));
+    }
+
+    #[test]
+    fn test_parse_module_use_package_group() {
+        let module = parse_module_str("use serde::{A, B}").unwrap();
+        let uses: Vec<_> = module.items.iter().filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None }).collect();
+        assert_eq!(uses.len(), 1);
+        assert_eq!(uses[0].path.prefix, PathPrefix::Package("serde".to_string()));
+        if let UseTarget::Group(items) = &uses[0].path.target {
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0].name, "A");
+            assert_eq!(items[1].name, "B");
+        } else {
+            panic!("expected Group target");
+        }
     }
 
     #[test]
@@ -2750,7 +2776,7 @@ mod tests {
 
     // Path prefix tests
 
-    use zoya_ast::PathPrefix;
+    use zoya_ast::{PathPrefix, UseTarget};
 
     #[test]
     fn test_parse_path_no_prefix() {
@@ -3240,7 +3266,7 @@ mod tests {
     // Use declaration parsing tests
     // ========================================================================
 
-    use zoya_ast::{UseDecl, UseGroupItem, UsePath, UseTarget};
+    use zoya_ast::{UseDecl, UseGroupItem, UsePath};
 
     fn get_use_decl(input: &str) -> UseDecl {
         let module = parse_module_str(input).unwrap();
@@ -3360,9 +3386,14 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_use_no_prefix_error() {
-        let result = parse_module_str("use foo::bar::*");
-        assert!(result.is_err());
+    fn test_parse_use_no_prefix_is_package() {
+        // Prefix-free use paths are now parsed as package paths
+        let module = parse_module_str("use foo::bar::*").unwrap();
+        let uses: Vec<_> = module.items.iter().filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None }).collect();
+        assert_eq!(uses.len(), 1);
+        assert_eq!(uses[0].path.prefix, PathPrefix::Package("foo".to_string()));
+        assert_eq!(uses[0].path.segments, vec!["bar"]);
+        assert_eq!(uses[0].path.target, UseTarget::Glob);
     }
 
     #[test]
