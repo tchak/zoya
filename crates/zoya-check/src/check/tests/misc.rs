@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use zoya_ast::{Expr, LetBinding, ListPattern, Path, PathPrefix, Pattern, TuplePattern, TypeAnnotation};
 use zoya_ir::{Definition, FunctionType, QualifiedPath, Type, TypeScheme, Visibility};
-use zoya_package::ModulePath;
 
 fn qpath(path: &str) -> QualifiedPath {
     QualifiedPath::new(path.split("::").map(|s| s.to_string()).collect())
@@ -174,7 +173,7 @@ fn test_turbofish_correct_count() {
         qpath("root::identity"),
         Definition::Function(FunctionType {
             visibility: Visibility::Public,
-            module: ModulePath::root(),
+            module: QualifiedPath::root(),
             type_params: vec!["T".to_string()],
             type_var_ids: vec![t_id],
             params: vec![Type::Var(t_id)],
@@ -191,7 +190,7 @@ fn test_turbofish_correct_count() {
         },
         args: vec![Expr::Int(42)],
     };
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx).unwrap();
     assert_eq!(result.ty(), Type::Int);
 }
 
@@ -206,7 +205,7 @@ fn test_turbofish_wrong_count_error() {
         qpath("root::identity"),
         Definition::Function(FunctionType {
             visibility: Visibility::Public,
-            module: ModulePath::root(),
+            module: QualifiedPath::root(),
             type_params: vec!["T".to_string()],
             type_var_ids: vec![t_id],
             params: vec![Type::Var(t_id)],
@@ -226,7 +225,7 @@ fn test_turbofish_wrong_count_error() {
         },
         args: vec![Expr::Int(42)],
     };
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.message.contains("expects 1 type argument(s), got 2"));
@@ -243,7 +242,7 @@ fn test_turbofish_on_variable_error() {
         segments: vec!["x".to_string()],
         type_args: Some(vec![TypeAnnotation::Named(Path::simple("Int".to_string()))]),
     });
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.message.contains("cannot use turbofish on variable"));

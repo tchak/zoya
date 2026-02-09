@@ -23,13 +23,13 @@ pub enum Result<T, E> { Ok(T), Err(E) }
 ```rust
 use zoya_std::std;
 use zoya_ir::CheckedItem;
-use zoya_loader::ModulePath;
+use zoya_loader::QualifiedPath;
 
 // Get the standard library (lazily compiled and cached)
 let std_pkg = std();
 
 // Access the option module
-let option_path = ModulePath::root().child("option");
+let option_path = QualifiedPath::root().child("option");
 let option_module = std_pkg.get(&option_path).unwrap();
 
 // Inspect its items

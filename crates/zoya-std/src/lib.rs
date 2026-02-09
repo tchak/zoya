@@ -29,7 +29,7 @@ pub fn std() -> &'static CheckedPackage {
 mod tests {
     use super::*;
     use zoya_ir::CheckedItem;
-    use zoya_loader::ModulePath;
+    use zoya_loader::QualifiedPath;
 
     #[test]
     fn test_std_has_three_modules() {
@@ -40,7 +40,7 @@ mod tests {
     #[test]
     fn test_std_has_option_enum() {
         let pkg = std();
-        let path = ModulePath::root().child("option");
+        let path = QualifiedPath::root().child("option");
         let module = pkg.get(&path).expect("option module");
         assert_eq!(module.items.len(), 1);
         assert!(matches!(&module.items[0], CheckedItem::Enum(_)));
@@ -49,7 +49,7 @@ mod tests {
     #[test]
     fn test_std_has_result_enum() {
         let pkg = std();
-        let path = ModulePath::root().child("result");
+        let path = QualifiedPath::root().child("result");
         let module = pkg.get(&path).expect("result module");
         assert_eq!(module.items.len(), 1);
         assert!(matches!(&module.items[0], CheckedItem::Enum(_)));

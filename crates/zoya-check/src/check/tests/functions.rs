@@ -1,6 +1,5 @@
 use zoya_ast::{BinOp, Expr, FunctionDef, Item, MatchArm, Param, Path, Pattern, TypeAnnotation, Visibility};
 use zoya_ir::{CheckedItem, Definition, FunctionType, QualifiedPath, Type};
-use zoya_package::ModulePath;
 
 use crate::check::{check, check_expr, check_function, TypeEnv};
 use crate::definition::function_type_from_def;
@@ -19,7 +18,7 @@ fn test_check_function_call() {
         qpath("root::square"),
         Definition::Function(FunctionType {
             visibility: Visibility::Public,
-            module: ModulePath::root(),
+            module: QualifiedPath::root(),
             type_params: vec![],
             type_var_ids: vec![],
             params: vec![Type::Int],
@@ -32,7 +31,7 @@ fn test_check_function_call() {
         path: Path::simple("square".to_string()),
         args: vec![Expr::Int(5)],
     };
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx).unwrap();
     assert_eq!(result.ty(), Type::Int);
 }
 
@@ -43,7 +42,7 @@ fn test_check_function_call_wrong_arg_type() {
         qpath("root::square"),
         Definition::Function(FunctionType {
             visibility: Visibility::Public,
-            module: ModulePath::root(),
+            module: QualifiedPath::root(),
             type_params: vec![],
             type_var_ids: vec![],
             params: vec![Type::Int],
@@ -56,7 +55,7 @@ fn test_check_function_call_wrong_arg_type() {
         path: Path::simple("square".to_string()),
         args: vec![Expr::Float(5.0)],
     };
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("type mismatch"));
 }
@@ -68,7 +67,7 @@ fn test_check_function_call_wrong_arity() {
         qpath("root::add"),
         Definition::Function(FunctionType {
             visibility: Visibility::Public,
-            module: ModulePath::root(),
+            module: QualifiedPath::root(),
             type_params: vec![],
             type_var_ids: vec![],
             params: vec![Type::Int, Type::Int],
@@ -81,7 +80,7 @@ fn test_check_function_call_wrong_arity() {
         path: Path::simple("add".to_string()),
         args: vec![Expr::Int(1)],
     };
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("expects 2 arguments"));
 }
@@ -97,7 +96,7 @@ fn test_check_generic_function_call() {
         qpath("root::identity"),
         Definition::Function(FunctionType {
             visibility: Visibility::Public,
-            module: ModulePath::root(),
+            module: QualifiedPath::root(),
             type_params: vec!["T".to_string()],
             type_var_ids: vec![t_id],
             params: vec![Type::Var(t_id)],
@@ -110,7 +109,7 @@ fn test_check_generic_function_call() {
         path: Path::simple("identity".to_string()),
         args: vec![Expr::Int(42)],
     };
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx).unwrap();
     assert_eq!(result.ty(), Type::Int);
 }
 
@@ -125,7 +124,7 @@ fn test_check_generic_function_call_float() {
         qpath("root::identity"),
         Definition::Function(FunctionType {
             visibility: Visibility::Public,
-            module: ModulePath::root(),
+            module: QualifiedPath::root(),
             type_params: vec!["T".to_string()],
             type_var_ids: vec![t_id],
             params: vec![Type::Var(t_id)],
@@ -138,7 +137,7 @@ fn test_check_generic_function_call_float() {
         path: Path::simple("identity".to_string()),
         args: vec![Expr::Float(3.14)],
     };
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx).unwrap();
     assert_eq!(result.ty(), Type::Float);
 }
 
@@ -162,7 +161,7 @@ fn test_check_function_def() {
         },
     };
 
-    let result = check_function(&func, &ModulePath::root(), &env, &mut ctx).unwrap();
+    let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx).unwrap();
     assert_eq!(result.name, "double");
     assert_eq!(result.return_type, Type::Int);
 }
@@ -183,7 +182,7 @@ fn test_check_function_def_return_type_mismatch() {
         body: Expr::Path(Path::simple("x".to_string())), // Returns Int, not Float
     };
 
-    let result = check_function(&func, &ModulePath::root(), &env, &mut ctx);
+    let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("declares return type"));
 }
@@ -195,7 +194,7 @@ fn test_check_function_def_with_call() {
         qpath("root::add"),
         Definition::Function(FunctionType {
             visibility: Visibility::Public,
-            module: ModulePath::root(),
+            module: QualifiedPath::root(),
             type_params: vec![],
             type_var_ids: vec![],
             params: vec![Type::Int, Type::Int],
@@ -219,7 +218,7 @@ fn test_check_function_def_with_call() {
         },
     };
 
-    let result = check_function(&func, &ModulePath::root(), &env, &mut ctx).unwrap();
+    let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx).unwrap();
     assert_eq!(result.return_type, Type::Int);
 }
 
@@ -245,7 +244,7 @@ fn test_function_type_from_def() {
     };
 
     let env = TypeEnv::default();
-    let ft = function_type_from_def(&func, &ModulePath::root(), &env, &mut ctx).unwrap();
+    let ft = function_type_from_def(&func, &QualifiedPath::root(), &env, &mut ctx).unwrap();
     assert_eq!(ft.params, vec![Type::Int, Type::Int]);
     assert_eq!(ft.return_type, Type::Int);
 }
@@ -266,7 +265,7 @@ fn test_function_type_from_def_generic() {
     };
 
     let env = TypeEnv::default();
-    let ft = function_type_from_def(&func, &ModulePath::root(), &env, &mut ctx).unwrap();
+    let ft = function_type_from_def(&func, &QualifiedPath::root(), &env, &mut ctx).unwrap();
     assert_eq!(ft.type_params, vec!["T".to_string()]);
     assert_eq!(ft.type_var_ids.len(), 1);
     // Params and return type should use the same type variable
@@ -562,7 +561,7 @@ fn test_function_def_invalid_name_pascal_case() {
         return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
         body: Expr::Int(42),
     };
-    let result = check_function(&func, &ModulePath::root(), &env, &mut ctx);
+    let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.message.contains("should be snake_case"));
@@ -583,7 +582,7 @@ fn test_function_def_invalid_type_param() {
         return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
         body: Expr::Path(Path::simple("x".to_string())),
     };
-    let result = check_function(&func, &ModulePath::root(), &env, &mut ctx);
+    let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.message.contains("type parameter") && err.message.contains("should be PascalCase"));
@@ -604,7 +603,7 @@ fn test_function_def_refutable_param_pattern() {
         return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
         body: Expr::Int(0),
     };
-    let result = check_function(&func, &ModulePath::root(), &env, &mut ctx);
+    let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.message.contains("refutable pattern in function parameter"));

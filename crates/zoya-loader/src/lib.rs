@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display};
 use std::path::Path;
 
 // Re-export module types from zoya-package
-pub use zoya_package::{Module, ModulePath, Package};
+pub use zoya_package::{Module, QualifiedPath, Package};
 
 mod source;
 mod sources;
@@ -117,14 +117,14 @@ pub fn load_package_with<S: ModuleSource>(
     let mut pkg = Package {
         modules: HashMap::new(),
     };
-    load_module_recursive(source, root_path, ModulePath::root(), &mut pkg)?;
+    load_module_recursive(source, root_path, QualifiedPath::root(), &mut pkg)?;
     Ok(pkg)
 }
 
 fn load_module_recursive<S: ModuleSource>(
     source: &S,
     file_path: &S::Path,
-    module_path: ModulePath,
+    module_path: QualifiedPath,
     pkg: &mut Package,
 ) -> Result<(), LoaderError<S::Path>> {
     // Read file
@@ -252,7 +252,7 @@ mod tests {
     #[test]
     fn test_fs_source_resolve_submodule_root() {
         let source = FsSource::new("/project");
-        let root_path = ModulePath::root();
+        let root_path = QualifiedPath::root();
         let submodule = source.resolve_submodule(&root_path, "foo");
         assert_eq!(submodule, FilePath::new("/project/foo.zoya"));
     }
@@ -260,7 +260,7 @@ mod tests {
     #[test]
     fn test_fs_source_resolve_submodule_nested() {
         let source = FsSource::new("/project");
-        let utils_path = ModulePath::root().child("utils");
+        let utils_path = QualifiedPath::root().child("utils");
         let submodule = source.resolve_submodule(&utils_path, "bar");
         assert_eq!(submodule, FilePath::new("/project/utils/bar.zoya"));
     }
@@ -268,7 +268,7 @@ mod tests {
     #[test]
     fn test_fs_source_resolve_submodule_deeply_nested() {
         let source = FsSource::new("/project");
-        let helpers_path = ModulePath::root().child("utils").child("helpers");
+        let helpers_path = QualifiedPath::root().child("utils").child("helpers");
         let submodule = source.resolve_submodule(&helpers_path, "baz");
         assert_eq!(submodule, FilePath::new("/project/utils/helpers/baz.zoya"));
     }
@@ -295,15 +295,15 @@ mod tests {
         let source = MemorySource::new();
 
         // Root level
-        let root_path = ModulePath::root();
+        let root_path = QualifiedPath::root();
         assert_eq!(source.resolve_submodule(&root_path, "utils"), "utils");
 
         // Nested (utils module looking for helpers)
-        let utils_path = ModulePath::root().child("utils");
+        let utils_path = QualifiedPath::root().child("utils");
         assert_eq!(source.resolve_submodule(&utils_path, "helpers"), "utils/helpers");
 
         // Deeply nested
-        let helpers_path = ModulePath::root().child("utils").child("helpers");
+        let helpers_path = QualifiedPath::root().child("utils").child("helpers");
         assert_eq!(source.resolve_submodule(&helpers_path, "deep"), "utils/helpers/deep");
     }
 }
@@ -333,7 +333,7 @@ mod integration_tests {
 
         assert_eq!(tree.modules.len(), 1);
         let root = tree.root().unwrap();
-        assert!(root.path.is_root());
+        assert_eq!(root.path, QualifiedPath::root());
         assert!(root.children.is_empty());
         assert_eq!(root.items.len(), 1);
     }
@@ -371,7 +371,7 @@ mod integration_tests {
         assert!(root.children.contains_key("utils"));
 
         // Check utils module
-        let utils_path = ModulePath(vec!["root".to_string(), "utils".to_string()]);
+        let utils_path = QualifiedPath::root().child("utils");
         let utils = tree.get(&utils_path).unwrap();
         assert_eq!(utils.items.len(), 1);
         assert!(utils.children.is_empty());
@@ -409,16 +409,12 @@ mod integration_tests {
         assert_eq!(tree.modules.len(), 3);
 
         // Check utils has helpers as child
-        let utils_path = ModulePath(vec!["root".to_string(), "utils".to_string()]);
+        let utils_path = QualifiedPath::root().child("utils");
         let utils = tree.get(&utils_path).unwrap();
         assert!(utils.children.contains_key("helpers"));
 
         // Check helpers module exists
-        let helpers_path = ModulePath(vec![
-            "root".to_string(),
-            "utils".to_string(),
-            "helpers".to_string(),
-        ]);
+        let helpers_path = QualifiedPath::root().child("utils").child("helpers");
         let helpers = tree.get(&helpers_path).unwrap();
         assert_eq!(helpers.items.len(), 1);
     }
@@ -435,12 +431,7 @@ mod integration_tests {
 
         assert_eq!(tree.modules.len(), 4);
 
-        let c_path = ModulePath(vec![
-            "root".to_string(),
-            "a".to_string(),
-            "b".to_string(),
-            "c".to_string(),
-        ]);
+        let c_path = QualifiedPath::root().child("a").child("b").child("c");
         let c_module = tree.get(&c_path).unwrap();
         assert_eq!(c_module.items.len(), 1);
     }
@@ -510,15 +501,12 @@ mod integration_tests {
 
         let tree = load_package(&dir.path().join("main.zoya")).unwrap();
 
-        assert!(tree.get(&ModulePath::root()).is_some());
+        assert!(tree.get(&QualifiedPath::root()).is_some());
         assert!(tree
-            .get(&ModulePath(vec!["root".to_string(), "utils".to_string()]))
+            .get(&QualifiedPath::root().child("utils"))
             .is_some());
         assert!(tree
-            .get(&ModulePath(vec![
-                "root".to_string(),
-                "nonexistent".to_string()
-            ]))
+            .get(&QualifiedPath::root().child("nonexistent"))
             .is_none());
     }
 
@@ -533,7 +521,7 @@ mod integration_tests {
 
         assert_eq!(tree.modules.len(), 1);
         let root = tree.root().unwrap();
-        assert!(root.path.is_root());
+        assert_eq!(root.path, QualifiedPath::root());
         assert!(root.children.is_empty());
         assert_eq!(root.items.len(), 1);
     }
@@ -553,7 +541,7 @@ mod integration_tests {
         assert!(root.children.contains_key("utils"));
         assert_eq!(root.items.len(), 1);
 
-        let utils_path = ModulePath(vec!["root".to_string(), "utils".to_string()]);
+        let utils_path = QualifiedPath::root().child("utils");
         let utils = tree.get(&utils_path).unwrap();
         assert_eq!(utils.items.len(), 1);
     }
@@ -569,11 +557,7 @@ mod integration_tests {
 
         assert_eq!(tree.modules.len(), 3);
 
-        let helpers_path = ModulePath(vec![
-            "root".to_string(),
-            "utils".to_string(),
-            "helpers".to_string(),
-        ]);
+        let helpers_path = QualifiedPath::root().child("utils").child("helpers");
         let helpers = tree.get(&helpers_path).unwrap();
         assert_eq!(helpers.items.len(), 1);
     }

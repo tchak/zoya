@@ -9,7 +9,7 @@ use zoya_ir::{
     FunctionType, QualifiedPath, StructType, Type, TypeAliasType, TypeError, TypeScheme, TypeVarId,
     TypedEnumConstructFields, TypedExpr, TypedFunction, Visibility,
 };
-use zoya_package::{ModulePath, Package};
+use zoya_package::Package;
 
 use crate::builtin::{builtin_method, is_numeric_type};
 use crate::definition::{
@@ -31,15 +31,15 @@ pub struct TypeEnv {
     /// Local variable types (type schemes for let polymorphism)
     pub locals: HashMap<String, TypeScheme>,
     /// Per-module import tables: module_path -> (local_name -> qualified_path)
-    pub imports: HashMap<ModulePath, ImportTable>,
+    pub imports: HashMap<QualifiedPath, ImportTable>,
     /// Per-module module import tables: module_path -> (local_alias -> target_module_path)
-    pub module_imports: HashMap<ModulePath, ModuleImportTable>,
+    pub module_imports: HashMap<QualifiedPath, ModuleImportTable>,
     /// Re-export path mappings: re-export_path -> original_path
     /// Used to resolve re-exports to their original definition locations for codegen.
     pub reexports: HashMap<QualifiedPath, QualifiedPath>,
     /// Module re-export mappings: virtual_module_path -> real_module_path
     /// Used when `pub use root::a` re-exports module `a` through another module.
-    pub module_reexports: HashMap<ModulePath, ModulePath>,
+    pub module_reexports: HashMap<QualifiedPath, QualifiedPath>,
     /// The package (for module visibility checking)
     pub pkg: Package,
 }
@@ -96,7 +96,7 @@ impl TypeEnv {
 /// Check a function definition and return a typed function
 fn check_function(
     func: &FunctionDef,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedFunction, TypeError> {
@@ -197,7 +197,7 @@ fn check_function(
 /// Check a path expression (variable or unit enum variant)
 fn check_path_expr(
     path: &Path,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
@@ -229,9 +229,9 @@ fn check_path_expr(
                 });
             }
 
-            let enum_path = QualifiedPath::from_module(current_module, &enum_type.name);
+            let enum_path = current_module.child(&enum_type.name);
             let variant_name = qualified_path.last();
-            let qualified_variant_path = enum_path.with_variant(variant_name);
+            let qualified_variant_path = enum_path.child(variant_name);
 
             // Handle explicit type arguments (turbofish) or create fresh type variables
             let instantiation: HashMap<TypeVarId, Type> = if let Some(ref type_args) =
@@ -331,7 +331,7 @@ fn check_path_expr(
 fn check_path_call(
     path: &Path,
     args: &[Expr],
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
@@ -397,7 +397,7 @@ fn check_function_call(
     qualified_path: &QualifiedPath,
     func_type: &FunctionType,
     args: &[Expr],
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
@@ -496,7 +496,7 @@ fn check_lambda_call(
     name: &str,
     scheme: &TypeScheme,
     args: &[Expr],
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
@@ -577,12 +577,12 @@ fn check_enum_tuple_construct_resolved(
     variant_name: &str,
     explicit_type_args: &Option<Vec<TypeAnnotation>>,
     args: &[Expr],
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    let enum_path = QualifiedPath::from_module(current_module, &enum_type.name);
-    let qualified_variant_path = enum_path.with_variant(variant_name);
+    let enum_path = current_module.child(&enum_type.name);
+    let qualified_variant_path = enum_path.child(variant_name);
 
     // Must be a tuple variant
     let expected_types = match variant_type {
@@ -717,7 +717,7 @@ fn check_enum_tuple_construct_resolved(
 fn check_unary_op(
     op: UnaryOp,
     expr: &Expr,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
@@ -749,7 +749,7 @@ fn check_bin_op(
     op: BinOp,
     left: &Expr,
     right: &Expr,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
@@ -797,7 +797,7 @@ fn check_bin_op(
 fn check_block(
     bindings: &[LetBinding],
     result: &Expr,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
@@ -842,7 +842,7 @@ fn check_block(
 fn check_match_expr(
     scrutinee: &Expr,
     arms: &[MatchArm],
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
@@ -896,7 +896,7 @@ fn check_method_call(
     receiver: &Expr,
     method: &str,
     args: &[Expr],
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
@@ -951,7 +951,7 @@ fn check_method_call(
 /// Check a list literal expression
 fn check_list_expr(
     elements: &[Expr],
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
@@ -987,7 +987,7 @@ fn check_list_expr(
 /// Check a tuple literal expression
 fn check_tuple_expr(
     elements: &[Expr],
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
@@ -1011,7 +1011,7 @@ fn check_lambda(
     params: &[zoya_ast::LambdaParam],
     return_type: &Option<TypeAnnotation>,
     body: &Expr,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
@@ -1084,7 +1084,7 @@ fn check_lambda(
 fn check_path_struct(
     path: &Path,
     fields: &[(String, Expr)],
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
@@ -1152,7 +1152,7 @@ fn check_struct_construct_resolved(
     qualified_path: &QualifiedPath,
     struct_type: &StructType,
     fields: &[(String, Expr)],
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
@@ -1258,12 +1258,12 @@ fn check_enum_struct_construct_resolved(
     variant_type: &EnumVariantType,
     variant_name: &str,
     provided_fields: &[(String, Expr)],
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    let enum_path = QualifiedPath::from_module(current_module, &enum_type.name);
-    let qualified_variant_path = enum_path.with_variant(variant_name);
+    let enum_path = current_module.child(&enum_type.name);
+    let qualified_variant_path = enum_path.child(variant_name);
 
     // Must be a struct variant
     let expected_fields = match variant_type {
@@ -1391,7 +1391,7 @@ fn check_enum_struct_construct_resolved(
 fn check_field_access(
     expr: &Expr,
     field: &str,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
@@ -1431,7 +1431,7 @@ fn check_field_access(
 /// Check an expression with a type environment
 pub(crate) fn check_expr(
     expr: &Expr,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
@@ -1590,7 +1590,7 @@ fn make_reexport_enum(e: &EnumType) -> EnumType {
 /// Register a re-export: check visibility, create re-export definition, handle enum variants.
 fn register_reexport(
     env: &mut TypeEnv,
-    module_path: &ModulePath,
+    module_path: &QualifiedPath,
     local_name: &str,
     qualified: &QualifiedPath,
 ) -> Result<(), TypeError> {
@@ -1612,7 +1612,7 @@ fn register_reexport(
     }
 
     let def = def.clone();
-    let reexport_path = QualifiedPath::from_module(module_path, local_name);
+    let reexport_path = module_path.child(local_name);
     env.register(reexport_path.clone(), make_reexport_definition(&def));
     env.reexports
         .insert(reexport_path.clone(), qualified.clone());
@@ -1620,8 +1620,8 @@ fn register_reexport(
     // If re-exporting an enum, also re-export all its variants
     if let Definition::Enum(ref enum_type) = def {
         for (variant_name, variant_type) in &enum_type.variants {
-            let variant_path = reexport_path.with_variant(variant_name);
-            let original_variant_path = qualified.with_variant(variant_name);
+            let variant_path = reexport_path.child(variant_name);
+            let original_variant_path = qualified.child(variant_name);
             let reexported_enum = make_reexport_enum(enum_type);
             env.register(
                 variant_path.clone(),
@@ -1671,11 +1671,10 @@ pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
                             let local_name = use_decl.path.segments.last().unwrap();
                             // Check if this resolves to a module rather than a definition
                             if !env.definitions.contains_key(&qualified) {
-                                let module_path = ModulePath(qualified.segments.clone());
-                                if pkg.modules.contains_key(&module_path) {
+                                if pkg.modules.contains_key(&qualified) {
                                     // Register module re-export: virtual path -> real path
                                     let reexport_module = path.child(local_name);
-                                    env.module_reexports.insert(reexport_module, module_path);
+                                    env.module_reexports.insert(reexport_module, qualified.clone());
                                     continue;
                                 }
                             }
@@ -1690,8 +1689,8 @@ pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
                                 .definitions
                                 .iter()
                                 .filter(|(qpath, def)| {
-                                    qpath.segments.len() == module_segments.len() + 1
-                                        && qpath.segments[..module_segments.len()] == module_segments[..]
+                                    qpath.len() == module_segments.len() + 1
+                                        && qpath.segments()[..module_segments.len()] == module_segments[..]
                                         && !matches!(def, Definition::EnumVariant(..))
                                         && {
                                             let vis = match def {
@@ -1705,7 +1704,7 @@ pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
                                         }
                                 })
                                 .map(|(qpath, _)| {
-                                    let name = qpath.segments.last().unwrap().clone();
+                                    let name = qpath.last().to_string();
                                     (name, qpath.clone())
                                 })
                                 .collect();
@@ -1717,7 +1716,7 @@ pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
                         UseTarget::Group(items) => {
                             let target_module = resolve_use_module_path(use_decl, path)?;
                             for group_item in items {
-                                let qualified = QualifiedPath::from_module(&target_module, &group_item.name);
+                                let qualified = target_module.child(&group_item.name);
                                 let local_name = group_item.alias.as_deref().unwrap_or(&group_item.name);
                                 register_reexport(&mut env, path, local_name, &qualified)?;
                             }
@@ -1758,14 +1757,14 @@ pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
 /// Uses fully qualified paths (e.g., root::utils::foo).
 fn register_module_declarations(
     items: &[Item],
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &mut TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(), TypeError> {
     // Phase 1a: Register all struct names with placeholder types
     for item in items {
         if let Item::Struct(def) = item {
-            let qualified_path = QualifiedPath::from_module(current_module, &def.name);
+            let qualified_path = current_module.child(&def.name);
             let mut type_var_ids = Vec::new();
             for _ in &def.type_params {
                 let var = ctx.fresh_var();
@@ -1786,7 +1785,7 @@ fn register_module_declarations(
             );
         }
         if let Item::Enum(def) = item {
-            let qualified_path = QualifiedPath::from_module(current_module, &def.name);
+            let qualified_path = current_module.child(&def.name);
             let mut type_var_ids = Vec::new();
             for _ in &def.type_params {
                 let var = ctx.fresh_var();
@@ -1811,7 +1810,7 @@ fn register_module_declarations(
     // Phase 1b: Resolve all struct field types
     for item in items {
         if let Item::Struct(def) = item {
-            let qualified_path = QualifiedPath::from_module(current_module, &def.name);
+            let qualified_path = current_module.child(&def.name);
             let struct_type = struct_type_from_def(def, current_module, env, ctx)?;
             env.register(qualified_path, Definition::Struct(struct_type));
         }
@@ -1820,11 +1819,11 @@ fn register_module_declarations(
     // Phase 1c: Resolve all enum variant types
     for item in items {
         if let Item::Enum(def) = item {
-            let qualified_path = QualifiedPath::from_module(current_module, &def.name);
+            let qualified_path = current_module.child(&def.name);
             let enum_type = enum_type_from_def(def, current_module, env, ctx)?;
             env.register(qualified_path.clone(), Definition::Enum(enum_type.clone()));
             for (variant_name, variant) in &enum_type.variants {
-                let variant_qualified_path = qualified_path.with_variant(variant_name);
+                let variant_qualified_path = qualified_path.child(variant_name);
                 env.register(
                     variant_qualified_path,
                     Definition::EnumVariant(enum_type.clone(), variant.clone()),
@@ -1836,7 +1835,7 @@ fn register_module_declarations(
     // Phase 1d: Register all type aliases
     for item in items {
         if let Item::TypeAlias(def) = item {
-            let qualified_path = QualifiedPath::from_module(current_module, &def.name);
+            let qualified_path = current_module.child(&def.name);
             let alias_type = type_alias_from_def(def, current_module, env, ctx)?;
             env.register(qualified_path, Definition::TypeAlias(alias_type));
         }
@@ -1845,7 +1844,7 @@ fn register_module_declarations(
     // Phase 2: Register all function signatures
     for item in items {
         if let Item::Function(func) = item {
-            let qualified_path = QualifiedPath::from_module(current_module, &func.name);
+            let qualified_path = current_module.child(&func.name);
             let func_type = function_type_from_def(func, current_module, env, ctx)?;
             env.register(qualified_path, Definition::Function(func_type));
         }
@@ -1857,7 +1856,7 @@ fn register_module_declarations(
 /// Type-check function bodies from a single module.
 fn check_module_bodies(
     items: &[Item],
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<CheckedModule, TypeError> {
@@ -1890,7 +1889,7 @@ fn check_module_bodies(
 /// Check a function definition within a specific module context.
 fn check_function_in_module(
     func: &FunctionDef,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedFunction, TypeError> {

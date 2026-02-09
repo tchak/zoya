@@ -6,7 +6,7 @@ This crate defines the core package-related types used across the Zoya compiler 
 
 ## Types
 
-- **ModulePath** - Logical path to a module (e.g., `root::utils::helpers`)
+- **QualifiedPath** - Qualified path to a module, definition, or variant (e.g., `root::utils::helpers`)
 - **Module** - A loaded module containing parsed items and child references with visibility
 - **Package** - The complete package of loaded modules
 - **PackageConfig** - Package configuration loaded from `package.toml`
@@ -14,17 +14,17 @@ This crate defines the core package-related types used across the Zoya compiler 
 ## Usage
 
 ```rust
-use zoya_package::{ModulePath, Module, Package, PackageConfig};
+use zoya_package::{QualifiedPath, Module, Package, PackageConfig};
 use std::collections::HashMap;
 
 // Create module paths
-let root = ModulePath::root();
+let root = QualifiedPath::root();
 let utils = root.child("utils");
 let helpers = utils.child("helpers");
 
 // Check path relationships
-assert!(root.is_root());
-assert!(!utils.is_root());
+assert_eq!(root, QualifiedPath::root());
+assert_ne!(utils, QualifiedPath::root());
 assert_eq!(helpers.parent(), Some(utils.clone()));
 assert_eq!(helpers.depth(), 3);
 
@@ -34,10 +34,10 @@ assert_eq!(helpers.to_string(), "root::utils::helpers");
 
 // Build a package manually (typically done by zoya-loader)
 let mut modules = HashMap::new();
-modules.insert(ModulePath::root(), Module {
+modules.insert(QualifiedPath::root(), Module {
     items: vec![],
     uses: vec![],
-    path: ModulePath::root(),
+    path: QualifiedPath::root(),
     children: HashMap::new(),
 });
 let pkg = Package { modules };
@@ -72,7 +72,7 @@ assert_eq!(PackageConfig::sanitize_name("My-Project"), "my_project");
 let toml = config.to_toml();
 ```
 
-## ModulePath Methods
+## QualifiedPath Methods
 
 | Method | Description |
 |--------|-------------|

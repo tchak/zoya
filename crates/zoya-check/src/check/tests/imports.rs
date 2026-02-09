@@ -8,7 +8,7 @@ use zoya_ast::{
     Visibility,
 };
 use zoya_ir::Type;
-use zoya_package::{Module, ModulePath, Package};
+use zoya_package::{Module, QualifiedPath, Package};
 
 use crate::check::check;
 
@@ -16,7 +16,7 @@ use super::find_test_function;
 
 /// Build a multi-module test package with the given modules.
 /// Properly sets up parent-child relationships.
-fn build_multi_module_package(modules_data: Vec<(ModulePath, Vec<Item>)>) -> Package {
+fn build_multi_module_package(modules_data: Vec<(QualifiedPath, Vec<Item>)>) -> Package {
     let mut modules = HashMap::new();
 
     // First pass: insert all modules with empty children
@@ -33,7 +33,7 @@ fn build_multi_module_package(modules_data: Vec<(ModulePath, Vec<Item>)>) -> Pac
 
     // Second pass: set up parent-child relationships
     for (path, _) in &modules_data {
-        if !path.is_root() {
+        if *path != QualifiedPath::root() {
             if let Some(parent_path) = path.parent() {
                 let child_name = path.segments().last().unwrap().clone();
                 if let Some(parent) = modules.get_mut(&parent_path) {
@@ -89,12 +89,12 @@ fn test_import_function_from_submodule() {
     root_items_with_uses.extend(root_items);
 
     let tree = build_multi_module_package(vec![
-        (ModulePath::root(), root_items_with_uses),
-        (ModulePath::root().child("utils"), utils_items),
+        (QualifiedPath::root(), root_items_with_uses),
+        (QualifiedPath::root().child("utils"), utils_items),
     ]);
 
     let result = check(&tree).unwrap();
-    let root_module = result.modules.get(&ModulePath::root()).unwrap();
+    let root_module = result.modules.get(&QualifiedPath::root()).unwrap();
     let test_fn = find_test_function(&root_module.items).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
@@ -114,8 +114,8 @@ fn test_import_private_function_fails() {
     let root_items = vec![Item::Use(make_use(PathPrefix::Root, &["utils", "secret"]))];
 
     let tree = build_multi_module_package(vec![
-        (ModulePath::root(), root_items),
-        (ModulePath::root().child("utils"), utils_items),
+        (QualifiedPath::root(), root_items),
+        (QualifiedPath::root().child("utils"), utils_items),
     ]);
 
     let result = check(&tree);
@@ -136,8 +136,8 @@ fn test_import_private_struct_fails() {
     let root_items = vec![Item::Use(make_use(PathPrefix::Root, &["utils", "Secret"]))];
 
     let tree = build_multi_module_package(vec![
-        (ModulePath::root(), root_items),
-        (ModulePath::root().child("utils"), utils_items),
+        (QualifiedPath::root(), root_items),
+        (QualifiedPath::root().child("utils"), utils_items),
     ]);
 
     let result = check(&tree);
@@ -150,7 +150,7 @@ fn test_import_not_found_fails() {
     let root_items = vec![Item::Use(make_use(PathPrefix::Root, &["utils", "nonexistent"]))];
 
     let tree = build_multi_module_package(vec![
-        (ModulePath::root(), root_items),
+        (QualifiedPath::root(), root_items),
     ]);
 
     let result = check(&tree);
@@ -185,32 +185,32 @@ fn test_duplicate_import_fails() {
     ];
 
     let mut modules = HashMap::new();
-    let root_children: HashMap<String, (ModulePath, Visibility)> = [
-        ("utils".to_string(), (ModulePath::root().child("utils"), Visibility::Public)),
-        ("other".to_string(), (ModulePath::root().child("other"), Visibility::Public)),
+    let root_children: HashMap<String, (QualifiedPath, Visibility)> = [
+        ("utils".to_string(), (QualifiedPath::root().child("utils"), Visibility::Public)),
+        ("other".to_string(), (QualifiedPath::root().child("other"), Visibility::Public)),
     ].into_iter().collect();
 
     modules.insert(
-        ModulePath::root(),
+        QualifiedPath::root(),
         Module {
             items: root_items,
-            path: ModulePath::root(),
+            path: QualifiedPath::root(),
             children: root_children,
         },
     );
     modules.insert(
-        ModulePath::root().child("utils"),
+        QualifiedPath::root().child("utils"),
         Module {
             items: utils_items,
-            path: ModulePath::root().child("utils"),
+            path: QualifiedPath::root().child("utils"),
             children: HashMap::new(),
         },
     );
     modules.insert(
-        ModulePath::root().child("other"),
+        QualifiedPath::root().child("other"),
         Module {
             items: other_items,
-            path: ModulePath::root().child("other"),
+            path: QualifiedPath::root().child("other"),
             children: HashMap::new(),
         },
     );
@@ -256,12 +256,12 @@ fn test_local_shadows_import() {
     root_items_with_uses.extend(root_items);
 
     let tree = build_multi_module_package(vec![
-        (ModulePath::root(), root_items_with_uses),
-        (ModulePath::root().child("utils"), utils_items),
+        (QualifiedPath::root(), root_items_with_uses),
+        (QualifiedPath::root().child("utils"), utils_items),
     ]);
 
     let result = check(&tree).unwrap();
-    let root_module = result.modules.get(&ModulePath::root()).unwrap();
+    let root_module = result.modules.get(&QualifiedPath::root()).unwrap();
     let test_fn = find_test_function(&root_module.items).unwrap();
     // Should be Bool (from local), not Int (from import)
     assert_eq!(test_fn.return_type, Type::Bool);
@@ -307,12 +307,12 @@ fn test_import_shadows_module_level_definition() {
     root_items_with_uses.extend(root_items);
 
     let tree = build_multi_module_package(vec![
-        (ModulePath::root(), root_items_with_uses),
-        (ModulePath::root().child("utils"), utils_items),
+        (QualifiedPath::root(), root_items_with_uses),
+        (QualifiedPath::root().child("utils"), utils_items),
     ]);
 
     let result = check(&tree).unwrap();
-    let root_module = result.modules.get(&ModulePath::root()).unwrap();
+    let root_module = result.modules.get(&QualifiedPath::root()).unwrap();
     let test_fn = find_test_function(&root_module.items).unwrap();
     // Should be Int (from import), not Bool (from local function)
     assert_eq!(test_fn.return_type, Type::Int);
@@ -348,12 +348,12 @@ fn test_import_with_super_prefix() {
     child_items_with_uses.extend(child_items);
 
     let tree = build_multi_module_package(vec![
-        (ModulePath::root(), root_items),
-        (ModulePath::root().child("child"), child_items_with_uses),
+        (QualifiedPath::root(), root_items),
+        (QualifiedPath::root().child("child"), child_items_with_uses),
     ]);
 
     let result = check(&tree).unwrap();
-    let child_module = result.modules.get(&ModulePath::root().child("child")).unwrap();
+    let child_module = result.modules.get(&QualifiedPath::root().child("child")).unwrap();
     let test_fn = find_test_function(&child_module.items).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
@@ -418,12 +418,12 @@ fn test_imported_enum_variant_in_match_pattern() {
     root_items_with_uses.extend(root_items);
 
     let tree = build_multi_module_package(vec![
-        (ModulePath::root(), root_items_with_uses),
-        (ModulePath::root().child("types"), types_items),
+        (QualifiedPath::root(), root_items_with_uses),
+        (QualifiedPath::root().child("types"), types_items),
     ]);
 
     let result = check(&tree).unwrap();
-    let root_module = result.modules.get(&ModulePath::root()).unwrap();
+    let root_module = result.modules.get(&QualifiedPath::root()).unwrap();
     let test_fn = find_test_function(&root_module.items).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
@@ -510,12 +510,12 @@ fn test_imported_enum_variant_in_struct_pattern() {
     root_items_with_uses.extend(root_items);
 
     let tree = build_multi_module_package(vec![
-        (ModulePath::root(), root_items_with_uses),
-        (ModulePath::root().child("types"), types_items),
+        (QualifiedPath::root(), root_items_with_uses),
+        (QualifiedPath::root().child("types"), types_items),
     ]);
 
     let result = check(&tree).unwrap();
-    let root_module = result.modules.get(&ModulePath::root()).unwrap();
+    let root_module = result.modules.get(&QualifiedPath::root()).unwrap();
     let test_fn = find_test_function(&root_module.items).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
@@ -565,13 +565,13 @@ fn test_pub_use_reexport_function() {
     ];
 
     let tree = build_multi_module_package(vec![
-        (ModulePath::root(), root_items),
-        (ModulePath::root().child("a"), a_items),
-        (ModulePath::root().child("b"), b_items),
+        (QualifiedPath::root(), root_items),
+        (QualifiedPath::root().child("a"), a_items),
+        (QualifiedPath::root().child("b"), b_items),
     ]);
 
     let result = check(&tree).unwrap();
-    let root_module = result.modules.get(&ModulePath::root()).unwrap();
+    let root_module = result.modules.get(&QualifiedPath::root()).unwrap();
     let test_fn = find_test_function(&root_module.items).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
@@ -612,13 +612,13 @@ fn test_pub_use_reexport_enum() {
     ];
 
     let tree = build_multi_module_package(vec![
-        (ModulePath::root(), root_items),
-        (ModulePath::root().child("types"), types_items),
-        (ModulePath::root().child("reexporter"), reexporter_items),
+        (QualifiedPath::root(), root_items),
+        (QualifiedPath::root().child("types"), types_items),
+        (QualifiedPath::root().child("reexporter"), reexporter_items),
     ]);
 
     let result = check(&tree).unwrap();
-    let root_module = result.modules.get(&ModulePath::root()).unwrap();
+    let root_module = result.modules.get(&QualifiedPath::root()).unwrap();
     let test_fn = find_test_function(&root_module.items).unwrap();
     assert!(matches!(test_fn.return_type, Type::Enum { ref name, .. } if name == "Color"));
 }
@@ -639,9 +639,9 @@ fn test_pub_use_cannot_reexport_private() {
     let b_items = vec![Item::Use(make_pub_use(PathPrefix::Root, &["a", "secret"]))];
 
     let tree = build_multi_module_package(vec![
-        (ModulePath::root(), vec![]),
-        (ModulePath::root().child("a"), a_items),
-        (ModulePath::root().child("b"), b_items),
+        (QualifiedPath::root(), vec![]),
+        (QualifiedPath::root().child("a"), a_items),
+        (QualifiedPath::root().child("b"), b_items),
     ]);
 
     let result = check(&tree);
@@ -682,9 +682,9 @@ fn test_private_use_does_not_reexport() {
     ];
 
     let tree = build_multi_module_package(vec![
-        (ModulePath::root(), root_items),
-        (ModulePath::root().child("a"), a_items),
-        (ModulePath::root().child("b"), b_items),
+        (QualifiedPath::root(), root_items),
+        (QualifiedPath::root().child("a"), a_items),
+        (QualifiedPath::root().child("b"), b_items),
     ]);
 
     let result = check(&tree);
@@ -731,13 +731,13 @@ fn test_pub_use_reexport_module() {
     ];
 
     let tree = build_multi_module_package(vec![
-        (ModulePath::root(), root_items),
-        (ModulePath::root().child("a"), a_items),
-        (ModulePath::root().child("b"), b_items),
+        (QualifiedPath::root(), root_items),
+        (QualifiedPath::root().child("a"), a_items),
+        (QualifiedPath::root().child("b"), b_items),
     ]);
 
     let result = check(&tree).unwrap();
-    let root_module = result.modules.get(&ModulePath::root()).unwrap();
+    let root_module = result.modules.get(&QualifiedPath::root()).unwrap();
     let test_fn = find_test_function(&root_module.items).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
@@ -774,13 +774,13 @@ fn test_pub_use_reexport_module_item_import() {
     ];
 
     let tree = build_multi_module_package(vec![
-        (ModulePath::root(), root_items),
-        (ModulePath::root().child("a"), a_items),
-        (ModulePath::root().child("b"), b_items),
+        (QualifiedPath::root(), root_items),
+        (QualifiedPath::root().child("a"), a_items),
+        (QualifiedPath::root().child("b"), b_items),
     ]);
 
     let result = check(&tree).unwrap();
-    let root_module = result.modules.get(&ModulePath::root()).unwrap();
+    let root_module = result.modules.get(&QualifiedPath::root()).unwrap();
     let test_fn = find_test_function(&root_module.items).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }

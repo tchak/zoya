@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
 
-use zoya_package::ModulePath;
+use zoya_package::QualifiedPath;
 
 use crate::source::{ModuleSource, SourceError, SourceErrorKind};
 
@@ -117,10 +117,10 @@ impl ModuleSource for FsSource {
         path.exists()
     }
 
-    fn resolve_submodule(&self, module_path: &ModulePath, mod_name: &str) -> Self::Path {
+    fn resolve_submodule(&self, module_path: &QualifiedPath, mod_name: &str) -> Self::Path {
         // Build path from base_dir using module path segments (skipping "root")
         let mut path = self.base_dir.clone();
-        for segment in &module_path.0[1..] {
+        for segment in module_path.tail() {
             // Skip "root"
             path.push(segment);
         }

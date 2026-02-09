@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use zoya_package::ModulePath;
+use zoya_package::QualifiedPath;
 
 use crate::source::{ModuleSource, SourceError};
 
@@ -53,9 +53,9 @@ impl ModuleSource for MemorySource {
         self.modules.contains_key(path)
     }
 
-    fn resolve_submodule(&self, module_path: &ModulePath, mod_name: &str) -> Self::Path {
+    fn resolve_submodule(&self, module_path: &QualifiedPath, mod_name: &str) -> Self::Path {
         // Build path from module path segments (skipping "root")
-        let segments: Vec<&str> = module_path.0[1..].iter().map(|s| s.as_str()).collect();
+        let segments: Vec<&str> = module_path.tail().iter().map(|s| s.as_str()).collect();
         if segments.is_empty() {
             mod_name.to_string()
         } else {

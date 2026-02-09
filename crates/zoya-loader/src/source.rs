@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display};
 
-use zoya_package::ModulePath;
+use zoya_package::QualifiedPath;
 
 // ============================================================================
 // Source Error Types
@@ -62,5 +62,5 @@ pub trait ModuleSource {
     fn exists(&self, path: &Self::Path) -> bool;
 
     /// Resolve the path for a submodule given the current module's logical path and the submodule name
-    fn resolve_submodule(&self, module_path: &ModulePath, mod_name: &str) -> Self::Path;
+    fn resolve_submodule(&self, module_path: &QualifiedPath, mod_name: &str) -> Self::Path;
 }

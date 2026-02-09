@@ -5,7 +5,6 @@ use zoya_ir::{
     Definition, EnumVariantType, QualifiedPath, Type, TypeError, TypeScheme, TypeVarId,
     TypedLetBinding, TypedMatchArm, TypedPattern,
 };
-use zoya_package::ModulePath;
 
 use crate::check::{TypeEnv, check_expr, substitute_type_vars, substitute_variant_type_vars};
 use crate::naming::{is_snake_case, to_snake_case};
@@ -17,7 +16,7 @@ use crate::unify::UnifyCtx;
 pub fn check_patterns_against_elem(
     patterns: &[Pattern],
     elem_ty: &Type,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(Vec<TypedPattern>, HashMap<String, Type>), TypeError> {
@@ -35,7 +34,7 @@ pub fn check_patterns_against_elem(
 pub fn check_patterns_against_types(
     patterns: &[Pattern],
     types: &[Type],
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(Vec<TypedPattern>, HashMap<String, Type>), TypeError> {
@@ -53,7 +52,7 @@ pub fn check_patterns_against_types(
 pub fn check_pattern(
     pattern: &Pattern,
     scrutinee_ty: &Type,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
@@ -617,7 +616,7 @@ fn check_path_pattern_resolved(
     resolved: ResolvedPath,
     path: &Path,
     scrutinee_ty: &Type,
-    _current_module: &ModulePath,
+    _current_module: &QualifiedPath,
     _env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
@@ -702,7 +701,7 @@ fn check_call_pattern(
     path: &Path,
     args: &TuplePattern,
     scrutinee_ty: &Type,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
@@ -810,7 +809,7 @@ fn check_struct_pattern(
     field_patterns: &[zoya_ast::StructFieldPattern],
     is_partial: bool,
     scrutinee_ty: &Type,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
@@ -886,7 +885,7 @@ fn check_struct_type_pattern(
     field_patterns: &[zoya_ast::StructFieldPattern],
     is_partial: bool,
     scrutinee_ty: &Type,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
@@ -1002,7 +1001,7 @@ fn check_enum_struct_variant_pattern(
     field_patterns: &[zoya_ast::StructFieldPattern],
     is_partial: bool,
     scrutinee_ty: &Type,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
@@ -1091,7 +1090,7 @@ fn check_enum_tuple_pattern(
     variant_name: &str,
     tuple_pattern: &TuplePattern,
     expected_types: &[Type],
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
@@ -1310,7 +1309,7 @@ fn check_enum_struct_pattern(
     field_patterns: &[zoya_ast::StructFieldPattern],
     is_partial: bool,
     expected_fields: &[(String, Type)],
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
@@ -1377,7 +1376,7 @@ fn check_enum_struct_pattern(
 pub fn check_match_arm(
     arm: &MatchArm,
     scrutinee_ty: &Type,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedMatchArm, TypeError> {
@@ -1460,7 +1459,7 @@ pub fn check_irrefutable(pattern: &Pattern) -> Result<(), String> {
 /// Check a let binding and return a typed let binding plus the bindings it introduces.
 pub fn check_let_binding(
     binding: &LetBinding,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedLetBinding, HashMap<String, Type>), TypeError> {
@@ -1530,7 +1529,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Int,
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -1547,7 +1546,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Int,
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -1564,7 +1563,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::String,
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -1582,7 +1581,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Int,
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -1603,7 +1602,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Int,
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -1617,7 +1616,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::String,
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -1638,7 +1637,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::List(Box::new(Type::Int)),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -1662,7 +1661,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::List(Box::new(Type::Int)),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -1688,7 +1687,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::List(Box::new(Type::Int)),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -1708,7 +1707,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::List(Box::new(Type::Int)),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -1728,7 +1727,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::List(Box::new(Type::Int)),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -1751,7 +1750,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::List(Box::new(Type::String)),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -1771,7 +1770,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::List(Box::new(Type::Int)),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -1791,7 +1790,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::List(Box::new(Type::Int)),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -1813,7 +1812,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::List(Box::new(Type::Int)),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -1838,7 +1837,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::List(Box::new(Type::Int)),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -1861,7 +1860,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::List(Box::new(Type::Int)),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -1879,7 +1878,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Int,
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -1899,7 +1898,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Tuple(vec![]),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -1914,7 +1913,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Tuple(vec![Type::Int]),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -1937,7 +1936,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Tuple(vec![Type::Int, Type::String]),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -1959,7 +1958,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Tuple(vec![Type::Int, Type::Int]),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -1985,7 +1984,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Tuple(vec![Type::Int, Type::String, Type::Bool]),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -2008,7 +2007,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Tuple(vec![Type::Int, Type::String, Type::Bool]),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -2035,7 +2034,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Tuple(vec![Type::Int, Type::Int]),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -2054,7 +2053,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Tuple(vec![Type::Int, Type::String]),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -2075,7 +2074,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Tuple(vec![Type::Int, Type::String, Type::Bool]),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -2098,7 +2097,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Tuple(vec![Type::Int, Type::String, Type::Bool]),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -2125,7 +2124,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Tuple(vec![Type::Int, Type::Int]),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -2144,7 +2143,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Tuple(vec![Type::Int, Type::String]),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -2166,7 +2165,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Tuple(vec![Type::Int, Type::String, Type::Bool]),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -2191,7 +2190,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Tuple(vec![Type::Int, Type::String, Type::Float, Type::Bool]),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -2216,7 +2215,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Tuple(vec![Type::Int, Type::Int, Type::Int]),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -2236,7 +2235,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Tuple(vec![Type::Int, Type::String, Type::Bool]),
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -2258,7 +2257,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &scrutinee_ty,
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -2279,7 +2278,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &scrutinee_ty,
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -2299,7 +2298,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Int,
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -2318,7 +2317,7 @@ mod tests {
             qpath("root::Point"),
             Definition::Struct(StructType {
                 visibility: Visibility::Public,
-                module: ModulePath::root(),
+                module: QualifiedPath::root(),
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -2351,7 +2350,7 @@ mod tests {
             type_args: vec![],
             fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
         assert!(result.is_ok());
         let (typed, bindings) = result.unwrap();
         assert!(matches!(typed, TypedPattern::StructExact { .. }));
@@ -2379,7 +2378,7 @@ mod tests {
             type_args: vec![],
             fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("missing field 'y'"));
@@ -2403,7 +2402,7 @@ mod tests {
             type_args: vec![],
             fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
         assert!(result.is_ok());
         let (typed, bindings) = result.unwrap();
         assert!(matches!(typed, TypedPattern::StructPartial { .. }));
@@ -2428,7 +2427,7 @@ mod tests {
             type_args: vec![],
             fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("struct Point has no field 'z'"));
@@ -2445,7 +2444,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Int,
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -2462,7 +2461,7 @@ mod tests {
         let mut env = TypeEnv::default();
         let enum_type = EnumType {
             visibility: Visibility::Public,
-            module: ModulePath::root(),
+            module: QualifiedPath::root(),
             name: "Option".to_string(),
             type_params: vec!["T".to_string()],
             type_var_ids: vec![TypeVarId(1)],
@@ -2489,7 +2488,7 @@ mod tests {
         let mut env = TypeEnv::default();
         let enum_type = EnumType {
             visibility: Visibility::Public,
-            module: ModulePath::root(),
+            module: QualifiedPath::root(),
             name: "Message".to_string(),
             type_params: vec![],
             type_var_ids: vec![],
@@ -2537,7 +2536,7 @@ mod tests {
                 ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Int])),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
         assert!(result.is_ok());
         let (typed, bindings) = result.unwrap();
         assert!(matches!(typed, TypedPattern::EnumUnit { .. }));
@@ -2565,7 +2564,7 @@ mod tests {
                 ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Int])),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("value"), Some(&Type::Int));
@@ -2612,7 +2611,7 @@ mod tests {
                 ),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("px"), Some(&Type::Int));
@@ -2653,7 +2652,7 @@ mod tests {
                 ),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
         assert!(result.is_ok());
     }
 
@@ -2694,7 +2693,7 @@ mod tests {
                 ),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("missing field 'y'"));
@@ -2718,7 +2717,7 @@ mod tests {
                 ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Int])),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("is not a unit variant"));
@@ -2745,7 +2744,7 @@ mod tests {
                 ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Int])),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
@@ -2787,7 +2786,7 @@ mod tests {
                 ),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
@@ -2808,7 +2807,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Int,
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -2834,7 +2833,7 @@ mod tests {
                 ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Int])),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         // With the new scheme, unknown variants are reported as unknown paths
@@ -2857,7 +2856,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Int,
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -2884,7 +2883,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &scrutinee_ty,
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -2908,7 +2907,7 @@ mod tests {
         let result = check_pattern(
             &pattern,
             &Type::Int,
-            &ModulePath::root(),
+            &QualifiedPath::root(),
             &default_env(),
             &mut ctx,
         );
@@ -3082,7 +3081,7 @@ mod tests {
         let mut env = TypeEnv::default();
         let enum_type = EnumType {
             visibility: Visibility::Public,
-            module: ModulePath::root(),
+            module: QualifiedPath::root(),
             name: "Data".to_string(),
             type_params: vec![],
             type_var_ids: vec![],
@@ -3125,7 +3124,7 @@ mod tests {
                 EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool]),
             )],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("first"), Some(&Type::Int));
@@ -3158,7 +3157,7 @@ mod tests {
                 EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool]),
             )],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("last"), Some(&Type::Bool));
@@ -3192,7 +3191,7 @@ mod tests {
                 EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool]),
             )],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("first"), Some(&Type::Int));
@@ -3228,7 +3227,7 @@ mod tests {
                 EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool]),
             )],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("3 field(s) but pattern has 4"));
@@ -3254,7 +3253,7 @@ mod tests {
                 EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool]),
             )],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &ModulePath::root(), &env, &mut ctx);
+        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("empty pattern not allowed"));

@@ -3,7 +3,6 @@ use zoya_ir::{
     CheckedItem, CheckedPackage, QualifiedPath, Type, TypedEnumConstructFields, TypedExpr,
     TypedFunction, TypedMatchArm, TypedPattern,
 };
-use zoya_package::ModulePath;
 
 /// Output of code generation containing JS code and content hash
 #[derive(Debug, Clone)]
@@ -66,7 +65,7 @@ function $$eq(a, b) {
 
 /// Generate JavaScript code for all functions in the checked items.
 /// Structs, enums, and type aliases are type-level only and produce no JS.
-fn codegen_items(items: &[CheckedItem], module_path: &ModulePath) -> String {
+fn codegen_items(items: &[CheckedItem], module_path: &QualifiedPath) -> String {
     let mut js = String::new();
     for item in items {
         if let CheckedItem::Function(f) = item {
@@ -142,7 +141,7 @@ fn needs_deep_equality(ty: &Type) -> bool {
 
 /// Format a qualified path as a JS identifier: Option::Some -> $Option$Some
 fn format_path(path: &QualifiedPath) -> String {
-    format!("${}", path.segments.join("$"))
+    format!("${}", path.segments().join("$"))
 }
 
 /// Format a simple name as a JS identifier: x -> $x
@@ -701,14 +700,12 @@ fn codegen_params(params: &[(TypedPattern, Type)]) -> (Vec<String>, Vec<String>)
     (param_names, prologue)
 }
 
-fn codegen_function(func: &TypedFunction, module_path: &ModulePath) -> String {
+fn codegen_function(func: &TypedFunction, module_path: &QualifiedPath) -> String {
     let (param_names, prologue) = codegen_params(&func.params);
     let body = codegen_expr(&func.body);
 
     // Build qualified path from module path + function name
-    let mut segments: Vec<String> = module_path.0.to_vec();
-    segments.push(func.name.clone());
-    let path = QualifiedPath::new(segments);
+    let path = module_path.child(&func.name);
 
     if prologue.is_empty() {
         format!(
@@ -1006,7 +1003,7 @@ mod tests {
             return_type: Type::Int,
         };
         assert_eq!(
-            codegen_function(&func, &ModulePath::root()),
+            codegen_function(&func, &QualifiedPath::root()),
             "export function $root$square($x) { return ($x * $x); }"
         );
     }
@@ -1034,7 +1031,7 @@ mod tests {
             return_type: Type::Int,
         };
         assert_eq!(
-            codegen_function(&func, &ModulePath::root()),
+            codegen_function(&func, &QualifiedPath::root()),
             "export function $root$add($x, $y) { return ($x + $y); }"
         );
     }
@@ -1048,7 +1045,7 @@ mod tests {
             return_type: Type::Int,
         };
         assert_eq!(
-            codegen_function(&func, &ModulePath::root()),
+            codegen_function(&func, &QualifiedPath::root()),
             "export function $root$answer() { return 42; }"
         );
     }
@@ -1070,7 +1067,7 @@ mod tests {
             return_type: Type::BigInt,
         };
         assert_eq!(
-            codegen_function(&func, &ModulePath::root()),
+            codegen_function(&func, &QualifiedPath::root()),
             "export function $root$big($x) { return ($x + 1n); }"
         );
     }

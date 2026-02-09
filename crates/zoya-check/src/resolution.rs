@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use zoya_ast::{Path, PathPrefix};
 use zoya_ir::{Definition, QualifiedPath, TypeError, TypeScheme, Visibility};
-use zoya_package::{ModulePath, Package};
+use zoya_package::Package;
 
 use crate::imports::ModuleImportTable;
 
@@ -22,7 +22,7 @@ use crate::imports::ModuleImportTable;
 /// | `root::foo()` | Absolute path from root module |
 /// | `self::foo()` | Explicit current module reference |
 /// | `super::foo()` | Parent module reference |
-pub fn resolve_path(path: &Path, current_module: &ModulePath) -> Result<QualifiedPath, TypeError> {
+pub fn resolve_path(path: &Path, current_module: &QualifiedPath) -> Result<QualifiedPath, TypeError> {
     match path.prefix {
         PathPrefix::Root => {
             // root::foo::bar → root::foo::bar
@@ -63,7 +63,7 @@ pub fn resolve_path(path: &Path, current_module: &ModulePath) -> Result<Qualifie
 /// Resolve a relative path (no prefix) to a fully qualified path.
 fn resolve_relative_path(
     path: &Path,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
 ) -> Result<QualifiedPath, TypeError> {
     if path.segments.is_empty() {
         return Err(TypeError {
@@ -89,7 +89,7 @@ fn resolve_relative_path(
 fn check_item_visibility(
     def: &Definition,
     item_name: &str,
-    accessor_module: &ModulePath,
+    accessor_module: &QualifiedPath,
 ) -> Result<(), TypeError> {
     let visibility = match def {
         Definition::Function(f) => f.visibility,
@@ -138,10 +138,10 @@ fn check_item_visibility(
 /// A private module is visible from its declaring (parent) module and all descendants.
 fn check_module_path_visible(
     qualified: &QualifiedPath,
-    accessor_module: &ModulePath,
+    accessor_module: &QualifiedPath,
     pkg: &Package,
 ) -> Result<(), TypeError> {
-    let segments = &qualified.segments;
+    let segments = qualified.segments();
 
     // We need at least 3 segments (root::module::item) to have an intermediate module to check.
     // For each intermediate module segment (not root, not the final item), check visibility.
@@ -153,7 +153,7 @@ fn check_module_path_visible(
 
     // Check each intermediate module (segments[1] through segments[len-2])
     for i in 1..segments.len() - 1 {
-        let parent_module_path = ModulePath(segments[0..i].to_vec());
+        let parent_module_path = QualifiedPath::new(segments[0..i].to_vec());
         let child_name = &segments[i];
 
         if let Some(parent_module) = pkg.get(&parent_module_path)
@@ -221,10 +221,10 @@ pub type ImportTable = HashMap<String, QualifiedPath>;
 #[allow(clippy::too_many_arguments)]
 pub fn resolve_expr_path<'a>(
     path: &Path,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     locals: &'a HashMap<String, TypeScheme>,
-    imports: &'a HashMap<ModulePath, ImportTable>,
-    module_imports_map: &HashMap<ModulePath, ModuleImportTable>,
+    imports: &'a HashMap<QualifiedPath, ImportTable>,
+    module_imports_map: &HashMap<QualifiedPath, ModuleImportTable>,
     definitions: &'a HashMap<QualifiedPath, Definition>,
     pkg: &Package,
     reexports: &HashMap<QualifiedPath, QualifiedPath>,
@@ -265,7 +265,7 @@ pub fn resolve_expr_path<'a>(
             && let Some(imported_path) = item_imports.get(first)
         {
             let canonical_base = follow_reexports(imported_path, reexports);
-            let mut segments = canonical_base.segments.clone();
+            let mut segments = canonical_base.segments().to_vec();
             segments.extend(path.segments[1..].iter().cloned());
             let qualified_path = QualifiedPath::new(segments);
 
@@ -273,7 +273,7 @@ pub fn resolve_expr_path<'a>(
                 check_module_path_visible(&qualified_path, current_module, pkg)?;
                 check_item_visibility(
                     def,
-                    qualified_path.segments.last().unwrap(),
+                    qualified_path.last(),
                     current_module,
                 )?;
                 let canonical = follow_reexports(&qualified_path, reexports);
@@ -297,7 +297,7 @@ pub fn resolve_expr_path<'a>(
                 check_module_path_visible(&qualified_path, current_module, pkg)?;
                 check_item_visibility(
                     def,
-                    qualified_path.segments.last().unwrap(),
+                    qualified_path.last(),
                     current_module,
                 )?;
                 let canonical = follow_reexports(&qualified_path, reexports);
@@ -316,7 +316,7 @@ pub fn resolve_expr_path<'a>(
     // Try exact match in definitions
     if let Some(def) = definitions.get(&qualified_path) {
         check_module_path_visible(&qualified_path, current_module, pkg)?;
-        check_item_visibility(def, qualified_path.segments.last().unwrap(), current_module)?;
+        check_item_visibility(def, qualified_path.last(), current_module)?;
         // Follow re-export chain to the original definition
         let canonical = follow_reexports(&qualified_path, reexports);
         let canonical_def = definitions.get(&canonical).unwrap_or(def);
@@ -357,9 +357,9 @@ fn follow_reexports(
 /// don't have access to local variables.
 pub fn resolve_pattern_path<'a>(
     path: &Path,
-    current_module: &ModulePath,
-    imports: &'a HashMap<ModulePath, ImportTable>,
-    module_imports_map: &HashMap<ModulePath, ModuleImportTable>,
+    current_module: &QualifiedPath,
+    imports: &'a HashMap<QualifiedPath, ImportTable>,
+    module_imports_map: &HashMap<QualifiedPath, ModuleImportTable>,
     definitions: &'a HashMap<QualifiedPath, Definition>,
     pkg: &Package,
     reexports: &HashMap<QualifiedPath, QualifiedPath>,
@@ -392,7 +392,7 @@ pub fn resolve_pattern_path<'a>(
             && let Some(imported_path) = item_imports.get(first)
         {
             let canonical_base = follow_reexports(imported_path, reexports);
-            let mut segments = canonical_base.segments.clone();
+            let mut segments = canonical_base.segments().to_vec();
             segments.extend(path.segments[1..].iter().cloned());
             let qualified_path = QualifiedPath::new(segments);
 
@@ -400,7 +400,7 @@ pub fn resolve_pattern_path<'a>(
                 check_module_path_visible(&qualified_path, current_module, pkg)?;
                 check_item_visibility(
                     def,
-                    qualified_path.segments.last().unwrap(),
+                    qualified_path.last(),
                     current_module,
                 )?;
                 let canonical = follow_reexports(&qualified_path, reexports);
@@ -424,7 +424,7 @@ pub fn resolve_pattern_path<'a>(
                 check_module_path_visible(&qualified_path, current_module, pkg)?;
                 check_item_visibility(
                     def,
-                    qualified_path.segments.last().unwrap(),
+                    qualified_path.last(),
                     current_module,
                 )?;
                 let canonical = follow_reexports(&qualified_path, reexports);
@@ -443,7 +443,7 @@ pub fn resolve_pattern_path<'a>(
     // Try exact match in definitions
     if let Some(def) = definitions.get(&qualified_path) {
         check_module_path_visible(&qualified_path, current_module, pkg)?;
-        check_item_visibility(def, qualified_path.segments.last().unwrap(), current_module)?;
+        check_item_visibility(def, qualified_path.last(), current_module)?;
         // Follow re-export chain to the original definition
         let canonical = follow_reexports(&qualified_path, reexports);
         let canonical_def = definitions.get(&canonical).unwrap_or(def);
@@ -487,7 +487,7 @@ mod tests {
     #[test]
     fn test_resolve_simple_path_in_root() {
         let path = path_from_segments(PathPrefix::None, &["foo"]);
-        let current = ModulePath::root();
+        let current = QualifiedPath::root();
         let result = resolve_path(&path, &current).unwrap();
         assert_eq!(result.to_string(), "root::foo");
     }
@@ -495,7 +495,7 @@ mod tests {
     #[test]
     fn test_resolve_simple_path_in_nested_module() {
         let path = path_from_segments(PathPrefix::None, &["foo"]);
-        let current = ModulePath::root().child("utils");
+        let current = QualifiedPath::root().child("utils");
         let result = resolve_path(&path, &current).unwrap();
         assert_eq!(result.to_string(), "root::utils::foo");
     }
@@ -503,7 +503,7 @@ mod tests {
     #[test]
     fn test_resolve_root_prefix() {
         let path = path_from_segments(PathPrefix::Root, &["utils", "helper"]);
-        let current = ModulePath::root().child("other");
+        let current = QualifiedPath::root().child("other");
         let result = resolve_path(&path, &current).unwrap();
         assert_eq!(result.to_string(), "root::utils::helper");
     }
@@ -511,7 +511,7 @@ mod tests {
     #[test]
     fn test_resolve_self_prefix() {
         let path = path_from_segments(PathPrefix::Self_, &["foo"]);
-        let current = ModulePath::root().child("utils");
+        let current = QualifiedPath::root().child("utils");
         let result = resolve_path(&path, &current).unwrap();
         assert_eq!(result.to_string(), "root::utils::foo");
     }
@@ -519,7 +519,7 @@ mod tests {
     #[test]
     fn test_resolve_super_prefix() {
         let path = path_from_segments(PathPrefix::Super, &["foo"]);
-        let current = ModulePath::root().child("utils");
+        let current = QualifiedPath::root().child("utils");
         let result = resolve_path(&path, &current).unwrap();
         assert_eq!(result.to_string(), "root::foo");
     }
@@ -527,7 +527,7 @@ mod tests {
     #[test]
     fn test_resolve_super_in_root_module_error() {
         let path = path_from_segments(PathPrefix::Super, &["foo"]);
-        let current = ModulePath::root();
+        let current = QualifiedPath::root();
         let result = resolve_path(&path, &current);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("super::"));
@@ -536,7 +536,7 @@ mod tests {
     #[test]
     fn test_resolve_qualified_relative_path() {
         let path = path_from_segments(PathPrefix::None, &["Option", "Some"]);
-        let current = ModulePath::root();
+        let current = QualifiedPath::root();
         let result = resolve_path(&path, &current).unwrap();
         assert_eq!(result.to_string(), "root::Option::Some");
     }
@@ -544,15 +544,15 @@ mod tests {
     #[test]
     fn test_resolve_deeply_nested() {
         let path = path_from_segments(PathPrefix::Root, &["a", "b", "c", "foo"]);
-        let current = ModulePath::root();
+        let current = QualifiedPath::root();
         let result = resolve_path(&path, &current).unwrap();
         assert_eq!(result.to_string(), "root::a::b::c::foo");
     }
 
     #[test]
     fn test_qualified_path_from_module() {
-        let module = ModulePath::root().child("utils");
-        let result = QualifiedPath::from_module(&module, "helper");
+        let module = QualifiedPath::root().child("utils");
+        let result = module.child("helper");
         assert_eq!(result.to_string(), "root::utils::helper");
     }
 
@@ -573,7 +573,7 @@ mod tests {
             qpath("root::utils::helper"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Public,
-                module: ModulePath::root().child("utils"),
+                module: QualifiedPath::root().child("utils"),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -583,7 +583,7 @@ mod tests {
         let locals = HashMap::new();
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["utils", "helper"]);
-        let current = ModulePath::root(); // calling from root
+        let current = QualifiedPath::root(); // calling from root
         let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_ok());
     }
@@ -595,7 +595,7 @@ mod tests {
             qpath("root::utils::helper"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Private,
-                module: ModulePath::root().child("utils"),
+                module: QualifiedPath::root().child("utils"),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -605,7 +605,7 @@ mod tests {
         let locals = HashMap::new();
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::None, &["helper"]);
-        let current = ModulePath::root().child("utils"); // calling from same module
+        let current = QualifiedPath::root().child("utils"); // calling from same module
         let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_ok());
     }
@@ -617,7 +617,7 @@ mod tests {
             qpath("root::helper"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Private,
-                module: ModulePath::root(),
+                module: QualifiedPath::root(),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -627,7 +627,7 @@ mod tests {
         let locals = HashMap::new();
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Super, &["helper"]);
-        let current = ModulePath::root().child("utils"); // child accessing parent
+        let current = QualifiedPath::root().child("utils"); // child accessing parent
         let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_ok());
     }
@@ -639,7 +639,7 @@ mod tests {
             qpath("root::utils::helper"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Private,
-                module: ModulePath::root().child("utils"),
+                module: QualifiedPath::root().child("utils"),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -649,7 +649,7 @@ mod tests {
         let locals = HashMap::new();
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::None, &["utils", "helper"]);
-        let current = ModulePath::root(); // parent trying to access child's private
+        let current = QualifiedPath::root(); // parent trying to access child's private
         let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -663,7 +663,7 @@ mod tests {
             qpath("root::a::helper"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Private,
-                module: ModulePath::root().child("a"),
+                module: QualifiedPath::root().child("a"),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -673,7 +673,7 @@ mod tests {
         let locals = HashMap::new();
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["a", "helper"]);
-        let current = ModulePath::root().child("b"); // sibling trying to access
+        let current = QualifiedPath::root().child("b"); // sibling trying to access
         let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -687,7 +687,7 @@ mod tests {
             qpath("root::helper"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Private,
-                module: ModulePath::root(),
+                module: QualifiedPath::root(),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -697,7 +697,7 @@ mod tests {
         let locals = HashMap::new();
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["helper"]);
-        let current = ModulePath::root().child("a").child("b").child("c"); // deeply nested
+        let current = QualifiedPath::root().child("a").child("b").child("c"); // deeply nested
         let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_ok());
     }
@@ -713,7 +713,7 @@ mod tests {
             qpath("root::a::Point"),
             Definition::Struct(StructType {
                 visibility: Visibility::Private,
-                module: ModulePath::root().child("a"),
+                module: QualifiedPath::root().child("a"),
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -723,7 +723,7 @@ mod tests {
         let locals = HashMap::new();
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["a", "Point"]);
-        let current = ModulePath::root().child("b"); // sibling
+        let current = QualifiedPath::root().child("b"); // sibling
         let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
@@ -736,7 +736,7 @@ mod tests {
             qpath("root::a::Color"),
             Definition::Enum(EnumType {
                 visibility: Visibility::Private,
-                module: ModulePath::root().child("a"),
+                module: QualifiedPath::root().child("a"),
                 name: "Color".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -746,7 +746,7 @@ mod tests {
         let locals = HashMap::new();
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["a", "Color"]);
-        let current = ModulePath::root().child("b");
+        let current = QualifiedPath::root().child("b");
         let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
@@ -759,7 +759,7 @@ mod tests {
             qpath("root::a::MyInt"),
             Definition::TypeAlias(TypeAliasType {
                 visibility: Visibility::Private,
-                module: ModulePath::root().child("a"),
+                module: QualifiedPath::root().child("a"),
                 name: "MyInt".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -769,7 +769,7 @@ mod tests {
         let locals = HashMap::new();
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["a", "MyInt"]);
-        let current = ModulePath::root().child("b");
+        let current = QualifiedPath::root().child("b");
         let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
@@ -779,7 +779,7 @@ mod tests {
     fn test_visibility_private_enum_variant_from_sibling_error() {
         let parent_enum = EnumType {
             visibility: Visibility::Private,
-            module: ModulePath::root().child("a"),
+            module: QualifiedPath::root().child("a"),
             name: "Color".to_string(),
             type_params: vec![],
             type_var_ids: vec![],
@@ -793,7 +793,7 @@ mod tests {
         let locals = HashMap::new();
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["a", "Color", "Red"]);
-        let current = ModulePath::root().child("b");
+        let current = QualifiedPath::root().child("b");
         let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
@@ -806,7 +806,7 @@ mod tests {
             qpath("root::a::Point"),
             Definition::Struct(StructType {
                 visibility: Visibility::Public,
-                module: ModulePath::root().child("a"),
+                module: QualifiedPath::root().child("a"),
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -816,7 +816,7 @@ mod tests {
         let locals = HashMap::new();
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["a", "Point"]);
-        let current = ModulePath::root().child("b");
+        let current = QualifiedPath::root().child("b");
         let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_ok());
     }
@@ -828,7 +828,7 @@ mod tests {
             qpath("root::Point"),
             Definition::Struct(StructType {
                 visibility: Visibility::Private,
-                module: ModulePath::root(),
+                module: QualifiedPath::root(),
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -838,7 +838,7 @@ mod tests {
         let locals = HashMap::new();
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["Point"]);
-        let current = ModulePath::root().child("child"); // descendant
+        let current = QualifiedPath::root().child("child"); // descendant
         let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_ok());
     }
@@ -850,7 +850,7 @@ mod tests {
             qpath("root::a::Point"),
             Definition::Struct(StructType {
                 visibility: Visibility::Private,
-                module: ModulePath::root().child("a"),
+                module: QualifiedPath::root().child("a"),
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -859,7 +859,7 @@ mod tests {
         );
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["a", "Point"]);
-        let current = ModulePath::root().child("b");
+        let current = QualifiedPath::root().child("b");
         let result = resolve_pattern_path(&path, &current, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new());
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
@@ -877,7 +877,7 @@ mod tests {
             qpath("root::utils::helper"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Public,
-                module: ModulePath::root().child("utils"),
+                module: QualifiedPath::root().child("utils"),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -888,7 +888,7 @@ mod tests {
             qpath("root::helper"), // Would be the local one if no import
             Definition::Function(FunctionType {
                 visibility: Visibility::Public,
-                module: ModulePath::root(),
+                module: QualifiedPath::root(),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -900,10 +900,10 @@ mod tests {
         let mut imports = HashMap::new();
         let mut root_imports = ImportTable::new();
         root_imports.insert("helper".to_string(), qpath("root::utils::helper"));
-        imports.insert(ModulePath::root(), root_imports);
+        imports.insert(QualifiedPath::root(), root_imports);
 
         let path = path_from_segments(PathPrefix::None, &["helper"]);
-        let current = ModulePath::root();
+        let current = QualifiedPath::root();
         let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new()).unwrap();
 
         // Should resolve to the imported version (root::utils::helper)
@@ -922,7 +922,7 @@ mod tests {
             qpath("root::utils::helper"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Public,
-                module: ModulePath::root().child("utils"),
+                module: QualifiedPath::root().child("utils"),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -942,10 +942,10 @@ mod tests {
         let mut imports = HashMap::new();
         let mut root_imports = ImportTable::new();
         root_imports.insert("helper".to_string(), qpath("root::utils::helper"));
-        imports.insert(ModulePath::root(), root_imports);
+        imports.insert(QualifiedPath::root(), root_imports);
 
         let path = path_from_segments(PathPrefix::None, &["helper"]);
-        let current = ModulePath::root();
+        let current = QualifiedPath::root();
         let result = resolve_expr_path(&path, &current, &locals, &imports, &HashMap::new(), &definitions, &empty_pkg(), &HashMap::new()).unwrap();
 
         // Should resolve to the local variable, not the import

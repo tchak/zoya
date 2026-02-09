@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use zoya_ast::{Expr, FunctionDef, Item, Visibility};
 use zoya_ir::{CheckedItem, TypeError, TypedExpr, TypedFunction};
-use zoya_package::{Module, ModulePath, Package};
+use zoya_package::{Module, QualifiedPath, Package};
 
 use crate::check::{check_expr, TypeEnv};
 use crate::unify::UnifyCtx;
@@ -24,18 +24,18 @@ mod variables;
 /// Helper to check an expression with default environment
 pub fn check_expr_with_env(expr: &Expr) -> Result<TypedExpr, TypeError> {
     let mut ctx = UnifyCtx::new();
-    check_expr(expr, &ModulePath::root(), &TypeEnv::default(), &mut ctx)
+    check_expr(expr, &QualifiedPath::root(), &TypeEnv::default(), &mut ctx)
 }
 
 /// Build a test package from items only.
 pub fn build_test_package(items: Vec<Item>) -> Package {
     let module = Module {
         items,
-        path: ModulePath::root(),
+        path: QualifiedPath::root(),
         children: HashMap::new(),
     };
     let mut modules = HashMap::new();
-    modules.insert(ModulePath::root(), module);
+    modules.insert(QualifiedPath::root(), module);
     Package { modules }
 }
 

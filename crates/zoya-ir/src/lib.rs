@@ -6,5 +6,6 @@ pub use display::pretty_type;
 pub use ir::*;
 pub use types::*;
 
-// Re-export Visibility from AST
+// Re-export from dependencies
 pub use zoya_ast::Visibility;
+pub use zoya_package::QualifiedPath;

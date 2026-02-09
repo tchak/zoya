@@ -1,6 +1,6 @@
 use zoya_ast::{BinOp, Expr, Path};
 use zoya_ir::{Type, TypeScheme};
-use zoya_package::ModulePath;
+use zoya_package::QualifiedPath;
 
 use crate::check::{check_expr, TypeEnv};
 use crate::unify::UnifyCtx;
@@ -12,7 +12,7 @@ fn test_check_variable() {
 
     let mut ctx = UnifyCtx::new();
     let expr = Expr::Path(Path::simple("x".to_string()));
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx).unwrap();
     assert_eq!(result.ty(), Type::Int);
 }
 
@@ -21,7 +21,7 @@ fn test_check_unknown_variable() {
     let env = TypeEnv::default();
     let mut ctx = UnifyCtx::new();
     let expr = Expr::Path(Path::simple("x".to_string()));
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("unknown identifier"));
 }
@@ -38,6 +38,6 @@ fn test_check_variable_in_expression() {
         left: Box::new(Expr::Path(Path::simple("x".to_string()))),
         right: Box::new(Expr::Path(Path::simple("y".to_string()))),
     };
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx).unwrap();
     assert_eq!(result.ty(), Type::Int);
 }

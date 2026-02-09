@@ -4,7 +4,7 @@ use zoya_ast::{EnumDef, FunctionDef, StructDef, TypeAliasDef};
 use zoya_ir::{
     EnumType, EnumVariantType, FunctionType, StructType, Type, TypeAliasType, TypeError,
 };
-use zoya_package::ModulePath;
+use zoya_package::QualifiedPath;
 
 use crate::check::TypeEnv;
 use crate::naming::{is_pascal_case, to_pascal_case};
@@ -15,7 +15,7 @@ use crate::unify::UnifyCtx;
 /// Uses a separate UnifyCtx to create fresh type variables for the signature.
 pub fn function_type_from_def(
     func: &FunctionDef,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<FunctionType, TypeError> {
@@ -56,7 +56,7 @@ pub fn function_type_from_def(
 /// Extract struct type from a struct definition (for adding to env).
 pub fn struct_type_from_def(
     def: &StructDef,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<StructType, TypeError> {
@@ -112,7 +112,7 @@ pub fn struct_type_from_def(
 /// Extract enum type from an enum definition (for adding to env).
 pub fn enum_type_from_def(
     def: &EnumDef,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<EnumType, TypeError> {
@@ -197,7 +197,7 @@ pub fn enum_type_from_def(
 /// Extract type alias from a type alias definition (for adding to env).
 pub fn type_alias_from_def(
     def: &TypeAliasDef,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypeAliasType, TypeError> {
@@ -251,8 +251,8 @@ mod tests {
     use super::*;
     use zoya_ast::{EnumVariant, EnumVariantKind, Path, StructFieldDef, TypeAnnotation, Visibility};
 
-    fn root() -> ModulePath {
-        ModulePath::root()
+    fn root() -> QualifiedPath {
+        QualifiedPath::root()
     }
 
     // ========================================================================

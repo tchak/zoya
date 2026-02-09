@@ -1,6 +1,5 @@
 use zoya_ast::{Expr, Path, PathPrefix, Visibility};
 use zoya_ir::{Definition, EnumType, EnumVariantType, QualifiedPath, Type};
-use zoya_package::ModulePath;
 
 use crate::check::{check_expr, TypeEnv};
 use crate::unify::UnifyCtx;
@@ -13,7 +12,7 @@ fn env_with_message_enum() -> TypeEnv {
     let mut env = TypeEnv::default();
     let enum_type = EnumType {
         visibility: Visibility::Public,
-        module: ModulePath::root(),
+        module: QualifiedPath::root(),
         name: "Message".to_string(),
         type_params: vec![],
         type_var_ids: vec![],
@@ -52,7 +51,7 @@ fn test_enum_tuple_construct_valid() {
         },
         args: vec![Expr::String("hello".to_string())],
     };
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx).unwrap();
     match result.ty() {
         Type::Enum { name, .. } => assert_eq!(name, "Message"),
         _ => panic!("Expected enum type"),
@@ -71,7 +70,7 @@ fn test_enum_tuple_construct_unit_variant_with_args_error() {
         },
         args: vec![Expr::Int(1)], // Quit is a unit variant
     };
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.message.contains("unit variant"));
@@ -89,7 +88,7 @@ fn test_enum_tuple_construct_struct_variant_with_tuple_syntax_error() {
         },
         args: vec![Expr::Int(1), Expr::Int(2)], // Move is a struct variant
     };
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.message.contains("struct variant"));
@@ -110,7 +109,7 @@ fn test_enum_struct_construct_valid() {
             ("y".to_string(), Expr::Int(20)),
         ],
     };
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx).unwrap();
     match result.ty() {
         Type::Enum { name, .. } => assert_eq!(name, "Message"),
         _ => panic!("Expected enum type"),
@@ -131,7 +130,7 @@ fn test_enum_struct_construct_unit_variant_error() {
             ("x".to_string(), Expr::Int(10)),
         ],
     };
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.message.contains("unit variant"));
@@ -151,7 +150,7 @@ fn test_enum_struct_construct_tuple_variant_error() {
             ("msg".to_string(), Expr::String("hi".to_string())),
         ],
     };
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.message.contains("tuple variant"));
@@ -172,7 +171,7 @@ fn test_enum_struct_construct_missing_field() {
             // Missing y
         ],
     };
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.message.contains("missing field 'y'"));
@@ -194,7 +193,7 @@ fn test_enum_struct_construct_unknown_field() {
             ("z".to_string(), Expr::Int(30)), // Unknown
         ],
     };
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.message.contains("unknown field 'z'"));
@@ -215,7 +214,7 @@ fn test_enum_struct_construct_field_type_mismatch() {
             ("y".to_string(), Expr::String("wrong".to_string())), // Wrong type
         ],
     };
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.message.contains("field 'y'") && err.message.contains("expects"));

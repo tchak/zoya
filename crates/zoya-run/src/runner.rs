@@ -4,7 +4,7 @@ use zoya_check::check;
 use zoya_codegen::codegen;
 use zoya_ir::{CheckedItem, CheckedPackage, Type};
 use zoya_loader::{load_package, load_package_with, MemorySource};
-use zoya_package::ModulePath;
+use zoya_package::QualifiedPath;
 
 use crate::eval::{self, EvalError, Value, VirtualModules};
 
@@ -16,10 +16,10 @@ use crate::eval::{self, EvalError, Value, VirtualModules};
 /// unresolved type variables.
 pub fn run(
     package: CheckedPackage,
-    module: Option<ModulePath>,
+    module: Option<QualifiedPath>,
     return_type: Option<Type>,
 ) -> Result<Value, EvalError> {
-    let module_path = module.unwrap_or_else(ModulePath::root);
+    let module_path = module.unwrap_or_else(QualifiedPath::root);
 
     // Find main in the specified module
     let target_module = package

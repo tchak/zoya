@@ -98,7 +98,7 @@ impl std::hash::Hash for Constructor {
             Constructor::StringLiteral(s) => s.hash(state),
             Constructor::Struct { name, .. } => name.hash(state), // Only hash name
             Constructor::EnumVariant { path, .. } => {
-                path.segments.hash(state);
+                path.segments().hash(state);
             }
             Constructor::NonExhaustive => {}
         }

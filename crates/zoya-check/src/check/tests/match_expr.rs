@@ -1,6 +1,6 @@
 use zoya_ast::{BinOp, Expr, MatchArm, Path, Pattern};
 use zoya_ir::{Type, TypeScheme};
-use zoya_package::ModulePath;
+use zoya_package::QualifiedPath;
 
 use crate::check::{check_expr, TypeEnv};
 use crate::unify::UnifyCtx;
@@ -28,7 +28,7 @@ fn test_check_match_with_literals() {
             },
         ],
     };
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx).unwrap();
     assert_eq!(result.ty(), Type::String);
 }
 
@@ -51,7 +51,7 @@ fn test_check_match_with_wildcard() {
             },
         ],
     };
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx).unwrap();
     assert_eq!(result.ty(), Type::Int);
 }
 
@@ -72,7 +72,7 @@ fn test_check_match_with_variable_binding() {
             },
         }],
     };
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx).unwrap();
     assert_eq!(result.ty(), Type::Int);
 }
 
@@ -89,7 +89,7 @@ fn test_check_match_pattern_type_mismatch() {
             result: Expr::Int(1),
         }],
     };
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("does not match scrutinee"));
 }
@@ -113,7 +113,7 @@ fn test_check_match_arm_type_mismatch() {
             },
         ],
     };
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx);
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("different types"));
 }
@@ -141,6 +141,6 @@ fn test_match_empty_arms_exhaustiveness_warning() {
             },
         ],
     };
-    let result = check_expr(&expr, &ModulePath::root(), &env, &mut ctx).unwrap();
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx).unwrap();
     assert_eq!(result.ty(), Type::Int);
 }

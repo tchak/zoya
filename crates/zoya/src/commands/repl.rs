@@ -8,7 +8,7 @@ use zoya_run::{self as runner, Value};
 use zoya_ast::{Expr, FunctionDef, Item, LetBinding, Stmt, Visibility};
 use zoya_check::check;
 use zoya_ir::{CheckedItem, CheckedPackage, Type, TypedExpr, TypedPattern};
-use zoya_package::{Module, ModulePath, Package};
+use zoya_package::{Module, QualifiedPath, Package};
 
 /// Extract all variable bindings from a typed pattern.
 /// Returns a list of (name, type) pairs for each bound variable.
@@ -268,7 +268,7 @@ impl State {
             let combined_type = Type::Tuple(return_types.clone());
 
             // Call combined main function via runner with explicit type
-            let module_path = ModulePath::root().child("repl");
+            let module_path = QualifiedPath::root().child("repl");
             let combined_value =
                 runner::run(checked_pkg.clone(), Some(module_path), Some(combined_type))
                     .map_err(|e| e.to_string())?;
@@ -381,7 +381,7 @@ fn create_run_function(name: &str, block: &EvalBlock) -> Item {
 
 /// Build a Package with REPL items in a "repl" submodule.
 fn build_repl_package(base_pkg: Option<&Package>, items: Vec<Item>) -> Package {
-    let repl_path = ModulePath::root().child("repl");
+    let repl_path = QualifiedPath::root().child("repl");
 
     let mut modules = if let Some(pkg) = base_pkg {
         pkg.modules.clone()
@@ -390,9 +390,9 @@ fn build_repl_package(base_pkg: Option<&Package>, items: Vec<Item>) -> Package {
     };
 
     // Create or update root module to include "repl" as child
-    let root = modules.entry(ModulePath::root()).or_insert_with(|| Module {
+    let root = modules.entry(QualifiedPath::root()).or_insert_with(|| Module {
         items: vec![],
-        path: ModulePath::root(),
+        path: QualifiedPath::root(),
         children: HashMap::new(),
     });
     root.children.insert("repl".to_string(), (repl_path.clone(), Visibility::Private));
@@ -415,7 +415,7 @@ fn find_typed_function<'a>(
     pkg: &'a CheckedPackage,
     name: &str,
 ) -> Option<&'a zoya_ir::TypedFunction> {
-    let repl_path = ModulePath::root().child("repl");
+    let repl_path = QualifiedPath::root().child("repl");
     let repl_module = pkg.modules.get(&repl_path)?;
     for item in &repl_module.items {
         if let CheckedItem::Function(f) = item

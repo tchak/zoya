@@ -15,7 +15,7 @@ Handles reading, parsing, and organizing Zoya source files into a package. Suppo
 
 ```rust
 use std::path::Path;
-use zoya_loader::{load_package, load_package_with, MemorySource, ModulePath};
+use zoya_loader::{load_package, load_package_with, MemorySource, QualifiedPath};
 
 // Load from filesystem
 let pkg = load_package(Path::new("src/main.zoya"))?;

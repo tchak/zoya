@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use zoya_ast::TypeAnnotation;
 use zoya_ir::{Definition, Type, TypeError, TypeVarId};
-use zoya_package::ModulePath;
+use zoya_package::QualifiedPath;
 
 use crate::check::{TypeEnv, substitute_type_vars, substitute_variant_type_vars};
 use crate::resolution::{self, ResolvedPath};
@@ -14,7 +14,7 @@ use crate::resolution::{self, ResolvedPath};
 pub fn resolve_type_annotation(
     annotation: &TypeAnnotation,
     type_param_map: &HashMap<String, TypeVarId>,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     env: &TypeEnv,
 ) -> Result<Type, TypeError> {
     match annotation {
@@ -331,8 +331,8 @@ mod tests {
         HashMap::new()
     }
 
-    fn root() -> ModulePath {
-        ModulePath::root()
+    fn root() -> QualifiedPath {
+        QualifiedPath::root()
     }
 
     fn qpath(path: &str) -> QualifiedPath {
@@ -532,7 +532,7 @@ mod tests {
             qpath("root::Point"),
             Definition::Struct(StructType {
                 visibility: Visibility::Public,
-                module: ModulePath::root(),
+                module: QualifiedPath::root(),
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -564,7 +564,7 @@ mod tests {
             qpath("root::Container"),
             Definition::Struct(StructType {
                 visibility: Visibility::Public,
-                module: ModulePath::root(),
+                module: QualifiedPath::root(),
                 name: "Container".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
@@ -589,7 +589,7 @@ mod tests {
             qpath("root::Pair"),
             Definition::Struct(StructType {
                 visibility: Visibility::Public,
-                module: ModulePath::root(),
+                module: QualifiedPath::root(),
                 name: "Pair".to_string(),
                 type_params: vec!["A".to_string(), "B".to_string()],
                 type_var_ids: vec![TypeVarId(1), TypeVarId(2)],
@@ -621,7 +621,7 @@ mod tests {
             qpath("root::Container"),
             Definition::Struct(StructType {
                 visibility: Visibility::Public,
-                module: ModulePath::root(),
+                module: QualifiedPath::root(),
                 name: "Container".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
@@ -661,7 +661,7 @@ mod tests {
             qpath("root::Status"),
             Definition::Enum(EnumType {
                 visibility: Visibility::Public,
-                module: ModulePath::root(),
+                module: QualifiedPath::root(),
                 name: "Status".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -696,7 +696,7 @@ mod tests {
             qpath("root::Option"),
             Definition::Enum(EnumType {
                 visibility: Visibility::Public,
-                module: ModulePath::root(),
+                module: QualifiedPath::root(),
                 name: "Option".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
@@ -724,7 +724,7 @@ mod tests {
             qpath("root::Result"),
             Definition::Enum(EnumType {
                 visibility: Visibility::Public,
-                module: ModulePath::root(),
+                module: QualifiedPath::root(),
                 name: "Result".to_string(),
                 type_params: vec!["T".to_string(), "E".to_string()],
                 type_var_ids: vec![TypeVarId(1), TypeVarId(2)],
@@ -766,7 +766,7 @@ mod tests {
             qpath("root::Option"),
             Definition::Enum(EnumType {
                 visibility: Visibility::Public,
-                module: ModulePath::root(),
+                module: QualifiedPath::root(),
                 name: "Option".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
@@ -812,7 +812,7 @@ mod tests {
             qpath("root::IntList"),
             Definition::TypeAlias(TypeAliasType {
                 visibility: Visibility::Public,
-                module: ModulePath::root(),
+                module: QualifiedPath::root(),
                 name: "IntList".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -833,7 +833,7 @@ mod tests {
             qpath("root::MyList"),
             Definition::TypeAlias(TypeAliasType {
                 visibility: Visibility::Public,
-                module: ModulePath::root(),
+                module: QualifiedPath::root(),
                 name: "MyList".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
@@ -858,7 +858,7 @@ mod tests {
             qpath("root::MyPair"),
             Definition::TypeAlias(TypeAliasType {
                 visibility: Visibility::Public,
-                module: ModulePath::root(),
+                module: QualifiedPath::root(),
                 name: "MyPair".to_string(),
                 type_params: vec!["A".to_string(), "B".to_string()],
                 type_var_ids: vec![TypeVarId(1), TypeVarId(2)],
@@ -886,7 +886,7 @@ mod tests {
             qpath("root::MyList"),
             Definition::TypeAlias(TypeAliasType {
                 visibility: Visibility::Public,
-                module: ModulePath::root(),
+                module: QualifiedPath::root(),
                 name: "MyList".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],

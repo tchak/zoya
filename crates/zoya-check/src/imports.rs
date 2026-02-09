@@ -6,13 +6,13 @@ use std::collections::HashMap;
 
 use zoya_ast::{PathPrefix, UseDecl, UseTarget};
 use zoya_ir::{Definition, QualifiedPath, TypeError, Visibility};
-use zoya_package::{ModulePath, Package};
+use zoya_package::Package;
 
 /// Resolved import entry: maps a local name to a qualified path
 pub type ImportTable = HashMap<String, QualifiedPath>;
 
 /// Module import table: maps a local module alias to a module path
-pub type ModuleImportTable = HashMap<String, ModulePath>;
+pub type ModuleImportTable = HashMap<String, QualifiedPath>;
 
 /// Resolve a use path to a fully qualified path.
 ///
@@ -25,7 +25,7 @@ pub type ModuleImportTable = HashMap<String, ModulePath>;
 /// | `use super::foo` | Parent module reference |
 pub(crate) fn resolve_use_path(
     use_decl: &UseDecl,
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
 ) -> Result<QualifiedPath, TypeError> {
     let path = &use_decl.path;
 
@@ -69,19 +69,19 @@ pub(crate) fn resolve_use_path(
     }
 }
 
-/// Resolve a use path's segments to a ModulePath (for Glob/Group targets where
+/// Resolve a use path's segments to a QualifiedPath (for Glob/Group targets where
 /// segments is the module path, not including an item name).
 pub(crate) fn resolve_use_module_path(
     use_decl: &UseDecl,
-    current_module: &ModulePath,
-) -> Result<ModulePath, TypeError> {
+    current_module: &QualifiedPath,
+) -> Result<QualifiedPath, TypeError> {
     let path = &use_decl.path;
 
     match path.prefix {
         PathPrefix::Root => {
             let mut segments = vec!["root".to_string()];
             segments.extend(path.segments.iter().cloned());
-            Ok(ModulePath(segments))
+            Ok(QualifiedPath::new(segments))
         }
         PathPrefix::Self_ => {
             let mut segments = current_module
@@ -90,7 +90,7 @@ pub(crate) fn resolve_use_module_path(
                 .map(|s| s.to_string())
                 .collect::<Vec<_>>();
             segments.extend(path.segments.iter().cloned());
-            Ok(ModulePath(segments))
+            Ok(QualifiedPath::new(segments))
         }
         PathPrefix::Super => {
             let parent = current_module.parent().ok_or_else(|| TypeError {
@@ -102,7 +102,7 @@ pub(crate) fn resolve_use_module_path(
                 .map(|s| s.to_string())
                 .collect::<Vec<_>>();
             segments.extend(path.segments.iter().cloned());
-            Ok(ModulePath(segments))
+            Ok(QualifiedPath::new(segments))
         }
         PathPrefix::None => Err(TypeError {
             message: "use declarations require a prefix (root::, self::, or super::)".to_string(),
@@ -113,7 +113,7 @@ pub(crate) fn resolve_use_module_path(
 /// Check if an import target is visible from the importing module.
 fn check_import_visible(
     qualified: &QualifiedPath,
-    accessor_module: &ModulePath,
+    accessor_module: &QualifiedPath,
     definitions: &HashMap<QualifiedPath, Definition>,
 ) -> Result<(), TypeError> {
     // Look up the definition
@@ -162,17 +162,17 @@ fn check_import_visible(
 /// Check that all intermediate modules in a qualified path are visible from the accessor module.
 fn check_import_module_path_visible(
     qualified: &QualifiedPath,
-    accessor_module: &ModulePath,
+    accessor_module: &QualifiedPath,
     pkg: &Package,
 ) -> Result<(), TypeError> {
-    let segments = &qualified.segments;
+    let segments = qualified.segments();
 
     if segments.len() < 3 {
         return Ok(());
     }
 
     for i in 1..segments.len() - 1 {
-        let parent_module_path = ModulePath(segments[0..i].to_vec());
+        let parent_module_path = QualifiedPath::new(segments[0..i].to_vec());
         let child_name = &segments[i];
 
         if let Some(parent_module) = pkg.get(&parent_module_path)
@@ -260,10 +260,10 @@ fn definition_visibility(def: &Definition) -> Visibility {
 /// Resolve a module path, following module re-exports if needed.
 /// Returns the real module path if found (either directly or through re-exports).
 fn resolve_target_module(
-    target: &ModulePath,
+    target: &QualifiedPath,
     pkg: &Package,
-    module_reexports: &HashMap<ModulePath, ModulePath>,
-) -> Option<ModulePath> {
+    module_reexports: &HashMap<QualifiedPath, QualifiedPath>,
+) -> Option<QualifiedPath> {
     if pkg.get(target).is_some() {
         return Some(target.clone());
     }
@@ -284,10 +284,10 @@ fn resolve_target_module(
 /// The module import table maps local module aliases to module paths.
 pub fn resolve_module_imports(
     uses: &[UseDecl],
-    current_module: &ModulePath,
+    current_module: &QualifiedPath,
     definitions: &HashMap<QualifiedPath, Definition>,
     pkg: &Package,
-    module_reexports: &HashMap<ModulePath, ModulePath>,
+    module_reexports: &HashMap<QualifiedPath, QualifiedPath>,
 ) -> Result<(ImportTable, ModuleImportTable), TypeError> {
     let mut imports = HashMap::new();
     let mut module_imports = HashMap::new();
@@ -343,9 +343,9 @@ pub fn resolve_module_imports(
                         // Try as item import through module re-export
                         // e.g., `use root::b::a::helper` where `root::b::a` → `root::a`
                         let mut found = false;
-                        let segments = &qualified.segments;
+                        let segments = qualified.segments();
                         for prefix_len in (2..segments.len()).rev() {
-                            let candidate = ModulePath(segments[..prefix_len].to_vec());
+                            let candidate = QualifiedPath::new(segments[..prefix_len].to_vec());
                             if let Some(real_module) = resolve_target_module(&candidate, pkg, module_reexports) {
                                 // Rewrite the qualified path through the real module
                                 let mut new_segments = real_module.segments().to_vec();
@@ -393,10 +393,10 @@ pub fn resolve_module_imports(
                 let module_segments = resolved_module.segments();
                 for (qpath, def) in definitions {
                     // Check if this definition is directly in the target module
-                    if qpath.segments.len() == module_segments.len() + 1
-                        && qpath.segments[..module_segments.len()] == module_segments[..]
+                    if qpath.len() == module_segments.len() + 1
+                        && qpath.segments()[..module_segments.len()] == module_segments[..]
                     {
-                        let item_name = qpath.segments.last().unwrap();
+                        let item_name = qpath.last();
 
                         // Skip private items silently
                         if definition_visibility(def) != Visibility::Public {
@@ -412,7 +412,7 @@ pub fn resolve_module_imports(
                             check_pub_reexport_visible(qpath, definitions)?;
                         }
 
-                        insert_import(&mut imports, item_name.clone(), qpath.clone())?;
+                        insert_import(&mut imports, item_name.to_string(), qpath.clone())?;
                     }
                 }
             }
@@ -430,7 +430,7 @@ pub fn resolve_module_imports(
                 check_import_module_path_visible(&module_qpath, current_module, pkg)?;
 
                 for group_item in items {
-                    let qualified = QualifiedPath::from_module(&resolved_module, &group_item.name);
+                    let qualified = resolved_module.child(&group_item.name);
 
                     check_import_visible(&qualified, current_module, definitions)?;
 
@@ -481,7 +481,7 @@ mod tests {
     #[test]
     fn test_resolve_use_path_root() {
         let use_decl = make_use(PathPrefix::Root, &["foo", "bar"]);
-        let current = ModulePath::root();
+        let current = QualifiedPath::root();
         let result = resolve_use_path(&use_decl, &current).unwrap();
         assert_eq!(result.to_string(), "root::foo::bar");
     }
@@ -489,7 +489,7 @@ mod tests {
     #[test]
     fn test_resolve_use_path_self() {
         let use_decl = make_use(PathPrefix::Self_, &["foo"]);
-        let current = ModulePath::root().child("utils");
+        let current = QualifiedPath::root().child("utils");
         let result = resolve_use_path(&use_decl, &current).unwrap();
         assert_eq!(result.to_string(), "root::utils::foo");
     }
@@ -497,7 +497,7 @@ mod tests {
     #[test]
     fn test_resolve_use_path_super() {
         let use_decl = make_use(PathPrefix::Super, &["foo"]);
-        let current = ModulePath::root().child("utils");
+        let current = QualifiedPath::root().child("utils");
         let result = resolve_use_path(&use_decl, &current).unwrap();
         assert_eq!(result.to_string(), "root::foo");
     }
@@ -505,7 +505,7 @@ mod tests {
     #[test]
     fn test_resolve_use_path_super_from_root_fails() {
         let use_decl = make_use(PathPrefix::Super, &["foo"]);
-        let current = ModulePath::root();
+        let current = QualifiedPath::root();
         let result = resolve_use_path(&use_decl, &current);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("super"));
@@ -518,7 +518,7 @@ mod tests {
             qpath("root::foo::bar"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Public,
-                module: ModulePath::root().child("foo"),
+                module: QualifiedPath::root().child("foo"),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -527,7 +527,7 @@ mod tests {
         );
 
         let uses = vec![make_use(PathPrefix::Root, &["foo", "bar"])];
-        let current = ModulePath::root();
+        let current = QualifiedPath::root();
         let (imports, _) = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new()).unwrap();
 
         assert_eq!(imports.len(), 1);
@@ -544,7 +544,7 @@ mod tests {
             qpath("root::foo::bar"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Public,
-                module: ModulePath::root().child("foo"),
+                module: QualifiedPath::root().child("foo"),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -555,7 +555,7 @@ mod tests {
             qpath("root::baz::bar"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Public,
-                module: ModulePath::root().child("baz"),
+                module: QualifiedPath::root().child("baz"),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -567,7 +567,7 @@ mod tests {
             make_use(PathPrefix::Root, &["foo", "bar"]),
             make_use(PathPrefix::Root, &["baz", "bar"]),
         ];
-        let current = ModulePath::root();
+        let current = QualifiedPath::root();
         let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new());
 
         assert!(result.is_err());
@@ -579,7 +579,7 @@ mod tests {
         let definitions = HashMap::new();
 
         let uses = vec![make_use(PathPrefix::Root, &["foo", "bar"])];
-        let current = ModulePath::root();
+        let current = QualifiedPath::root();
         let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new());
 
         assert!(result.is_err());
@@ -593,7 +593,7 @@ mod tests {
             qpath("root::other::secret"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Private,
-                module: ModulePath::root().child("other"),
+                module: QualifiedPath::root().child("other"),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -602,7 +602,7 @@ mod tests {
         );
 
         let uses = vec![make_use(PathPrefix::Root, &["other", "secret"])];
-        let current = ModulePath::root().child("mine"); // sibling module
+        let current = QualifiedPath::root().child("mine"); // sibling module
         let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new());
 
         assert!(result.is_err());
@@ -616,7 +616,7 @@ mod tests {
             qpath("root::other::Point"),
             Definition::Struct(StructType {
                 visibility: Visibility::Private,
-                module: ModulePath::root().child("other"),
+                module: QualifiedPath::root().child("other"),
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -625,7 +625,7 @@ mod tests {
         );
 
         let uses = vec![make_use(PathPrefix::Root, &["other", "Point"])];
-        let current = ModulePath::root().child("mine"); // sibling module
+        let current = QualifiedPath::root().child("mine"); // sibling module
         let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new());
 
         assert!(result.is_err());
@@ -639,7 +639,7 @@ mod tests {
             qpath("root::other::Color"),
             Definition::Enum(EnumType {
                 visibility: Visibility::Private,
-                module: ModulePath::root().child("other"),
+                module: QualifiedPath::root().child("other"),
                 name: "Color".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
@@ -648,7 +648,7 @@ mod tests {
         );
 
         let uses = vec![make_use(PathPrefix::Root, &["other", "Color"])];
-        let current = ModulePath::root().child("mine"); // sibling module
+        let current = QualifiedPath::root().child("mine"); // sibling module
         let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new());
 
         assert!(result.is_err());
@@ -673,7 +673,7 @@ mod tests {
             qpath("root::other::secret"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Private,
-                module: ModulePath::root().child("other"),
+                module: QualifiedPath::root().child("other"),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -683,7 +683,7 @@ mod tests {
 
         // pub use from same module (so import visibility passes), but target is private
         let uses = vec![make_pub_use(PathPrefix::Root, &["other", "secret"])];
-        let current = ModulePath::root().child("other"); // same module
+        let current = QualifiedPath::root().child("other"); // same module
         let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new());
 
         assert!(result.is_err());
@@ -697,7 +697,7 @@ mod tests {
             qpath("root::other::helper"),
             Definition::Function(FunctionType {
                 visibility: Visibility::Public,
-                module: ModulePath::root().child("other"),
+                module: QualifiedPath::root().child("other"),
                 type_params: vec![],
                 type_var_ids: vec![],
                 params: vec![],
@@ -706,7 +706,7 @@ mod tests {
         );
 
         let uses = vec![make_pub_use(PathPrefix::Root, &["other", "helper"])];
-        let current = ModulePath::root().child("reexporter");
+        let current = QualifiedPath::root().child("reexporter");
         let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new());
 
         assert!(result.is_ok());
