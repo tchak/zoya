@@ -171,6 +171,17 @@ pub struct TypeAliasType {
     pub typ: Type,
 }
 
+/// Module type definition (stored in type environment)
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModuleType {
+    /// Visibility of the module
+    pub visibility: Visibility,
+    /// Parent module path
+    pub module: QualifiedPath,
+    /// Module name
+    pub name: String,
+}
+
 /// A named definition in the global namespace
 #[derive(Debug, Clone, PartialEq)]
 pub enum Definition {
@@ -179,6 +190,7 @@ pub enum Definition {
     Enum(EnumType),
     EnumVariant(EnumType, EnumVariantType),
     TypeAlias(TypeAliasType),
+    Module(ModuleType),
 }
 
 impl Definition {
@@ -210,6 +222,17 @@ impl Definition {
         }
     }
 
+    pub fn as_module(&self) -> Option<&ModuleType> {
+        match self {
+            Definition::Module(m) => Some(m),
+            _ => None,
+        }
+    }
+
+    pub fn is_module(&self) -> bool {
+        matches!(self, Definition::Module(_))
+    }
+
     pub fn kind_name(&self) -> &'static str {
         match self {
             Definition::Function(_) => "function",
@@ -217,6 +240,7 @@ impl Definition {
             Definition::Enum(_) => "enum",
             Definition::EnumVariant(..) => "enum variant",
             Definition::TypeAlias(_) => "type alias",
+            Definition::Module(_) => "module",
         }
     }
 
@@ -227,6 +251,7 @@ impl Definition {
             Definition::Enum(e) => &e.module,
             Definition::EnumVariant(parent_enum, _) => &parent_enum.module,
             Definition::TypeAlias(a) => &a.module,
+            Definition::Module(m) => &m.module,
         }
     }
 }

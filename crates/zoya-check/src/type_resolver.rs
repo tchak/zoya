@@ -43,7 +43,6 @@ pub fn resolve_type_annotation(
                 current_module,
                 &empty_locals,
                 &env.imports,
-                &env.module_imports,
                 &env.definitions,
                 &env.pkg,
                 &env.reexports,
@@ -117,7 +116,7 @@ pub fn resolve_type_annotation(
                                 qualified_path
                             ),
                         }),
-                        Definition::EnumVariant(..) => Err(TypeError {
+                        Definition::EnumVariant(..) | Definition::Module(..) => Err(TypeError {
                             message: format!(
                                 "{} '{}' is not a type",
                                 def.kind_name(),
@@ -153,7 +152,6 @@ pub fn resolve_type_annotation(
                 current_module,
                 &empty_locals,
                 &env.imports,
-                &env.module_imports,
                 &env.definitions,
                 &env.pkg,
                 &env.reexports,
@@ -272,7 +270,7 @@ pub fn resolve_type_annotation(
                                 qualified_path
                             ),
                         }),
-                        Definition::EnumVariant(..) => Err(TypeError {
+                        Definition::EnumVariant(..) | Definition::Module(..) => Err(TypeError {
                             message: format!(
                                 "{} '{}' is not a type",
                                 def.kind_name(),
