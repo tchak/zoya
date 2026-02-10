@@ -1768,7 +1768,8 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
                                             qpath.len() == module_segments.len() + 1
                                                 && qpath.segments()[..module_segments.len()]
                                                     == module_segments[..]
-                                                && !matches!(def, Definition::EnumVariant(..))
+                                                && (!matches!(def, Definition::EnumVariant(..))
+                                                    || env.reexports.contains_key(qpath))
                                                 && {
                                                     let vis = match def {
                                                         Definition::Function(f) => f.visibility,

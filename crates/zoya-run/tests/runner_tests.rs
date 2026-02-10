@@ -4011,6 +4011,40 @@ fn test_pub_use_glob_reexport_module() {
     );
 }
 
+// ── glob import includes re-exported enum variants ──────────────────
+
+#[test]
+fn test_glob_import_reexported_enum_variants() {
+    // Module "types" does pub use self::Color::* to lift variants to module level.
+    // Root does use root::types::* and can reference Red/Green/Blue directly.
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+                mod types
+                use root::types::*
+                pub fn main() -> Int {
+                    match Red {
+                        Red => 1,
+                        Green => 2,
+                        Blue => 3,
+                    }
+                }
+            "#,
+            ),
+            (
+                "types",
+                r#"
+                pub enum Color { Red, Green, Blue }
+                pub use self::Color::*
+            "#,
+            ),
+        ],
+        "1",
+    );
+}
+
 // ── pub use glob re-export enum variants ────────────────────────────
 
 #[test]
@@ -4404,5 +4438,21 @@ fn test_std_option_direct_multi_module() {
         ],
         "Option::Some(42)",
     );
+}
+
+#[test]
+fn test_std_option_glob_import() {
+    let source = r#"
+        use std::option::*
+
+        pub fn main() -> Int {
+            match Some(42) {
+                Some(v) => v,
+                None => 0,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
 }
 

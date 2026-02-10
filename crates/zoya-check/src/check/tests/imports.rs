@@ -1074,3 +1074,84 @@ fn test_external_visibility_modules_themselves() {
         "private module should not be externally visible"
     );
 }
+
+// ===== Glob import with re-exported enum variants =====
+
+fn make_use_glob(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
+    UseDecl {
+        visibility: Visibility::Private,
+        path: UsePath {
+            prefix,
+            segments: segments.iter().map(|s| s.to_string()).collect(),
+            target: UseTarget::Glob,
+        },
+    }
+}
+
+fn make_pub_use_glob(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
+    UseDecl {
+        visibility: Visibility::Public,
+        path: UsePath {
+            prefix,
+            segments: segments.iter().map(|s| s.to_string()).collect(),
+            target: UseTarget::Glob,
+        },
+    }
+}
+
+#[test]
+fn test_glob_import_includes_reexported_variants() {
+    // Module "types" has pub enum Color { Red, Blue } + pub use self::Color::*
+    // Root does use root::types::* and uses Red directly
+    let types_items = vec![
+        Item::Enum(EnumDef {
+            visibility: Visibility::Public,
+            name: "Color".to_string(),
+            type_params: vec![],
+            variants: vec![
+                EnumVariant {
+                    name: "Red".to_string(),
+                    kind: EnumVariantKind::Unit,
+                },
+                EnumVariant {
+                    name: "Blue".to_string(),
+                    kind: EnumVariantKind::Unit,
+                },
+            ],
+        }),
+        Item::Use(make_pub_use_glob(PathPrefix::Self_, &["Color"])),
+    ];
+
+    let root_items = vec![
+        Item::Use(make_use_glob(PathPrefix::Root, &["types"])),
+        Item::Function(FunctionDef {
+            visibility: Visibility::Public,
+            name: "test_fn".to_string(),
+            type_params: vec![],
+            params: vec![],
+            return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+            body: Expr::Match {
+                scrutinee: Box::new(Expr::Path(Path::simple("Red".to_string()))),
+                arms: vec![
+                    MatchArm {
+                        pattern: Pattern::Path(Path::simple("Red".to_string())),
+                        result: Expr::Int(1),
+                    },
+                    MatchArm {
+                        pattern: Pattern::Path(Path::simple("Blue".to_string())),
+                        result: Expr::Int(2),
+                    },
+                ],
+            },
+        }),
+    ];
+
+    let tree = build_multi_module_package(vec![
+        (QualifiedPath::root(), root_items),
+        (QualifiedPath::root().child("types"), types_items),
+    ]);
+
+    let result = check(&tree, &[]).unwrap();
+    let test_fn = find_test_function_in(&result, &QualifiedPath::root()).unwrap();
+    assert_eq!(test_fn.return_type, Type::Int);
+}

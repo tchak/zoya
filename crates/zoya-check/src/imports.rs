@@ -390,8 +390,11 @@ pub fn resolve_module_imports(
                                     continue;
                                 }
 
-                                // Skip enum variants (they're children of enum types, not modules)
-                                if matches!(def, Definition::EnumVariant(..)) {
+                                // Skip enum variants unless they were re-exported to module level
+                                // (e.g. via `pub use self::Enum::*`)
+                                if matches!(def, Definition::EnumVariant(..))
+                                    && !reexports.contains_key(qpath)
+                                {
                                     continue;
                                 }
 
