@@ -1394,6 +1394,7 @@ name = "zoya-run"
 version = "0.1.0"
 dependencies = [
  "rquickjs",
+ "thiserror 2.0.18",
  "zoya-check",
  "zoya-codegen",
  "zoya-ir",

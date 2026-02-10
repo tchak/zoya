@@ -265,19 +265,12 @@ impl fmt::Display for Value {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum EvalError {
+    #[error("division by zero")]
     DivisionByZero,
+    #[error("runtime error: {0}")]
     RuntimeError(String),
-}
-
-impl fmt::Display for EvalError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            EvalError::DivisionByZero => write!(f, "division by zero"),
-            EvalError::RuntimeError(msg) => write!(f, "runtime error: {}", msg),
-        }
-    }
 }
 
 /// Convert a JavaScript value to a Zoya Value based on expected type
