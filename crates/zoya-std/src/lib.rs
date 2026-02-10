@@ -54,6 +54,38 @@ mod tests {
     }
 
     #[test]
+    fn test_std_reexports_option_variants() {
+        let pkg = std();
+        let option_path = QualifiedPath::root().child("option");
+        let some_path = option_path.child("Some");
+        let none_path = option_path.child("None");
+        assert!(
+            pkg.definitions.contains_key(&some_path),
+            "Some should be re-exported in option module"
+        );
+        assert!(
+            pkg.definitions.contains_key(&none_path),
+            "None should be re-exported in option module"
+        );
+    }
+
+    #[test]
+    fn test_std_reexports_result_variants() {
+        let pkg = std();
+        let result_path = QualifiedPath::root().child("result");
+        let ok_path = result_path.child("Ok");
+        let err_path = result_path.child("Err");
+        assert!(
+            pkg.definitions.contains_key(&ok_path),
+            "Ok should be re-exported in result module"
+        );
+        assert!(
+            pkg.definitions.contains_key(&err_path),
+            "Err should be re-exported in result module"
+        );
+    }
+
+    #[test]
     fn test_std_is_cached() {
         let a = std();
         let b = std();
