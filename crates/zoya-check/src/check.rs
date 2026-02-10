@@ -1931,10 +1931,13 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
     }
 
     // Phase 2: Type-check ALL function bodies
+    // check_module_bodies updates each function's definition return type immediately
+    // after checking its body, so subsequent functions see resolved concrete types
+    // instead of the Phase 1 unresolved Type::Var.
     let mut checked_items = HashMap::new();
     for path in &module_paths {
         if let Some(module) = pkg.modules.get(path) {
-            let functions = check_module_bodies(&module.items, path, &env, &mut ctx)?;
+            let functions = check_module_bodies(&module.items, path, &mut env, &mut ctx)?;
             for func in functions {
                 let func_path = path.child(&func.name);
                 checked_items.insert(func_path, func);
@@ -2086,10 +2089,12 @@ fn register_module_declarations(
 }
 
 /// Type-check function bodies from a single module.
+/// After each function body is checked, its definition's return type is updated
+/// with the resolved type so that subsequent functions see concrete types.
 fn check_module_bodies(
     items: &[Item],
     current_module: &QualifiedPath,
-    env: &TypeEnv,
+    env: &mut TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<Vec<TypedFunction>, TypeError> {
     let mut checked_items = Vec::new();
@@ -2097,6 +2102,13 @@ fn check_module_bodies(
     for item in items {
         if let Item::Function(func) = item {
             let typed = check_function_in_module(func, current_module, env, ctx)?;
+            // Update the definition's return type immediately so subsequent
+            // functions that call this one see the resolved concrete type
+            // instead of the Phase 1 unresolved Type::Var.
+            let func_path = current_module.child(&func.name);
+            if let Some(Definition::Function(ft)) = env.definitions.get_mut(&func_path) {
+                ft.return_type = typed.return_type.clone();
+            }
             checked_items.push(typed);
         }
     }

@@ -45,7 +45,7 @@ let pkg = load_package(Path::new("src/main.zoya"))?;
 let checked_pkg = check(&pkg)?;
 
 // Run the main function in the root module
-let result = run(checked_pkg, None, None)?;
+let result = run(checked_pkg, None)?;
 println!("Result: {}", result);
 ```
 
@@ -55,7 +55,7 @@ println!("Result: {}", result);
 use zoya_run::run;
 
 // Run main() from the "utils" submodule
-let result = run(checked_pkg, Some("utils"), None)?;
+let result = run(checked_pkg, Some("utils"))?;
 ```
 
 ## Public API
@@ -65,7 +65,6 @@ let result = run(checked_pkg, Some("utils"), None)?;
 pub fn run(
     package: CheckedPackage,
     module: Option<&str>,          // None = root module, Some("repl") = repl submodule
-    return_type: Option<Type>,     // None = infer from main signature
 ) -> Result<Value, EvalError>;
 
 /// Load, check, and run source code from a string

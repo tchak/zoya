@@ -9,7 +9,7 @@ pub fn execute(path: &Path) -> Result<(), EvalError> {
     let pkg = zoya_loader::load_package(path)
         .map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?;
     let checked = check(&pkg, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-    let value = run(checked, &[std], None, None)?;
+    let value = run(checked, &[std], None)?;
     println!("{}", value);
     Ok(())
 }

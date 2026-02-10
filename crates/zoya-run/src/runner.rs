@@ -2,7 +2,7 @@ use std::path::Path;
 
 use zoya_check::check;
 use zoya_codegen::codegen;
-use zoya_ir::{CheckedPackage, Type};
+use zoya_ir::CheckedPackage;
 use zoya_loader::{load_memory_package, load_package, MemorySource};
 use zoya_package::QualifiedPath;
 
@@ -12,14 +12,10 @@ use crate::eval::{self, EvalError, Value, VirtualModules};
 ///
 /// If `module` is `None`, the root module is used.
 /// If `module` is `Some("repl")`, the repl submodule's main is used.
-/// If `return_type` is `Some`, it overrides the return type from the checked package.
-/// This is useful when the main function has an inferred return type that may contain
-/// unresolved type variables.
 pub fn run(
     package: CheckedPackage,
     deps: &[&CheckedPackage],
     module: Option<&str>,
-    return_type: Option<Type>,
 ) -> Result<Value, EvalError> {
     // Build the definition lookup path (always uses "root" prefix)
     let module_path = match module {
@@ -43,8 +39,7 @@ pub fn run(
         ));
     }
 
-    // Use provided return type or fall back to the one from the checked package
-    let return_type = return_type.unwrap_or_else(|| main_def.return_type.clone());
+    let return_type = main_def.return_type.clone();
 
     // Create virtual modules and register dependency modules first
     let virtual_modules = VirtualModules::new();
@@ -81,7 +76,7 @@ pub fn run_source(source: &str) -> Result<Value, EvalError> {
     let package = load_memory_package(&mem_source)
         .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
     let checked = check(&package, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-    run(checked, &[std], None, None)
+    run(checked, &[std], None)
 }
 
 /// Load, check, and run source code from a file
@@ -90,5 +85,5 @@ pub fn run_file(path: &Path) -> Result<Value, EvalError> {
     let package =
         load_package(path).map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?;
     let checked = check(&package, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-    run(checked, &[std], None, None)
+    run(checked, &[std], None)
 }

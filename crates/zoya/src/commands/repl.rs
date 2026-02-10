@@ -262,12 +262,9 @@ impl State {
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
-            // Build combined return type (tuple of all individual return types)
-            let combined_type = Type::Tuple(return_types.clone());
-
-            // Call combined main function via runner with explicit type
+            // Call combined main function via runner
             let combined_value =
-                runner::run(checked_pkg.clone(), &[std], Some("repl"), Some(combined_type))
+                runner::run(checked_pkg.clone(), &[std], Some("repl"))
                     .map_err(|e| e.to_string())?;
 
             // Unpack tuple result
