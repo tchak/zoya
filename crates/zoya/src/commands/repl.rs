@@ -151,14 +151,11 @@ pub struct State {
 
 impl State {
     /// Create a new REPL state
-    pub fn new(file_path: Option<&Path>) -> Result<Self, String> {
-        let base_pkg = if let Some(path) = file_path {
-            Some(
-                zoya_loader::load_package(path)
-                    .map_err(|e| format!("Failed to load package: {}", e))?,
-            )
-        } else {
-            None
+    pub fn new(path: &Path) -> Result<Self, String> {
+        let base_pkg = match zoya_loader::load_package(path) {
+            Ok(pkg) => Some(pkg),
+            Err(zoya_loader::LoaderError::NoPackageToml { .. }) => None,
+            Err(e) => return Err(format!("Failed to load package: {}", e)),
         };
 
         Ok(State {
@@ -446,7 +443,7 @@ fn history_path() -> PathBuf {
 }
 
 /// Run the interactive REPL
-pub fn execute(file_path: Option<&Path>) {
+pub fn execute(path: &Path) {
     let mut rl = match DefaultEditor::new() {
         Ok(editor) => editor,
         Err(e) => {
@@ -459,7 +456,7 @@ pub fn execute(file_path: Option<&Path>) {
     let history_file = history_path();
     let _ = rl.load_history(&history_file);
 
-    let mut state = match State::new(file_path) {
+    let mut state = match State::new(path) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("Failed to initialize REPL: {}", e);
@@ -546,21 +543,21 @@ mod tests {
 
     #[test]
     fn test_repl_simple_expression() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let results = state.eval("42").unwrap();
         assert_eq!(results, vec![ReplResult::Expression(Value::Int(42))]);
     }
 
     #[test]
     fn test_repl_float_expression() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let results = state.eval("3.15").unwrap();
         assert_eq!(results, vec![ReplResult::Expression(Value::Float(3.15))]);
     }
 
     #[test]
     fn test_repl_string_expression() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let results = state.eval(r#""hello""#).unwrap();
         assert_eq!(
             results,
@@ -570,21 +567,21 @@ mod tests {
 
     #[test]
     fn test_repl_bool_expression() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let results = state.eval("true").unwrap();
         assert_eq!(results, vec![ReplResult::Expression(Value::Bool(true))]);
     }
 
     #[test]
     fn test_repl_arithmetic() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let results = state.eval("1 + 2 * 3").unwrap();
         assert_eq!(results, vec![ReplResult::Expression(Value::Int(7))]);
     }
 
     #[test]
     fn test_repl_function_definition() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let results = state
             .eval("fn add(x: Int, y: Int) -> Int { x + y }")
             .unwrap();
@@ -596,7 +593,7 @@ mod tests {
 
     #[test]
     fn test_repl_let_binding() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let results = state.eval("let x = 42").unwrap();
         assert_eq!(results.len(), 1);
         assert!(matches!(
@@ -607,7 +604,7 @@ mod tests {
 
     #[test]
     fn test_repl_state_persistence_let() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         state.eval("let x = 10").unwrap();
         state.eval("let y = 20").unwrap();
         let results = state.eval("x + y").unwrap();
@@ -616,7 +613,7 @@ mod tests {
 
     #[test]
     fn test_repl_function_call() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         state.eval("fn double(n: Int) -> Int { n * 2 }").unwrap();
         let results = state.eval("double(21)").unwrap();
         assert_eq!(results, vec![ReplResult::Expression(Value::Int(42))]);
@@ -624,7 +621,7 @@ mod tests {
 
     #[test]
     fn test_repl_forward_reference() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let results = state
             .eval("fn caller() -> Int { callee() } fn callee() -> Int { 42 }")
             .unwrap();
@@ -639,7 +636,7 @@ mod tests {
 
     #[test]
     fn test_repl_mutual_recursion() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         state
             .eval(
                 r#"
@@ -657,28 +654,28 @@ mod tests {
 
     #[test]
     fn test_repl_syntax_error() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let result = state.eval("fn bad(");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_repl_type_error() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let result = state.eval("1 + true");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_repl_undefined_variable() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let result = state.eval("undefined_var");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_repl_multiple_statements() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let results = state.eval("let a = 1\nlet b = 2\na + b").unwrap();
         assert_eq!(results.len(), 3);
         assert!(
@@ -692,21 +689,21 @@ mod tests {
 
     #[test]
     fn test_repl_empty_input() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let results = state.eval("").unwrap();
         assert!(results.is_empty());
     }
 
     #[test]
     fn test_repl_whitespace_only() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let results = state.eval("   \n\t  ").unwrap();
         assert!(results.is_empty());
     }
 
     #[test]
     fn test_repl_function_redefine() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         state.eval("fn f() -> Int { 1 }").unwrap();
         let results = state.eval("f()").unwrap();
         assert_eq!(results, vec![ReplResult::Expression(Value::Int(1))]);
@@ -719,14 +716,14 @@ mod tests {
 
     #[test]
     fn test_repl_method_call() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let results = state.eval(r#""hello".len()"#).unwrap();
         assert_eq!(results, vec![ReplResult::Expression(Value::Int(5))]);
     }
 
     #[test]
     fn test_repl_list() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let results = state.eval("[1, 2, 3]").unwrap();
         assert_eq!(
             results,
@@ -740,7 +737,7 @@ mod tests {
 
     #[test]
     fn test_repl_tuple() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let results = state.eval("(1, true)").unwrap();
         assert_eq!(
             results,
@@ -753,14 +750,14 @@ mod tests {
 
     #[test]
     fn test_repl_match_expression() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let results = state.eval("match 1 { 0 => false, _ => true }").unwrap();
         assert_eq!(results, vec![ReplResult::Expression(Value::Bool(true))]);
     }
 
     #[test]
     fn test_repl_struct_definition() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let results = state.eval("struct Point { x: Int, y: Int }").unwrap();
         assert_eq!(
             results,
@@ -770,7 +767,7 @@ mod tests {
 
     #[test]
     fn test_repl_struct_construction() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         state.eval("struct Point { x: Int, y: Int }").unwrap();
         let results = state.eval("Point { x: 10, y: 20 }").unwrap();
         assert_eq!(
@@ -787,7 +784,7 @@ mod tests {
 
     #[test]
     fn test_repl_struct_field_access() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         state.eval("struct Point { x: Int, y: Int }").unwrap();
         state.eval("let p = Point { x: 10, y: 20 }").unwrap();
         let results = state.eval("p.x").unwrap();
@@ -796,7 +793,7 @@ mod tests {
 
     #[test]
     fn test_repl_struct_pattern_match() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         state.eval("struct Point { x: Int, y: Int }").unwrap();
         state.eval("let p = Point { x: 10, y: 20 }").unwrap();
         let results = state.eval("match p { Point { x, y } => x + y }").unwrap();
@@ -805,7 +802,7 @@ mod tests {
 
     #[test]
     fn test_repl_let_tuple_destructure() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let results = state.eval("let (a, b) = (1, 2)").unwrap();
         assert_eq!(results.len(), 1);
         assert!(matches!(
@@ -822,7 +819,7 @@ mod tests {
     #[test]
     fn test_repl_list_pattern_in_match() {
         // List patterns are refutable, so we test them in match expressions
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let results = state
             .eval("match [1, 2] { [x, y] => x + y, _ => 0 }")
             .unwrap();
@@ -832,7 +829,7 @@ mod tests {
     #[test]
     fn test_repl_list_pattern_with_rest_in_match() {
         // List prefix patterns with rest binding in match
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let results = state
             .eval("match [1, 2, 3] { [h, ..] => h, _ => 0 }")
             .unwrap();
@@ -841,7 +838,7 @@ mod tests {
 
     #[test]
     fn test_repl_let_struct_destructure() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         state.eval("struct Point { x: Int, y: Int }").unwrap();
         state.eval("let p = Point { x: 10, y: 20 }").unwrap();
         let results = state.eval("let Point { x, y } = p").unwrap();
@@ -857,7 +854,7 @@ mod tests {
 
     #[test]
     fn test_repl_let_struct_partial() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         state.eval("struct Point { x: Int, y: Int }").unwrap();
         state.eval("let p = Point { x: 10, y: 20 }").unwrap();
         let results = state.eval("let Point { x, .. } = p").unwrap();
@@ -873,7 +870,7 @@ mod tests {
 
     #[test]
     fn test_repl_let_as_pattern() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let results = state.eval("let p @ (a, b) = (1, 2)").unwrap();
         assert_eq!(results.len(), 1);
         assert!(matches!(
@@ -898,7 +895,7 @@ mod tests {
 
     #[test]
     fn test_repl_enum_definition() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let results = state.eval("enum Color { Red, Blue }").unwrap();
         assert_eq!(
             results,
@@ -909,7 +906,7 @@ mod tests {
     #[test]
     fn test_repl_enum_variant() {
         use zoya_run::EnumValueFields;
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         state.eval("enum Color { Red, Blue }").unwrap();
         let results = state.eval("Color::Red").unwrap();
         assert_eq!(
@@ -925,7 +922,7 @@ mod tests {
     #[test]
     fn test_repl_enum_with_data() {
         use zoya_run::EnumValueFields;
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         state.eval("enum Option<T> { Some(T), None }").unwrap();
         let results = state.eval("Option::Some(42)").unwrap();
         assert_eq!(
@@ -945,7 +942,7 @@ mod tests {
 
     #[test]
     fn test_repl_type_alias() {
-        let mut state = State::new(None).unwrap();
+        let mut state = State::new(Path::new(".")).unwrap();
         let results = state.eval("type Id = Int").unwrap();
         assert_eq!(
             results,
@@ -969,7 +966,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut state = State::new(Some(&file)).unwrap();
+        let mut state = State::new(&file).unwrap();
         // Call function from the loaded file using super:: since REPL is in a submodule
         let results = state.eval("super::helper()").unwrap();
         assert_eq!(results, vec![ReplResult::Expression(Value::Int(100))]);

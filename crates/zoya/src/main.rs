@@ -21,8 +21,8 @@ enum Command {
     },
     /// Start the interactive REPL
     Repl {
-        /// Optional file to load modules from
-        file: Option<PathBuf>,
+        /// Path to a .zoya file or directory with package.toml (defaults to current directory)
+        path: Option<PathBuf>,
     },
     /// Type-check a file without executing
     Check {
@@ -58,7 +58,10 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Some(Command::Repl { file }) => commands::repl::execute(file.as_deref()),
+        Some(Command::Repl { path }) => {
+            let path = path.unwrap_or_else(|| PathBuf::from("."));
+            commands::repl::execute(&path);
+        }
         Some(Command::Check { path }) => {
             let path = path.unwrap_or_else(|| PathBuf::from("."));
             if let Err(e) = commands::check::execute(&path) {
