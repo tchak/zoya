@@ -214,6 +214,12 @@ pub enum TypedExpr {
         fields: TypedEnumConstructFields,
         ty: Type,
     },
+    /// List index access: `list[0]` -> Option<T>
+    ListIndex {
+        expr: Box<TypedExpr>,
+        index: Box<TypedExpr>,
+        ty: Type,
+    },
 }
 
 /// Typed fields for enum variant construction
@@ -248,6 +254,7 @@ impl TypedExpr {
             TypedExpr::StructConstruct { ty, .. } => ty.clone(),
             TypedExpr::FieldAccess { ty, .. } => ty.clone(),
             TypedExpr::EnumConstruct { ty, .. } => ty.clone(),
+            TypedExpr::ListIndex { ty, .. } => ty.clone(),
         }
     }
 }

@@ -1447,6 +1447,51 @@ fn check_field_access(
     }
 }
 
+/// Check a list index expression: `list[index]` -> Option<T>
+fn check_list_index(
+    expr: &Expr,
+    index: &Expr,
+    current_module: &QualifiedPath,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
+    let typed_expr = check_expr(expr, current_module, env, ctx)?;
+    let expr_ty = ctx.resolve(&typed_expr.ty());
+
+    // Verify receiver is a List<T>
+    let elem_ty = match &expr_ty {
+        Type::List(elem) => *elem.clone(),
+        _ => {
+            return Err(TypeError {
+                message: format!("cannot index into non-list type {}", expr_ty),
+            });
+        }
+    };
+
+    // Type-check the index and verify it's Int
+    let typed_index = check_expr(index, current_module, env, ctx)?;
+    let index_ty = ctx.resolve(&typed_index.ty());
+    ctx.unify(&index_ty, &Type::Int).map_err(|_| TypeError {
+        message: format!("list index must be Int, got {}", index_ty),
+    })?;
+
+    // Return type is Option<T>
+    let option_ty = Type::Enum {
+        name: "Option".to_string(),
+        type_args: vec![elem_ty.clone()],
+        variants: vec![
+            ("None".to_string(), EnumVariantType::Unit),
+            ("Some".to_string(), EnumVariantType::Tuple(vec![elem_ty])),
+        ],
+    };
+
+    Ok(TypedExpr::ListIndex {
+        expr: Box::new(typed_expr),
+        index: Box::new(typed_index),
+        ty: option_ty,
+    })
+}
+
 /// Check an expression with a type environment
 pub(crate) fn check_expr(
     expr: &Expr,
@@ -1484,6 +1529,7 @@ pub(crate) fn check_expr(
         Expr::FieldAccess { expr, field } => {
             check_field_access(expr, field, current_module, env, ctx)
         }
+        Expr::ListIndex { expr, index } => check_list_index(expr, index, current_module, env, ctx),
     }
 }
 

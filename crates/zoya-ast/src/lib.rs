@@ -390,6 +390,11 @@ pub enum Expr {
         expr: Box<Expr>,
         field: String,
     },
+    /// List index access: `list[0]`, `list[-1]`
+    ListIndex {
+        expr: Box<Expr>,
+        index: Box<Expr>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

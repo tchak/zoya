@@ -12,6 +12,7 @@ mod blocks;
 mod enums;
 mod functions;
 mod imports;
+mod index;
 mod lambdas;
 mod match_expr;
 mod methods;

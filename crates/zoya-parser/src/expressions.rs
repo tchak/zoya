@@ -281,28 +281,40 @@ pub(crate) fn expr_parser<'a>()
 
         // What follows .ident: either (args) for method call, or nothing for field access
         #[derive(Clone)]
-        enum DotSuffix {
+        enum PostfixOp {
             MethodCall(String, Vec<Expr>),
             FieldAccess(String),
+            ListIndex(Expr),
         }
 
         let dot_suffix = just(Token::Dot)
             .ignore_then(ident())
             .then(method_args.or_not())
             .map(|(name, args)| match args {
-                Some(args) => DotSuffix::MethodCall(name, args),
-                None => DotSuffix::FieldAccess(name),
+                Some(args) => PostfixOp::MethodCall(name, args),
+                None => PostfixOp::FieldAccess(name),
             });
 
-        let postfix = atom.foldl(dot_suffix.repeated(), |receiver, suffix| match suffix {
-            DotSuffix::MethodCall(method, args) => Expr::MethodCall {
+        let index_suffix = expr
+            .clone()
+            .delimited_by(just(Token::LBracket), just(Token::RBracket))
+            .map(PostfixOp::ListIndex);
+
+        let postfix_op = dot_suffix.or(index_suffix);
+
+        let postfix = atom.foldl(postfix_op.repeated(), |receiver, op| match op {
+            PostfixOp::MethodCall(method, args) => Expr::MethodCall {
                 receiver: Box::new(receiver),
                 method,
                 args,
             },
-            DotSuffix::FieldAccess(field) => Expr::FieldAccess {
+            PostfixOp::FieldAccess(field) => Expr::FieldAccess {
                 expr: Box::new(receiver),
                 field,
+            },
+            PostfixOp::ListIndex(index) => Expr::ListIndex {
+                expr: Box::new(receiver),
+                index: Box::new(index),
             },
         });
 

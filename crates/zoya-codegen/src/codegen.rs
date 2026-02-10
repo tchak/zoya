@@ -31,6 +31,9 @@ const MIN_BIGINT_FN: &str = "$$min_bigint";
 /// BigInt maximum function name used in generated JS
 const MAX_BIGINT_FN: &str = "$$max_bigint";
 
+/// List index function name used in generated JS
+const LIST_IDX_FN: &str = "$$list_idx";
+
 /// Prelude containing helper functions for generated JS
 fn prelude() -> &'static str {
     r#"function $$is_obj(x) {
@@ -60,6 +63,10 @@ function $$eq(a, b) {
     return true;
   }
   return a === b;
+}
+function $$list_idx(arr, i) {
+  const idx = i < 0 ? arr.length + i : i;
+  return idx >= 0 && idx < arr.length ? { $tag: "Some", $0: arr[idx] } : { $tag: "None" };
 }"#
 }
 
@@ -770,6 +777,14 @@ fn codegen_expr(expr: &TypedExpr) -> String {
         }
         TypedExpr::FieldAccess { expr, field, .. } => {
             format!("({}).{}", codegen_expr(expr), field)
+        }
+        TypedExpr::ListIndex { expr, index, .. } => {
+            format!(
+                "{}({}, {})",
+                LIST_IDX_FN,
+                codegen_expr(expr),
+                codegen_expr(index)
+            )
         }
         TypedExpr::EnumConstruct { path, fields, .. } => {
             let variant_name = path.last();

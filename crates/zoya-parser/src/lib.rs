@@ -3530,4 +3530,77 @@ mod tests {
         let result = parse_module_str("use root::foo::{}");
         assert!(result.is_err());
     }
+
+    // List index tests
+
+    #[test]
+    fn test_parse_list_index_basic() {
+        let expr = parse_str("list[0]").unwrap();
+        assert_eq!(
+            expr,
+            Expr::ListIndex {
+                expr: Box::new(Expr::Path(Path::simple("list".to_string()))),
+                index: Box::new(Expr::Int(0)),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_list_index_complex_expr() {
+        let expr = parse_str("list[a + 1]").unwrap();
+        assert_eq!(
+            expr,
+            Expr::ListIndex {
+                expr: Box::new(Expr::Path(Path::simple("list".to_string()))),
+                index: Box::new(Expr::BinOp {
+                    op: BinOp::Add,
+                    left: Box::new(Expr::Path(Path::simple("a".to_string()))),
+                    right: Box::new(Expr::Int(1)),
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_list_index_chained() {
+        let expr = parse_str("matrix[0][1]").unwrap();
+        assert_eq!(
+            expr,
+            Expr::ListIndex {
+                expr: Box::new(Expr::ListIndex {
+                    expr: Box::new(Expr::Path(Path::simple("matrix".to_string()))),
+                    index: Box::new(Expr::Int(0)),
+                }),
+                index: Box::new(Expr::Int(1)),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_list_index_after_method() {
+        let expr = parse_str("list.reverse()[0]").unwrap();
+        assert_eq!(
+            expr,
+            Expr::ListIndex {
+                expr: Box::new(Expr::MethodCall {
+                    receiver: Box::new(Expr::Path(Path::simple("list".to_string()))),
+                    method: "reverse".to_string(),
+                    args: vec![],
+                }),
+                index: Box::new(Expr::Int(0)),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_list_literal_index() {
+        let expr = parse_str("[1, 2, 3][0]").unwrap();
+        assert_eq!(
+            expr,
+            Expr::ListIndex {
+                expr: Box::new(Expr::List(vec![Expr::Int(1), Expr::Int(2), Expr::Int(3)])),
+                index: Box::new(Expr::Int(0)),
+            }
+        );
+    }
 }

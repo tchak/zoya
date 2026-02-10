@@ -4605,3 +4605,95 @@ fn test_cascading_glob_reexport_between_same_depth_modules() {
         "1",
     );
 }
+
+// List index tests
+
+#[test]
+fn test_list_index_in_bounds() {
+    let source = r#"
+        pub fn main() -> Int {
+            let xs = [10, 20, 30];
+            match xs[1] {
+                Some(v) => v,
+                None => -1
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(20));
+}
+
+#[test]
+fn test_list_index_out_of_bounds() {
+    let source = r#"
+        pub fn main() -> Int {
+            let xs = [10, 20, 30];
+            match xs[5] {
+                Some(v) => v,
+                None => -1
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(-1));
+}
+
+#[test]
+fn test_list_index_negative() {
+    let source = r#"
+        pub fn main() -> Int {
+            let xs = [10, 20, 30];
+            match xs[-1] {
+                Some(v) => v,
+                None => -1
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(30));
+}
+
+#[test]
+fn test_list_index_negative_out_of_bounds() {
+    let source = r#"
+        pub fn main() -> Int {
+            let xs = [10, 20, 30];
+            match xs[-10] {
+                Some(v) => v,
+                None => -1
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(-1));
+}
+
+#[test]
+fn test_list_index_variable() {
+    let source = r#"
+        pub fn main() -> Int {
+            let xs = [10, 20, 30];
+            let i = 2;
+            match xs[i] {
+                Some(v) => v,
+                None => -1
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(30));
+}
+
+#[test]
+fn test_list_index_first_element() {
+    let source = r#"
+        pub fn main() -> Int {
+            match [1, 2, 3][0] {
+                Some(v) => v,
+                None => -1
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(1));
+}
