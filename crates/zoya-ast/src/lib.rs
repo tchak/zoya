@@ -461,7 +461,6 @@ pub struct UsePath {
     pub target: UseTarget,
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

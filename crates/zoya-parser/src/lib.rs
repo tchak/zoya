@@ -2874,10 +2874,7 @@ mod tests {
     #[test]
     fn test_parse_module_use_multiple() {
         let (_, items) = parse_module_str("use root::a::b use root::c::d").unwrap();
-        let uses_count = items
-            .iter()
-            .filter(|i| matches!(i, Item::Use(_)))
-            .count();
+        let uses_count = items.iter().filter(|i| matches!(i, Item::Use(_))).count();
         assert_eq!(uses_count, 2);
     }
 
@@ -2886,14 +2883,8 @@ mod tests {
         let (mods, items) =
             parse_module_str("mod utils use root::types::Option fn main() -> Int 42").unwrap();
         assert_eq!(mods.len(), 1);
-        let uses_count = items
-            .iter()
-            .filter(|i| matches!(i, Item::Use(_)))
-            .count();
-        let non_use_count = items
-            .iter()
-            .filter(|i| !matches!(i, Item::Use(_)))
-            .count();
+        let uses_count = items.iter().filter(|i| matches!(i, Item::Use(_))).count();
+        let non_use_count = items.iter().filter(|i| !matches!(i, Item::Use(_))).count();
         assert_eq!(uses_count, 1);
         assert_eq!(non_use_count, 1);
     }

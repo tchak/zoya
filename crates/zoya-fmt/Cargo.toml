@@ -1,0 +1,12 @@
+[package]
+name = "zoya-fmt"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+zoya-ast = { path = "../zoya-ast" }
+pretty = "0.12"
+
+[dev-dependencies]
+zoya-lexer = { path = "../zoya-lexer" }
+zoya-parser = { path = "../zoya-parser" }
