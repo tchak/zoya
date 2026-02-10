@@ -11,7 +11,7 @@ Transforms a token stream into an Abstract Syntax Tree using [Chumsky](https://g
 - Type annotation parsing (generics, function types, tuples)
 - Module declarations with visibility (`pub mod`)
 - Use declarations with path prefixes (`root::`, `self::`, `super::`)
-- Error recovery and reporting
+- Error recovery and reporting with byte-offset spans
 
 ## Usage
 
@@ -43,14 +43,18 @@ let (items, stmts) = parse_input(tokens).unwrap();
 
 ```rust
 use zoya_lexer::lex;
-use zoya_parser::parse_module;
+use zoya_parser::{parse_module, ParseError, SyntaxError};
 
 let tokens = lex("fn fn fn").unwrap();
 let result = parse_module(tokens);
 assert!(result.is_err());
 
-let err = result.unwrap_err();
-println!("Parse error: {}", err.message);
+// ParseError contains SyntaxErrors with byte-offset spans
+if let Err(ParseError::SyntaxErrors(errors)) = result {
+    for err in &errors {
+        println!("at {:?}: expected {:?}, found {:?}", err.span, err.expected, err.found);
+    }
+}
 ```
 
 ## Dependencies
@@ -58,3 +62,4 @@ println!("Parse error: {}", err.message);
 - [zoya-ast](../zoya-ast) - AST types
 - [zoya-lexer](../zoya-lexer) - Token types
 - [chumsky](https://github.com/zesterer/chumsky) - Parser combinator library
+- [thiserror](https://github.com/dtolnay/thiserror) - Error derive macros

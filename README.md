@@ -57,6 +57,7 @@ Zoya is organized as a Cargo workspace with multiple crates:
 | [zoya-ir](crates/zoya-ir) | Typed IR and type definitions |
 | [zoya-lexer](crates/zoya-lexer) | Tokenizer (logos) |
 | [zoya-loader](crates/zoya-loader) | Package file loading |
+| [zoya-naming](crates/zoya-naming) | Naming conventions and validation |
 | [zoya-package](crates/zoya-package) | Package data structures |
 | [zoya-parser](crates/zoya-parser) | Parser (chumsky) |
 | [zoya-run](crates/zoya-run) | Runtime execution (QuickJS) |

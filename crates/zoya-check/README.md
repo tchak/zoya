@@ -13,17 +13,20 @@ Implements Hindley-Milner type inference with constraint-based unification, tran
 - **Visibility enforcement** - Validates public/private access across modules
 - **Naming conventions** - Enforces PascalCase/snake_case at compile time
 - **Generics** - Parametric polymorphism for structs, enums, and functions
+- **Multi-package support** - Type-check against dependency packages (e.g., standard library)
 
 ## Usage
 
 ```rust
 use zoya_check::check;
 use zoya_loader::load_package;
+use zoya_std::std;
 use std::path::Path;
 
-// Load and type-check a package
+// Load and type-check a package with standard library
+let std = std();
 let pkg = load_package(Path::new("src/main.zoya"))?;
-let checked_pkg = check(&pkg)?;
+let checked_pkg = check(&pkg, &[std])?;
 
 // Access checked functions
 let root = checked_pkg.root().unwrap();
@@ -39,14 +42,16 @@ for (path, def) in &checked_pkg.definitions {
 
 ## Type Checking Pipeline
 
-1. **Declaration registration** - Register all type/function signatures across modules
-2. **Import resolution** - Resolve `use` and `pub use` declarations to qualified paths
-3. **Visibility checking** - Validate that private items are not accessed from other modules
-4. **Body checking** - Type-check function bodies with inference
-5. **Exhaustiveness checking** - Verify pattern match coverage
+1. **Dependency injection** - Load definitions from dependency packages (e.g., std)
+2. **Declaration registration** - Register all type/function signatures across modules
+3. **Import resolution** - Resolve `use` and `pub use` declarations to qualified paths
+4. **Visibility checking** - Validate that private items are not accessed from other modules
+5. **Body checking** - Type-check function bodies with inference
+6. **Exhaustiveness checking** - Verify pattern match coverage
 
 ## Dependencies
 
 - [zoya-ast](../zoya-ast) - Untyped AST types
 - [zoya-ir](../zoya-ir) - Typed IR and type definitions
+- [zoya-naming](../zoya-naming) - Name validation and conventions
 - [zoya-package](../zoya-package) - Package data structures

@@ -8,16 +8,16 @@ Handles reading, parsing, and organizing Zoya source files into a package. Suppo
 
 - **Recursive module loading** - Follows `mod` declarations to build complete packages
 - **Pluggable sources** - `FsSource` for filesystem, `MemorySource` for testing
-- **Module name validation** - Enforces `snake_case` module names
+- **Module name validation** - Enforces `snake_case` module names, rejects reserved names
 - **Error handling** - Detailed errors for missing modules, duplicates, invalid names, and parse failures
 
 ## Usage
 
 ```rust
 use std::path::Path;
-use zoya_loader::{load_package, load_package_with, MemorySource, QualifiedPath};
+use zoya_loader::{load_package, load_memory_package, MemorySource, QualifiedPath};
 
-// Load from filesystem
+// Load from filesystem (file, directory, or package.toml)
 let pkg = load_package(Path::new("src/main.zoya"))?;
 
 // Access loaded modules
@@ -31,7 +31,7 @@ for (name, (child_path, visibility)) in &root.children {
 let source = MemorySource::new()
     .with_module("root", "mod utils\nfn main() -> Int { 42 }")
     .with_module("utils", "pub fn helper() -> Int { 10 }");
-let pkg = load_package_with(&source, &"root".to_string())?;
+let pkg = load_memory_package(&source)?;
 ```
 
 ## Module Resolution
@@ -42,7 +42,7 @@ Given a file `main.zoya` containing `mod utils`, the loader looks for:
 For nested modules like `mod helpers` inside `utils.zoya`:
 - `utils/helpers.zoya` relative to the base directory
 
-Module names must be valid `snake_case` identifiers.
+Module names must be valid `snake_case` identifiers and not reserved names (`root`, `self`, `super`, `std`, `zoya`).
 
 ## Error Types
 
@@ -59,8 +59,11 @@ match load_package(Path::new("missing.zoya")) {
     Err(LoaderError::DuplicateMod { mod_name }) => {
         println!("Duplicate module declaration: {}", mod_name);
     }
-    Err(LoaderError::InvalidModName { mod_name }) => {
-        println!("Invalid module name: {}", mod_name);
+    Err(LoaderError::InvalidModName { mod_name, suggestion }) => {
+        println!("Invalid module name '{}', try '{}'", mod_name, suggestion);
+    }
+    Err(LoaderError::ReservedModName { mod_name }) => {
+        println!("Reserved module name: {}", mod_name);
     }
     Err(LoaderError::LexError { path, message }) => {
         println!("Lexer error in {}: {}", path, message);
@@ -68,6 +71,7 @@ match load_package(Path::new("missing.zoya")) {
     Err(LoaderError::ParseError { path, message }) => {
         println!("Parse error in {}: {}", path, message);
     }
+    Err(e) => println!("Error: {}", e),
     Ok(pkg) => { /* success */ }
 }
 ```
@@ -76,5 +80,7 @@ match load_package(Path::new("missing.zoya")) {
 
 - [zoya-ast](../zoya-ast) - AST types
 - [zoya-lexer](../zoya-lexer) - Tokenizer
+- [zoya-naming](../zoya-naming) - Name validation
 - [zoya-package](../zoya-package) - Package data structures
 - [zoya-parser](../zoya-parser) - Parser
+- [thiserror](https://github.com/dtolnay/thiserror) - Error derive macros

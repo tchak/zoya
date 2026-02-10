@@ -6,7 +6,7 @@ Provides functions to run Zoya programs by compiling to JavaScript and executing
 
 ## Features
 
-- **Package execution** - Run type-checked packages with module support
+- **Package execution** - Run type-checked packages with module and dependency support
 - **Source execution** - Compile and run source strings directly
 - **File execution** - Load, check, and run `.zoya` files
 - **Value marshaling** - Convert JavaScript results to typed Zoya values
@@ -38,14 +38,16 @@ println!("Result: {}", result);
 use zoya_check::check;
 use zoya_loader::load_package;
 use zoya_run::run;
+use zoya_std::std;
 use std::path::Path;
 
-// Load and type-check
+// Load and type-check with standard library
+let std = std();
 let pkg = load_package(Path::new("src/main.zoya"))?;
-let checked_pkg = check(&pkg)?;
+let checked_pkg = check(&pkg, &[std])?;
 
 // Run the main function in the root module
-let result = run(checked_pkg, None)?;
+let result = run(checked_pkg, &[std], None)?;
 println!("Result: {}", result);
 ```
 
@@ -54,23 +56,28 @@ println!("Result: {}", result);
 ```rust
 use zoya_run::run;
 
-// Run main() from the "utils" submodule
-let result = run(checked_pkg, Some("utils"))?;
+// Run main() from the "repl" submodule
+let result = run(checked_pkg, &[std], Some("repl"))?;
 ```
 
 ## Public API
 
 ```rust
-/// Run a checked package by executing its main function
+/// Run a checked package by executing its main function.
+/// `deps` provides dependency packages (e.g., standard library) for codegen.
+/// `module` selects which module's main() to call (None = root).
 pub fn run(
     package: CheckedPackage,
-    module: Option<&str>,          // None = root module, Some("repl") = repl submodule
+    deps: &[&CheckedPackage],
+    module: Option<&str>,
 ) -> Result<Value, EvalError>;
 
-/// Load, check, and run source code from a string
+/// Load, check, and run source code from a string.
+/// Automatically includes the standard library.
 pub fn run_source(source: &str) -> Result<Value, EvalError>;
 
-/// Load, check, and run source code from a file
+/// Load, check, and run source code from a file.
+/// Automatically includes the standard library.
 pub fn run_file(path: &Path) -> Result<Value, EvalError>;
 ```
 
@@ -115,4 +122,6 @@ pub enum EvalError {
 - [zoya-ir](../zoya-ir) - Typed IR and type definitions
 - [zoya-loader](../zoya-loader) - Package file loading
 - [zoya-package](../zoya-package) - Package data structures
-- [rquickjs](https://github.com/DelSkaorth/rquickjs) - JavaScript runtime (QuickJS)
+- [zoya-std](../zoya-std) - Standard library
+- [rquickjs](https://github.com/aspect-build/rquickjs) - JavaScript runtime (QuickJS)
+- [thiserror](https://github.com/dtolnay/thiserror) - Error derive macros

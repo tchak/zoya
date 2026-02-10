@@ -18,11 +18,13 @@ Transforms typed IR into executable JavaScript code with ESM exports.
 use zoya_check::check;
 use zoya_codegen::codegen;
 use zoya_loader::load_package;
+use zoya_std::std;
 use std::path::Path;
 
-// Load and type-check
+// Load and type-check with standard library
+let std = std();
 let pkg = load_package(Path::new("src/main.zoya"))?;
-let checked_pkg = check(&pkg)?;
+let checked_pkg = check(&pkg, &[std])?;
 
 // Generate JavaScript
 let output = codegen(&checked_pkg);

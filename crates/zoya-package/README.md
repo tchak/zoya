@@ -8,7 +8,7 @@ This crate defines the core package-related types used across the Zoya compiler 
 
 - **QualifiedPath** - Qualified path to a module, definition, or variant (e.g., `root::utils::helpers`)
 - **Module** - A loaded module containing parsed items and child references with visibility
-- **Package** - The complete package of loaded modules
+- **Package** - The complete package of loaded modules with name and optional output path
 - **PackageConfig** - Package configuration loaded from `package.toml`
 
 ## Usage
@@ -32,15 +32,22 @@ assert_eq!(helpers.depth(), 3);
 assert_eq!(root.to_string(), "root");
 assert_eq!(helpers.to_string(), "root::utils::helpers");
 
+// Replace root segment (e.g., for std library remapping)
+let std_path = helpers.with_root("std");
+assert_eq!(std_path.to_string(), "std::utils::helpers");
+
 // Build a package manually (typically done by zoya-loader)
 let mut modules = HashMap::new();
 modules.insert(QualifiedPath::root(), Module {
     items: vec![],
-    uses: vec![],
     path: QualifiedPath::root(),
     children: HashMap::new(),
 });
-let pkg = Package { modules };
+let pkg = Package {
+    name: "my_project".to_string(),
+    output: None,
+    modules,
+};
 
 // Access modules
 if let Some(root_module) = pkg.root() {
@@ -82,9 +89,14 @@ let toml = config.to_toml();
 | `is_root()` | Check if this is the root path |
 | `depth()` | Number of path segments |
 | `segments()` | Get path segments as slice |
+| `head()` | Get the first segment |
+| `tail()` | Get all segments after the first |
+| `last()` | Get the last segment |
+| `with_root(name)` | Replace the root segment with a new name |
 
 ## Dependencies
 
-- [zoya-ast](../zoya-ast) - AST types (for Item and UseDecl)
+- [zoya-ast](../zoya-ast) - AST types (for Item and Visibility)
+- [zoya-naming](../zoya-naming) - Name validation and reserved names
 - [serde](https://github.com/serde-rs/serde) - Serialization
 - [toml](https://github.com/toml-rs/toml) - TOML parsing

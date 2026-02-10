@@ -2,7 +2,7 @@
 
 Lexer/tokenizer for the Zoya programming language.
 
-Converts source text into a stream of tokens using [Logos](https://github.com/maciejhirsz/logos).
+Converts source text into a stream of spanned tokens using [Logos](https://github.com/maciejhirsz/logos).
 
 ## Tokens
 
@@ -16,15 +16,17 @@ Converts source text into a stream of tokens using [Logos](https://github.com/ma
 ## Usage
 
 ```rust
-use zoya_lexer::{lex, Token};
+use zoya_lexer::{lex, Token, Span, Spanned};
 
-// Tokenize source code
+// Tokenize source code — returns Vec<Spanned> where Spanned = (Token, Span)
 let tokens = lex("fn main() -> Int { 42 }").unwrap();
 
-// Tokens are returned as Vec<Token>
-assert!(matches!(tokens[0], Token::Fn));
-assert!(matches!(tokens[1], Token::Ident(ref s) if s == "main"));
-assert!(matches!(tokens[2], Token::LParen));
+// Each token carries its byte-offset span
+let (token, span) = &tokens[0];
+assert!(matches!(token, Token::Fn));
+
+assert!(matches!(&tokens[1], (Token::Ident(s), _) if s == "main"));
+assert!(matches!(&tokens[2].0, Token::LParen));
 
 // Comments are stripped during lexing
 let tokens = lex("fn main() -> Int { 42 } // this is ignored").unwrap();
@@ -33,16 +35,18 @@ let tokens = lex("fn main() -> Int { 42 } // this is ignored").unwrap();
 ## Error Handling
 
 ```rust
-use zoya_lexer::lex;
+use zoya_lexer::{lex, LexError};
 
 // Returns LexError on invalid input
 let result = lex("let x = #invalid");
 assert!(result.is_err());
 
+// LexError variants provide the offending slice and span
 let err = result.unwrap_err();
-println!("Lexer error: {}", err.message);
+println!("Lexer error: {}", err);
 ```
 
 ## Dependencies
 
 - [logos](https://github.com/maciejhirsz/logos) - Fast lexer generator
+- [thiserror](https://github.com/dtolnay/thiserror) - Error derive macros

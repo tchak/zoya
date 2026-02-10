@@ -28,6 +28,7 @@ crates/
 ├── zoya-ir/           # Typed IR and type definitions
 ├── zoya-lexer/        # Tokenizer (logos)
 ├── zoya-loader/       # Package file loading
+├── zoya-naming/       # Naming conventions & validation
 ├── zoya-package/      # Package data structures & config
 ├── zoya-parser/       # Parser (chumsky)
 ├── zoya-run/          # Runtime execution (rquickjs)
@@ -103,6 +104,7 @@ New features need tests at each pipeline stage:
 | `zoya-parser` | AST structure |
 | `zoya-package` | Module path operations, package config |
 | `zoya-loader` | Package loading and resolution |
+| `zoya-naming` | Name validation, case conversion |
 | `zoya-check` | Type inference, visibility, and errors |
 | `zoya-codegen` | Generated JS correctness |
 | `zoya-run` | End-to-end execution |

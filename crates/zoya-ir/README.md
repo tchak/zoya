@@ -60,6 +60,7 @@ fn process_package(pkg: &CheckedPackage) {
 | `Type` | Resolved type (Int, List<T>, structs, enums, functions) |
 | `TypedExpr` | Expression with attached type information |
 | `TypedPattern` | Pattern with resolved types for codegen |
+| `TypedFunction` | Function with typed body and return type |
 | `CheckedModule` | A module's checked functions |
 | `CheckedPackage` | Complete package of checked modules and definitions |
 | `QualifiedPath` | Fully resolved path (e.g., `root::utils::helper`) |
@@ -68,8 +69,8 @@ fn process_package(pkg: &CheckedPackage) {
 | `StructType` | Struct definition with visibility, module, fields |
 | `EnumType` | Enum definition with visibility, module, variants |
 | `TypeAliasType` | Type alias with visibility, module, underlying type |
+| `TypeScheme` | Polymorphic type with quantified type variables |
 | `Visibility` | Re-exported `Private`/`Public` enum from `zoya-ast` |
-| `TypeError` | Type checking error with message |
 
 ## Dependencies
 
