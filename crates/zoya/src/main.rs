@@ -31,9 +31,9 @@ enum Command {
     },
     /// Compile a file to JavaScript
     Build {
-        /// File to compile
-        file: PathBuf,
-        /// Output file (stdout if not specified)
+        /// Path to a .zoya file or directory with package.toml (defaults to current directory)
+        path: Option<PathBuf>,
+        /// Output file (overrides package.toml output)
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
@@ -66,8 +66,9 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Some(Command::Build { file, output }) => {
-            if let Err(e) = commands::build::execute(&file, output.as_deref()) {
+        Some(Command::Build { path, output }) => {
+            let path = path.unwrap_or_else(|| PathBuf::from("."));
+            if let Err(e) = commands::build::execute(&path, output.as_deref()) {
                 eprintln!("{}", e);
                 std::process::exit(1);
             }
