@@ -1862,9 +1862,21 @@ pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
         .map(|(path, def)| (path.clone(), def.clone()))
         .collect();
 
+    let external_reexports = env
+        .reexports
+        .iter()
+        .filter(|(path, _)| {
+            env.definitions
+                .get(path)
+                .is_some_and(|def| is_externally_visible(path, def, &env.definitions))
+        })
+        .map(|(path, target)| (path.clone(), target.clone()))
+        .collect();
+
     Ok(CheckedPackage {
         modules: checked_modules,
         definitions: external_definitions,
+        reexports: external_reexports,
     })
 }
 

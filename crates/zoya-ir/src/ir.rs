@@ -261,6 +261,7 @@ pub struct CheckedModule {
 pub struct CheckedPackage {
     pub modules: std::collections::HashMap<QualifiedPath, CheckedModule>,
     pub definitions: std::collections::HashMap<QualifiedPath, Definition>,
+    pub reexports: std::collections::HashMap<QualifiedPath, QualifiedPath>,
 }
 
 impl CheckedPackage {
