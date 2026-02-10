@@ -32,6 +32,16 @@ pub     root    self    struct  super   true
 type    use
 ```
 
+### Reserved Names
+
+The following names are not keywords but are reserved and cannot be used as package or module names:
+
+```
+std     zoya
+```
+
+Note: `root`, `self`, and `super` are already keywords, so they are also rejected as package/module names. Together, the full set of reserved package/module names is: `root`, `self`, `super`, `std`, `zoya`.
+
 ## Identifiers
 
 An identifier starts with a letter (`a-z`, `A-Z`) or underscore (`_`), followed by zero or more letters, digits (`0-9`), or underscores.

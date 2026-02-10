@@ -2,7 +2,7 @@ use std::sync::LazyLock;
 
 use zoya_check::check;
 use zoya_ir::CheckedPackage;
-use zoya_loader::{load_package_with, MemorySource};
+use zoya_loader::{load_memory_package, MemorySource};
 
 static STD_PACKAGE: LazyLock<CheckedPackage> = LazyLock::new(|| {
     build_std().expect("failed to build std package")
@@ -14,8 +14,9 @@ fn build_std() -> Result<CheckedPackage, String> {
         .with_module("option", include_str!("std/option.zoya"))
         .with_module("result", include_str!("std/result.zoya"));
 
-    let pkg = load_package_with(&source, &"root".to_string())
+    let mut pkg = load_memory_package(&source)
         .map_err(|e| format!("failed to load std package: {e}"))?;
+    pkg.name = "std".to_string();
 
     check(&pkg).map_err(|e| format!("failed to check std package: {e}"))
 }

@@ -43,7 +43,7 @@ fn build_multi_module_package(modules_data: Vec<(QualifiedPath, Vec<Item>)>) -> 
         }
     }
 
-    Package { modules }
+    Package { name: "test".to_string(), output: None, modules }
 }
 
 fn make_use(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
@@ -214,7 +214,7 @@ fn test_duplicate_import_fails() {
         },
     );
 
-    let pkg = Package { modules };
+    let pkg = Package { name: "test".to_string(), output: None, modules };
     let result = check(&pkg);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("already imported"));
@@ -807,7 +807,7 @@ fn build_package_with_visibility(
         }
     }
 
-    Package { modules }
+    Package { name: "test".to_string(), output: None, modules }
 }
 
 #[test]

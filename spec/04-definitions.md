@@ -313,7 +313,7 @@ Modules form a tree rooted at the root module. Each module has a path (e.g., `ro
 
 ### Naming Conventions
 
-Module names use `snake_case`: must start with a lowercase letter, followed by lowercase letters, digits, or underscores.
+Module names use `snake_case`: must start with a lowercase letter, followed by lowercase letters, digits, or underscores. Module names must not be reserved names (`root`, `self`, `super`, `std`, `zoya`).
 
 ```zoya
 mod utils          // OK
@@ -321,6 +321,7 @@ mod my_helpers     // OK
 mod v2             // OK
 mod MyModule       // Error: should be 'my_module'
 mod _private       // Error: must start with a letter
+mod std            // Error: 'std' is a reserved name
 ```
 
 A private module is only accessible from the declaring module and its descendants. A public module is accessible from any module. To access an item in a nested module, all modules along the path must be visible to the accessor:

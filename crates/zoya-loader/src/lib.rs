@@ -1,9 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Display};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 // Re-export module types from zoya-package
 pub use zoya_package::{Module, QualifiedPath, Package};
+pub use zoya_package::{ConfigError, PackageConfig};
 
 mod source;
 mod sources;
@@ -39,6 +40,15 @@ pub enum LoaderError<P: Clone + Debug + Display = FilePath> {
     ReservedModName {
         mod_name: String,
     },
+    NoPackageToml {
+        dir: PathBuf,
+    },
+    MainNotFound {
+        main: PathBuf,
+        package_dir: PathBuf,
+    },
+    ConfigError(String),
+    MissingRoot,
 }
 
 impl<P: Clone + Debug + Display> std::fmt::Display for LoaderError<P> {
@@ -79,27 +89,115 @@ impl<P: Clone + Debug + Display> std::fmt::Display for LoaderError<P> {
                     mod_name
                 )
             }
+            LoaderError::NoPackageToml { dir } => {
+                if dir == Path::new(".") {
+                    write!(
+                        f,
+                        "no package.toml found in current directory\nhint: provide a file path or create a package with `zoya new`"
+                    )
+                } else {
+                    write!(
+                        f,
+                        "no package.toml found in '{}'\nhint: provide a .zoya file path or create a package with `zoya new {}`",
+                        dir.display(),
+                        dir.display()
+                    )
+                }
+            }
+            LoaderError::MainNotFound { main, package_dir } => {
+                write!(
+                    f,
+                    "main file '{}' not found in package at '{}'",
+                    main.display(),
+                    package_dir.display()
+                )
+            }
+            LoaderError::ConfigError(msg) => write!(f, "{}", msg),
+            LoaderError::MissingRoot => write!(f, "missing root module"),
         }
     }
 }
 
 impl<P: Clone + Debug + Display> std::error::Error for LoaderError<P> {}
 
-/// Load package starting from root file (convenience wrapper for filesystem)
+/// Load a package from a filesystem path.
+///
+/// Handles three cases:
+/// - **Directory**: looks for `package.toml`, loads config, resolves main file
+/// - **`package.toml` file**: loads config from it
+/// - **`.zoya` file**: treats as standalone file, derives name from filename
 pub fn load_package(path: &Path) -> Result<Package, LoaderError<FilePath>> {
-    let source = FsSource::from_file(path);
-    load_package_with(&source, &FilePath::new(path))
-}
+    if path.is_dir() {
+        return load_from_directory(path);
+    }
 
-/// Load package using a generic module source
-pub fn load_package_with<S: ModuleSource>(
-    source: &S,
-    root_path: &S::Path,
-) -> Result<Package, LoaderError<S::Path>> {
+    if path.file_name().is_some_and(|f| f == "package.toml") {
+        let dir = path.parent().unwrap_or(Path::new("."));
+        return load_from_directory(dir);
+    }
+
+    // Standalone .zoya file
+    let name = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| zoya_naming::package_name_to_module_name(&zoya_naming::sanitize_package_name(s)))
+        .unwrap_or_else(|| "root".to_string());
+
+    let source = FsSource::from_file(path);
     let mut pkg = Package {
+        name,
+        output: None,
         modules: HashMap::new(),
     };
-    load_module_recursive(source, root_path, QualifiedPath::root(), &mut pkg)?;
+    load_module_recursive(&source, &FilePath::new(path), QualifiedPath::root(), &mut pkg)?;
+    Ok(pkg)
+}
+
+fn load_from_directory(dir: &Path) -> Result<Package, LoaderError<FilePath>> {
+    let config_path = dir.join("package.toml");
+    if !config_path.exists() {
+        return Err(LoaderError::NoPackageToml {
+            dir: dir.to_path_buf(),
+        });
+    }
+
+    let config =
+        PackageConfig::load(dir).map_err(|e| LoaderError::ConfigError(e.to_string()))?;
+    let name = config.module_name();
+    let main = config.main_path();
+    let output = config.output.map(|o| dir.join(o));
+    let main_path = dir.join(&main);
+
+    if !main_path.exists() {
+        return Err(LoaderError::MainNotFound {
+            main,
+            package_dir: dir.to_path_buf(),
+        });
+    }
+
+    let source = FsSource::from_file(&main_path);
+    let mut pkg = Package {
+        name,
+        output,
+        modules: HashMap::new(),
+    };
+    load_module_recursive(&source, &FilePath::new(&main_path), QualifiedPath::root(), &mut pkg)?;
+    Ok(pkg)
+}
+
+/// Load a package from an in-memory source.
+///
+/// Expects a "root" module to exist in the source.
+pub fn load_memory_package(source: &MemorySource) -> Result<Package, LoaderError<String>> {
+    if !source.exists(&"root".to_string()) {
+        return Err(LoaderError::MissingRoot);
+    }
+    let mut pkg = Package {
+        name: "root".to_string(),
+        output: None,
+        modules: HashMap::new(),
+    };
+    load_module_recursive(source, &"root".to_string(), QualifiedPath::root(), &mut pkg)?;
     Ok(pkg)
 }
 
@@ -463,8 +561,10 @@ mod integration_tests {
         let source = MemorySource::new()
             .with_module("root", "fn foo() -> Int 42");
 
-        let tree = load_package_with(&source, &"root".to_string()).unwrap();
+        let tree = load_memory_package(&source).unwrap();
 
+        assert_eq!(tree.name, "root");
+        assert_eq!(tree.output, None);
         assert_eq!(tree.modules.len(), 1);
         let root = tree.root().unwrap();
         assert_eq!(root.path, QualifiedPath::root());
@@ -478,7 +578,7 @@ mod integration_tests {
             .with_module("root", "mod utils\nfn main() -> Int 42")
             .with_module("utils", "fn helper() -> Int 10");
 
-        let tree = load_package_with(&source, &"root".to_string()).unwrap();
+        let tree = load_memory_package(&source).unwrap();
 
         assert_eq!(tree.modules.len(), 2);
 
@@ -499,7 +599,7 @@ mod integration_tests {
             .with_module("utils", "mod helpers")
             .with_module("utils/helpers", "fn deep_fn() -> Int 42");
 
-        let tree = load_package_with(&source, &"root".to_string()).unwrap();
+        let tree = load_memory_package(&source).unwrap();
 
         assert_eq!(tree.modules.len(), 3);
 
@@ -513,7 +613,7 @@ mod integration_tests {
         let source = MemorySource::new()
             .with_module("root", "mod missing");
 
-        let result = load_package_with(&source, &"root".to_string());
+        let result = load_memory_package(&source);
 
         assert!(
             matches!(result, Err(LoaderError::ModuleNotFound { mod_name, .. }) if mod_name == "missing")
@@ -526,7 +626,7 @@ mod integration_tests {
             .with_module("root", "mod MyModule")
             .with_module("my_module", "");
 
-        let result = load_package_with(&source, &"root".to_string());
+        let result = load_memory_package(&source);
 
         assert!(
             matches!(result, Err(LoaderError::InvalidModName { mod_name, suggestion }) if mod_name == "MyModule" && suggestion == "my_module")
@@ -539,7 +639,7 @@ mod integration_tests {
             .with_module("root", "mod _private")
             .with_module("_private", "");
 
-        let result = load_package_with(&source, &"root".to_string());
+        let result = load_memory_package(&source);
 
         assert!(
             matches!(result, Err(LoaderError::InvalidModName { mod_name, .. }) if mod_name == "_private")
@@ -552,7 +652,7 @@ mod integration_tests {
             .with_module("root", "mod std")
             .with_module("std", "");
 
-        let result = load_package_with(&source, &"root".to_string());
+        let result = load_memory_package(&source);
 
         assert!(
             matches!(result, Err(LoaderError::ReservedModName { mod_name }) if mod_name == "std")
@@ -565,7 +665,7 @@ mod integration_tests {
             .with_module("root", "mod zoya")
             .with_module("zoya", "");
 
-        let result = load_package_with(&source, &"root".to_string());
+        let result = load_memory_package(&source);
 
         assert!(
             matches!(result, Err(LoaderError::ReservedModName { mod_name }) if mod_name == "zoya")
@@ -573,11 +673,11 @@ mod integration_tests {
     }
 
     #[test]
-    fn test_memory_source_error_source_not_found() {
+    fn test_memory_source_error_missing_root() {
         let source = MemorySource::new();
 
-        let result = load_package_with(&source, &"nonexistent".to_string());
+        let result = load_memory_package(&source);
 
-        assert!(matches!(result, Err(LoaderError::SourceError { .. })));
+        assert!(matches!(result, Err(LoaderError::MissingRoot)));
     }
 }

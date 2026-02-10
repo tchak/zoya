@@ -36,7 +36,7 @@ pub fn build_test_package(items: Vec<Item>) -> Package {
     };
     let mut modules = HashMap::new();
     modules.insert(QualifiedPath::root(), module);
-    Package { modules }
+    Package { name: "test".to_string(), output: None, modules }
 }
 
 /// Build a test package with items and a test expression.

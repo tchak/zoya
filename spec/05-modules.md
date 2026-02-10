@@ -40,7 +40,7 @@ mod internal        // loads internal.zoya
 pub mod helpers     // loads utils/helpers.zoya
 ```
 
-A module name must not be declared more than once in the same parent module.
+A module name must not be declared more than once in the same parent module. Module names must not be reserved names (`root`, `self`, `super`, `std`, `zoya`), as these conflict with path prefixes or the standard library.
 
 ## Module Paths
 

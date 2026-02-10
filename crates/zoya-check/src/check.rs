@@ -1877,6 +1877,8 @@ pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
         .collect();
 
     Ok(CheckedPackage {
+        name: pkg.name.clone(),
+        output: pkg.output.clone(),
         items: checked_items,
         definitions: external_definitions,
         reexports: external_reexports,

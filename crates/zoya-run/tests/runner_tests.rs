@@ -1,5 +1,5 @@
 use zoya_check::check;
-use zoya_loader::{load_package_with, MemorySource};
+use zoya_loader::{load_memory_package, MemorySource};
 use zoya_run::{run, run_source, EvalError, Value};
 
 #[test]
@@ -2193,7 +2193,7 @@ fn run_multi_module(modules: Vec<(&str, &str)>, expected: &str) {
     for (path, content) in modules {
         source.add_module(path, content);
     }
-    let package = load_package_with(&source, &"root".to_string())
+    let package = load_memory_package(&source)
         .unwrap_or_else(|e| panic!("failed to load package: {}", e));
     let checked =
         check(&package).unwrap_or_else(|e| panic!("failed to type check package: {}", e));
@@ -2207,7 +2207,7 @@ fn expect_check_error(modules: Vec<(&str, &str)>, expected_substring: &str) {
     for (path, content) in modules {
         source.add_module(path, content);
     }
-    let package = load_package_with(&source, &"root".to_string());
+    let package = load_memory_package(&source);
     match package {
         Err(e) => {
             let msg = e.to_string();
@@ -2890,7 +2890,7 @@ fn test_error_use_without_prefix() {
     "#,
     );
     source.add_module("utils", "pub fn helper() -> Int { 42 }");
-    let result = load_package_with(&source, &"root".to_string());
+    let result = load_memory_package(&source);
     // Parsing succeeds but check fails with "package imports are not implemented yet"
     assert!(result.is_err() || {
         let pkg = result.unwrap();
@@ -2908,7 +2908,7 @@ fn test_error_module_not_found() {
         pub fn main() -> Int { 0 }
     "#,
     );
-    let result = load_package_with(&source, &"root".to_string());
+    let result = load_memory_package(&source);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(

@@ -383,6 +383,10 @@ fn create_run_function(name: &str, block: &EvalBlock) -> Item {
 fn build_repl_package(base_pkg: Option<&Package>, items: Vec<Item>) -> Package {
     let repl_path = QualifiedPath::root().child("repl");
 
+    let name = base_pkg
+        .map(|p| p.name.clone())
+        .unwrap_or_else(|| "repl".to_string());
+
     let mut modules = if let Some(pkg) = base_pkg {
         pkg.modules.clone()
     } else {
@@ -407,7 +411,7 @@ fn build_repl_package(base_pkg: Option<&Package>, items: Vec<Item>) -> Package {
         },
     );
 
-    Package { modules }
+    Package { name, output: None, modules }
 }
 
 /// Find a typed function by name in the repl submodule of the checked package.

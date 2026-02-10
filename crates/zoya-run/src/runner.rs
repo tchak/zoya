@@ -3,7 +3,7 @@ use std::path::Path;
 use zoya_check::check;
 use zoya_codegen::codegen;
 use zoya_ir::{CheckedPackage, Type};
-use zoya_loader::{load_package, load_package_with, MemorySource};
+use zoya_loader::{load_memory_package, load_package, MemorySource};
 use zoya_package::QualifiedPath;
 
 use crate::eval::{self, EvalError, Value, VirtualModules};
@@ -63,7 +63,7 @@ pub fn run(
 /// Load, check, and run source code from a string
 pub fn run_source(source: &str) -> Result<Value, EvalError> {
     let mem_source = MemorySource::new().with_module("root", source);
-    let package = load_package_with(&mem_source, &"root".to_string())
+    let package = load_memory_package(&mem_source)
         .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
     let checked = check(&package).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
     run(checked, None, None)

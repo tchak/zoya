@@ -52,28 +52,16 @@ fn main() {
 
     match cli.command {
         Some(Command::Run { path }) => {
-            let entry_point = match commands::resolve::resolve_entry_point(path.as_deref()) {
-                Ok(p) => p,
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                }
-            };
-            if let Err(e) = commands::run::execute(&entry_point) {
+            let path = path.unwrap_or_else(|| PathBuf::from("."));
+            if let Err(e) = commands::run::execute(&path) {
                 eprintln!("Error: {e}");
                 std::process::exit(1);
             }
         }
         Some(Command::Repl { file }) => commands::repl::execute(file.as_deref()),
         Some(Command::Check { path }) => {
-            let entry_point = match commands::resolve::resolve_entry_point(path.as_deref()) {
-                Ok(p) => p,
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                }
-            };
-            if let Err(e) = commands::check::execute(&entry_point) {
+            let path = path.unwrap_or_else(|| PathBuf::from("."));
+            if let Err(e) = commands::check::execute(&path) {
                 eprintln!("{}", e);
                 std::process::exit(1);
             }

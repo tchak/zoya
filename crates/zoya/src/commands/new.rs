@@ -97,7 +97,7 @@ impl std::fmt::Display for NewError {
             }
             NewError::InvalidName(name) => write!(
                 f,
-                "invalid package name '{}': must be lowercase alphanumeric with underscores or hyphens, starting with a letter",
+                "invalid package name '{}': must be lowercase alphanumeric with underscores or hyphens, starting with a letter, and must not be a reserved name (root, self, super, std, zoya)",
                 name
             ),
             NewError::Io { path, source } => {
@@ -209,5 +209,32 @@ mod tests {
         let result = execute(&project_path, Some("Invalid Name"));
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), NewError::InvalidName(_)));
+    }
+
+    #[test]
+    fn test_execute_reserved_name_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in &["std", "zoya", "root", "self", "super"] {
+            let project_path = dir.path().join(format!("test_{}", name));
+            let result = execute(&project_path, Some(name));
+            assert!(
+                matches!(&result, Err(NewError::InvalidName(_))),
+                "reserved name '{}' should be rejected, got {:?}",
+                name,
+                result
+            );
+        }
+    }
+
+    #[test]
+    fn test_execute_sanitizes_reserved_directory_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_path = dir.path().join("std");
+
+        let result = execute(&project_path, None);
+        assert!(result.is_ok());
+
+        let config = PackageConfig::load(&project_path).unwrap();
+        assert_eq!(config.name, "pkg_std");
     }
 }
