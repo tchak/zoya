@@ -1,16 +1,19 @@
 use chumsky::prelude::*;
 
-use zoya_ast::{ModDecl, Path, PathPrefix, Pattern, TypeAnnotation, UseDecl, UseGroupItem, UsePath, UseTarget, Visibility};
+use zoya_ast::{
+    ModDecl, Path, PathPrefix, Pattern, TypeAnnotation, UseDecl, UseGroupItem, UsePath, UseTarget,
+    Visibility,
+};
 use zoya_lexer::Token;
 
-pub(crate) fn ident<'a>() -> impl Parser<'a, &'a [Token], String, extra::Err<Rich<'a, Token>>> + Clone
-{
+pub(crate) fn ident<'a>()
+-> impl Parser<'a, &'a [Token], String, extra::Err<Rich<'a, Token>>> + Clone {
     select! { Token::Ident(name) => name }
 }
 
 /// Parse a path prefix: root::, self::, super::, or none
-pub(crate) fn path_prefix_parser<'a>(
-) -> impl Parser<'a, &'a [Token], PathPrefix, extra::Err<Rich<'a, Token>>> + Clone {
+pub(crate) fn path_prefix_parser<'a>()
+-> impl Parser<'a, &'a [Token], PathPrefix, extra::Err<Rich<'a, Token>>> + Clone {
     choice((
         just(Token::Root)
             .then_ignore(just(Token::ColonColon))
@@ -28,8 +31,8 @@ pub(crate) fn path_prefix_parser<'a>(
 
 /// Parse a simple path (no turbofish): prefix + ident segments
 /// Returns a Path with type_args = None
-pub(crate) fn simple_path_parser<'a>(
-) -> impl Parser<'a, &'a [Token], Path, extra::Err<Rich<'a, Token>>> + Clone {
+pub(crate) fn simple_path_parser<'a>()
+-> impl Parser<'a, &'a [Token], Path, extra::Err<Rich<'a, Token>>> + Clone {
     path_prefix_parser()
         .then(
             ident()
@@ -44,8 +47,8 @@ pub(crate) fn simple_path_parser<'a>(
         })
 }
 
-pub(crate) fn mod_decl_parser<'a>(
-) -> impl Parser<'a, &'a [Token], ModDecl, extra::Err<Rich<'a, Token>>> + Clone {
+pub(crate) fn mod_decl_parser<'a>()
+-> impl Parser<'a, &'a [Token], ModDecl, extra::Err<Rich<'a, Token>>> + Clone {
     just(Token::Pub)
         .or_not()
         .then_ignore(just(Token::Mod))
@@ -60,8 +63,8 @@ pub(crate) fn mod_decl_parser<'a>(
         })
 }
 
-pub(crate) fn use_decl_parser<'a>(
-) -> impl Parser<'a, &'a [Token], UseDecl, extra::Err<Rich<'a, Token>>> + Clone {
+pub(crate) fn use_decl_parser<'a>()
+-> impl Parser<'a, &'a [Token], UseDecl, extra::Err<Rich<'a, Token>>> + Clone {
     // Parse the optional suffix: ::* or ::{a, b, c}
     let glob_suffix = just(Token::ColonColon)
         .then(just(Token::Star))

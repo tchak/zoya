@@ -1,6 +1,6 @@
 use zoya_check::check;
-use zoya_loader::{load_memory_package, MemorySource};
-use zoya_run::{run, run_source, EvalError, Value};
+use zoya_loader::{MemorySource, load_memory_package};
+use zoya_run::{EvalError, Value, run, run_source};
 use zoya_std::std as zoya_std;
 
 #[test]
@@ -38,14 +38,18 @@ fn test_run_main_with_float() {
 fn test_run_no_main_error() {
     let source = "fn foo() -> Int { 42 }";
     let result = run_source(source);
-    assert!(matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("no pub fn main()")));
+    assert!(
+        matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("no pub fn main()"))
+    );
 }
 
 #[test]
 fn test_run_private_main_error() {
     let source = "fn main() -> Int { 42 }";
     let result = run_source(source);
-    assert!(matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("no pub fn main()")));
+    assert!(
+        matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("no pub fn main()"))
+    );
 }
 
 #[test]
@@ -2194,8 +2198,8 @@ fn run_multi_module(modules: Vec<(&str, &str)>, expected: &str) {
     for (path, content) in modules {
         source.add_module(path, content);
     }
-    let package = load_memory_package(&source)
-        .unwrap_or_else(|e| panic!("failed to load package: {}", e));
+    let package =
+        load_memory_package(&source).unwrap_or_else(|e| panic!("failed to load package: {}", e));
     let checked =
         check(&package, &[]).unwrap_or_else(|e| panic!("failed to type check package: {}", e));
     let result = run(checked, &[], None).unwrap_or_else(|e| panic!("failed to run package: {}", e));
@@ -2244,10 +2248,10 @@ fn run_multi_module_with_std(modules: Vec<(&str, &str)>, expected: &str) {
     for (path, content) in modules {
         source.add_module(path, content);
     }
-    let package = load_memory_package(&source)
-        .unwrap_or_else(|e| panic!("failed to load package: {}", e));
-    let checked = check(&package, &[std])
-        .unwrap_or_else(|e| panic!("failed to type check package: {}", e));
+    let package =
+        load_memory_package(&source).unwrap_or_else(|e| panic!("failed to load package: {}", e));
+    let checked =
+        check(&package, &[std]).unwrap_or_else(|e| panic!("failed to type check package: {}", e));
     let result =
         run(checked, &[std], None).unwrap_or_else(|e| panic!("failed to run package: {}", e));
     assert_eq!(result.to_string(), expected, "unexpected result");
@@ -2259,7 +2263,10 @@ fn run_multi_module_with_std(modules: Vec<(&str, &str)>, expected: &str) {
 fn test_module_pub_fn_qualified_call() {
     run_multi_module(
         vec![
-            ("root", "mod utils\npub fn main() -> Int { utils::add(1, 2) }"),
+            (
+                "root",
+                "mod utils\npub fn main() -> Int { utils::add(1, 2) }",
+            ),
             ("utils", "pub fn add(x: Int, y: Int) -> Int { x + y }"),
         ],
         "3",
@@ -2840,15 +2847,17 @@ fn test_imported_generic_struct() {
 #[test]
 fn test_error_import_nonexistent_item() {
     expect_check_error(
-        vec![(
-            "root",
-            r#"
+        vec![
+            (
+                "root",
+                r#"
             mod utils
             use root::utils::nonexistent
             pub fn main() -> Int { 0 }
         "#,
-        ),
-        ("utils", "pub fn helper() -> Int { 42 }")],
+            ),
+            ("utils", "pub fn helper() -> Int { 42 }"),
+        ],
         "cannot find",
     );
 }
@@ -2909,10 +2918,12 @@ fn test_error_use_without_prefix() {
     source.add_module("utils", "pub fn helper() -> Int { 42 }");
     let result = load_memory_package(&source);
     // Parsing succeeds but check fails because there's no "utils" package dependency
-    assert!(result.is_err() || {
-        let pkg = result.unwrap();
-        check(&pkg, &[]).is_err()
-    });
+    assert!(
+        result.is_err() || {
+            let pkg = result.unwrap();
+            check(&pkg, &[]).is_err()
+        }
+    );
 }
 
 #[test]
@@ -4094,7 +4105,10 @@ fn test_pub_use_group_reexport_enum_variants() {
             "#,
             ),
             ("types", "pub enum Color { Red, Green, Blue }"),
-            ("reexporter", "pub use root::types::Color::{Red, Green, Blue}"),
+            (
+                "reexporter",
+                "pub use root::types::Color::{Red, Green, Blue}",
+            ),
         ],
         "2",
     );
@@ -4576,4 +4590,3 @@ fn test_cascading_glob_reexport_between_same_depth_modules() {
         "1",
     );
 }
-

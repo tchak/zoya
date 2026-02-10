@@ -89,6 +89,10 @@ jj commit -m "feat(parser): add tuple patterns"
 jj commit -m "fix: resolve unification with recursive types"
 ```
 
+## Formatting
+
+**IMPORTANT: Always run `cargo fmt` before committing.** All code must be formatted with `rustfmt`. Run `cargo fmt --check` to verify.
+
 ## Testing
 
 New features need tests at each pipeline stage:

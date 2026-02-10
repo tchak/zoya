@@ -1209,13 +1209,7 @@ mod tests {
     #[test]
     fn test_parse_method_call_in_expression() {
         let expr = parse_str(r#""hello".len() + 1"#).unwrap();
-        assert!(matches!(
-            expr,
-            Expr::BinOp {
-                op: BinOp::Add,
-                ..
-            }
-        ));
+        assert!(matches!(expr, Expr::BinOp { op: BinOp::Add, .. }));
     }
 
     // List literal tests
@@ -1267,7 +1261,10 @@ mod tests {
         let Expr::Match { arms, .. } = expr else {
             panic!("expected match expression")
         };
-        assert!(matches!(&arms[0].pattern, Pattern::List(ListPattern::Empty)));
+        assert!(matches!(
+            &arms[0].pattern,
+            Pattern::List(ListPattern::Empty)
+        ));
     }
 
     #[test]
@@ -1727,7 +1724,10 @@ mod tests {
             panic!("expected lambda")
         };
         assert_eq!(params.len(), 1);
-        assert_eq!(params[0].pattern, Pattern::Path(Path::simple("x".to_string())));
+        assert_eq!(
+            params[0].pattern,
+            Pattern::Path(Path::simple("x".to_string()))
+        );
         assert!(params[0].typ.is_none());
         assert!(return_type.is_none());
         assert!(matches!(*body, Expr::BinOp { op: BinOp::Add, .. }));
@@ -1740,8 +1740,14 @@ mod tests {
             panic!("expected lambda")
         };
         assert_eq!(params.len(), 2);
-        assert_eq!(params[0].pattern, Pattern::Path(Path::simple("x".to_string())));
-        assert_eq!(params[1].pattern, Pattern::Path(Path::simple("y".to_string())));
+        assert_eq!(
+            params[0].pattern,
+            Pattern::Path(Path::simple("x".to_string()))
+        );
+        assert_eq!(
+            params[1].pattern,
+            Pattern::Path(Path::simple("y".to_string()))
+        );
     }
 
     #[test]
@@ -1751,7 +1757,10 @@ mod tests {
             panic!("expected lambda")
         };
         assert_eq!(params.len(), 1);
-        assert_eq!(params[0].pattern, Pattern::Path(Path::simple("x".to_string())));
+        assert_eq!(
+            params[0].pattern,
+            Pattern::Path(Path::simple("x".to_string()))
+        );
         assert!(matches!(
             &params[0].typ,
             Some(TypeAnnotation::Named(s)) if s.as_simple() == Some("Int")
@@ -1762,7 +1771,9 @@ mod tests {
     fn test_parse_lambda_with_return_type() {
         let expr = parse_str("|x| -> Int x + 1").unwrap();
         let Expr::Lambda {
-            params, return_type, ..
+            params,
+            return_type,
+            ..
         } = expr
         else {
             panic!("expected lambda")
@@ -2503,9 +2514,7 @@ mod tests {
         assert!(path.type_args.is_some());
         let type_args = path.type_args.as_ref().unwrap();
         assert_eq!(type_args.len(), 1);
-        assert!(
-            matches!(&type_args[0], TypeAnnotation::Named(n) if n.as_simple() == Some("Int"))
-        );
+        assert!(matches!(&type_args[0], TypeAnnotation::Named(n) if n.as_simple() == Some("Int")));
         assert!(matches!(args, TuplePattern::Exact(_)));
     }
 
@@ -2634,10 +2643,12 @@ mod tests {
         // Multiple .. in struct pattern (enum variant or struct) - produces our custom error
         let result = parse_str("match m { Message::Move { x, .., .. } => x }");
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("only one .. allowed in struct pattern"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("only one .. allowed in struct pattern")
+        );
     }
 
     #[test]
@@ -2666,10 +2677,12 @@ mod tests {
         // Type annotation on tuple pattern in let - produces custom error in match arm
         let result = parse_str("match x { n => { let (a, b): (Int, Int) = n; a } }");
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("type annotations are only allowed on simple variable patterns"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("type annotations are only allowed on simple variable patterns")
+        );
     }
 
     #[test]
@@ -2677,10 +2690,12 @@ mod tests {
         // Type annotation on tuple pattern in lambda body - produces custom error
         let result = parse_str("|x| { let (a, b): (Int, Int) = x; a }");
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("type annotations are only allowed on simple variable patterns"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("type annotations are only allowed on simple variable patterns")
+        );
     }
 
     #[test]
@@ -2697,12 +2712,14 @@ mod tests {
     // === Module parsing tests ===
 
     fn parse_module_str(input: &str) -> Result<ModuleDef, ParseError> {
-        let tokens = lex(input).map_err(|e| ParseError::SyntaxErrors(vec![SyntaxError {
-            span: 0..0,
-            found: Some(e.to_string()),
-            expected: vec![],
-            label: None,
-        }]))?;
+        let tokens = lex(input).map_err(|e| {
+            ParseError::SyntaxErrors(vec![SyntaxError {
+                span: 0..0,
+                found: Some(e.to_string()),
+                expected: vec![],
+                label: None,
+            }])
+        })?;
         parse_module(tokens)
     }
 
@@ -2754,7 +2771,11 @@ mod tests {
     fn test_parse_module_use_root() {
         let module = parse_module_str("use root::foo::bar").unwrap();
         assert!(module.mods.is_empty());
-        let uses: Vec<_> = module.items.iter().filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None }).collect();
+        let uses: Vec<_> = module
+            .items
+            .iter()
+            .filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None })
+            .collect();
         assert_eq!(uses.len(), 1);
         assert_eq!(uses[0].visibility, Visibility::Private);
         assert_eq!(uses[0].path.prefix, PathPrefix::Root);
@@ -2764,7 +2785,11 @@ mod tests {
     #[test]
     fn test_parse_module_pub_use() {
         let module = parse_module_str("pub use root::foo::bar").unwrap();
-        let uses: Vec<_> = module.items.iter().filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None }).collect();
+        let uses: Vec<_> = module
+            .items
+            .iter()
+            .filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None })
+            .collect();
         assert_eq!(uses.len(), 1);
         assert_eq!(uses[0].visibility, Visibility::Public);
         assert_eq!(uses[0].path.prefix, PathPrefix::Root);
@@ -2774,7 +2799,11 @@ mod tests {
     #[test]
     fn test_parse_module_use_self() {
         let module = parse_module_str("use self::helper").unwrap();
-        let uses: Vec<_> = module.items.iter().filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None }).collect();
+        let uses: Vec<_> = module
+            .items
+            .iter()
+            .filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None })
+            .collect();
         assert_eq!(uses.len(), 1);
         assert_eq!(uses[0].path.prefix, PathPrefix::Self_);
         assert_eq!(uses[0].path.segments, vec!["helper"]);
@@ -2783,7 +2812,11 @@ mod tests {
     #[test]
     fn test_parse_module_use_super() {
         let module = parse_module_str("use super::parent_fn").unwrap();
-        let uses: Vec<_> = module.items.iter().filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None }).collect();
+        let uses: Vec<_> = module
+            .items
+            .iter()
+            .filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None })
+            .collect();
         assert_eq!(uses.len(), 1);
         assert_eq!(uses[0].path.prefix, PathPrefix::Super);
         assert_eq!(uses[0].path.segments, vec!["parent_fn"]);
@@ -2792,27 +2825,48 @@ mod tests {
     #[test]
     fn test_parse_module_use_without_prefix_is_package() {
         let module = parse_module_str("use serde::Deserialize").unwrap();
-        let uses: Vec<_> = module.items.iter().filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None }).collect();
+        let uses: Vec<_> = module
+            .items
+            .iter()
+            .filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None })
+            .collect();
         assert_eq!(uses.len(), 1);
-        assert_eq!(uses[0].path.prefix, PathPrefix::Package("serde".to_string()));
+        assert_eq!(
+            uses[0].path.prefix,
+            PathPrefix::Package("serde".to_string())
+        );
         assert_eq!(uses[0].path.segments, vec!["Deserialize"]);
     }
 
     #[test]
     fn test_parse_module_use_package_glob() {
         let module = parse_module_str("use serde::*").unwrap();
-        let uses: Vec<_> = module.items.iter().filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None }).collect();
+        let uses: Vec<_> = module
+            .items
+            .iter()
+            .filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None })
+            .collect();
         assert_eq!(uses.len(), 1);
-        assert_eq!(uses[0].path.prefix, PathPrefix::Package("serde".to_string()));
+        assert_eq!(
+            uses[0].path.prefix,
+            PathPrefix::Package("serde".to_string())
+        );
         assert!(matches!(uses[0].path.target, UseTarget::Glob));
     }
 
     #[test]
     fn test_parse_module_use_package_group() {
         let module = parse_module_str("use serde::{A, B}").unwrap();
-        let uses: Vec<_> = module.items.iter().filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None }).collect();
+        let uses: Vec<_> = module
+            .items
+            .iter()
+            .filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None })
+            .collect();
         assert_eq!(uses.len(), 1);
-        assert_eq!(uses[0].path.prefix, PathPrefix::Package("serde".to_string()));
+        assert_eq!(
+            uses[0].path.prefix,
+            PathPrefix::Package("serde".to_string())
+        );
         if let UseTarget::Group(items) = &uses[0].path.target {
             assert_eq!(items.len(), 2);
             assert_eq!(items[0].name, "A");
@@ -2825,16 +2879,29 @@ mod tests {
     #[test]
     fn test_parse_module_use_multiple() {
         let module = parse_module_str("use root::a::b use root::c::d").unwrap();
-        let uses_count = module.items.iter().filter(|i| matches!(i, Item::Use(_))).count();
+        let uses_count = module
+            .items
+            .iter()
+            .filter(|i| matches!(i, Item::Use(_)))
+            .count();
         assert_eq!(uses_count, 2);
     }
 
     #[test]
     fn test_parse_module_mods_uses_items() {
-        let module = parse_module_str("mod utils use root::types::Option fn main() -> Int 42").unwrap();
+        let module =
+            parse_module_str("mod utils use root::types::Option fn main() -> Int 42").unwrap();
         assert_eq!(module.mods.len(), 1);
-        let uses_count = module.items.iter().filter(|i| matches!(i, Item::Use(_))).count();
-        let non_use_count = module.items.iter().filter(|i| !matches!(i, Item::Use(_))).count();
+        let uses_count = module
+            .items
+            .iter()
+            .filter(|i| matches!(i, Item::Use(_)))
+            .count();
+        let non_use_count = module
+            .items
+            .iter()
+            .filter(|i| !matches!(i, Item::Use(_)))
+            .count();
         assert_eq!(uses_count, 1);
         assert_eq!(non_use_count, 1);
     }
@@ -3132,8 +3199,8 @@ mod tests {
 
     #[test]
     fn test_parse_enum_pattern_qualified() {
-        let expr = parse_str("match x { types::Option::Some(v) => v, types::Option::None => 0 }")
-            .unwrap();
+        let expr =
+            parse_str("match x { types::Option::Some(v) => v, types::Option::None => 0 }").unwrap();
         match expr {
             Expr::Match { arms, .. } => {
                 match &arms[0].pattern {
@@ -3454,7 +3521,11 @@ mod tests {
     fn test_parse_use_no_prefix_is_package() {
         // Prefix-free use paths are now parsed as package paths
         let module = parse_module_str("use foo::bar::*").unwrap();
-        let uses: Vec<_> = module.items.iter().filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None }).collect();
+        let uses: Vec<_> = module
+            .items
+            .iter()
+            .filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None })
+            .collect();
         assert_eq!(uses.len(), 1);
         assert_eq!(uses[0].path.prefix, PathPrefix::Package("foo".to_string()));
         assert_eq!(uses[0].path.segments, vec!["bar"]);

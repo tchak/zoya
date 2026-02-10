@@ -81,7 +81,12 @@ fn test_check_method_call_on_int_error() {
     };
     let result = check_expr_with_env(&expr);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("no method 'len' on type Int"));
+    assert!(
+        result
+            .unwrap_err()
+            .message
+            .contains("no method 'len' on type Int")
+    );
 }
 
 #[test]

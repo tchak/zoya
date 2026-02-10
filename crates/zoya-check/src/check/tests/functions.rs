@@ -1,7 +1,9 @@
-use zoya_ast::{BinOp, Expr, FunctionDef, Item, MatchArm, Param, Path, Pattern, TypeAnnotation, Visibility};
+use zoya_ast::{
+    BinOp, Expr, FunctionDef, Item, MatchArm, Param, Path, Pattern, TypeAnnotation, Visibility,
+};
 use zoya_ir::{Definition, FunctionType, QualifiedPath, Type};
 
-use crate::check::{check, check_expr, check_function, TypeEnv};
+use crate::check::{TypeEnv, check, check_expr, check_function};
 use crate::definition::function_type_from_def;
 use crate::unify::UnifyCtx;
 
@@ -89,7 +91,11 @@ fn test_check_function_call_wrong_arity() {
 fn test_check_generic_function_call() {
     let mut ctx = UnifyCtx::new();
     let t_var = ctx.fresh_var();
-    let t_id = if let Type::Var(id) = t_var { id } else { panic!() };
+    let t_id = if let Type::Var(id) = t_var {
+        id
+    } else {
+        panic!()
+    };
 
     let mut env = TypeEnv::default();
     env.register(
@@ -117,7 +123,11 @@ fn test_check_generic_function_call() {
 fn test_check_generic_function_call_float() {
     let mut ctx = UnifyCtx::new();
     let t_var = ctx.fresh_var();
-    let t_id = if let Type::Var(id) = t_var { id } else { panic!() };
+    let t_id = if let Type::Var(id) = t_var {
+        id
+    } else {
+        panic!()
+    };
 
     let mut env = TypeEnv::default();
     env.register(
@@ -214,7 +224,10 @@ fn test_check_function_def_with_call() {
         return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
         body: Expr::Call {
             path: Path::simple("add".to_string()),
-            args: vec![Expr::Path(Path::simple("x".to_string())), Expr::Path(Path::simple("x".to_string()))],
+            args: vec![
+                Expr::Path(Path::simple("x".to_string())),
+                Expr::Path(Path::simple("x".to_string())),
+            ],
         },
     };
 
@@ -346,7 +359,11 @@ fn test_check_forward_reference() {
     ];
     let tree = build_test_package(items);
     let result = check(&tree, &[]);
-    assert!(result.is_ok(), "Forward reference should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Forward reference should succeed: {:?}",
+        result.err()
+    );
     let checked_tree = result.unwrap();
     assert_eq!(checked_tree.items.len(), 2);
 }
@@ -420,7 +437,11 @@ fn test_check_mutual_recursion() {
     ];
     let tree = build_test_package(items);
     let result = check(&tree, &[]);
-    assert!(result.is_ok(), "Mutual recursion should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Mutual recursion should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -463,7 +484,11 @@ fn test_check_module_with_test_expr() {
     };
     let tree = build_test_package_with_expr(items, test_expr);
     let result = check(&tree, &[]);
-    assert!(result.is_ok(), "Mixed items and expr should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Mixed items and expr should succeed: {:?}",
+        result.err()
+    );
     let checked_tree = result.unwrap();
     // f2 + f1 + test_fn = 3 functions
     assert_eq!(checked_tree.items.len(), 3);
@@ -486,11 +511,16 @@ fn test_check_undefined_variable_error() {
     })];
     let tree = build_test_package(items);
     let result = check(&tree, &[]);
-    assert!(result.is_err(), "Unknown variable should fail, but got: {:?}", result);
+    assert!(
+        result.is_err(),
+        "Unknown variable should fail, but got: {:?}",
+        result
+    );
     let err_msg = result.unwrap_err().message;
     assert!(
         err_msg.contains("unknown identifier"),
-        "Expected 'unknown identifier' but got: {}", err_msg
+        "Expected 'unknown identifier' but got: {}",
+        err_msg
     );
 }
 
@@ -534,7 +564,11 @@ fn test_check_self_recursion() {
     })];
     let tree = build_test_package(items);
     let result = check(&tree, &[]);
-    assert!(result.is_ok(), "Self-recursion should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Self-recursion should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -594,5 +628,8 @@ fn test_function_def_refutable_param_pattern() {
     let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("refutable pattern in function parameter"));
+    assert!(
+        err.message
+            .contains("refutable pattern in function parameter")
+    );
 }

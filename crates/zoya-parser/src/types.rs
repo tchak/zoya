@@ -5,8 +5,8 @@ use zoya_lexer::Token;
 
 use crate::helpers::simple_path_parser;
 
-pub(crate) fn type_annotation<'a>(
-) -> impl Parser<'a, &'a [Token], TypeAnnotation, extra::Err<Rich<'a, Token>>> + Clone {
+pub(crate) fn type_annotation<'a>()
+-> impl Parser<'a, &'a [Token], TypeAnnotation, extra::Err<Rich<'a, Token>>> + Clone {
     recursive(|type_ann| {
         // Type parameters: <T, U>
         let type_params = type_ann

@@ -7,10 +7,10 @@ use zoya_ir::{
 };
 
 use crate::check::{TypeEnv, check_expr, substitute_type_vars, substitute_variant_type_vars};
-use zoya_naming::{is_snake_case, to_snake_case};
 use crate::resolution::{self, ResolvedPath};
 use crate::type_resolver::resolve_type_annotation;
 use crate::unify::UnifyCtx;
+use zoya_naming::{is_snake_case, to_snake_case};
 
 /// Check a list of patterns against a single element type (for list patterns)
 pub fn check_patterns_against_elem(
@@ -510,39 +510,54 @@ pub fn check_pattern(
         // Also handles single identifiers which may be variable bindings
         Pattern::Path(path) => {
             // Check if this is a simple path (single segment, no prefix, no turbofish)
-            let is_simple_path = path.is_simple()
-                && path.prefix == PathPrefix::None
-                && path.type_args.is_none();
+            let is_simple_path =
+                path.is_simple() && path.prefix == PathPrefix::None && path.type_args.is_none();
 
             // Helper to create a variable binding for simple paths
-            let create_var_binding = |name: &str, ctx: &mut UnifyCtx| -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
-                // Enforce snake_case for variable bindings
-                if !is_snake_case(name) {
-                    return Err(TypeError {
-                        message: format!(
-                            "variable '{}' should be snake_case (e.g., '{}')",
-                            name,
-                            to_snake_case(name)
-                        ),
-                    });
-                }
+            let create_var_binding =
+                |name: &str,
+                 ctx: &mut UnifyCtx|
+                 -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
+                    // Enforce snake_case for variable bindings
+                    if !is_snake_case(name) {
+                        return Err(TypeError {
+                            message: format!(
+                                "variable '{}' should be snake_case (e.g., '{}')",
+                                name,
+                                to_snake_case(name)
+                            ),
+                        });
+                    }
 
-                let mut bindings = HashMap::new();
-                bindings.insert(name.to_string(), ctx.resolve(scrutinee_ty));
-                Ok((
-                    TypedPattern::Var {
-                        name: name.to_string(),
-                        ty: ctx.resolve(scrutinee_ty),
-                    },
-                    bindings,
-                ))
-            };
+                    let mut bindings = HashMap::new();
+                    bindings.insert(name.to_string(), ctx.resolve(scrutinee_ty));
+                    Ok((
+                        TypedPattern::Var {
+                            name: name.to_string(),
+                            ty: ctx.resolve(scrutinee_ty),
+                        },
+                        bindings,
+                    ))
+                };
 
             // Try to resolve as imported/defined enum unit variant
-            match resolution::resolve_pattern_path(path, current_module, &env.imports, &env.definitions, &env.reexports) {
+            match resolution::resolve_pattern_path(
+                path,
+                current_module,
+                &env.imports,
+                &env.definitions,
+                &env.reexports,
+            ) {
                 Ok(resolved) => {
                     // Try to use the resolved path as a pattern
-                    match check_path_pattern_resolved(resolved, path, scrutinee_ty, current_module, env, ctx) {
+                    match check_path_pattern_resolved(
+                        resolved,
+                        path,
+                        scrutinee_ty,
+                        current_module,
+                        env,
+                        ctx,
+                    ) {
                         Ok(result) => Ok(result),
                         // If resolution succeeded but it can't be used as a pattern (e.g., function),
                         // and this is a simple path, fall back to creating a variable binding
@@ -689,8 +704,7 @@ fn check_path_pattern_resolved(
         ResolvedPath::Local { name, .. } => Err(TypeError {
             message: format!(
                 "variable '{}' cannot be used as a pattern; path {} is bound as a local variable",
-                name,
-                path
+                name, path
             ),
         }),
     }
@@ -705,7 +719,13 @@ fn check_call_pattern(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
-    let resolved = resolution::resolve_pattern_path(path, current_module, &env.imports, &env.definitions, &env.reexports)?;
+    let resolved = resolution::resolve_pattern_path(
+        path,
+        current_module,
+        &env.imports,
+        &env.definitions,
+        &env.reexports,
+    )?;
 
     match resolved {
         ResolvedPath::Definition {
@@ -813,7 +833,13 @@ fn check_struct_pattern(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
-    let resolved = resolution::resolve_pattern_path(path, current_module, &env.imports, &env.definitions, &env.reexports)?;
+    let resolved = resolution::resolve_pattern_path(
+        path,
+        current_module,
+        &env.imports,
+        &env.definitions,
+        &env.reexports,
+    )?;
 
     match resolved {
         ResolvedPath::Definition {
@@ -1414,9 +1440,7 @@ pub fn check_irrefutable(pattern: &Pattern) -> Result<(), String> {
         // potentially irrefutable since they could be variable bindings. The actual
         // refutability depends on whether they resolve to an enum variant during type checking.
         Pattern::Path(path)
-            if path.is_simple()
-                && path.prefix == PathPrefix::None
-                && path.type_args.is_none() =>
+            if path.is_simple() && path.prefix == PathPrefix::None && path.type_args.is_none() =>
         {
             Ok(())
         }
@@ -2209,8 +2233,14 @@ mod tests {
     #[test]
     fn test_tuple_pattern_prefix_suffix_too_long() {
         let pattern = Pattern::Tuple(TuplePattern::PrefixSuffix {
-            prefix: vec![Pattern::Path(Path::simple("a".to_string())), Pattern::Path(Path::simple("b".to_string()))],
-            suffix: vec![Pattern::Path(Path::simple("c".to_string())), Pattern::Path(Path::simple("d".to_string()))],
+            prefix: vec![
+                Pattern::Path(Path::simple("a".to_string())),
+                Pattern::Path(Path::simple("b".to_string())),
+            ],
+            suffix: vec![
+                Pattern::Path(Path::simple("c".to_string())),
+                Pattern::Path(Path::simple("d".to_string())),
+            ],
             rest_binding: None,
         });
         let mut ctx = UnifyCtx::new();
@@ -2295,7 +2325,9 @@ mod tests {
 
     #[test]
     fn test_tuple_pattern_non_tuple_scrutinee() {
-        let pattern = Pattern::Tuple(TuplePattern::Exact(vec![Pattern::Path(Path::simple("x".to_string()))]));
+        let pattern = Pattern::Tuple(TuplePattern::Exact(vec![Pattern::Path(Path::simple(
+            "x".to_string(),
+        ))]));
         let mut ctx = UnifyCtx::new();
         let result = check_pattern(
             &pattern,
@@ -2352,7 +2384,13 @@ mod tests {
             type_args: vec![],
             fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
+        let result = check_pattern(
+            &pattern,
+            &scrutinee_ty,
+            &QualifiedPath::root(),
+            &env,
+            &mut ctx,
+        );
         assert!(result.is_ok());
         let (typed, bindings) = result.unwrap();
         assert!(matches!(typed, TypedPattern::StructExact { .. }));
@@ -2380,7 +2418,13 @@ mod tests {
             type_args: vec![],
             fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
+        let result = check_pattern(
+            &pattern,
+            &scrutinee_ty,
+            &QualifiedPath::root(),
+            &env,
+            &mut ctx,
+        );
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("missing field 'y'"));
@@ -2404,7 +2448,13 @@ mod tests {
             type_args: vec![],
             fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
+        let result = check_pattern(
+            &pattern,
+            &scrutinee_ty,
+            &QualifiedPath::root(),
+            &env,
+            &mut ctx,
+        );
         assert!(result.is_ok());
         let (typed, bindings) = result.unwrap();
         assert!(matches!(typed, TypedPattern::StructPartial { .. }));
@@ -2429,7 +2479,13 @@ mod tests {
             type_args: vec![],
             fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
+        let result = check_pattern(
+            &pattern,
+            &scrutinee_ty,
+            &QualifiedPath::root(),
+            &env,
+            &mut ctx,
+        );
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("struct Point has no field 'z'"));
@@ -2538,7 +2594,13 @@ mod tests {
                 ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Int])),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
+        let result = check_pattern(
+            &pattern,
+            &scrutinee_ty,
+            &QualifiedPath::root(),
+            &env,
+            &mut ctx,
+        );
         assert!(result.is_ok());
         let (typed, bindings) = result.unwrap();
         assert!(matches!(typed, TypedPattern::EnumUnit { .. }));
@@ -2566,7 +2628,13 @@ mod tests {
                 ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Int])),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
+        let result = check_pattern(
+            &pattern,
+            &scrutinee_ty,
+            &QualifiedPath::root(),
+            &env,
+            &mut ctx,
+        );
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("value"), Some(&Type::Int));
@@ -2613,7 +2681,13 @@ mod tests {
                 ),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
+        let result = check_pattern(
+            &pattern,
+            &scrutinee_ty,
+            &QualifiedPath::root(),
+            &env,
+            &mut ctx,
+        );
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("px"), Some(&Type::Int));
@@ -2654,7 +2728,13 @@ mod tests {
                 ),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
+        let result = check_pattern(
+            &pattern,
+            &scrutinee_ty,
+            &QualifiedPath::root(),
+            &env,
+            &mut ctx,
+        );
         assert!(result.is_ok());
     }
 
@@ -2695,7 +2775,13 @@ mod tests {
                 ),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
+        let result = check_pattern(
+            &pattern,
+            &scrutinee_ty,
+            &QualifiedPath::root(),
+            &env,
+            &mut ctx,
+        );
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("missing field 'y'"));
@@ -2719,7 +2805,13 @@ mod tests {
                 ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Int])),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
+        let result = check_pattern(
+            &pattern,
+            &scrutinee_ty,
+            &QualifiedPath::root(),
+            &env,
+            &mut ctx,
+        );
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("is not a unit variant"));
@@ -2746,7 +2838,13 @@ mod tests {
                 ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Int])),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
+        let result = check_pattern(
+            &pattern,
+            &scrutinee_ty,
+            &QualifiedPath::root(),
+            &env,
+            &mut ctx,
+        );
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
@@ -2788,7 +2886,13 @@ mod tests {
                 ),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
+        let result = check_pattern(
+            &pattern,
+            &scrutinee_ty,
+            &QualifiedPath::root(),
+            &env,
+            &mut ctx,
+        );
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
@@ -2835,7 +2939,13 @@ mod tests {
                 ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Int])),
             ],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
+        let result = check_pattern(
+            &pattern,
+            &scrutinee_ty,
+            &QualifiedPath::root(),
+            &env,
+            &mut ctx,
+        );
         assert!(result.is_err());
         let err = result.unwrap_err();
         // With the new scheme, unknown variants are reported as unknown paths
@@ -3126,7 +3236,13 @@ mod tests {
                 EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool]),
             )],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
+        let result = check_pattern(
+            &pattern,
+            &scrutinee_ty,
+            &QualifiedPath::root(),
+            &env,
+            &mut ctx,
+        );
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("first"), Some(&Type::Int));
@@ -3159,7 +3275,13 @@ mod tests {
                 EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool]),
             )],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
+        let result = check_pattern(
+            &pattern,
+            &scrutinee_ty,
+            &QualifiedPath::root(),
+            &env,
+            &mut ctx,
+        );
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("last"), Some(&Type::Bool));
@@ -3193,7 +3315,13 @@ mod tests {
                 EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool]),
             )],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
+        let result = check_pattern(
+            &pattern,
+            &scrutinee_ty,
+            &QualifiedPath::root(),
+            &env,
+            &mut ctx,
+        );
         assert!(result.is_ok());
         let (_, bindings) = result.unwrap();
         assert_eq!(bindings.get("first"), Some(&Type::Int));
@@ -3229,7 +3357,13 @@ mod tests {
                 EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool]),
             )],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
+        let result = check_pattern(
+            &pattern,
+            &scrutinee_ty,
+            &QualifiedPath::root(),
+            &env,
+            &mut ctx,
+        );
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("3 field(s) but pattern has 4"));
@@ -3255,7 +3389,13 @@ mod tests {
                 EnumVariantType::Tuple(vec![Type::Int, Type::String, Type::Bool]),
             )],
         };
-        let result = check_pattern(&pattern, &scrutinee_ty, &QualifiedPath::root(), &env, &mut ctx);
+        let result = check_pattern(
+            &pattern,
+            &scrutinee_ty,
+            &QualifiedPath::root(),
+            &env,
+            &mut ctx,
+        );
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("empty pattern not allowed"));

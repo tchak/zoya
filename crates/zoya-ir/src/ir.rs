@@ -91,7 +91,9 @@ pub enum TypedPattern {
         fields: Vec<(String, TypedPattern)>,
     },
     /// Enum unit variant pattern: `Option::None`
-    EnumUnit { path: QualifiedPath },
+    EnumUnit {
+        path: QualifiedPath,
+    },
     /// Enum tuple variant pattern (exact): `Option::Some(x)`
     EnumTupleExact {
         path: QualifiedPath,

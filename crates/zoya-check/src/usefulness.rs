@@ -54,8 +54,14 @@ pub enum Constructor {
 #[derive(Debug, Clone)]
 pub enum EnumVariantConstructorKind {
     Unit,
-    Tuple { arity: usize, field_types: Vec<Type> },
-    Struct { field_names: Vec<String>, field_types: Vec<Type> },
+    Tuple {
+        arity: usize,
+        field_types: Vec<Type>,
+    },
+    Struct {
+        field_names: Vec<String>,
+        field_types: Vec<Type>,
+    },
 }
 
 // Custom PartialEq: Struct/Enum constructors compare by name only
@@ -71,7 +77,9 @@ impl PartialEq for Constructor {
             (Constructor::IntLiteral(a), Constructor::IntLiteral(b)) => a == b,
             (Constructor::FloatLiteral(a), Constructor::FloatLiteral(b)) => a == b,
             (Constructor::StringLiteral(a), Constructor::StringLiteral(b)) => a == b,
-            (Constructor::Struct { name: n1, .. }, Constructor::Struct { name: n2, .. }) => n1 == n2,
+            (Constructor::Struct { name: n1, .. }, Constructor::Struct { name: n2, .. }) => {
+                n1 == n2
+            }
             (
                 Constructor::EnumVariant { path: p1, .. },
                 Constructor::EnumVariant { path: p2, .. },
@@ -129,7 +137,7 @@ impl Constructor {
         match self {
             Constructor::True | Constructor::False => 0,
             Constructor::ListNil => 0,
-            Constructor::ListCons => 2, // (head, tail)
+            Constructor::ListCons => 2,        // (head, tail)
             Constructor::ListSpecific(_) => 0, // opaque, no sub-patterns
             Constructor::Tuple(n) => *n,
             Constructor::Struct { field_names, .. } => field_names.len(),
@@ -314,10 +322,7 @@ impl TypeCtors {
                             }
                         };
                         Constructor::EnumVariant {
-                            path: QualifiedPath::new(vec![
-                                enum_name.clone(),
-                                variant_name.clone(),
-                            ]),
+                            path: QualifiedPath::new(vec![enum_name.clone(), variant_name.clone()]),
                             kind,
                         }
                     })
@@ -339,9 +344,11 @@ impl TypeCtors {
     /// Get missing constructors
     pub fn missing(&self, seen: &HashSet<Constructor>) -> Vec<Constructor> {
         match self {
-            TypeCtors::Finite(ctors) | TypeCtors::Structured { base_ctors: ctors } => {
-                ctors.iter().filter(|c| !seen.contains(c)).cloned().collect()
-            }
+            TypeCtors::Finite(ctors) | TypeCtors::Structured { base_ctors: ctors } => ctors
+                .iter()
+                .filter(|c| !seen.contains(c))
+                .cloned()
+                .collect(),
             TypeCtors::Infinite => vec![Constructor::NonExhaustive],
         }
     }
@@ -479,9 +486,14 @@ impl Pat {
             TypedPattern::StructExact { path, fields } => {
                 // Get field info from the type
                 let (field_names, field_types) = match ty {
-                    Type::Struct { fields: struct_fields, .. } => {
-                        let names: Vec<String> = struct_fields.iter().map(|(n, _)| n.clone()).collect();
-                        let types: Vec<Type> = struct_fields.iter().map(|(_, t)| t.clone()).collect();
+                    Type::Struct {
+                        fields: struct_fields,
+                        ..
+                    } => {
+                        let names: Vec<String> =
+                            struct_fields.iter().map(|(n, _)| n.clone()).collect();
+                        let types: Vec<Type> =
+                            struct_fields.iter().map(|(_, t)| t.clone()).collect();
                         (names, types)
                     }
                     _ => (vec![], vec![]),
@@ -511,9 +523,14 @@ impl Pat {
             TypedPattern::StructPartial { path, fields } => {
                 // Get field info from the type
                 let (field_names, field_types) = match ty {
-                    Type::Struct { fields: struct_fields, .. } => {
-                        let names: Vec<String> = struct_fields.iter().map(|(n, _)| n.clone()).collect();
-                        let types: Vec<Type> = struct_fields.iter().map(|(_, t)| t.clone()).collect();
+                    Type::Struct {
+                        fields: struct_fields,
+                        ..
+                    } => {
+                        let names: Vec<String> =
+                            struct_fields.iter().map(|(n, _)| n.clone()).collect();
+                        let types: Vec<Type> =
+                            struct_fields.iter().map(|(_, t)| t.clone()).collect();
                         (names, types)
                     }
                     _ => (vec![], vec![]),
@@ -702,7 +719,9 @@ impl Pat {
 
     /// Check if any pattern in a list contains specific literals (not wildcards/variables)
     fn contains_specific_pattern(patterns: &[TypedPattern]) -> bool {
-        patterns.iter().any(|p| matches!(p, TypedPattern::Literal(_)))
+        patterns
+            .iter()
+            .any(|p| matches!(p, TypedPattern::Literal(_)))
     }
 
     /// Convert [a, b, c] to nested Cons: Cons(a, Cons(b, Cons(c, Nil)))
@@ -1242,7 +1261,10 @@ pub fn check_patterns(arms: &[TypedMatchArm], scrutinee_ty: &Type) -> Result<(),
     // Check for unreachable patterns first
     let unreachable_arms = check_usefulness(arms, scrutinee_ty);
     if !unreachable_arms.is_empty() {
-        let arm_numbers: Vec<String> = unreachable_arms.iter().map(|i| (i + 1).to_string()).collect();
+        let arm_numbers: Vec<String> = unreachable_arms
+            .iter()
+            .map(|i| (i + 1).to_string())
+            .collect();
         return Err(TypeError {
             message: format!("unreachable pattern(s): arm(s) {}", arm_numbers.join(", ")),
         });
@@ -1470,10 +1492,7 @@ mod tests {
         let tuple_ty = Type::Tuple(vec![Type::Int, Type::Bool]);
         let arms = vec![TypedMatchArm {
             pattern: TypedPattern::TupleExact {
-                patterns: vec![
-                    TypedPattern::Wildcard,
-                    TypedPattern::Wildcard,
-                ],
+                patterns: vec![TypedPattern::Wildcard, TypedPattern::Wildcard],
                 len: 2,
             },
             result: TypedExpr::Int(0),
@@ -1512,7 +1531,10 @@ mod tests {
         Type::Struct {
             name: name.to_string(),
             type_args: vec![],
-            fields: fields.into_iter().map(|(n, t)| (n.to_string(), t)).collect(),
+            fields: fields
+                .into_iter()
+                .map(|(n, t)| (n.to_string(), t))
+                .collect(),
         }
     }
 
@@ -1520,7 +1542,10 @@ mod tests {
         Type::Enum {
             name: name.to_string(),
             type_args: vec![],
-            variants: variants.into_iter().map(|(n, v)| (n.to_string(), v)).collect(),
+            variants: variants
+                .into_iter()
+                .map(|(n, v)| (n.to_string(), v))
+                .collect(),
         }
     }
 
@@ -1567,9 +1592,10 @@ mod tests {
         let arms = vec![TypedMatchArm {
             pattern: TypedPattern::StructExact {
                 path: make_qualified_path(vec!["Flags"]),
-                fields: vec![
-                    ("enabled".to_string(), TypedPattern::Literal(TypedExpr::Bool(true))),
-                ],
+                fields: vec![(
+                    "enabled".to_string(),
+                    TypedPattern::Literal(TypedExpr::Bool(true)),
+                )],
             },
             result: TypedExpr::Int(0),
         }];
@@ -1581,10 +1607,13 @@ mod tests {
 
     #[test]
     fn test_enum_unit_exhaustive() {
-        let option_ty = make_enum_type("Option", vec![
-            ("None", EnumVariantType::Unit),
-            ("Some", EnumVariantType::Tuple(vec![Type::Int])),
-        ]);
+        let option_ty = make_enum_type(
+            "Option",
+            vec![
+                ("None", EnumVariantType::Unit),
+                ("Some", EnumVariantType::Tuple(vec![Type::Int])),
+            ],
+        );
         let arms = vec![
             TypedMatchArm {
                 pattern: TypedPattern::EnumUnit {
@@ -1607,10 +1636,13 @@ mod tests {
 
     #[test]
     fn test_enum_unit_missing_variant() {
-        let option_ty = make_enum_type("Option", vec![
-            ("None", EnumVariantType::Unit),
-            ("Some", EnumVariantType::Tuple(vec![Type::Int])),
-        ]);
+        let option_ty = make_enum_type(
+            "Option",
+            vec![
+                ("None", EnumVariantType::Unit),
+                ("Some", EnumVariantType::Tuple(vec![Type::Int])),
+            ],
+        );
         let arms = vec![TypedMatchArm {
             pattern: TypedPattern::EnumUnit {
                 path: make_qualified_path(vec!["Option", "None"]),
@@ -1630,11 +1662,14 @@ mod tests {
 
     #[test]
     fn test_enum_multiple_variants_exhaustive() {
-        let color_ty = make_enum_type("Color", vec![
-            ("Red", EnumVariantType::Unit),
-            ("Green", EnumVariantType::Unit),
-            ("Blue", EnumVariantType::Unit),
-        ]);
+        let color_ty = make_enum_type(
+            "Color",
+            vec![
+                ("Red", EnumVariantType::Unit),
+                ("Green", EnumVariantType::Unit),
+                ("Blue", EnumVariantType::Unit),
+            ],
+        );
         let arms = vec![
             TypedMatchArm {
                 pattern: TypedPattern::EnumUnit {
@@ -1661,11 +1696,14 @@ mod tests {
 
     #[test]
     fn test_enum_multiple_variants_missing_one() {
-        let color_ty = make_enum_type("Color", vec![
-            ("Red", EnumVariantType::Unit),
-            ("Green", EnumVariantType::Unit),
-            ("Blue", EnumVariantType::Unit),
-        ]);
+        let color_ty = make_enum_type(
+            "Color",
+            vec![
+                ("Red", EnumVariantType::Unit),
+                ("Green", EnumVariantType::Unit),
+                ("Blue", EnumVariantType::Unit),
+            ],
+        );
         let arms = vec![
             TypedMatchArm {
                 pattern: TypedPattern::EnumUnit {
@@ -1693,13 +1731,19 @@ mod tests {
 
     #[test]
     fn test_enum_struct_variant_exhaustive() {
-        let msg_ty = make_enum_type("Message", vec![
-            ("Quit", EnumVariantType::Unit),
-            ("Move", EnumVariantType::Struct(vec![
-                ("x".to_string(), Type::Int),
-                ("y".to_string(), Type::Int),
-            ])),
-        ]);
+        let msg_ty = make_enum_type(
+            "Message",
+            vec![
+                ("Quit", EnumVariantType::Unit),
+                (
+                    "Move",
+                    EnumVariantType::Struct(vec![
+                        ("x".to_string(), Type::Int),
+                        ("y".to_string(), Type::Int),
+                    ]),
+                ),
+            ],
+        );
         let arms = vec![
             TypedMatchArm {
                 pattern: TypedPattern::EnumUnit {
@@ -1724,12 +1768,16 @@ mod tests {
 
     #[test]
     fn test_enum_struct_partial_exhaustive() {
-        let msg_ty = make_enum_type("Message", vec![
-            ("Move", EnumVariantType::Struct(vec![
-                ("x".to_string(), Type::Int),
-                ("y".to_string(), Type::Int),
-            ])),
-        ]);
+        let msg_ty = make_enum_type(
+            "Message",
+            vec![(
+                "Move",
+                EnumVariantType::Struct(vec![
+                    ("x".to_string(), Type::Int),
+                    ("y".to_string(), Type::Int),
+                ]),
+            )],
+        );
         let arms = vec![TypedMatchArm {
             pattern: TypedPattern::EnumStructPartial {
                 path: make_qualified_path(vec!["Message", "Move"]),
@@ -1743,10 +1791,13 @@ mod tests {
 
     #[test]
     fn test_enum_with_wildcard_exhaustive() {
-        let option_ty = make_enum_type("Option", vec![
-            ("None", EnumVariantType::Unit),
-            ("Some", EnumVariantType::Tuple(vec![Type::Int])),
-        ]);
+        let option_ty = make_enum_type(
+            "Option",
+            vec![
+                ("None", EnumVariantType::Unit),
+                ("Some", EnumVariantType::Tuple(vec![Type::Int])),
+            ],
+        );
         let arms = vec![make_wildcard_arm()];
         let result = check_exhaustiveness(&arms, &option_ty);
         assert!(matches!(result, Exhaustiveness::Exhaustive));
@@ -2062,25 +2113,26 @@ mod tests {
     fn test_nested_list_in_tuple() {
         let list_ty = Type::List(Box::new(Type::Int));
         let tuple_ty = Type::Tuple(vec![list_ty.clone(), Type::Bool]);
-        let arms = vec![
-            TypedMatchArm {
-                pattern: TypedPattern::TupleExact {
-                    patterns: vec![TypedPattern::Wildcard, TypedPattern::Wildcard],
-                    len: 2,
-                },
-                result: TypedExpr::Int(0),
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::TupleExact {
+                patterns: vec![TypedPattern::Wildcard, TypedPattern::Wildcard],
+                len: 2,
             },
-        ];
+            result: TypedExpr::Int(0),
+        }];
         let result = check_exhaustiveness(&arms, &tuple_ty);
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
     #[test]
     fn test_nested_enum_in_tuple() {
-        let option_ty = make_enum_type("Option", vec![
-            ("None", EnumVariantType::Unit),
-            ("Some", EnumVariantType::Tuple(vec![Type::Int])),
-        ]);
+        let option_ty = make_enum_type(
+            "Option",
+            vec![
+                ("None", EnumVariantType::Unit),
+                ("Some", EnumVariantType::Tuple(vec![Type::Int])),
+            ],
+        );
         let tuple_ty = Type::Tuple(vec![option_ty.clone(), Type::Int]);
         let arms = vec![
             TypedMatchArm {
@@ -2129,10 +2181,13 @@ mod tests {
 
     #[test]
     fn test_unreachable_enum_after_wildcard() {
-        let option_ty = make_enum_type("Option", vec![
-            ("None", EnumVariantType::Unit),
-            ("Some", EnumVariantType::Tuple(vec![Type::Int])),
-        ]);
+        let option_ty = make_enum_type(
+            "Option",
+            vec![
+                ("None", EnumVariantType::Unit),
+                ("Some", EnumVariantType::Tuple(vec![Type::Int])),
+            ],
+        );
         let arms = vec![
             make_wildcard_arm(),
             TypedMatchArm {
@@ -2148,10 +2203,13 @@ mod tests {
 
     #[test]
     fn test_unreachable_duplicate_enum_variant() {
-        let color_ty = make_enum_type("Color", vec![
-            ("Red", EnumVariantType::Unit),
-            ("Green", EnumVariantType::Unit),
-        ]);
+        let color_ty = make_enum_type(
+            "Color",
+            vec![
+                ("Red", EnumVariantType::Unit),
+                ("Green", EnumVariantType::Unit),
+            ],
+        );
         let arms = vec![
             TypedMatchArm {
                 pattern: TypedPattern::EnumUnit {
@@ -2180,10 +2238,13 @@ mod tests {
 
     #[test]
     fn test_witness_for_missing_enum_variant() {
-        let option_ty = make_enum_type("Option", vec![
-            ("None", EnumVariantType::Unit),
-            ("Some", EnumVariantType::Tuple(vec![Type::Int])),
-        ]);
+        let option_ty = make_enum_type(
+            "Option",
+            vec![
+                ("None", EnumVariantType::Unit),
+                ("Some", EnumVariantType::Tuple(vec![Type::Int])),
+            ],
+        );
         let arms = vec![TypedMatchArm {
             pattern: TypedPattern::EnumTupleExact {
                 path: make_qualified_path(vec!["Option", "Some"]),
@@ -2261,10 +2322,13 @@ mod tests {
 
     #[test]
     fn test_enum_tuple_suffix_exhaustive() {
-        let result_ty = make_enum_type("Result", vec![
-            ("Ok", EnumVariantType::Tuple(vec![Type::Int, Type::Int])),
-            ("Err", EnumVariantType::Tuple(vec![Type::String])),
-        ]);
+        let result_ty = make_enum_type(
+            "Result",
+            vec![
+                ("Ok", EnumVariantType::Tuple(vec![Type::Int, Type::Int])),
+                ("Err", EnumVariantType::Tuple(vec![Type::String])),
+            ],
+        );
         let arms = vec![
             TypedMatchArm {
                 pattern: TypedPattern::EnumTupleSuffix {
@@ -2290,9 +2354,13 @@ mod tests {
 
     #[test]
     fn test_enum_tuple_prefix_suffix_exhaustive() {
-        let triple_ty = make_enum_type("Triple", vec![
-            ("Make", EnumVariantType::Tuple(vec![Type::Int, Type::Int, Type::Int])),
-        ]);
+        let triple_ty = make_enum_type(
+            "Triple",
+            vec![(
+                "Make",
+                EnumVariantType::Tuple(vec![Type::Int, Type::Int, Type::Int]),
+            )],
+        );
         let arms = vec![TypedMatchArm {
             pattern: TypedPattern::EnumTuplePrefixSuffix {
                 path: make_qualified_path(vec!["Triple", "Make"]),
@@ -2309,9 +2377,10 @@ mod tests {
 
     #[test]
     fn test_enum_tuple_prefix_exhaustive() {
-        let pair_ty = make_enum_type("Pair", vec![
-            ("Make", EnumVariantType::Tuple(vec![Type::Int, Type::Int])),
-        ]);
+        let pair_ty = make_enum_type(
+            "Pair",
+            vec![("Make", EnumVariantType::Tuple(vec![Type::Int, Type::Int]))],
+        );
         let arms = vec![TypedMatchArm {
             pattern: TypedPattern::EnumTuplePrefix {
                 path: make_qualified_path(vec!["Pair", "Make"]),
@@ -2333,9 +2402,10 @@ mod tests {
         let arms = vec![TypedMatchArm {
             pattern: TypedPattern::StructExact {
                 path: make_qualified_path(vec!["Flags"]),
-                fields: vec![
-                    ("enabled".to_string(), TypedPattern::Literal(TypedExpr::Bool(true))),
-                ],
+                fields: vec![(
+                    "enabled".to_string(),
+                    TypedPattern::Literal(TypedExpr::Bool(true)),
+                )],
             },
             result: TypedExpr::Int(0),
         }];
@@ -2352,10 +2422,13 @@ mod tests {
 
     #[test]
     fn test_witness_enum_tuple_display() {
-        let option_ty = make_enum_type("Option", vec![
-            ("None", EnumVariantType::Unit),
-            ("Some", EnumVariantType::Tuple(vec![Type::Int])),
-        ]);
+        let option_ty = make_enum_type(
+            "Option",
+            vec![
+                ("None", EnumVariantType::Unit),
+                ("Some", EnumVariantType::Tuple(vec![Type::Int])),
+            ],
+        );
         let arms = vec![TypedMatchArm {
             pattern: TypedPattern::EnumUnit {
                 path: make_qualified_path(vec!["Option", "None"]),
@@ -2374,13 +2447,19 @@ mod tests {
 
     #[test]
     fn test_witness_enum_struct_display() {
-        let msg_ty = make_enum_type("Message", vec![
-            ("Quit", EnumVariantType::Unit),
-            ("Move", EnumVariantType::Struct(vec![
-                ("x".to_string(), Type::Int),
-                ("y".to_string(), Type::Int),
-            ])),
-        ]);
+        let msg_ty = make_enum_type(
+            "Message",
+            vec![
+                ("Quit", EnumVariantType::Unit),
+                (
+                    "Move",
+                    EnumVariantType::Struct(vec![
+                        ("x".to_string(), Type::Int),
+                        ("y".to_string(), Type::Int),
+                    ]),
+                ),
+            ],
+        );
         let arms = vec![TypedMatchArm {
             pattern: TypedPattern::EnumUnit {
                 path: make_qualified_path(vec!["Message", "Quit"]),
@@ -2456,9 +2535,7 @@ mod tests {
 
     #[test]
     fn test_enum_struct_empty_fields_exhaustive() {
-        let msg_ty = make_enum_type("Message", vec![
-            ("Empty", EnumVariantType::Struct(vec![])),
-        ]);
+        let msg_ty = make_enum_type("Message", vec![("Empty", EnumVariantType::Struct(vec![]))]);
         let arms = vec![TypedMatchArm {
             pattern: TypedPattern::EnumStructExact {
                 path: make_qualified_path(vec!["Message", "Empty"]),
@@ -2523,8 +2600,14 @@ mod tests {
             name: "Shape".to_string(),
             type_args: vec![],
             variants: vec![
-                ("Circle".to_string(), EnumVariantType::Tuple(vec![point_ty.clone(), Type::Int])),
-                ("Rectangle".to_string(), EnumVariantType::Tuple(vec![point_ty.clone(), point_ty.clone()])),
+                (
+                    "Circle".to_string(),
+                    EnumVariantType::Tuple(vec![point_ty.clone(), Type::Int]),
+                ),
+                (
+                    "Rectangle".to_string(),
+                    EnumVariantType::Tuple(vec![point_ty.clone(), point_ty.clone()]),
+                ),
             ],
         };
         let arms = vec![
@@ -2551,16 +2634,22 @@ mod tests {
 
     #[test]
     fn test_nested_option_in_option() {
-        let inner_option = make_enum_type("Option", vec![
-            ("None", EnumVariantType::Unit),
-            ("Some", EnumVariantType::Tuple(vec![Type::Int])),
-        ]);
+        let inner_option = make_enum_type(
+            "Option",
+            vec![
+                ("None", EnumVariantType::Unit),
+                ("Some", EnumVariantType::Tuple(vec![Type::Int])),
+            ],
+        );
         let outer_option = Type::Enum {
             name: "Option".to_string(),
             type_args: vec![],
             variants: vec![
                 ("None".to_string(), EnumVariantType::Unit),
-                ("Some".to_string(), EnumVariantType::Tuple(vec![inner_option.clone()])),
+                (
+                    "Some".to_string(),
+                    EnumVariantType::Tuple(vec![inner_option.clone()]),
+                ),
             ],
         };
         let arms = vec![

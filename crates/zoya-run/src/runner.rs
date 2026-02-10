@@ -4,7 +4,7 @@ use std::path::Path;
 use zoya_check::check;
 use zoya_codegen::codegen;
 use zoya_ir::CheckedPackage;
-use zoya_loader::{load_memory_package, load_package, MemorySource};
+use zoya_loader::{MemorySource, load_memory_package, load_package};
 use zoya_package::QualifiedPath;
 
 use crate::eval::{self, EvalError, Value, VirtualModules};
@@ -75,8 +75,8 @@ pub fn run(
 pub fn run_source(source: &str) -> Result<Value, EvalError> {
     let std = zoya_std::std();
     let mem_source = MemorySource::new().with_module("root", source);
-    let package = load_memory_package(&mem_source)
-        .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+    let package =
+        load_memory_package(&mem_source).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
     let checked = check(&package, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
     run(checked, &[std], None)
 }

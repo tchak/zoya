@@ -2,13 +2,14 @@ use zoya_ast::{BinOp, Expr, MatchArm, Path, Pattern};
 use zoya_ir::{Type, TypeScheme};
 use zoya_package::QualifiedPath;
 
-use crate::check::{check_expr, TypeEnv};
+use crate::check::{TypeEnv, check_expr};
 use crate::unify::UnifyCtx;
 
 #[test]
 fn test_check_match_with_literals() {
     let mut env = TypeEnv::default();
-    env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
+    env.locals
+        .insert("x".to_string(), TypeScheme::mono(Type::Int));
 
     let mut ctx = UnifyCtx::new();
     let expr = Expr::Match {
@@ -35,7 +36,8 @@ fn test_check_match_with_literals() {
 #[test]
 fn test_check_match_with_wildcard() {
     let mut env = TypeEnv::default();
-    env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
+    env.locals
+        .insert("x".to_string(), TypeScheme::mono(Type::Int));
 
     let mut ctx = UnifyCtx::new();
     let expr = Expr::Match {
@@ -58,7 +60,8 @@ fn test_check_match_with_wildcard() {
 #[test]
 fn test_check_match_with_variable_binding() {
     let mut env = TypeEnv::default();
-    env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
+    env.locals
+        .insert("x".to_string(), TypeScheme::mono(Type::Int));
 
     let mut ctx = UnifyCtx::new();
     let expr = Expr::Match {
@@ -79,7 +82,8 @@ fn test_check_match_with_variable_binding() {
 #[test]
 fn test_check_match_pattern_type_mismatch() {
     let mut env = TypeEnv::default();
-    env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
+    env.locals
+        .insert("x".to_string(), TypeScheme::mono(Type::Int));
 
     let mut ctx = UnifyCtx::new();
     let expr = Expr::Match {
@@ -91,13 +95,19 @@ fn test_check_match_pattern_type_mismatch() {
     };
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("does not match scrutinee"));
+    assert!(
+        result
+            .unwrap_err()
+            .message
+            .contains("does not match scrutinee")
+    );
 }
 
 #[test]
 fn test_check_match_arm_type_mismatch() {
     let mut env = TypeEnv::default();
-    env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
+    env.locals
+        .insert("x".to_string(), TypeScheme::mono(Type::Int));
 
     let mut ctx = UnifyCtx::new();
     let expr = Expr::Match {
@@ -124,7 +134,8 @@ fn test_match_empty_arms_exhaustiveness_warning() {
     // checker handles it), we test that match expressions with no matching arms
     // behave correctly type-wise. The usefulness checker tests handle exhaustiveness.
     let mut env = TypeEnv::default();
-    env.locals.insert("x".to_string(), TypeScheme::mono(Type::Bool));
+    env.locals
+        .insert("x".to_string(), TypeScheme::mono(Type::Bool));
 
     let mut ctx = UnifyCtx::new();
     // Match Bool with only one arm (non-exhaustive) - usefulness checker should catch this

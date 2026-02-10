@@ -69,7 +69,6 @@ impl FsSource {
         let base_dir = file_path.parent().unwrap_or(Path::new(".")).to_path_buf();
         Self { base_dir }
     }
-
 }
 
 impl ModuleSource for FsSource {

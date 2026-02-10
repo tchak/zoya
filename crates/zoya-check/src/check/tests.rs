@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use zoya_ast::{Expr, FunctionDef, Item, Visibility};
 use zoya_ir::{CheckedPackage, TypeError, TypedExpr, TypedFunction};
-use zoya_package::{Module, QualifiedPath, Package};
+use zoya_package::{Module, Package, QualifiedPath};
 
-use crate::check::{check_expr, TypeEnv};
+use crate::check::{TypeEnv, check_expr};
 use crate::unify::UnifyCtx;
 
 mod binop;
@@ -36,7 +36,11 @@ pub fn build_test_package(items: Vec<Item>) -> Package {
     };
     let mut modules = HashMap::new();
     modules.insert(QualifiedPath::root(), module);
-    Package { name: "test".to_string(), output: None, modules }
+    Package {
+        name: "test".to_string(),
+        output: None,
+        modules,
+    }
 }
 
 /// Build a test package with items and a test expression.
@@ -55,6 +59,9 @@ pub fn build_test_package_with_expr(items: Vec<Item>, test_expr: Expr) -> Packag
 }
 
 /// Find the `test_fn` function from checked package at the given module path
-pub fn find_test_function_in<'a>(pkg: &'a CheckedPackage, module_path: &QualifiedPath) -> Option<&'a TypedFunction> {
+pub fn find_test_function_in<'a>(
+    pkg: &'a CheckedPackage,
+    module_path: &QualifiedPath,
+) -> Option<&'a TypedFunction> {
     pkg.items.get(&module_path.child("test_fn"))
 }

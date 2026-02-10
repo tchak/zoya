@@ -1,3 +1,3 @@
 mod codegen;
 
-pub use codegen::{codegen, CodegenOutput};
+pub use codegen::{CodegenOutput, codegen};

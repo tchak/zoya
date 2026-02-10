@@ -2,7 +2,7 @@ use zoya_ast::{BinOp, Expr, LambdaParam, Path, PathPrefix, Pattern, TuplePattern
 use zoya_ir::{Type, TypeScheme};
 use zoya_package::QualifiedPath;
 
-use crate::check::{check_expr, TypeEnv};
+use crate::check::{TypeEnv, check_expr};
 use crate::unify::UnifyCtx;
 
 use super::check_expr_with_env;
@@ -60,7 +60,10 @@ fn test_check_lambda_return_type_mismatch() {
     let result = check_expr_with_env(&expr);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("lambda body type") || err.message.contains("doesn't match declared return type"));
+    assert!(
+        err.message.contains("lambda body type")
+            || err.message.contains("doesn't match declared return type")
+    );
 }
 
 #[test]
@@ -77,7 +80,10 @@ fn test_check_lambda_refutable_param_error() {
     let result = check_expr_with_env(&expr);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("refutable pattern in lambda parameter"));
+    assert!(
+        err.message
+            .contains("refutable pattern in lambda parameter")
+    );
 }
 
 #[test]
@@ -127,7 +133,8 @@ fn test_call_lambda_variable() {
 #[test]
 fn test_call_non_function_error() {
     let mut env = TypeEnv::default();
-    env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
+    env.locals
+        .insert("x".to_string(), TypeScheme::mono(Type::Int));
 
     let mut ctx = UnifyCtx::new();
     let expr = Expr::Call {
@@ -198,7 +205,8 @@ fn test_call_type_variable_infers_function() {
     // f has an unbound type variable
     let f_type = ctx.fresh_var();
     env.locals.insert("f".to_string(), TypeScheme::mono(f_type));
-    env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
+    env.locals
+        .insert("x".to_string(), TypeScheme::mono(Type::Int));
 
     let expr = Expr::Call {
         path: Path::simple("f".to_string()),
@@ -250,7 +258,8 @@ fn test_higher_order_function_inference() {
 fn test_call_concrete_non_function_still_errors() {
     // Calling an Int should still fail
     let mut env = TypeEnv::default();
-    env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
+    env.locals
+        .insert("x".to_string(), TypeScheme::mono(Type::Int));
 
     let mut ctx = UnifyCtx::new();
     let expr = Expr::Call {

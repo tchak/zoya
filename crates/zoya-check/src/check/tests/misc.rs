@@ -1,13 +1,15 @@
 use std::collections::HashMap;
 
-use zoya_ast::{Expr, LetBinding, ListPattern, Path, PathPrefix, Pattern, TuplePattern, TypeAnnotation};
+use zoya_ast::{
+    Expr, LetBinding, ListPattern, Path, PathPrefix, Pattern, TuplePattern, TypeAnnotation,
+};
 use zoya_ir::{Definition, FunctionType, QualifiedPath, Type, TypeScheme, Visibility};
 
 fn qpath(path: &str) -> QualifiedPath {
     QualifiedPath::new(path.split("::").map(|s| s.to_string()).collect())
 }
 
-use crate::check::{check, check_expr, substitute_type_vars, TypeEnv};
+use crate::check::{TypeEnv, check, check_expr, substitute_type_vars};
 use crate::unify::UnifyCtx;
 
 use super::build_test_package_with_expr;
@@ -18,7 +20,9 @@ use super::build_test_package_with_expr;
 fn test_substitute_type_vars_in_list() {
     let mut ctx = UnifyCtx::new();
     let var = ctx.fresh_var();
-    let Type::Var(id) = var else { panic!("expected type var") };
+    let Type::Var(id) = var else {
+        panic!("expected type var")
+    };
 
     let mut mapping = HashMap::new();
     mapping.insert(id, Type::Int);
@@ -32,7 +36,9 @@ fn test_substitute_type_vars_in_list() {
 fn test_substitute_type_vars_in_tuple() {
     let mut ctx = UnifyCtx::new();
     let var = ctx.fresh_var();
-    let Type::Var(id) = var else { panic!("expected type var") };
+    let Type::Var(id) = var else {
+        panic!("expected type var")
+    };
 
     let mut mapping = HashMap::new();
     mapping.insert(id, Type::String);
@@ -46,7 +52,9 @@ fn test_substitute_type_vars_in_tuple() {
 fn test_substitute_type_vars_in_function() {
     let mut ctx = UnifyCtx::new();
     let var = ctx.fresh_var();
-    let Type::Var(id) = var else { panic!("expected type var") };
+    let Type::Var(id) = var else {
+        panic!("expected type var")
+    };
 
     let mut mapping = HashMap::new();
     mapping.insert(id, Type::Bool);
@@ -69,7 +77,9 @@ fn test_substitute_type_vars_in_function() {
 fn test_substitute_type_vars_nested() {
     let mut ctx = UnifyCtx::new();
     let var = ctx.fresh_var();
-    let Type::Var(id) = var else { panic!("expected type var") };
+    let Type::Var(id) = var else {
+        panic!("expected type var")
+    };
 
     let mut mapping = HashMap::new();
     mapping.insert(id, Type::Float);
@@ -105,7 +115,9 @@ fn test_let_literal_pattern_rejected() {
 fn test_let_list_pattern_rejected() {
     let test_expr = Expr::Block {
         bindings: vec![LetBinding {
-            pattern: Pattern::List(ListPattern::Exact(vec![Pattern::Path(Path::simple("x".to_string()))])),
+            pattern: Pattern::List(ListPattern::Exact(vec![Pattern::Path(Path::simple(
+                "x".to_string(),
+            ))])),
             type_annotation: None,
             value: Box::new(Expr::List(vec![Expr::Int(1)])),
         }],
@@ -166,7 +178,11 @@ fn test_let_tuple_pattern_irrefutable() {
 fn test_turbofish_correct_count() {
     let mut ctx = UnifyCtx::new();
     let t_var = ctx.fresh_var();
-    let t_id = if let Type::Var(id) = t_var { id } else { panic!() };
+    let t_id = if let Type::Var(id) = t_var {
+        id
+    } else {
+        panic!()
+    };
 
     let mut env = TypeEnv::default();
     env.register(
@@ -198,7 +214,11 @@ fn test_turbofish_correct_count() {
 fn test_turbofish_wrong_count_error() {
     let mut ctx = UnifyCtx::new();
     let t_var = ctx.fresh_var();
-    let t_id = if let Type::Var(id) = t_var { id } else { panic!() };
+    let t_id = if let Type::Var(id) = t_var {
+        id
+    } else {
+        panic!()
+    };
 
     let mut env = TypeEnv::default();
     env.register(
@@ -234,7 +254,8 @@ fn test_turbofish_wrong_count_error() {
 #[test]
 fn test_turbofish_on_variable_error() {
     let mut env = TypeEnv::default();
-    env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
+    env.locals
+        .insert("x".to_string(), TypeScheme::mono(Type::Int));
 
     let mut ctx = UnifyCtx::new();
     let expr = Expr::Path(Path {

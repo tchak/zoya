@@ -81,10 +81,7 @@ pub(crate) fn create_module_runtime(
         VirtualResolver::new(virtual_modules.clone()),
         BuiltinResolver::default(),
     );
-    let loader = (
-        VirtualLoader::new(virtual_modules),
-        ModuleLoader::default(),
-    );
+    let loader = (VirtualLoader::new(virtual_modules), ModuleLoader::default());
 
     runtime.set_loader(resolver, loader);
 
@@ -131,9 +128,10 @@ pub(crate) fn eval_module(
     let _: () = promise.finish().catch(ctx).map_err(map_js_error)?;
 
     // Get the result from the module's exports
-    let js_val: rquickjs::Value = evaluated_module.get("$result").catch(ctx).map_err(|e| {
-        EvalError::RuntimeError(format!("failed to get result: {}", e))
-    })?;
+    let js_val: rquickjs::Value = evaluated_module
+        .get("$result")
+        .catch(ctx)
+        .map_err(|e| EvalError::RuntimeError(format!("failed to get result: {}", e)))?;
 
     js_value_to_value(ctx, js_val, &result_type)
 }
@@ -182,10 +180,7 @@ fn write_comma_separated(
     Ok(())
 }
 
-fn write_fields(
-    f: &mut fmt::Formatter<'_>,
-    fields: &[(String, Value)],
-) -> fmt::Result {
+fn write_fields(f: &mut fmt::Formatter<'_>, fields: &[(String, Value)]) -> fmt::Result {
     for (i, (k, v)) in fields.iter().enumerate() {
         if i > 0 {
             write!(f, ", ")?;
@@ -390,9 +385,7 @@ fn js_value_to_value(
                 .iter()
                 .find(|(vname, _)| vname == &tag)
                 .map(|(_, vt)| vt)
-                .ok_or_else(|| {
-                    EvalError::RuntimeError(format!("unknown enum variant: {}", tag))
-                })?;
+                .ok_or_else(|| EvalError::RuntimeError(format!("unknown enum variant: {}", tag)))?;
 
             let fields = match variant_type {
                 EnumVariantType::Unit => EnumValueFields::Unit,

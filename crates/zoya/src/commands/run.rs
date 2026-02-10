@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use zoya_check::check;
-use zoya_run::{run, EvalError};
+use zoya_run::{EvalError, run};
 
 /// Run a Zoya package or file and print the result
 pub fn execute(path: &Path) -> Result<(), EvalError> {

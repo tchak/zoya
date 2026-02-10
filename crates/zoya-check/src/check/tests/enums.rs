@@ -1,7 +1,7 @@
 use zoya_ast::{Expr, Path, PathPrefix, Visibility};
 use zoya_ir::{Definition, EnumType, EnumVariantType, QualifiedPath, Type};
 
-use crate::check::{check_expr, TypeEnv};
+use crate::check::{TypeEnv, check_expr};
 use crate::unify::UnifyCtx;
 
 fn qpath(path: &str) -> QualifiedPath {
@@ -25,7 +25,10 @@ fn env_with_message_enum() -> TypeEnv {
                     ("y".to_string(), Type::Int),
                 ]),
             ),
-            ("Write".to_string(), EnumVariantType::Tuple(vec![Type::String])),
+            (
+                "Write".to_string(),
+                EnumVariantType::Tuple(vec![Type::String]),
+            ),
         ],
     };
     env.register(qpath("root::Message"), Definition::Enum(enum_type.clone()));
@@ -126,9 +129,7 @@ fn test_enum_struct_construct_unit_variant_error() {
             segments: vec!["Message".to_string(), "Quit".to_string()],
             type_args: None,
         },
-        fields: vec![
-            ("x".to_string(), Expr::Int(10)),
-        ],
+        fields: vec![("x".to_string(), Expr::Int(10))],
     };
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
@@ -146,9 +147,7 @@ fn test_enum_struct_construct_tuple_variant_error() {
             segments: vec!["Message".to_string(), "Write".to_string()],
             type_args: None,
         },
-        fields: vec![
-            ("msg".to_string(), Expr::String("hi".to_string())),
-        ],
+        fields: vec![("msg".to_string(), Expr::String("hi".to_string()))],
     };
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());

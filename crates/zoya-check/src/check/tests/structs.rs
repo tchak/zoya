@@ -1,7 +1,7 @@
 use zoya_ast::{Expr, Path, Visibility};
 use zoya_ir::{Definition, QualifiedPath, StructType, Type};
 
-use crate::check::{check_expr, TypeEnv};
+use crate::check::{TypeEnv, check_expr};
 use crate::unify::UnifyCtx;
 
 fn qpath(path: &str) -> QualifiedPath {
@@ -18,10 +18,7 @@ fn env_with_point_struct() -> TypeEnv {
             name: "Point".to_string(),
             type_params: vec![],
             type_var_ids: vec![],
-            fields: vec![
-                ("x".to_string(), Type::Int),
-                ("y".to_string(), Type::Int),
-            ],
+            fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
         }),
     );
     env

@@ -221,11 +221,7 @@ mod tests {
     use super::*;
 
     fn toks(input: &str) -> Vec<Token> {
-        lex(input)
-            .unwrap()
-            .into_iter()
-            .map(|(t, _)| t)
-            .collect()
+        lex(input).unwrap().into_iter().map(|(t, _)| t).collect()
     }
 
     #[test]
@@ -394,10 +390,7 @@ mod tests {
     fn test_fn_not_identifier() {
         // fn should be keyword, not identifier
         let toks = toks("fn foo");
-        assert_eq!(
-            toks,
-            vec![Token::Fn, Token::Ident("foo".to_string())]
-        );
+        assert_eq!(toks, vec![Token::Fn, Token::Ident("foo".to_string())]);
     }
 
     #[test]
@@ -531,17 +524,21 @@ mod tests {
         let toks = toks("== != <= >= < >");
         assert_eq!(
             toks,
-            vec![Token::EqEq, Token::Ne, Token::Le, Token::Ge, Token::Lt, Token::Gt]
+            vec![
+                Token::EqEq,
+                Token::Ne,
+                Token::Le,
+                Token::Ge,
+                Token::Lt,
+                Token::Gt
+            ]
         );
     }
 
     #[test]
     fn test_comparison_expression() {
         let toks = toks("1 == 2");
-        assert_eq!(
-            toks,
-            vec![Token::Int(1), Token::EqEq, Token::Int(2)]
-        );
+        assert_eq!(toks, vec![Token::Int(1), Token::EqEq, Token::Int(2)]);
     }
 
     #[test]
@@ -620,10 +617,7 @@ mod tests {
     #[test]
     fn test_bigint_in_expression() {
         let toks = toks("42n + 1n");
-        assert_eq!(
-            toks,
-            vec![Token::BigInt(42), Token::Plus, Token::BigInt(1)]
-        );
+        assert_eq!(toks, vec![Token::BigInt(42), Token::Plus, Token::BigInt(1)]);
     }
 
     #[test]

@@ -12,8 +12,8 @@ use crate::patterns::pattern_parser;
 use crate::statements::let_binding_parser;
 use crate::types::type_annotation;
 
-pub(crate) fn item_parser<'a>(
-) -> impl Parser<'a, &'a [Token], Item, extra::Err<Rich<'a, Token>>> + Clone {
+pub(crate) fn item_parser<'a>()
+-> impl Parser<'a, &'a [Token], Item, extra::Err<Rich<'a, Token>>> + Clone {
     // Type parameters: <T, U>
     let type_params = ident()
         .separated_by(just(Token::Comma))
@@ -125,12 +125,13 @@ pub(crate) fn item_parser<'a>(
 
     // Enum variant: Unit, Tuple(T, U), or Struct { field: Type }
     // Try struct variant first (has braces), then tuple (has parens), then unit
-    let enum_variant_struct = ident()
-        .then(struct_fields.clone())
-        .map(|(name, fields)| EnumVariant {
-            name,
-            kind: EnumVariantKind::Struct(fields),
-        });
+    let enum_variant_struct =
+        ident()
+            .then(struct_fields.clone())
+            .map(|(name, fields)| EnumVariant {
+                name,
+                kind: EnumVariantKind::Struct(fields),
+            });
 
     let enum_variant_tuple = ident()
         .then(

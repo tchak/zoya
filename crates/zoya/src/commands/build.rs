@@ -38,8 +38,13 @@ pub fn execute(path: &Path, output: Option<&Path>) -> Result<(), String> {
     }
 
     // Write output
-    std::fs::write(&out_path, &output_data.code)
-        .map_err(|e| format!("error: failed to write file '{}': {}", out_path.display(), e))?;
+    std::fs::write(&out_path, &output_data.code).map_err(|e| {
+        format!(
+            "error: failed to write file '{}': {}",
+            out_path.display(),
+            e
+        )
+    })?;
 
     eprintln!("✓ Built: {}", out_path.display());
     Ok(())

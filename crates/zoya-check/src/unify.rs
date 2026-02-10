@@ -39,19 +39,28 @@ impl UnifyCtx {
                 }
             }
             Type::List(elem) => Type::List(Box::new(self.resolve(elem))),
-            Type::Tuple(elems) => {
-                Type::Tuple(elems.iter().map(|e| self.resolve(e)).collect())
-            }
+            Type::Tuple(elems) => Type::Tuple(elems.iter().map(|e| self.resolve(e)).collect()),
             Type::Function { params, ret } => Type::Function {
                 params: params.iter().map(|p| self.resolve(p)).collect(),
                 ret: Box::new(self.resolve(ret)),
             },
-            Type::Struct { name, type_args, fields } => Type::Struct {
+            Type::Struct {
+                name,
+                type_args,
+                fields,
+            } => Type::Struct {
                 name: name.clone(),
                 type_args: type_args.iter().map(|t| self.resolve(t)).collect(),
-                fields: fields.iter().map(|(n, t)| (n.clone(), self.resolve(t))).collect(),
+                fields: fields
+                    .iter()
+                    .map(|(n, t)| (n.clone(), self.resolve(t)))
+                    .collect(),
             },
-            Type::Enum { name, type_args, variants } => Type::Enum {
+            Type::Enum {
+                name,
+                type_args,
+                variants,
+            } => Type::Enum {
                 name: name.clone(),
                 type_args: type_args.iter().map(|t| self.resolve(t)).collect(),
                 variants: variants
@@ -90,13 +99,21 @@ impl UnifyCtx {
             Type::Function { params, ret } => {
                 params.iter().any(|p| self.occurs(var_id, p)) || self.occurs(var_id, &ret)
             }
-            Type::Struct { type_args, fields, .. } => {
+            Type::Struct {
+                type_args, fields, ..
+            } => {
                 type_args.iter().any(|t| self.occurs(var_id, t))
                     || fields.iter().any(|(_, t)| self.occurs(var_id, t))
             }
-            Type::Enum { type_args, variants, .. } => {
+            Type::Enum {
+                type_args,
+                variants,
+                ..
+            } => {
                 type_args.iter().any(|t| self.occurs(var_id, t))
-                    || variants.iter().any(|(_, vt)| self.occurs_in_variant(var_id, vt))
+                    || variants
+                        .iter()
+                        .any(|(_, vt)| self.occurs_in_variant(var_id, vt))
             }
             _ => false,
         }
@@ -290,12 +307,19 @@ impl UnifyCtx {
                 set.extend(self.free_vars(&ret));
                 set
             }
-            Type::Struct { type_args, fields, .. } => {
-                let mut set: HashSet<TypeVarId> = type_args.iter().flat_map(|t| self.free_vars(t)).collect();
+            Type::Struct {
+                type_args, fields, ..
+            } => {
+                let mut set: HashSet<TypeVarId> =
+                    type_args.iter().flat_map(|t| self.free_vars(t)).collect();
                 set.extend(fields.iter().flat_map(|(_, t)| self.free_vars(t)));
                 set
             }
-            Type::Enum { type_args, variants, .. } => {
+            Type::Enum {
+                type_args,
+                variants,
+                ..
+            } => {
                 let mut set: HashSet<TypeVarId> =
                     type_args.iter().flat_map(|t| self.free_vars(t)).collect();
                 for (_, vt) in variants {
@@ -311,9 +335,7 @@ impl UnifyCtx {
     fn free_vars_in_variant(&self, vt: &EnumVariantType) -> HashSet<TypeVarId> {
         match vt {
             EnumVariantType::Unit => HashSet::new(),
-            EnumVariantType::Tuple(types) => {
-                types.iter().flat_map(|t| self.free_vars(t)).collect()
-            }
+            EnumVariantType::Tuple(types) => types.iter().flat_map(|t| self.free_vars(t)).collect(),
             EnumVariantType::Struct(fields) => {
                 fields.iter().flat_map(|(_, t)| self.free_vars(t)).collect()
             }
@@ -350,19 +372,39 @@ fn substitute_in_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
     match ty {
         Type::Var(id) => mapping.get(id).cloned().unwrap_or_else(|| ty.clone()),
         Type::List(elem) => Type::List(Box::new(substitute_in_type(elem, mapping))),
-        Type::Tuple(elems) => {
-            Type::Tuple(elems.iter().map(|e| substitute_in_type(e, mapping)).collect())
-        }
+        Type::Tuple(elems) => Type::Tuple(
+            elems
+                .iter()
+                .map(|e| substitute_in_type(e, mapping))
+                .collect(),
+        ),
         Type::Function { params, ret } => Type::Function {
-            params: params.iter().map(|p| substitute_in_type(p, mapping)).collect(),
+            params: params
+                .iter()
+                .map(|p| substitute_in_type(p, mapping))
+                .collect(),
             ret: Box::new(substitute_in_type(ret, mapping)),
         },
-        Type::Struct { name, type_args, fields } => Type::Struct {
+        Type::Struct {
+            name,
+            type_args,
+            fields,
+        } => Type::Struct {
             name: name.clone(),
-            type_args: type_args.iter().map(|t| substitute_in_type(t, mapping)).collect(),
-            fields: fields.iter().map(|(n, t)| (n.clone(), substitute_in_type(t, mapping))).collect(),
+            type_args: type_args
+                .iter()
+                .map(|t| substitute_in_type(t, mapping))
+                .collect(),
+            fields: fields
+                .iter()
+                .map(|(n, t)| (n.clone(), substitute_in_type(t, mapping)))
+                .collect(),
         },
-        Type::Enum { name, type_args, variants } => Type::Enum {
+        Type::Enum {
+            name,
+            type_args,
+            variants,
+        } => Type::Enum {
             name: name.clone(),
             type_args: type_args
                 .iter()
@@ -384,9 +426,12 @@ fn substitute_in_variant_type(
 ) -> EnumVariantType {
     match vt {
         EnumVariantType::Unit => EnumVariantType::Unit,
-        EnumVariantType::Tuple(types) => {
-            EnumVariantType::Tuple(types.iter().map(|t| substitute_in_type(t, mapping)).collect())
-        }
+        EnumVariantType::Tuple(types) => EnumVariantType::Tuple(
+            types
+                .iter()
+                .map(|t| substitute_in_type(t, mapping))
+                .collect(),
+        ),
         EnumVariantType::Struct(fields) => EnumVariantType::Struct(
             fields
                 .iter()
@@ -537,10 +582,7 @@ mod tests {
 
         assert!(ctx.unify(&list1, &list2).is_ok());
         assert_eq!(ctx.resolve(&var), Type::Int);
-        assert_eq!(
-            ctx.resolve(&list1),
-            Type::List(Box::new(Type::Int))
-        );
+        assert_eq!(ctx.resolve(&list1), Type::List(Box::new(Type::Int)));
     }
 
     #[test]
@@ -724,10 +766,8 @@ mod tests {
         assert!(matches!(inst2, Type::Function { .. }));
 
         // The fresh vars should be different in each instantiation
-        if let (
-            Type::Function { params: p1, .. },
-            Type::Function { params: p2, .. },
-        ) = (&inst1, &inst2)
+        if let (Type::Function { params: p1, .. }, Type::Function { params: p2, .. }) =
+            (&inst1, &inst2)
         {
             assert_ne!(p1[0], p2[0]);
         }
@@ -750,7 +790,12 @@ mod tests {
         let t2 = Type::Tuple(vec![Type::Int]);
         let result = ctx.unify(&t1, &t2);
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("tuple length mismatch"));
+        assert!(
+            result
+                .unwrap_err()
+                .message
+                .contains("tuple length mismatch")
+        );
     }
 
     #[test]
@@ -830,12 +875,18 @@ mod tests {
         let s1 = Type::Struct {
             name: "Pair".to_string(),
             type_args: vec![Type::Int, Type::Bool],
-            fields: vec![("first".to_string(), Type::Int), ("second".to_string(), Type::Bool)],
+            fields: vec![
+                ("first".to_string(), Type::Int),
+                ("second".to_string(), Type::Bool),
+            ],
         };
         let s2 = Type::Struct {
             name: "Pair".to_string(),
             type_args: vec![Type::Int, Type::Bool],
-            fields: vec![("first".to_string(), Type::Int), ("second".to_string(), Type::Bool)],
+            fields: vec![
+                ("first".to_string(), Type::Int),
+                ("second".to_string(), Type::Bool),
+            ],
         };
         assert!(ctx.unify(&s1, &s2).is_ok());
     }
@@ -889,7 +940,12 @@ mod tests {
         };
         let result = ctx.unify(&s1, &s2);
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("type argument count mismatch"));
+        assert!(
+            result
+                .unwrap_err()
+                .message
+                .contains("type argument count mismatch")
+        );
     }
 
     // ==================== Enum Unification Tests ====================
@@ -1005,7 +1061,12 @@ mod tests {
         };
         let result = ctx.unify(&e1, &e2);
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("type argument count mismatch"));
+        assert!(
+            result
+                .unwrap_err()
+                .message
+                .contains("type argument count mismatch")
+        );
     }
 
     // ==================== Additional Occurs Check Tests ====================
@@ -1057,7 +1118,10 @@ mod tests {
         let e = Type::Enum {
             name: "Option".to_string(),
             type_args: vec![var.clone()],
-            variants: vec![("Some".to_string(), EnumVariantType::Tuple(vec![var.clone()]))],
+            variants: vec![(
+                "Some".to_string(),
+                EnumVariantType::Tuple(vec![var.clone()]),
+            )],
         };
         // T = Option<T> should fail (infinite type)
         let result = ctx.unify(&var, &e);
@@ -1112,7 +1176,10 @@ mod tests {
         let e = Type::Enum {
             name: "Option".to_string(),
             type_args: vec![var.clone()],
-            variants: vec![("Some".to_string(), EnumVariantType::Tuple(vec![var.clone()]))],
+            variants: vec![(
+                "Some".to_string(),
+                EnumVariantType::Tuple(vec![var.clone()]),
+            )],
         };
         let fv = ctx.free_vars(&e);
         assert_eq!(fv.len(), 1);
@@ -1152,7 +1219,10 @@ mod tests {
         ctx.unify(&var, &Type::Int).unwrap();
 
         let resolved = ctx.resolve(&s);
-        if let Type::Struct { type_args, fields, .. } = resolved {
+        if let Type::Struct {
+            type_args, fields, ..
+        } = resolved
+        {
             assert_eq!(type_args[0], Type::Int);
             assert_eq!(fields[0].1, Type::Int);
         } else {
@@ -1168,7 +1238,10 @@ mod tests {
             name: "Option".to_string(),
             type_args: vec![var.clone()],
             variants: vec![
-                ("Some".to_string(), EnumVariantType::Tuple(vec![var.clone()])),
+                (
+                    "Some".to_string(),
+                    EnumVariantType::Tuple(vec![var.clone()]),
+                ),
                 ("None".to_string(), EnumVariantType::Unit),
             ],
         };
@@ -1176,7 +1249,12 @@ mod tests {
         ctx.unify(&var, &Type::Int).unwrap();
 
         let resolved = ctx.resolve(&e);
-        if let Type::Enum { type_args, variants, .. } = resolved {
+        if let Type::Enum {
+            type_args,
+            variants,
+            ..
+        } = resolved
+        {
             assert_eq!(type_args[0], Type::Int);
             if let EnumVariantType::Tuple(types) = &variants[0].1 {
                 assert_eq!(types[0], Type::Int);

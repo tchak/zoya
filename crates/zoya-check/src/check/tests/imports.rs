@@ -8,7 +8,7 @@ use zoya_ast::{
     Visibility,
 };
 use zoya_ir::Type;
-use zoya_package::{Module, QualifiedPath, Package};
+use zoya_package::{Module, Package, QualifiedPath};
 
 use crate::check::check;
 
@@ -38,12 +38,18 @@ fn build_multi_module_package(modules_data: Vec<(QualifiedPath, Vec<Item>)>) -> 
         {
             let child_name = path.segments().last().unwrap().clone();
             if let Some(parent) = modules.get_mut(&parent_path) {
-                parent.children.insert(child_name, (path.clone(), Visibility::Public));
+                parent
+                    .children
+                    .insert(child_name, (path.clone(), Visibility::Public));
             }
         }
     }
 
-    Package { name: "test".to_string(), output: None, modules }
+    Package {
+        name: "test".to_string(),
+        output: None,
+        modules,
+    }
 }
 
 fn make_use(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
@@ -85,7 +91,8 @@ fn test_import_function_from_submodule() {
         },
     })];
 
-    let mut root_items_with_uses = vec![Item::Use(make_use(PathPrefix::Root, &["utils", "helper"]))];
+    let mut root_items_with_uses =
+        vec![Item::Use(make_use(PathPrefix::Root, &["utils", "helper"]))];
     root_items_with_uses.extend(root_items);
 
     let tree = build_multi_module_package(vec![
@@ -146,11 +153,12 @@ fn test_import_private_struct_fails() {
 
 #[test]
 fn test_import_not_found_fails() {
-    let root_items = vec![Item::Use(make_use(PathPrefix::Root, &["utils", "nonexistent"]))];
+    let root_items = vec![Item::Use(make_use(
+        PathPrefix::Root,
+        &["utils", "nonexistent"],
+    ))];
 
-    let tree = build_multi_module_package(vec![
-        (QualifiedPath::root(), root_items),
-    ]);
+    let tree = build_multi_module_package(vec![(QualifiedPath::root(), root_items)]);
 
     let result = check(&tree, &[]);
     assert!(result.is_err());
@@ -185,9 +193,17 @@ fn test_duplicate_import_fails() {
 
     let mut modules = HashMap::new();
     let root_children: HashMap<String, (QualifiedPath, Visibility)> = [
-        ("utils".to_string(), (QualifiedPath::root().child("utils"), Visibility::Public)),
-        ("other".to_string(), (QualifiedPath::root().child("other"), Visibility::Public)),
-    ].into_iter().collect();
+        (
+            "utils".to_string(),
+            (QualifiedPath::root().child("utils"), Visibility::Public),
+        ),
+        (
+            "other".to_string(),
+            (QualifiedPath::root().child("other"), Visibility::Public),
+        ),
+    ]
+    .into_iter()
+    .collect();
 
     modules.insert(
         QualifiedPath::root(),
@@ -214,7 +230,11 @@ fn test_duplicate_import_fails() {
         },
     );
 
-    let pkg = Package { name: "test".to_string(), output: None, modules };
+    let pkg = Package {
+        name: "test".to_string(),
+        output: None,
+        modules,
+    };
     let result = check(&pkg, &[]);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("already imported"));
@@ -395,7 +415,9 @@ fn test_imported_enum_variant_in_match_pattern() {
                 MatchArm {
                     pattern: Pattern::Call {
                         path: Path::simple("Some".to_string()), // Uses import in pattern
-                        args: TuplePattern::Exact(vec![Pattern::Path(Path::simple("x".to_string()))]),
+                        args: TuplePattern::Exact(vec![Pattern::Path(Path::simple(
+                            "x".to_string(),
+                        ))]),
                     },
                     result: Expr::Path(Path::simple("x".to_string())),
                 },
@@ -590,7 +612,10 @@ fn test_pub_use_reexport_enum() {
         ],
     })];
 
-    let reexporter_items = vec![Item::Use(make_pub_use(PathPrefix::Root, &["types", "Color"]))];
+    let reexporter_items = vec![Item::Use(make_pub_use(
+        PathPrefix::Root,
+        &["types", "Color"],
+    ))];
 
     let root_items = vec![
         Item::Use(make_use(PathPrefix::Root, &["reexporter", "Color", "Red"])),
@@ -639,7 +664,11 @@ fn test_pub_use_cannot_reexport_private() {
     let result = check(&tree, &[]);
     assert!(result.is_err());
     let msg = result.unwrap_err().message;
-    assert!(msg.contains("pub use cannot re-export private"), "unexpected error: {}", msg);
+    assert!(
+        msg.contains("pub use cannot re-export private"),
+        "unexpected error: {}",
+        msg
+    );
 }
 
 #[test]
@@ -807,7 +836,11 @@ fn build_package_with_visibility(
         }
     }
 
-    Package { name: "test".to_string(), output: None, modules }
+    Package {
+        name: "test".to_string(),
+        output: None,
+        modules,
+    }
 }
 
 #[test]
@@ -974,11 +1007,7 @@ fn test_external_visibility_private_module_blocks_deeply_nested() {
 
     let tree = build_package_with_visibility(vec![
         (QualifiedPath::root(), vec![], Visibility::Public),
-        (
-            QualifiedPath::root().child("a"),
-            vec![],
-            Visibility::Public,
-        ),
+        (QualifiedPath::root().child("a"), vec![], Visibility::Public),
         (
             QualifiedPath::root().child("a").child("b"),
             vec![],
@@ -1182,9 +1211,7 @@ fn test_cascading_glob_reexport_across_same_depth_modules() {
         Item::Use(make_pub_use_glob(PathPrefix::Self_, &["Color"])),
     ];
 
-    let reexporter_items = vec![
-        Item::Use(make_pub_use_glob(PathPrefix::Root, &["types"])),
-    ];
+    let reexporter_items = vec![Item::Use(make_pub_use_glob(PathPrefix::Root, &["types"]))];
 
     let root_items = vec![
         Item::Use(make_use_glob(PathPrefix::Root, &["reexporter"])),

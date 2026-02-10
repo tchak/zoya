@@ -281,15 +281,13 @@ impl Definition {
                 module: e.module.with_root(name),
                 ..e
             }),
-            Definition::EnumVariant(parent_enum, variant) => {
-                Definition::EnumVariant(
-                    EnumType {
-                        module: parent_enum.module.with_root(name),
-                        ..parent_enum
-                    },
-                    variant,
-                )
-            }
+            Definition::EnumVariant(parent_enum, variant) => Definition::EnumVariant(
+                EnumType {
+                    module: parent_enum.module.with_root(name),
+                    ..parent_enum
+                },
+                variant,
+            ),
             Definition::TypeAlias(a) => Definition::TypeAlias(TypeAliasType {
                 module: a.module.with_root(name),
                 ..a

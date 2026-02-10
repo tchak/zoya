@@ -100,7 +100,9 @@ pub enum ConfigError {
     #[error("invalid TOML: {source}")]
     Parse { source: toml::de::Error },
     /// Invalid package name
-    #[error("invalid package name '{name}': must be lowercase alphanumeric with underscores or hyphens, starting with a letter, and must not be a reserved name (root, self, super, std, zoya)")]
+    #[error(
+        "invalid package name '{name}': must be lowercase alphanumeric with underscores or hyphens, starting with a letter, and must not be a reserved name (root, self, super, std, zoya)"
+    )]
     InvalidName { name: String },
 }
 
@@ -203,10 +205,7 @@ name = "test_project"
         assert_eq!(config.main, None);
         assert_eq!(config.output, None);
         assert_eq!(config.main_path(), PathBuf::from("src/main.zoya"));
-        assert_eq!(
-            config.output_path(),
-            PathBuf::from("build/test_project.js")
-        );
+        assert_eq!(config.output_path(), PathBuf::from("build/test_project.js"));
     }
 
     #[test]

@@ -8,8 +8,8 @@ use crate::helpers::validate_typed_pattern;
 use crate::patterns::pattern_parser;
 use crate::types::type_annotation;
 
-pub(crate) fn let_binding_parser<'a>(
-) -> impl Parser<'a, &'a [Token], LetBinding, extra::Err<Rich<'a, Token>>> + Clone {
+pub(crate) fn let_binding_parser<'a>()
+-> impl Parser<'a, &'a [Token], LetBinding, extra::Err<Rich<'a, Token>>> + Clone {
     just(Token::Let)
         .ignore_then(pattern_parser())
         .then(just(Token::Colon).ignore_then(type_annotation()).or_not())
@@ -25,8 +25,8 @@ pub(crate) fn let_binding_parser<'a>(
         })
 }
 
-pub(crate) fn stmt_parser<'a>(
-) -> impl Parser<'a, &'a [Token], Stmt, extra::Err<Rich<'a, Token>>> + Clone {
+pub(crate) fn stmt_parser<'a>()
+-> impl Parser<'a, &'a [Token], Stmt, extra::Err<Rich<'a, Token>>> + Clone {
     // Parse let binding or expression
     choice((
         let_binding_parser().map(Stmt::Let),

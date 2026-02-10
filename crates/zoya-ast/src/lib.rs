@@ -3,11 +3,11 @@
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum PathPrefix {
     #[default]
-    None,              // Relative path (child module or current scope)
-    Root,              // root::
-    Self_,             // self::
-    Super,             // super::
-    Package(String),   // package_name:: (external package path)
+    None, // Relative path (child module or current scope)
+    Root,            // root::
+    Self_,           // self::
+    Super,           // super::
+    Package(String), // package_name:: (external package path)
 }
 
 impl std::fmt::Display for PathPrefix {
@@ -183,9 +183,9 @@ pub struct Param {
 /// Type annotation in source code
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeAnnotation {
-    Named(Path),                                      // Int, T, module::MyType
-    Parameterized(Path, Vec<TypeAnnotation>),         // List<Int>, module::Map<K, V>
-    Tuple(Vec<TypeAnnotation>),                       // (Int, String, Bool)
+    Named(Path),                                        // Int, T, module::MyType
+    Parameterized(Path, Vec<TypeAnnotation>),           // List<Int>, module::Map<K, V>
+    Tuple(Vec<TypeAnnotation>),                         // (Int, String, Bool)
     Function(Vec<TypeAnnotation>, Box<TypeAnnotation>), // (Int, String) -> Bool
 }
 
@@ -250,10 +250,10 @@ pub struct LambdaParam {
 /// Pattern in a match arm
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pattern {
-    Literal(Box<Expr>),    // 0, "hello", true
-    Wildcard,              // _ (matches all)
-    List(ListPattern),     // [], [a, b], [x, ..]
-    Tuple(TuplePattern),   // (), (a, b), (x, ..)
+    Literal(Box<Expr>),  // 0, "hello", true
+    Wildcard,            // _ (matches all)
+    List(ListPattern),   // [], [a, b], [x, ..]
+    Tuple(TuplePattern), // (), (a, b), (x, ..)
 
     // Unified path-based patterns (like expressions)
     /// Path pattern for unit constructors: `Option::None`, `root::Color::Red`
@@ -272,7 +272,7 @@ pub enum Pattern {
     },
 
     As {
-        name: String,          // n @ pattern - binds entire matched value to `n`
+        name: String, // n @ pattern - binds entire matched value to `n`
         pattern: Box<Pattern>,
     },
 }
@@ -280,14 +280,14 @@ pub enum Pattern {
 /// A field pattern in a struct pattern
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructFieldPattern {
-    pub field_name: String,   // the struct field being matched
+    pub field_name: String,    // the struct field being matched
     pub pattern: Box<Pattern>, // the pattern for this field (Var(same_name) for shorthand)
 }
 
 /// List pattern variants
 #[derive(Debug, Clone, PartialEq)]
 pub enum ListPattern {
-    Empty, // []
+    Empty,               // []
     Exact(Vec<Pattern>), // [a, b, c] - match exactly N elements
     Prefix {
         // [a, b, ..] or [a, b, rest @ ..]
@@ -310,7 +310,7 @@ pub enum ListPattern {
 /// Tuple pattern variants
 #[derive(Debug, Clone, PartialEq)]
 pub enum TuplePattern {
-    Empty, // ()
+    Empty,               // ()
     Exact(Vec<Pattern>), // (a, b, c) - match exactly N elements
     Prefix {
         // (a, b, ..) or (a, b, rest @ ..)
@@ -554,7 +554,10 @@ mod tests {
         assert_eq!(PathPrefix::Root.to_string(), "root::");
         assert_eq!(PathPrefix::Self_.to_string(), "self::");
         assert_eq!(PathPrefix::Super.to_string(), "super::");
-        assert_eq!(PathPrefix::Package("serde".to_string()).to_string(), "serde::");
+        assert_eq!(
+            PathPrefix::Package("serde".to_string()).to_string(),
+            "serde::"
+        );
     }
 
     #[test]
@@ -624,9 +627,8 @@ mod tests {
 
     #[test]
     fn test_type_annotation_display_tuple_single() {
-        let ta = TypeAnnotation::Tuple(vec![TypeAnnotation::Named(Path::simple(
-            "Int".to_string(),
-        ))]);
+        let ta =
+            TypeAnnotation::Tuple(vec![TypeAnnotation::Named(Path::simple("Int".to_string()))]);
         assert_eq!(ta.to_string(), "(Int)");
     }
 

@@ -4,11 +4,11 @@ use std::path::{Path, PathBuf};
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
-use zoya_run::{self as runner, Value};
 use zoya_ast::{Expr, FunctionDef, Item, LetBinding, Stmt, Visibility};
 use zoya_check::check;
 use zoya_ir::{CheckedPackage, Type, TypedExpr, TypedPattern};
-use zoya_package::{Module, QualifiedPath, Package};
+use zoya_package::{Module, Package, QualifiedPath};
+use zoya_run::{self as runner, Value};
 
 /// Extract all variable bindings from a typed pattern.
 /// Returns a list of (name, type) pairs for each bound variable.
@@ -263,9 +263,8 @@ impl State {
                 .collect::<Result<Vec<_>, _>>()?;
 
             // Call combined main function via runner
-            let combined_value =
-                runner::run(checked_pkg.clone(), &[std], Some("repl"))
-                    .map_err(|e| e.to_string())?;
+            let combined_value = runner::run(checked_pkg.clone(), &[std], Some("repl"))
+                .map_err(|e| e.to_string())?;
 
             // Unpack tuple result
             let individual_values = match combined_value {
@@ -388,12 +387,15 @@ fn build_repl_package(base_pkg: Option<&Package>, items: Vec<Item>) -> Package {
     };
 
     // Create or update root module to include "repl" as child
-    let root = modules.entry(QualifiedPath::root()).or_insert_with(|| Module {
-        items: vec![],
-        path: QualifiedPath::root(),
-        children: HashMap::new(),
-    });
-    root.children.insert("repl".to_string(), (repl_path.clone(), Visibility::Public));
+    let root = modules
+        .entry(QualifiedPath::root())
+        .or_insert_with(|| Module {
+            items: vec![],
+            path: QualifiedPath::root(),
+            children: HashMap::new(),
+        });
+    root.children
+        .insert("repl".to_string(), (repl_path.clone(), Visibility::Public));
 
     // Create the repl submodule with REPL items
     modules.insert(
@@ -405,7 +407,11 @@ fn build_repl_package(base_pkg: Option<&Package>, items: Vec<Item>) -> Package {
         },
     );
 
-    Package { name, output: None, modules }
+    Package {
+        name,
+        output: None,
+        modules,
+    }
 }
 
 /// Find a typed function by name in the repl submodule of the checked package.
@@ -894,10 +900,7 @@ mod tests {
     fn test_repl_enum_definition() {
         let mut state = State::new(Path::new(".")).unwrap();
         let results = state.eval("enum Color { Red, Blue }").unwrap();
-        assert_eq!(
-            results,
-            vec![ReplResult::EnumDefined("Color".to_string())]
-        );
+        assert_eq!(results, vec![ReplResult::EnumDefined("Color".to_string())]);
     }
 
     #[test]

@@ -317,7 +317,9 @@ pub fn resolve_type_annotation(
 mod tests {
     use super::*;
     use zoya_ast::{Path, PathPrefix, TypeAnnotation, Visibility};
-    use zoya_ir::{Definition, EnumType, EnumVariantType, QualifiedPath, StructType, TypeAliasType};
+    use zoya_ir::{
+        Definition, EnumType, EnumVariantType, QualifiedPath, StructType, TypeAliasType,
+    };
 
     fn empty_env() -> TypeEnv {
         TypeEnv::default()

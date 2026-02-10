@@ -3,12 +3,14 @@ use chumsky::prelude::*;
 use zoya_ast::{Expr, ListPattern, Path, Pattern, StructFieldPattern, TuplePattern};
 use zoya_lexer::Token;
 
-use crate::helpers::{ident, path_prefix_parser, process_rest_elements, simple_path_parser, RestSplit};
+use crate::helpers::{
+    RestSplit, ident, path_prefix_parser, process_rest_elements, simple_path_parser,
+};
 use crate::types::type_annotation;
 
 /// Pattern parser for match arms and let bindings
-pub(crate) fn pattern_parser<'a>(
-) -> impl Parser<'a, &'a [Token], Pattern, extra::Err<Rich<'a, Token>>> + Clone {
+pub(crate) fn pattern_parser<'a>()
+-> impl Parser<'a, &'a [Token], Pattern, extra::Err<Rich<'a, Token>>> + Clone {
     recursive(|pattern| {
         // Simple patterns (non-list, non-tuple)
         let simple_pattern = choice((
@@ -64,23 +66,40 @@ pub(crate) fn pattern_parser<'a>(
 
                 match process_rest_elements(elements, is_rest, span, "list")? {
                     RestSplit::Exact(elements) => {
-                        let patterns: Vec<Pattern> = elements.into_iter().map(extract_pattern).collect();
+                        let patterns: Vec<Pattern> =
+                            elements.into_iter().map(extract_pattern).collect();
                         if patterns.is_empty() {
                             Ok(Pattern::List(ListPattern::Empty))
                         } else {
                             Ok(Pattern::List(ListPattern::Exact(patterns)))
                         }
                     }
-                    RestSplit::WithRest { prefix, rest_binding, suffix } => {
-                        let prefix: Vec<Pattern> = prefix.into_iter().map(extract_pattern).collect();
-                        let suffix: Vec<Pattern> = suffix.into_iter().map(extract_pattern).collect();
+                    RestSplit::WithRest {
+                        prefix,
+                        rest_binding,
+                        suffix,
+                    } => {
+                        let prefix: Vec<Pattern> =
+                            prefix.into_iter().map(extract_pattern).collect();
+                        let suffix: Vec<Pattern> =
+                            suffix.into_iter().map(extract_pattern).collect();
 
                         if suffix.is_empty() {
-                            Ok(Pattern::List(ListPattern::Prefix { patterns: prefix, rest_binding }))
+                            Ok(Pattern::List(ListPattern::Prefix {
+                                patterns: prefix,
+                                rest_binding,
+                            }))
                         } else if prefix.is_empty() {
-                            Ok(Pattern::List(ListPattern::Suffix { patterns: suffix, rest_binding }))
+                            Ok(Pattern::List(ListPattern::Suffix {
+                                patterns: suffix,
+                                rest_binding,
+                            }))
                         } else {
-                            Ok(Pattern::List(ListPattern::PrefixSuffix { prefix, suffix, rest_binding }))
+                            Ok(Pattern::List(ListPattern::PrefixSuffix {
+                                prefix,
+                                suffix,
+                                rest_binding,
+                            }))
                         }
                     }
                 }
@@ -124,23 +143,40 @@ pub(crate) fn pattern_parser<'a>(
 
                 match process_rest_elements(elements, is_rest, span, "tuple")? {
                     RestSplit::Exact(elements) => {
-                        let patterns: Vec<Pattern> = elements.into_iter().map(extract_pattern).collect();
+                        let patterns: Vec<Pattern> =
+                            elements.into_iter().map(extract_pattern).collect();
                         if patterns.is_empty() {
                             Ok(Pattern::Tuple(TuplePattern::Empty))
                         } else {
                             Ok(Pattern::Tuple(TuplePattern::Exact(patterns)))
                         }
                     }
-                    RestSplit::WithRest { prefix, rest_binding, suffix } => {
-                        let prefix: Vec<Pattern> = prefix.into_iter().map(extract_pattern).collect();
-                        let suffix: Vec<Pattern> = suffix.into_iter().map(extract_pattern).collect();
+                    RestSplit::WithRest {
+                        prefix,
+                        rest_binding,
+                        suffix,
+                    } => {
+                        let prefix: Vec<Pattern> =
+                            prefix.into_iter().map(extract_pattern).collect();
+                        let suffix: Vec<Pattern> =
+                            suffix.into_iter().map(extract_pattern).collect();
 
                         if suffix.is_empty() {
-                            Ok(Pattern::Tuple(TuplePattern::Prefix { patterns: prefix, rest_binding }))
+                            Ok(Pattern::Tuple(TuplePattern::Prefix {
+                                patterns: prefix,
+                                rest_binding,
+                            }))
                         } else if prefix.is_empty() {
-                            Ok(Pattern::Tuple(TuplePattern::Suffix { patterns: suffix, rest_binding }))
+                            Ok(Pattern::Tuple(TuplePattern::Suffix {
+                                patterns: suffix,
+                                rest_binding,
+                            }))
                         } else {
-                            Ok(Pattern::Tuple(TuplePattern::PrefixSuffix { prefix, suffix, rest_binding }))
+                            Ok(Pattern::Tuple(TuplePattern::PrefixSuffix {
+                                prefix,
+                                suffix,
+                                rest_binding,
+                            }))
                         }
                     }
                 }
@@ -169,7 +205,8 @@ pub(crate) fn pattern_parser<'a>(
             ident()
                 .then(just(Token::Colon).ignore_then(pattern.clone()).or_not())
                 .map(|(field_name, pat)| {
-                    let binding_pattern = pat.unwrap_or_else(|| Pattern::Path(Path::simple(field_name.clone())));
+                    let binding_pattern =
+                        pat.unwrap_or_else(|| Pattern::Path(Path::simple(field_name.clone())));
                     StructPatternField::Field(StructFieldPattern {
                         field_name,
                         pattern: Box::new(binding_pattern),
@@ -194,7 +231,9 @@ pub(crate) fn pattern_parser<'a>(
             .collect::<Vec<_>>()
             .delimited_by(just(Token::LBrace), just(Token::RBrace))
             .try_map(|elements, span| {
-                let has_rest = elements.iter().any(|e| matches!(e, StructPatternField::Rest));
+                let has_rest = elements
+                    .iter()
+                    .any(|e| matches!(e, StructPatternField::Rest));
 
                 if elements
                     .iter()
@@ -236,23 +275,40 @@ pub(crate) fn pattern_parser<'a>(
 
                 match process_rest_elements(elements, is_rest, span, "call")? {
                     RestSplit::Exact(elements) => {
-                        let patterns: Vec<Pattern> = elements.into_iter().map(extract_pattern).collect();
+                        let patterns: Vec<Pattern> =
+                            elements.into_iter().map(extract_pattern).collect();
                         if patterns.is_empty() {
                             Ok(TuplePattern::Empty)
                         } else {
                             Ok(TuplePattern::Exact(patterns))
                         }
                     }
-                    RestSplit::WithRest { prefix, rest_binding, suffix } => {
-                        let prefix: Vec<Pattern> = prefix.into_iter().map(extract_pattern).collect();
-                        let suffix: Vec<Pattern> = suffix.into_iter().map(extract_pattern).collect();
+                    RestSplit::WithRest {
+                        prefix,
+                        rest_binding,
+                        suffix,
+                    } => {
+                        let prefix: Vec<Pattern> =
+                            prefix.into_iter().map(extract_pattern).collect();
+                        let suffix: Vec<Pattern> =
+                            suffix.into_iter().map(extract_pattern).collect();
 
                         if suffix.is_empty() {
-                            Ok(TuplePattern::Prefix { patterns: prefix, rest_binding })
+                            Ok(TuplePattern::Prefix {
+                                patterns: prefix,
+                                rest_binding,
+                            })
                         } else if prefix.is_empty() {
-                            Ok(TuplePattern::Suffix { patterns: suffix, rest_binding })
+                            Ok(TuplePattern::Suffix {
+                                patterns: suffix,
+                                rest_binding,
+                            })
                         } else {
-                            Ok(TuplePattern::PrefixSuffix { prefix, suffix, rest_binding })
+                            Ok(TuplePattern::PrefixSuffix {
+                                prefix,
+                                suffix,
+                                rest_binding,
+                            })
                         }
                     }
                 }
@@ -260,13 +316,13 @@ pub(crate) fn pattern_parser<'a>(
 
         // Struct pattern: Point { x }, types::Point { x, .. }, Msg::Move { x }
         // Works for both struct types and enum struct variants
-        let struct_pattern = simple_path_parser()
-            .then(struct_fields_parser.clone())
-            .map(|(path, (fields, is_partial))| Pattern::Struct {
+        let struct_pattern = simple_path_parser().then(struct_fields_parser.clone()).map(
+            |(path, (fields, is_partial))| Pattern::Struct {
                 path,
                 fields,
                 is_partial,
-            });
+            },
+        );
 
         // Call pattern: Some(x), Option::Some(x), root::Result::Ok(v, ..)
         // Path (1+ segments) followed by parenthesized args - parens disambiguate from variables

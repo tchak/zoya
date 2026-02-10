@@ -135,7 +135,11 @@ fn check_import_visible(
     }
 
     let target_module = def.module();
-    let target_segments: Vec<&str> = target_module.segments().iter().map(|s| s.as_str()).collect();
+    let target_segments: Vec<&str> = target_module
+        .segments()
+        .iter()
+        .map(|s| s.as_str())
+        .collect();
 
     let accessor: Vec<&str> = accessor_module
         .segments()
@@ -144,8 +148,8 @@ fn check_import_visible(
         .collect();
 
     // Private visible if accessor is same module or descendant
-    let is_visible =
-        accessor.len() >= target_segments.len() && accessor[..target_segments.len()] == target_segments[..];
+    let is_visible = accessor.len() >= target_segments.len()
+        && accessor[..target_segments.len()] == target_segments[..];
 
     if is_visible {
         Ok(())
@@ -186,8 +190,11 @@ fn check_import_module_path_visible(
                 .iter()
                 .map(|s| s.as_str())
                 .collect();
-            let parent_segments: Vec<&str> =
-                parent_module_path.segments().iter().map(|s| s.as_str()).collect();
+            let parent_segments: Vec<&str> = parent_module_path
+                .segments()
+                .iter()
+                .map(|s| s.as_str())
+                .collect();
 
             let is_visible = accessor.len() >= parent_segments.len()
                 && accessor[..parent_segments.len()] == parent_segments[..];
@@ -214,10 +221,7 @@ fn insert_import(
 ) -> Result<(), TypeError> {
     if let Some(existing) = imports.get(&local_name) {
         return Err(TypeError {
-            message: format!(
-                "'{}' is already imported (from '{}')",
-                local_name, existing
-            ),
+            message: format!("'{}' is already imported (from '{}')", local_name, existing),
         });
     }
     imports.insert(local_name, qualified);
@@ -320,9 +324,9 @@ pub fn resolve_module_imports(
                         check_pub_reexport_visible(&qualified, definitions)?;
                     }
 
-                    let local_name = alias.clone().unwrap_or_else(|| {
-                        use_decl.path.segments.last().unwrap().clone()
-                    });
+                    let local_name = alias
+                        .clone()
+                        .unwrap_or_else(|| use_decl.path.segments.last().unwrap().clone());
                     insert_import(&mut imports, local_name, qualified)?;
                 } else {
                     // Try as import through module re-export
@@ -331,14 +335,20 @@ pub fn resolve_module_imports(
                     let segments = qualified.segments();
                     for prefix_len in (2..segments.len()).rev() {
                         let candidate = QualifiedPath::new(segments[..prefix_len].to_vec());
-                        if let Some(real_module) = resolve_target_module(&candidate, definitions, reexports) {
+                        if let Some(real_module) =
+                            resolve_target_module(&candidate, definitions, reexports)
+                        {
                             // Rewrite the qualified path through the real module
                             let mut new_segments = real_module.segments().to_vec();
                             new_segments.extend_from_slice(&segments[prefix_len..]);
                             let resolved_qualified = QualifiedPath::new(new_segments);
 
                             if definitions.contains_key(&resolved_qualified) {
-                                check_import_visible(&resolved_qualified, current_module, definitions)?;
+                                check_import_visible(
+                                    &resolved_qualified,
+                                    current_module,
+                                    definitions,
+                                )?;
 
                                 if use_decl.visibility == Visibility::Public {
                                     check_pub_reexport_visible(&resolved_qualified, definitions)?;
@@ -372,16 +382,18 @@ pub fn resolve_module_imports(
                 match container {
                     ContainerKind::Module(resolved_module) => {
                         // Check module path visibility
-                        let module_qpath =
-                            QualifiedPath::new(resolved_module.segments().to_vec());
-                        check_import_module_path_visible(&module_qpath, current_module, definitions)?;
+                        let module_qpath = QualifiedPath::new(resolved_module.segments().to_vec());
+                        check_import_module_path_visible(
+                            &module_qpath,
+                            current_module,
+                            definitions,
+                        )?;
 
                         // Find all definitions in the resolved module (exactly one segment deeper)
                         let module_segments = resolved_module.segments();
                         for (qpath, def) in definitions {
                             if qpath.len() == module_segments.len() + 1
-                                && qpath.segments()[..module_segments.len()]
-                                    == module_segments[..]
+                                && qpath.segments()[..module_segments.len()] == module_segments[..]
                             {
                                 let item_name = qpath.last();
 
@@ -402,11 +414,7 @@ pub fn resolve_module_imports(
                                     check_pub_reexport_visible(qpath, definitions)?;
                                 }
 
-                                insert_import(
-                                    &mut imports,
-                                    item_name.to_string(),
-                                    qpath.clone(),
-                                )?;
+                                insert_import(&mut imports, item_name.to_string(), qpath.clone())?;
                             }
                         }
                     }
@@ -418,8 +426,7 @@ pub fn resolve_module_imports(
                         let enum_segments = resolved_enum.segments();
                         for (qpath, def) in definitions {
                             if qpath.len() == enum_segments.len() + 1
-                                && qpath.segments()[..enum_segments.len()]
-                                    == enum_segments[..]
+                                && qpath.segments()[..enum_segments.len()] == enum_segments[..]
                                 && matches!(def, Definition::EnumVariant(..))
                             {
                                 let variant_name = qpath.last();
@@ -450,9 +457,12 @@ pub fn resolve_module_imports(
                 match container {
                     ContainerKind::Module(resolved_module) => {
                         // Check module path visibility
-                        let module_qpath =
-                            QualifiedPath::new(resolved_module.segments().to_vec());
-                        check_import_module_path_visible(&module_qpath, current_module, definitions)?;
+                        let module_qpath = QualifiedPath::new(resolved_module.segments().to_vec());
+                        check_import_module_path_visible(
+                            &module_qpath,
+                            current_module,
+                            definitions,
+                        )?;
 
                         for group_item in items {
                             let qualified = resolved_module.child(&group_item.name);
@@ -568,13 +578,11 @@ mod tests {
 
         let uses = vec![make_use(PathPrefix::Root, &["foo", "bar"])];
         let current = QualifiedPath::root();
-        let imports = resolve_module_imports(&uses, &current, &definitions, &HashMap::new()).unwrap();
+        let imports =
+            resolve_module_imports(&uses, &current, &definitions, &HashMap::new()).unwrap();
 
         assert_eq!(imports.len(), 1);
-        assert_eq!(
-            imports.get("bar"),
-            Some(&qpath("root::foo::bar"))
-        );
+        assert_eq!(imports.get("bar"), Some(&qpath("root::foo::bar")));
     }
 
     #[test]
@@ -727,7 +735,12 @@ mod tests {
         let result = resolve_module_imports(&uses, &current, &definitions, &HashMap::new());
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("pub use cannot re-export private"));
+        assert!(
+            result
+                .unwrap_err()
+                .message
+                .contains("pub use cannot re-export private")
+        );
     }
 
     #[test]
@@ -779,7 +792,11 @@ mod tests {
             },
         }];
         let current = QualifiedPath::root();
-        let result = resolve_module_imports(&uses, &current, &definitions, &HashMap::new()).unwrap();
-        assert_eq!(result.get("Deserialize"), Some(&qpath("serde::Deserialize")));
+        let result =
+            resolve_module_imports(&uses, &current, &definitions, &HashMap::new()).unwrap();
+        assert_eq!(
+            result.get("Deserialize"),
+            Some(&qpath("serde::Deserialize"))
+        );
     }
 }

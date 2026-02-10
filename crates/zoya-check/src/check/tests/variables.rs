@@ -2,13 +2,14 @@ use zoya_ast::{BinOp, Expr, Path};
 use zoya_ir::{Type, TypeScheme};
 use zoya_package::QualifiedPath;
 
-use crate::check::{check_expr, TypeEnv};
+use crate::check::{TypeEnv, check_expr};
 use crate::unify::UnifyCtx;
 
 #[test]
 fn test_check_variable() {
     let mut env = TypeEnv::default();
-    env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
+    env.locals
+        .insert("x".to_string(), TypeScheme::mono(Type::Int));
 
     let mut ctx = UnifyCtx::new();
     let expr = Expr::Path(Path::simple("x".to_string()));
@@ -29,8 +30,10 @@ fn test_check_unknown_variable() {
 #[test]
 fn test_check_variable_in_expression() {
     let mut env = TypeEnv::default();
-    env.locals.insert("x".to_string(), TypeScheme::mono(Type::Int));
-    env.locals.insert("y".to_string(), TypeScheme::mono(Type::Int));
+    env.locals
+        .insert("x".to_string(), TypeScheme::mono(Type::Int));
+    env.locals
+        .insert("y".to_string(), TypeScheme::mono(Type::Int));
 
     let mut ctx = UnifyCtx::new();
     let expr = Expr::BinOp {

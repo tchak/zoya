@@ -7,8 +7,8 @@ use crate::helpers::{ident, path_prefix_parser, validate_typed_pattern};
 use crate::patterns::pattern_parser;
 use crate::types::type_annotation;
 
-pub(crate) fn expr_parser<'a>(
-) -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, Token>>> + Clone {
+pub(crate) fn expr_parser<'a>()
+-> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, Token>>> + Clone {
     recursive(|expr| {
         let literal = select! {
             Token::Int(n) => Expr::Int(n),

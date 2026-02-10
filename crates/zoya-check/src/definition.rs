@@ -7,9 +7,9 @@ use zoya_ir::{
 use zoya_package::QualifiedPath;
 
 use crate::check::TypeEnv;
-use zoya_naming::{is_pascal_case, to_pascal_case};
 use crate::type_resolver::resolve_type_annotation;
 use crate::unify::UnifyCtx;
+use zoya_naming::{is_pascal_case, to_pascal_case};
 
 /// Extract function type from a function definition (for adding to env).
 /// Uses a separate UnifyCtx to create fresh type variables for the signature.
@@ -174,7 +174,8 @@ pub fn enum_type_from_def(
                 let resolved_fields = fields
                     .iter()
                     .map(|f| {
-                        let ty = resolve_type_annotation(&f.typ, &type_param_map, current_module, env)?;
+                        let ty =
+                            resolve_type_annotation(&f.typ, &type_param_map, current_module, env)?;
                         Ok((f.name.clone(), ty))
                     })
                     .collect::<Result<Vec<_>, TypeError>>()?;
@@ -249,7 +250,9 @@ pub fn type_alias_from_def(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zoya_ast::{EnumVariant, EnumVariantKind, Path, StructFieldDef, TypeAnnotation, Visibility};
+    use zoya_ast::{
+        EnumVariant, EnumVariantKind, Path, StructFieldDef, TypeAnnotation, Visibility,
+    };
 
     fn root() -> QualifiedPath {
         QualifiedPath::root()
@@ -265,12 +268,10 @@ mod tests {
             visibility: Visibility::Public,
             name: "Point".to_string(),
             type_params: vec![],
-            fields: vec![
-                StructFieldDef {
-                    name: "x".to_string(),
-                    typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
-                },
-            ],
+            fields: vec![StructFieldDef {
+                name: "x".to_string(),
+                typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
+            }],
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
@@ -353,12 +354,10 @@ mod tests {
             visibility: Visibility::Public,
             name: "Container".to_string(),
             type_params: vec!["T".to_string(), "U".to_string()],
-            fields: vec![
-                StructFieldDef {
-                    name: "value".to_string(),
-                    typ: TypeAnnotation::Named(Path::simple("T".to_string())),
-                },
-            ],
+            fields: vec![StructFieldDef {
+                name: "value".to_string(),
+                typ: TypeAnnotation::Named(Path::simple("T".to_string())),
+            }],
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
@@ -386,7 +385,9 @@ mod tests {
                 },
                 EnumVariant {
                     name: "Some".to_string(),
-                    kind: EnumVariantKind::Tuple(vec![TypeAnnotation::Named(Path::simple("T".to_string()))]),
+                    kind: EnumVariantKind::Tuple(vec![TypeAnnotation::Named(Path::simple(
+                        "T".to_string(),
+                    ))]),
                 },
             ],
         };
@@ -452,12 +453,10 @@ mod tests {
             visibility: Visibility::Public,
             name: "Status".to_string(),
             type_params: vec![],
-            variants: vec![
-                EnumVariant {
-                    name: "ok".to_string(),
-                    kind: EnumVariantKind::Unit,
-                },
-            ],
+            variants: vec![EnumVariant {
+                name: "ok".to_string(),
+                kind: EnumVariantKind::Unit,
+            }],
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
@@ -474,12 +473,10 @@ mod tests {
             visibility: Visibility::Public,
             name: "Status".to_string(),
             type_params: vec![],
-            variants: vec![
-                EnumVariant {
-                    name: "not_found".to_string(),
-                    kind: EnumVariantKind::Unit,
-                },
-            ],
+            variants: vec![EnumVariant {
+                name: "not_found".to_string(),
+                kind: EnumVariantKind::Unit,
+            }],
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
@@ -525,7 +522,9 @@ mod tests {
             variants: vec![
                 EnumVariant {
                     name: "Text".to_string(),
-                    kind: EnumVariantKind::Tuple(vec![TypeAnnotation::Named(Path::simple("String".to_string()))]),
+                    kind: EnumVariantKind::Tuple(vec![TypeAnnotation::Named(Path::simple(
+                        "String".to_string(),
+                    ))]),
                 },
                 EnumVariant {
                     name: "Pair".to_string(),
@@ -554,12 +553,10 @@ mod tests {
             variants: vec![
                 EnumVariant {
                     name: "Circle".to_string(),
-                    kind: EnumVariantKind::Struct(vec![
-                        StructFieldDef {
-                            name: "radius".to_string(),
-                            typ: TypeAnnotation::Named(Path::simple("Float".to_string())),
-                        },
-                    ]),
+                    kind: EnumVariantKind::Struct(vec![StructFieldDef {
+                        name: "radius".to_string(),
+                        typ: TypeAnnotation::Named(Path::simple("Float".to_string())),
+                    }]),
                 },
                 EnumVariant {
                     name: "Rectangle".to_string(),
@@ -591,12 +588,12 @@ mod tests {
             visibility: Visibility::Public,
             name: "Container".to_string(),
             type_params: vec![],
-            variants: vec![
-                EnumVariant {
-                    name: "Value".to_string(),
-                    kind: EnumVariantKind::Tuple(vec![TypeAnnotation::Named(Path::simple("UnknownType".to_string()))]),
-                },
-            ],
+            variants: vec![EnumVariant {
+                name: "Value".to_string(),
+                kind: EnumVariantKind::Tuple(vec![TypeAnnotation::Named(Path::simple(
+                    "UnknownType".to_string(),
+                ))]),
+            }],
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
@@ -612,17 +609,13 @@ mod tests {
             visibility: Visibility::Public,
             name: "Container".to_string(),
             type_params: vec![],
-            variants: vec![
-                EnumVariant {
-                    name: "Data".to_string(),
-                    kind: EnumVariantKind::Struct(vec![
-                        StructFieldDef {
-                            name: "field".to_string(),
-                            typ: TypeAnnotation::Named(Path::simple("UnknownType".to_string())),
-                        },
-                    ]),
-                },
-            ],
+            variants: vec![EnumVariant {
+                name: "Data".to_string(),
+                kind: EnumVariantKind::Struct(vec![StructFieldDef {
+                    name: "field".to_string(),
+                    typ: TypeAnnotation::Named(Path::simple("UnknownType".to_string())),
+                }]),
+            }],
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
@@ -780,12 +773,10 @@ mod tests {
             visibility: Visibility::Private,
             name: "identity".to_string(),
             type_params: vec!["T".to_string()],
-            params: vec![
-                zoya_ast::Param {
-                    pattern: zoya_ast::Pattern::Path(Path::simple("x".to_string())),
-                    typ: TypeAnnotation::Named(Path::simple("T".to_string())),
-                },
-            ],
+            params: vec![zoya_ast::Param {
+                pattern: zoya_ast::Pattern::Path(Path::simple("x".to_string())),
+                typ: TypeAnnotation::Named(Path::simple("T".to_string())),
+            }],
             return_type: Some(TypeAnnotation::Named(Path::simple("T".to_string()))),
             body: zoya_ast::Expr::Int(0),
         };
@@ -827,12 +818,10 @@ mod tests {
             visibility: Visibility::Public,
             name: "foo".to_string(),
             type_params: vec![],
-            params: vec![
-                zoya_ast::Param {
-                    pattern: zoya_ast::Pattern::Path(Path::simple("x".to_string())),
-                    typ: TypeAnnotation::Named(Path::simple("UnknownType".to_string())),
-                },
-            ],
+            params: vec![zoya_ast::Param {
+                pattern: zoya_ast::Pattern::Path(Path::simple("x".to_string())),
+                typ: TypeAnnotation::Named(Path::simple("UnknownType".to_string())),
+            }],
             return_type: None,
             body: zoya_ast::Expr::Int(0),
         };

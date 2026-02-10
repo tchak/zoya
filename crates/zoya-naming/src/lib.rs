@@ -29,9 +29,7 @@ pub fn is_snake_case(name: &str) -> bool {
 pub fn is_pascal_case(name: &str) -> bool {
     let mut chars = name.chars();
     match chars.next() {
-        Some(c) if c.is_ascii_uppercase() => {
-            name.chars().all(|c| c.is_ascii_alphanumeric())
-        }
+        Some(c) if c.is_ascii_uppercase() => name.chars().all(|c| c.is_ascii_alphanumeric()),
         _ => false,
     }
 }

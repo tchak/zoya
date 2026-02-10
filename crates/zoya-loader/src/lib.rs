@@ -3,8 +3,8 @@ use std::fmt::{Debug, Display};
 use std::path::{Path, PathBuf};
 
 // Re-export module types from zoya-package
-pub use zoya_package::{Module, QualifiedPath, Package};
 pub use zoya_package::{ConfigError, PackageConfig};
+pub use zoya_package::{Module, Package, QualifiedPath};
 
 mod source;
 mod sources;
@@ -15,47 +15,30 @@ pub use sources::{FilePath, FsSource, MemorySource};
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum LoaderError<P: Clone + Debug + Display = FilePath> {
     #[error("module '{mod_name}' not found at '{expected_path}'")]
-    ModuleNotFound {
-        mod_name: String,
-        expected_path: P,
-    },
+    ModuleNotFound { mod_name: String, expected_path: P },
     #[error("duplicate module declaration: '{mod_name}'")]
-    DuplicateMod {
-        mod_name: String,
-    },
+    DuplicateMod { mod_name: String },
     #[error("failed to read '{path}': {error}")]
-    SourceError {
-        path: P,
-        error: SourceError,
-    },
+    SourceError { path: P, error: SourceError },
     #[error("lexer error in '{path}': {message}")]
-    LexError {
-        path: P,
-        message: String,
-    },
+    LexError { path: P, message: String },
     #[error("parse error in '{path}': {message}")]
-    ParseError {
-        path: P,
-        message: String,
-    },
-    #[error("invalid module name '{mod_name}': module names must be snake_case (try '{suggestion}')")]
+    ParseError { path: P, message: String },
+    #[error(
+        "invalid module name '{mod_name}': module names must be snake_case (try '{suggestion}')"
+    )]
     InvalidModName {
         mod_name: String,
         suggestion: String,
     },
-    #[error("invalid module name '{mod_name}': this name is reserved (root, self, super, std, zoya)")]
-    ReservedModName {
-        mod_name: String,
-    },
+    #[error(
+        "invalid module name '{mod_name}': this name is reserved (root, self, super, std, zoya)"
+    )]
+    ReservedModName { mod_name: String },
     #[error("no package.toml found in '{}'\nhint: provide a .zoya file path or create a package with `zoya new`", dir.display())]
-    NoPackageToml {
-        dir: PathBuf,
-    },
+    NoPackageToml { dir: PathBuf },
     #[error("main file '{}' not found in package at '{}'", main.display(), package_dir.display())]
-    MainNotFound {
-        main: PathBuf,
-        package_dir: PathBuf,
-    },
+    MainNotFound { main: PathBuf, package_dir: PathBuf },
     #[error("{0}")]
     ConfigError(String),
     #[error("missing root module")]
@@ -97,8 +80,7 @@ fn load_from_directory(dir: &Path) -> Result<Package, LoaderError<FilePath>> {
         });
     }
 
-    let config =
-        PackageConfig::load(dir).map_err(|e| LoaderError::ConfigError(e.to_string()))?;
+    let config = PackageConfig::load(dir).map_err(|e| LoaderError::ConfigError(e.to_string()))?;
     let name = config.module_name();
     let main = config.main_path();
     let output = config.output.map(|o| dir.join(o));
@@ -148,10 +130,12 @@ fn load_module_recursive<S: ModuleSource>(
     pkg: &mut Package,
 ) -> Result<(), LoaderError<S::Path>> {
     // Read file
-    let content = source.read(file_path).map_err(|e| LoaderError::SourceError {
-        path: file_path.clone(),
-        error: e,
-    })?;
+    let content = source
+        .read(file_path)
+        .map_err(|e| LoaderError::SourceError {
+            path: file_path.clone(),
+            error: e,
+        })?;
 
     // Lex
     let tokens = zoya_lexer::lex(&content).map_err(|e| LoaderError::LexError {
@@ -189,7 +173,10 @@ fn load_module_recursive<S: ModuleSource>(
         }
 
         let child_path = module_path.child(&mod_decl.name);
-        children.insert(mod_decl.name.clone(), (child_path.clone(), mod_decl.visibility));
+        children.insert(
+            mod_decl.name.clone(),
+            (child_path.clone(), mod_decl.visibility),
+        );
 
         let submodule_file = source.resolve_submodule(&module_path, &mod_decl.name);
         if !source.exists(&submodule_file) {
@@ -218,7 +205,6 @@ fn load_module_recursive<S: ModuleSource>(
 
     Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -254,8 +240,7 @@ mod tests {
 
     #[test]
     fn test_memory_source_read() {
-        let source = MemorySource::new()
-            .with_module("root", "fn main() -> Int { 42 }");
+        let source = MemorySource::new().with_module("root", "fn main() -> Int { 42 }");
 
         assert!(source.exists(&"root".to_string()));
         assert!(!source.exists(&"missing".to_string()));
@@ -277,11 +262,17 @@ mod tests {
 
         // Nested (utils module looking for helpers)
         let utils_path = QualifiedPath::root().child("utils");
-        assert_eq!(source.resolve_submodule(&utils_path, "helpers"), "utils/helpers");
+        assert_eq!(
+            source.resolve_submodule(&utils_path, "helpers"),
+            "utils/helpers"
+        );
 
         // Deeply nested
         let helpers_path = QualifiedPath::root().child("utils").child("helpers");
-        assert_eq!(source.resolve_submodule(&helpers_path, "deep"), "utils/helpers/deep");
+        assert_eq!(
+            source.resolve_submodule(&helpers_path, "deep"),
+            "utils/helpers/deep"
+        );
     }
 }
 
@@ -360,11 +351,7 @@ mod integration_tests {
         create_file(dir.path(), "main.zoya", "mod utils mod helpers mod types");
         create_file(dir.path(), "utils.zoya", "fn util_fn() -> Int 1");
         create_file(dir.path(), "helpers.zoya", "fn helper_fn() -> Int 2");
-        create_file(
-            dir.path(),
-            "types.zoya",
-            "struct Point { x: Int, y: Int }",
-        );
+        create_file(dir.path(), "types.zoya", "struct Point { x: Int, y: Int }");
 
         let tree = load_package(&dir.path().join("main.zoya")).unwrap();
 
@@ -479,20 +466,18 @@ mod integration_tests {
         let tree = load_package(&dir.path().join("main.zoya")).unwrap();
 
         assert!(tree.get(&QualifiedPath::root()).is_some());
-        assert!(tree
-            .get(&QualifiedPath::root().child("utils"))
-            .is_some());
-        assert!(tree
-            .get(&QualifiedPath::root().child("nonexistent"))
-            .is_none());
+        assert!(tree.get(&QualifiedPath::root().child("utils")).is_some());
+        assert!(
+            tree.get(&QualifiedPath::root().child("nonexistent"))
+                .is_none()
+        );
     }
 
     // === MemorySource integration tests ===
 
     #[test]
     fn test_memory_source_load_single_module() {
-        let source = MemorySource::new()
-            .with_module("root", "fn foo() -> Int 42");
+        let source = MemorySource::new().with_module("root", "fn foo() -> Int 42");
 
         let tree = load_memory_package(&source).unwrap();
 
@@ -543,8 +528,7 @@ mod integration_tests {
 
     #[test]
     fn test_memory_source_error_module_not_found() {
-        let source = MemorySource::new()
-            .with_module("root", "mod missing");
+        let source = MemorySource::new().with_module("root", "mod missing");
 
         let result = load_memory_package(&source);
 

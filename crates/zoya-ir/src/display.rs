@@ -76,7 +76,11 @@ impl TypeVarNamer {
                 let elem_strs: Vec<String> = elems.iter().map(|e| self.format(e)).collect();
                 format!("({})", elem_strs.join(", "))
             }
-            Type::Var(id) => self.names.get(id).cloned().unwrap_or_else(|| format!("?{}", id.0)),
+            Type::Var(id) => self
+                .names
+                .get(id)
+                .cloned()
+                .unwrap_or_else(|| format!("?{}", id.0)),
             Type::Function { params, ret } => {
                 if params.is_empty() {
                     format!("() -> {}", self.format(ret))

@@ -5,9 +5,9 @@ use zoya_ast::{
     UseTarget,
 };
 use zoya_ir::{
-    CheckedPackage, Definition, EnumType, EnumVariantType,
-    FunctionType, ModuleType, QualifiedPath, StructType, Type, TypeAliasType, TypeError,
-    TypeScheme, TypeVarId, TypedEnumConstructFields, TypedExpr, TypedFunction, Visibility,
+    CheckedPackage, Definition, EnumType, EnumVariantType, FunctionType, ModuleType, QualifiedPath,
+    StructType, Type, TypeAliasType, TypeError, TypeScheme, TypeVarId, TypedEnumConstructFields,
+    TypedExpr, TypedFunction, Visibility,
 };
 use zoya_package::Package;
 
@@ -15,13 +15,15 @@ use crate::builtin::{builtin_method, is_numeric_type};
 use crate::definition::{
     enum_type_from_def, function_type_from_def, struct_type_from_def, type_alias_from_def,
 };
-use crate::imports::{resolve_module_imports, resolve_use_module_path, resolve_use_path, ImportTable};
-use zoya_naming::{is_pascal_case, is_snake_case, to_pascal_case, to_snake_case};
+use crate::imports::{
+    ImportTable, resolve_module_imports, resolve_use_module_path, resolve_use_path,
+};
 use crate::pattern::{check_irrefutable, check_let_binding, check_match_arm, check_pattern};
 use crate::resolution::{self, ResolvedPath};
 use crate::type_resolver::resolve_type_annotation;
 use crate::unify::UnifyCtx;
 use crate::usefulness;
+use zoya_naming::{is_pascal_case, is_snake_case, to_pascal_case, to_snake_case};
 
 /// Type environment for checking expressions
 #[derive(Debug, Clone, Default)]
@@ -177,8 +179,14 @@ fn check_path_expr(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    let resolved =
-        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.definitions, &env.reexports)?;
+    let resolved = resolution::resolve_expr_path(
+        path,
+        current_module,
+        &env.locals,
+        &env.imports,
+        &env.definitions,
+        &env.reexports,
+    )?;
 
     match resolved {
         ResolvedPath::Local { name, scheme } => {
@@ -311,8 +319,14 @@ fn check_path_call(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    let resolved =
-        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.definitions, &env.reexports)?;
+    let resolved = resolution::resolve_expr_path(
+        path,
+        current_module,
+        &env.locals,
+        &env.imports,
+        &env.definitions,
+        &env.reexports,
+    )?;
 
     match resolved {
         ResolvedPath::Local { name, scheme } => {
@@ -327,7 +341,15 @@ fn check_path_call(
         ResolvedPath::Definition {
             def: Definition::Function(func_type),
             qualified_path,
-        } => check_function_call(path, &qualified_path, func_type, args, current_module, env, ctx),
+        } => check_function_call(
+            path,
+            &qualified_path,
+            func_type,
+            args,
+            current_module,
+            env,
+            ctx,
+        ),
         ResolvedPath::Definition {
             def: Definition::EnumVariant(enum_type, variant_type),
             qualified_path,
@@ -1064,8 +1086,14 @@ fn check_path_struct(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    let resolved =
-        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.definitions, &env.reexports)?;
+    let resolved = resolution::resolve_expr_path(
+        path,
+        current_module,
+        &env.locals,
+        &env.imports,
+        &env.definitions,
+        &env.reexports,
+    )?;
 
     match resolved {
         ResolvedPath::Definition {
@@ -1544,10 +1572,9 @@ fn make_reexport_definition(def: &Definition) -> Definition {
             ..s.clone()
         }),
         Definition::Enum(e) => Definition::Enum(make_reexport_enum(e)),
-        Definition::EnumVariant(parent_enum, variant_type) => Definition::EnumVariant(
-            make_reexport_enum(parent_enum),
-            variant_type.clone(),
-        ),
+        Definition::EnumVariant(parent_enum, variant_type) => {
+            Definition::EnumVariant(make_reexport_enum(parent_enum), variant_type.clone())
+        }
         Definition::TypeAlias(a) => Definition::TypeAlias(TypeAliasType {
             visibility: Visibility::Public,
             ..a.clone()
@@ -1622,12 +1649,7 @@ fn process_reexports(
                                         .collect();
 
                                     for (local_name, qualified) in items_to_reexport {
-                                        register_reexport(
-                                            env,
-                                            path,
-                                            &local_name,
-                                            &qualified,
-                                        )?;
+                                        register_reexport(env, path, &local_name, &qualified)?;
                                     }
                                 }
                                 Some(Definition::Enum(_)) => {
@@ -1650,12 +1672,7 @@ fn process_reexports(
                                         .collect();
 
                                     for (variant_name, qualified) in variants_to_reexport {
-                                        register_reexport(
-                                            env,
-                                            path,
-                                            &variant_name,
-                                            &qualified,
-                                        )?;
+                                        register_reexport(env, path, &variant_name, &qualified)?;
                                     }
                                 }
                                 _ => {
@@ -1725,8 +1742,7 @@ fn register_reexport(
             name: local_name.to_string(),
         });
         env.register(reexport_path.clone(), reexport_def);
-        env.reexports
-            .insert(reexport_path, qualified.clone());
+        env.reexports.insert(reexport_path, qualified.clone());
         return Ok(());
     }
 
@@ -1817,18 +1833,26 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
 
     for path in &module_paths {
         if let Some(module) = pkg.modules.get(path) {
-            let pkg_uses: Vec<UseDecl> = module.items.iter().filter_map(|item| {
-                if let Item::Use(u) = item
-                    && matches!(u.path.prefix, zoya_ast::PathPrefix::Package(_))
-                {
-                    Some(u.clone())
-                } else {
-                    None
-                }
-            }).collect();
+            let pkg_uses: Vec<UseDecl> = module
+                .items
+                .iter()
+                .filter_map(|item| {
+                    if let Item::Use(u) = item
+                        && matches!(u.path.prefix, zoya_ast::PathPrefix::Package(_))
+                    {
+                        Some(u.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
             if !pkg_uses.is_empty() {
-                let item_imports = resolve_module_imports(&pkg_uses, path, &env.definitions, &env.reexports)?;
-                env.imports.entry(path.clone()).or_default().extend(item_imports);
+                let item_imports =
+                    resolve_module_imports(&pkg_uses, path, &env.definitions, &env.reexports)?;
+                env.imports
+                    .entry(path.clone())
+                    .or_default()
+                    .extend(item_imports);
             }
         }
     }
@@ -1916,17 +1940,25 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
     // Skip package-prefix imports (already resolved in Phase 0.5)
     for path in &module_paths {
         if let Some(module) = pkg.modules.get(path) {
-            let uses: Vec<UseDecl> = module.items.iter().filter_map(|item| {
-                if let Item::Use(u) = item
-                    && !matches!(u.path.prefix, zoya_ast::PathPrefix::Package(_))
-                {
-                    Some(u.clone())
-                } else {
-                    None
-                }
-            }).collect();
-            let item_imports = resolve_module_imports(&uses, path, &env.definitions, &env.reexports)?;
-            env.imports.entry(path.clone()).or_default().extend(item_imports);
+            let uses: Vec<UseDecl> = module
+                .items
+                .iter()
+                .filter_map(|item| {
+                    if let Item::Use(u) = item
+                        && !matches!(u.path.prefix, zoya_ast::PathPrefix::Package(_))
+                    {
+                        Some(u.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            let item_imports =
+                resolve_module_imports(&uses, path, &env.definitions, &env.reexports)?;
+            env.imports
+                .entry(path.clone())
+                .or_default()
+                .extend(item_imports);
         }
     }
 

@@ -60,9 +60,11 @@ pub fn execute(path: &Path, name_override: Option<&str>) -> Result<(), NewError>
 
     // Create src/main.zoya
     let main_path = src_dir.join("main.zoya");
-    std::fs::write(&main_path, "pub fn main() { \"hello world\" }\n").map_err(|e| NewError::Io {
-        path: main_path,
-        source: e,
+    std::fs::write(&main_path, "pub fn main() { \"hello world\" }\n").map_err(|e| {
+        NewError::Io {
+            path: main_path,
+            source: e,
+        }
     })?;
 
     println!("Created project '{}' at {}", name, path.display());
