@@ -18,7 +18,7 @@ use std::path::Path;
 use zoya_loader::{load_package, load_memory_package, MemorySource, QualifiedPath};
 
 // Load from filesystem (file, directory, or package.toml)
-let pkg = load_package(Path::new("src/main.zoya"))?;
+let pkg = load_package(Path::new("src/main.zy"))?;
 
 // Access loaded modules
 let root = pkg.root().unwrap();
@@ -36,11 +36,11 @@ let pkg = load_memory_package(&source)?;
 
 ## Module Resolution
 
-Given a file `main.zoya` containing `mod utils`, the loader looks for:
-- `utils.zoya` in the same directory as `main.zoya`
+Given a file `main.zy` containing `mod utils`, the loader looks for:
+- `utils.zy` in the same directory as `main.zy`
 
-For nested modules like `mod helpers` inside `utils.zoya`:
-- `utils/helpers.zoya` relative to the base directory
+For nested modules like `mod helpers` inside `utils.zy`:
+- `utils/helpers.zy` relative to the base directory
 
 Module names must be valid `snake_case` identifiers and not reserved names (`root`, `self`, `super`, `std`, `zoya`).
 
@@ -49,7 +49,7 @@ Module names must be valid `snake_case` identifiers and not reserved names (`roo
 ```rust
 use zoya_loader::{load_package, LoaderError};
 
-match load_package(Path::new("missing.zoya")) {
+match load_package(Path::new("missing.zy")) {
     Err(LoaderError::SourceError { path, error }) => {
         println!("Failed to read {}: {}", path, error);
     }

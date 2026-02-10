@@ -9,14 +9,14 @@ This is the main binary crate that provides the `zoya` CLI tool for compiling an
 ```bash
 zoya new my_project                # Create a new project
 zoya repl                          # Start interactive REPL
-zoya repl file.zoya                # REPL with file preloaded
-zoya run file.zoya                 # Execute a file
+zoya repl file.zy                # REPL with file preloaded
+zoya run file.zy                 # Execute a file
 zoya run                           # Run package in current directory
 zoya run path/to/project           # Run package at path
-zoya check file.zoya               # Type-check without running
+zoya check file.zy               # Type-check without running
 zoya check                         # Check package in current directory
-zoya build file.zoya               # Compile to JavaScript (stdout)
-zoya build file.zoya -o out.js     # Compile to file
+zoya build file.zy               # Compile to JavaScript (stdout)
+zoya build file.zy -o out.js     # Compile to file
 ```
 
 ## New Project
@@ -28,13 +28,13 @@ zoya new my_project
 zoya new my_project --name custom_name
 ```
 
-This creates a directory with `package.toml` and `src/main.zoya`.
+This creates a directory with `package.toml` and `src/main.zy`.
 
 ## REPL Features
 
 - Persistent function and type definitions across inputs
 - Let bindings accumulate in scope
-- Load files with `zoya repl file.zoya`
+- Load files with `zoya repl file.zy`
 - Expression evaluation with immediate results
 
 ```
@@ -61,7 +61,7 @@ let result = run_source("fn main() -> Int { 42 }")?;
 assert_eq!(result, Value::Int(42));
 
 // Run from file
-let result = run_file(Path::new("program.zoya"))?;
+let result = run_file(Path::new("program.zy"))?;
 println!("Result: {}", result);
 ```
 

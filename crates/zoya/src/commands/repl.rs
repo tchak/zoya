@@ -957,7 +957,7 @@ mod tests {
     #[test]
     fn test_repl_state_with_file() {
         let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("lib.zoya");
+        let file = dir.path().join("lib.zy");
         std::fs::write(
             &file,
             r#"

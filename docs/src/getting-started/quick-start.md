@@ -21,7 +21,7 @@ let add: (?0, ?0) -> ?0
 
 ## Running a File
 
-Create a file called `hello.zoya`:
+Create a file called `hello.zy`:
 
 ```zoya
 fn main() -> String {
@@ -32,7 +32,7 @@ fn main() -> String {
 Run it:
 
 ```bash
-zoya run hello.zoya
+zoya run hello.zy
 ```
 
 Output:
@@ -45,7 +45,7 @@ Output:
 Validate types without executing:
 
 ```bash
-zoya check program.zoya
+zoya check program.zy
 ```
 
 ## Compiling to JavaScript
@@ -53,6 +53,6 @@ zoya check program.zoya
 Generate JavaScript output:
 
 ```bash
-zoya build program.zoya           # Output to stdout
-zoya build program.zoya -o out.js # Output to file
+zoya build program.zy           # Output to stdout
+zoya build program.zy -o out.js # Output to file
 ```

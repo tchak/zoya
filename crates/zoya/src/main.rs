@@ -16,22 +16,22 @@ struct Cli {
 enum Command {
     /// Run a file
     Run {
-        /// Path to a .zoya file or directory with package.toml (defaults to current directory)
+        /// Path to a .zy file or directory with package.toml (defaults to current directory)
         path: Option<PathBuf>,
     },
     /// Start the interactive REPL
     Repl {
-        /// Path to a .zoya file or directory with package.toml (defaults to current directory)
+        /// Path to a .zy file or directory with package.toml (defaults to current directory)
         path: Option<PathBuf>,
     },
     /// Type-check a file without executing
     Check {
-        /// Path to a .zoya file or directory with package.toml (defaults to current directory)
+        /// Path to a .zy file or directory with package.toml (defaults to current directory)
         path: Option<PathBuf>,
     },
     /// Compile a file to JavaScript
     Build {
-        /// Path to a .zoya file or directory with package.toml (defaults to current directory)
+        /// Path to a .zy file or directory with package.toml (defaults to current directory)
         path: Option<PathBuf>,
         /// Output file (overrides package.toml output)
         #[arg(short, long)]
@@ -39,7 +39,7 @@ enum Command {
     },
     /// Format source files
     Fmt {
-        /// Path to a .zoya file or directory (defaults to current directory)
+        /// Path to a .zy file or directory (defaults to current directory)
         path: Option<PathBuf>,
         /// Check if files are formatted without writing (exit 1 if not)
         #[arg(long)]

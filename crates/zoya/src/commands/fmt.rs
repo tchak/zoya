@@ -1,14 +1,14 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Format .zoya source files
+/// Format .zy source files
 pub fn execute(path: &Path, check: bool) -> Result<(), String> {
     let files = if path.is_file() {
         vec![path.to_path_buf()]
     } else if path.is_dir() {
-        let files = collect_zoya_files(path);
+        let files = collect_zy_files(path);
         if files.is_empty() {
-            return Err(format!("no .zoya files found in '{}'", path.display()));
+            return Err(format!("no .zy files found in '{}'", path.display()));
         }
         files
     } else {
@@ -89,14 +89,14 @@ pub fn execute(path: &Path, check: bool) -> Result<(), String> {
     }
 }
 
-fn collect_zoya_files(dir: &Path) -> Vec<PathBuf> {
+fn collect_zy_files(dir: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    collect_zoya_files_recursive(dir, &mut files);
+    collect_zy_files_recursive(dir, &mut files);
     files.sort();
     files
 }
 
-fn collect_zoya_files_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
+fn collect_zy_files_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(_) => return,
@@ -105,8 +105,8 @@ fn collect_zoya_files_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            collect_zoya_files_recursive(&path, files);
-        } else if path.extension().is_some_and(|ext| ext == "zoya") {
+            collect_zy_files_recursive(&path, files);
+        } else if path.extension().is_some_and(|ext| ext == "zy") {
             files.push(path);
         }
     }
@@ -119,7 +119,7 @@ mod tests {
     #[test]
     fn test_format_single_file() {
         let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("test.zoya");
+        let file = dir.path().join("test.zy");
         // Unformatted: private before pub
         fs::write(&file, "fn bar() -> Int 1\npub fn foo() -> Int 2\n").unwrap();
 
@@ -133,7 +133,7 @@ mod tests {
     #[test]
     fn test_format_already_formatted() {
         let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("test.zoya");
+        let file = dir.path().join("test.zy");
         let formatted = "pub fn main() -> Int 42\n";
         fs::write(&file, formatted).unwrap();
 
@@ -147,7 +147,7 @@ mod tests {
     #[test]
     fn test_check_mode_passes() {
         let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("test.zoya");
+        let file = dir.path().join("test.zy");
         let formatted = "pub fn main() -> Int 42\n";
         fs::write(&file, formatted).unwrap();
 
@@ -158,14 +158,14 @@ mod tests {
     #[test]
     fn test_check_mode_fails() {
         let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("test.zoya");
+        let file = dir.path().join("test.zy");
         fs::write(&file, "fn bar() -> Int 1\npub fn foo() -> Int 2\n").unwrap();
 
         let result = execute(&file, true);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.contains("not formatted"));
-        assert!(err.contains("test.zoya"));
+        assert!(err.contains("test.zy"));
 
         // File should not have been modified
         let content = fs::read_to_string(&file).unwrap();
@@ -176,15 +176,15 @@ mod tests {
     fn test_format_directory() {
         let dir = tempfile::tempdir().unwrap();
 
-        let file1 = dir.path().join("a.zoya");
+        let file1 = dir.path().join("a.zy");
         fs::write(&file1, "fn bar() -> Int 1\npub fn foo() -> Int 2\n").unwrap();
 
-        let file2 = dir.path().join("b.zoya");
+        let file2 = dir.path().join("b.zy");
         fs::write(&file2, "pub fn main() -> Int 42\n").unwrap();
 
         let subdir = dir.path().join("sub");
         fs::create_dir(&subdir).unwrap();
-        let file3 = subdir.join("c.zoya");
+        let file3 = subdir.join("c.zy");
         fs::write(&file3, "fn baz() -> Int 3\npub fn qux() -> Int 4\n").unwrap();
 
         let result = execute(dir.path(), false);
@@ -205,7 +205,7 @@ mod tests {
 
     #[test]
     fn test_file_not_found() {
-        let result = execute(Path::new("nonexistent.zoya"), false);
+        let result = execute(Path::new("nonexistent.zy"), false);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("path not found"));
     }
@@ -213,10 +213,10 @@ mod tests {
     #[test]
     fn test_parse_error_continues() {
         let dir = tempfile::tempdir().unwrap();
-        let bad_file = dir.path().join("bad.zoya");
+        let bad_file = dir.path().join("bad.zy");
         fs::write(&bad_file, "this is not valid zoya syntax !!!").unwrap();
 
-        let good_file = dir.path().join("good.zoya");
+        let good_file = dir.path().join("good.zy");
         fs::write(&good_file, "pub fn main() -> Int 42\n").unwrap();
 
         let result = execute(dir.path(), false);
@@ -233,6 +233,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let result = execute(dir.path(), false);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("no .zoya files found"));
+        assert!(result.unwrap_err().contains("no .zy files found"));
     }
 }

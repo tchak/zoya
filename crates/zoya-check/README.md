@@ -25,7 +25,7 @@ use std::path::Path;
 
 // Load and type-check a package with standard library
 let std = std();
-let pkg = load_package(Path::new("src/main.zoya"))?;
+let pkg = load_package(Path::new("src/main.zy"))?;
 let checked_pkg = check(&pkg, &[std])?;
 
 // Access checked functions

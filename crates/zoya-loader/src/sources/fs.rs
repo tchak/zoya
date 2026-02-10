@@ -99,7 +99,7 @@ impl ModuleSource for FsSource {
             // Skip "root"
             path.push(segment);
         }
-        path.push(format!("{}.zoya", mod_name));
+        path.push(format!("{}.zy", mod_name));
         FilePath::new(path)
     }
 }

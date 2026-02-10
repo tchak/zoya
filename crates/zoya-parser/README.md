@@ -19,7 +19,7 @@ Transforms a token stream into an Abstract Syntax Tree using [Chumsky](https://g
 use zoya_lexer::lex;
 use zoya_parser::{parse_module, parse_input};
 
-// Parse a module file (for .zoya files)
+// Parse a module file (for .zy files)
 let tokens = lex("pub mod utils\nuse root::utils::helper\nfn main() -> Int { helper() }").unwrap();
 let module = parse_module(tokens).unwrap();
 // module.mods - mod declarations (with visibility)

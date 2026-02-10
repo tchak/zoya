@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 pub struct PackageConfig {
     /// Package name (lowercase alphanumeric with underscores or hyphens)
     pub name: String,
-    /// Relative path to the main entry file (defaults to "src/main.zoya")
+    /// Relative path to the main entry file (defaults to "src/main.zy")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub main: Option<PathBuf>,
     /// Output path for build artifacts (defaults to "build/{name}.js")
@@ -22,7 +22,7 @@ impl PackageConfig {
     pub fn main_path(&self) -> PathBuf {
         self.main
             .clone()
-            .unwrap_or_else(|| PathBuf::from("src/main.zoya"))
+            .unwrap_or_else(|| PathBuf::from("src/main.zy"))
     }
 
     /// Get the output file path, using default if not specified.
@@ -144,13 +144,13 @@ mod tests {
     fn test_to_toml() {
         let config = PackageConfig {
             name: "my_project".to_string(),
-            main: Some(PathBuf::from("src/main.zoya")),
+            main: Some(PathBuf::from("src/main.zy")),
             output: Some(PathBuf::from("dist/out.js")),
         };
 
         let toml = config.to_toml();
         assert!(toml.contains("name = \"my_project\""));
-        assert!(toml.contains("main = \"src/main.zoya\""));
+        assert!(toml.contains("main = \"src/main.zy\""));
         assert!(toml.contains("output = \"dist/out.js\""));
     }
 
@@ -177,14 +177,14 @@ mod tests {
             &config_path,
             r#"
 name = "test_project"
-main = "src/main.zoya"
+main = "src/main.zy"
 "#,
         )
         .unwrap();
 
         let config = PackageConfig::load_from(&config_path).unwrap();
         assert_eq!(config.name, "test_project");
-        assert_eq!(config.main, Some(PathBuf::from("src/main.zoya")));
+        assert_eq!(config.main, Some(PathBuf::from("src/main.zy")));
     }
 
     #[test]
@@ -204,7 +204,7 @@ name = "test_project"
         assert_eq!(config.name, "test_project");
         assert_eq!(config.main, None);
         assert_eq!(config.output, None);
-        assert_eq!(config.main_path(), PathBuf::from("src/main.zoya"));
+        assert_eq!(config.main_path(), PathBuf::from("src/main.zy"));
         assert_eq!(config.output_path(), PathBuf::from("build/test_project.js"));
     }
 
@@ -215,7 +215,7 @@ name = "test_project"
             dir.path().join("package.toml"),
             r#"
 name = "loaded_project"
-main = "src/main.zoya"
+main = "src/main.zy"
 "#,
         )
         .unwrap();
@@ -265,14 +265,14 @@ name = "Invalid Name"
             main: None,
             output: None,
         };
-        assert_eq!(config.main_path(), PathBuf::from("src/main.zoya"));
+        assert_eq!(config.main_path(), PathBuf::from("src/main.zy"));
 
         let config = PackageConfig {
             name: "test".to_string(),
-            main: Some(PathBuf::from("lib/app.zoya")),
+            main: Some(PathBuf::from("lib/app.zy")),
             output: None,
         };
-        assert_eq!(config.main_path(), PathBuf::from("lib/app.zoya"));
+        assert_eq!(config.main_path(), PathBuf::from("lib/app.zy"));
     }
 
     #[test]

@@ -300,11 +300,11 @@ mod_decl ::= visibility 'mod' identifier
 
 A module declaration declares a submodule. Each declaration corresponds to a source file:
 
-- `mod foo` in the root module expects `foo.zoya` in the same directory
-- `mod bar` in module `foo` expects `foo/bar.zoya`
+- `mod foo` in the root module expects `foo.zy` in the same directory
+- `mod bar` in module `foo` expects `foo/bar.zy`
 
 ```zoya
-// root module (main.zoya)
+// root module (main.zy)
 pub mod utils
 mod internal
 ```

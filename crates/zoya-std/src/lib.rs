@@ -9,10 +9,10 @@ static STD_PACKAGE: LazyLock<CheckedPackage> =
 
 fn build_std() -> Result<CheckedPackage, String> {
     let source = MemorySource::new()
-        .with_module("root", include_str!("std/main.zoya"))
-        .with_module("option", include_str!("std/option.zoya"))
-        .with_module("prelude", include_str!("std/prelude.zoya"))
-        .with_module("result", include_str!("std/result.zoya"));
+        .with_module("root", include_str!("std/main.zy"))
+        .with_module("option", include_str!("std/option.zy"))
+        .with_module("prelude", include_str!("std/prelude.zy"))
+        .with_module("result", include_str!("std/result.zy"));
 
     let mut pkg =
         load_memory_package(&source).map_err(|e| format!("failed to load std package: {e}"))?;

@@ -7,37 +7,37 @@ Zoya programs are organized into a tree of modules. Each module has a path, a se
 Every program has a single root module. All other modules are descendants of the root, forming a tree:
 
 ```
-root                    (main.zoya)
-├── utils               (utils.zoya)
-│   └── helpers         (utils/helpers.zoya)
-├── types               (types.zoya)
-└── app                 (app.zoya)
+root                    (main.zy)
+├── utils               (utils.zy)
+│   └── helpers         (utils/helpers.zy)
+├── types               (types.zy)
+└── app                 (app.zy)
 ```
 
 The root module has the path `root`. Child modules extend their parent's path: `root::utils`, `root::utils::helpers`, etc.
 
 ## File-to-Module Mapping
 
-Each module corresponds to a single source file. The root module is the entry point file (typically `main.zoya`). Submodule files are located relative to their parent:
+Each module corresponds to a single source file. The root module is the entry point file (typically `main.zy`). Submodule files are located relative to their parent:
 
 | Module path | Parent file | Expected file |
 |-------------|-------------|---------------|
-| `root` | — | `main.zoya` |
-| `root::utils` | `main.zoya` | `utils.zoya` |
-| `root::utils::helpers` | `utils.zoya` | `utils/helpers.zoya` |
-| `root::app` | `main.zoya` | `app.zoya` |
+| `root` | — | `main.zy` |
+| `root::utils` | `main.zy` | `utils.zy` |
+| `root::utils::helpers` | `utils.zy` | `utils/helpers.zy` |
+| `root::app` | `main.zy` | `app.zy` |
 
 A `mod` declaration in a parent module causes the compiler to load the corresponding file:
 
 ```zoya
-// main.zoya (root module)
-pub mod utils       // loads utils.zoya
-mod internal        // loads internal.zoya
+// main.zy (root module)
+pub mod utils       // loads utils.zy
+mod internal        // loads internal.zy
 ```
 
 ```zoya
-// utils.zoya (root::utils)
-pub mod helpers     // loads utils/helpers.zoya
+// utils.zy (root::utils)
+pub mod helpers     // loads utils/helpers.zy
 ```
 
 A module name must not be declared more than once in the same parent module. Module names must not be reserved names (`root`, `self`, `super`, `std`, `zoya`), as these conflict with path prefixes or the standard library.

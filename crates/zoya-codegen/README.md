@@ -23,7 +23,7 @@ use std::path::Path;
 
 // Load and type-check with standard library
 let std = std();
-let pkg = load_package(Path::new("src/main.zoya"))?;
+let pkg = load_package(Path::new("src/main.zy"))?;
 let checked_pkg = check(&pkg, &[std])?;
 
 // Generate JavaScript

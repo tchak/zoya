@@ -21,7 +21,7 @@ mod tests {
     #[test]
     fn test_execute_success() {
         let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("test.zoya");
+        let file = dir.path().join("test.zy");
         std::fs::write(&file, "pub fn main() -> Int { 42 }").unwrap();
 
         let result = execute(&file);
@@ -30,14 +30,14 @@ mod tests {
 
     #[test]
     fn test_execute_file_not_found() {
-        let result = execute(Path::new("nonexistent.zoya"));
+        let result = execute(Path::new("nonexistent.zy"));
         assert!(result.is_err());
     }
 
     #[test]
     fn test_execute_type_error() {
         let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("test.zoya");
+        let file = dir.path().join("test.zy");
         std::fs::write(&file, "pub fn main() -> Int { true }").unwrap();
 
         let result = execute(&file);
@@ -47,7 +47,7 @@ mod tests {
     #[test]
     fn test_execute_missing_main() {
         let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("test.zoya");
+        let file = dir.path().join("test.zy");
         std::fs::write(&file, "fn helper() -> Int { 1 }").unwrap();
 
         let result = execute(&file);
@@ -59,7 +59,7 @@ mod tests {
     #[test]
     fn test_execute_main_with_parameters() {
         let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("test.zoya");
+        let file = dir.path().join("test.zy");
         std::fs::write(&file, "pub fn main(x: Int) -> Int { x }").unwrap();
 
         let result = execute(&file);
@@ -71,7 +71,7 @@ mod tests {
     #[test]
     fn test_execute_returns_bool() {
         let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("test.zoya");
+        let file = dir.path().join("test.zy");
         std::fs::write(&file, "pub fn main() -> Bool { true }").unwrap();
 
         let result = execute(&file);
@@ -81,7 +81,7 @@ mod tests {
     #[test]
     fn test_execute_returns_string() {
         let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("test.zoya");
+        let file = dir.path().join("test.zy");
         std::fs::write(&file, r#"pub fn main() -> String { "hello" }"#).unwrap();
 
         let result = execute(&file);
@@ -93,7 +93,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
 
         // Create main module with mod declaration
-        let main_file = dir.path().join("main.zoya");
+        let main_file = dir.path().join("main.zy");
         std::fs::write(
             &main_file,
             r#"
@@ -105,7 +105,7 @@ mod tests {
         .unwrap();
 
         // Create child module with public function
-        let utils_file = dir.path().join("utils.zoya");
+        let utils_file = dir.path().join("utils.zy");
         std::fs::write(
             &utils_file,
             r#"

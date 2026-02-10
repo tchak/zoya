@@ -40,19 +40,19 @@ crates/
     └── src/
         ├── lib.rs         # Loads and caches std package
         └── std/           # Zoya source files
-            ├── main.zoya
-            ├── option.zoya
-            └── result.zoya
+            ├── main.zy
+            ├── option.zy
+            └── result.zy
 ```
 
 ## Commands
 
 ```bash
 cargo run -p zoya -- repl             # REPL
-cargo run -p zoya -- run file.zoya    # Run file
+cargo run -p zoya -- run file.zy    # Run file
 cargo run -p zoya -- run              # Run package in current directory
-cargo run -p zoya -- check file.zoya  # Type-check only
-cargo run -p zoya -- build file.zoya  # Compile to JS
+cargo run -p zoya -- check file.zy  # Type-check only
+cargo run -p zoya -- build file.zy  # Compile to JS
 cargo run -p zoya -- new my_project   # Create new project
 cargo test --workspace                # Run all tests
 cargo clippy --workspace              # Lint

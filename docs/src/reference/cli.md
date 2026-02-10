@@ -15,7 +15,7 @@ zoya repl
 Run a Zoya file. Executes the `main` function and prints its result.
 
 ```bash
-zoya run program.zoya
+zoya run program.zy
 ```
 
 ### `zoya check <file>`
@@ -23,7 +23,7 @@ zoya run program.zoya
 Type-check a file without executing it.
 
 ```bash
-zoya check program.zoya
+zoya check program.zy
 ```
 
 ### `zoya build <file>`
@@ -31,8 +31,8 @@ zoya check program.zoya
 Compile a Zoya file to JavaScript.
 
 ```bash
-zoya build program.zoya           # Output to stdout
-zoya build program.zoya -o out.js # Output to file
+zoya build program.zy           # Output to stdout
+zoya build program.zy -o out.js # Output to file
 ```
 
 ## Global Options

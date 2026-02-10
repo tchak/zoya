@@ -499,34 +499,34 @@ mod tests {
 
     #[test]
     fn test_idempotency_std_main() {
-        let source = include_str!("../../zoya-std/src/std/main.zoya");
+        let source = include_str!("../../zoya-std/src/std/main.zy");
         let first = format_source(source);
         let second = format_source(&first);
-        assert_eq!(first, second, "std/main.zoya not idempotent");
+        assert_eq!(first, second, "std/main.zy not idempotent");
     }
 
     #[test]
     fn test_idempotency_std_option() {
-        let source = include_str!("../../zoya-std/src/std/option.zoya");
+        let source = include_str!("../../zoya-std/src/std/option.zy");
         let first = format_source(source);
         let second = format_source(&first);
-        assert_eq!(first, second, "std/option.zoya not idempotent");
+        assert_eq!(first, second, "std/option.zy not idempotent");
     }
 
     #[test]
     fn test_idempotency_std_result() {
-        let source = include_str!("../../zoya-std/src/std/result.zoya");
+        let source = include_str!("../../zoya-std/src/std/result.zy");
         let first = format_source(source);
         let second = format_source(&first);
-        assert_eq!(first, second, "std/result.zoya not idempotent");
+        assert_eq!(first, second, "std/result.zy not idempotent");
     }
 
     #[test]
     fn test_idempotency_std_prelude() {
-        let source = include_str!("../../zoya-std/src/std/prelude.zoya");
+        let source = include_str!("../../zoya-std/src/std/prelude.zy");
         let first = format_source(source);
         let second = format_source(&first);
-        assert_eq!(first, second, "std/prelude.zoya not idempotent");
+        assert_eq!(first, second, "std/prelude.zy not idempotent");
     }
 
     // --- Function without return type ---

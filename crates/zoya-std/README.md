@@ -62,6 +62,6 @@ root
 
 ## Dependencies
 
-- [zoya-check](../zoya-check) - Type checker (compiles the .zoya sources)
+- [zoya-check](../zoya-check) - Type checker (compiles the .zy sources)
 - [zoya-ir](../zoya-ir) - Typed IR types
 - [zoya-loader](../zoya-loader) - Package loading (via `MemorySource`)

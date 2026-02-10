@@ -35,7 +35,7 @@ pub enum LoaderError<P: Clone + Debug + Display = FilePath> {
         "invalid module name '{mod_name}': this name is reserved (root, self, super, std, zoya)"
     )]
     ReservedModName { mod_name: String },
-    #[error("no package.toml found in '{}'\nhint: provide a .zoya file path or create a package with `zoya new`", dir.display())]
+    #[error("no package.toml found in '{}'\nhint: provide a .zy file path or create a package with `zoya new`", dir.display())]
     NoPackageToml { dir: PathBuf },
     #[error("main file '{}' not found in package at '{}'", main.display(), package_dir.display())]
     MainNotFound { main: PathBuf, package_dir: PathBuf },
@@ -50,7 +50,7 @@ pub enum LoaderError<P: Clone + Debug + Display = FilePath> {
 /// Handles three cases:
 /// - **Directory**: looks for `package.toml`, loads config, resolves main file
 /// - **`package.toml` file**: loads config from it
-/// - **`.zoya` file**: treats as standalone file, derives name from filename
+/// - **`.zy` file**: treats as standalone file, derives name from filename
 pub fn load_package(path: &Path) -> Result<Package, LoaderError<FilePath>> {
     if path.is_dir() {
         return load_from_directory(path);
@@ -61,7 +61,7 @@ pub fn load_package(path: &Path) -> Result<Package, LoaderError<FilePath>> {
         return load_from_directory(dir);
     }
 
-    // Standalone .zoya file
+    // Standalone .zy file
     let name = path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -218,7 +218,7 @@ mod tests {
         let source = FsSource::new("/project");
         let root_path = QualifiedPath::root();
         let submodule = source.resolve_submodule(&root_path, "foo");
-        assert_eq!(submodule, FilePath::new("/project/foo.zoya"));
+        assert_eq!(submodule, FilePath::new("/project/foo.zy"));
     }
 
     #[test]
@@ -226,7 +226,7 @@ mod tests {
         let source = FsSource::new("/project");
         let utils_path = QualifiedPath::root().child("utils");
         let submodule = source.resolve_submodule(&utils_path, "bar");
-        assert_eq!(submodule, FilePath::new("/project/utils/bar.zoya"));
+        assert_eq!(submodule, FilePath::new("/project/utils/bar.zy"));
     }
 
     #[test]
@@ -234,7 +234,7 @@ mod tests {
         let source = FsSource::new("/project");
         let helpers_path = QualifiedPath::root().child("utils").child("helpers");
         let submodule = source.resolve_submodule(&helpers_path, "baz");
-        assert_eq!(submodule, FilePath::new("/project/utils/helpers/baz.zoya"));
+        assert_eq!(submodule, FilePath::new("/project/utils/helpers/baz.zy"));
     }
 
     // === MemorySource tests ===
@@ -296,9 +296,9 @@ mod integration_tests {
     #[test]
     fn test_load_single_file_no_mods() {
         let dir = TempDir::new().unwrap();
-        create_file(dir.path(), "main.zoya", "fn foo() -> Int 42");
+        create_file(dir.path(), "main.zy", "fn foo() -> Int 42");
 
-        let tree = load_package(&dir.path().join("main.zoya")).unwrap();
+        let tree = load_package(&dir.path().join("main.zy")).unwrap();
 
         assert_eq!(tree.modules.len(), 1);
         let root = tree.root().unwrap();
@@ -310,9 +310,9 @@ mod integration_tests {
     #[test]
     fn test_load_empty_file() {
         let dir = TempDir::new().unwrap();
-        create_file(dir.path(), "main.zoya", "");
+        create_file(dir.path(), "main.zy", "");
 
-        let tree = load_package(&dir.path().join("main.zoya")).unwrap();
+        let tree = load_package(&dir.path().join("main.zy")).unwrap();
 
         let root = tree.root().unwrap();
         assert!(root.items.is_empty());
@@ -322,14 +322,14 @@ mod integration_tests {
     #[test]
     fn test_load_with_one_submodule() {
         let dir = TempDir::new().unwrap();
-        create_file(dir.path(), "main.zoya", "mod utils");
+        create_file(dir.path(), "main.zy", "mod utils");
         create_file(
             dir.path(),
-            "utils.zoya",
+            "utils.zy",
             "fn add(x: Int, y: Int) -> Int x + y",
         );
 
-        let tree = load_package(&dir.path().join("main.zoya")).unwrap();
+        let tree = load_package(&dir.path().join("main.zy")).unwrap();
 
         assert_eq!(tree.modules.len(), 2);
 
@@ -349,12 +349,12 @@ mod integration_tests {
     #[test]
     fn test_load_with_multiple_submodules() {
         let dir = TempDir::new().unwrap();
-        create_file(dir.path(), "main.zoya", "mod utils mod helpers mod types");
-        create_file(dir.path(), "utils.zoya", "fn util_fn() -> Int 1");
-        create_file(dir.path(), "helpers.zoya", "fn helper_fn() -> Int 2");
-        create_file(dir.path(), "types.zoya", "struct Point { x: Int, y: Int }");
+        create_file(dir.path(), "main.zy", "mod utils mod helpers mod types");
+        create_file(dir.path(), "utils.zy", "fn util_fn() -> Int 1");
+        create_file(dir.path(), "helpers.zy", "fn helper_fn() -> Int 2");
+        create_file(dir.path(), "types.zy", "struct Point { x: Int, y: Int }");
 
-        let tree = load_package(&dir.path().join("main.zoya")).unwrap();
+        let tree = load_package(&dir.path().join("main.zy")).unwrap();
 
         assert_eq!(tree.modules.len(), 4);
 
@@ -365,11 +365,11 @@ mod integration_tests {
     #[test]
     fn test_load_nested_modules() {
         let dir = TempDir::new().unwrap();
-        create_file(dir.path(), "main.zoya", "mod utils");
-        create_file(dir.path(), "utils.zoya", "mod helpers");
-        create_file(dir.path(), "utils/helpers.zoya", "fn deep_fn() -> Int 42");
+        create_file(dir.path(), "main.zy", "mod utils");
+        create_file(dir.path(), "utils.zy", "mod helpers");
+        create_file(dir.path(), "utils/helpers.zy", "fn deep_fn() -> Int 42");
 
-        let tree = load_package(&dir.path().join("main.zoya")).unwrap();
+        let tree = load_package(&dir.path().join("main.zy")).unwrap();
 
         assert_eq!(tree.modules.len(), 3);
 
@@ -387,12 +387,12 @@ mod integration_tests {
     #[test]
     fn test_load_deeply_nested() {
         let dir = TempDir::new().unwrap();
-        create_file(dir.path(), "main.zoya", "mod a");
-        create_file(dir.path(), "a.zoya", "mod b");
-        create_file(dir.path(), "a/b.zoya", "mod c");
-        create_file(dir.path(), "a/b/c.zoya", "fn deep() -> Int 1");
+        create_file(dir.path(), "main.zy", "mod a");
+        create_file(dir.path(), "a.zy", "mod b");
+        create_file(dir.path(), "a/b.zy", "mod c");
+        create_file(dir.path(), "a/b/c.zy", "fn deep() -> Int 1");
 
-        let tree = load_package(&dir.path().join("main.zoya")).unwrap();
+        let tree = load_package(&dir.path().join("main.zy")).unwrap();
 
         assert_eq!(tree.modules.len(), 4);
 
@@ -406,9 +406,9 @@ mod integration_tests {
     #[test]
     fn test_error_module_not_found() {
         let dir = TempDir::new().unwrap();
-        create_file(dir.path(), "main.zoya", "mod missing");
+        create_file(dir.path(), "main.zy", "mod missing");
 
-        let result = load_package(&dir.path().join("main.zoya"));
+        let result = load_package(&dir.path().join("main.zy"));
 
         assert!(
             matches!(result, Err(LoaderError::ModuleNotFound { mod_name, .. }) if mod_name == "missing")
@@ -418,10 +418,10 @@ mod integration_tests {
     #[test]
     fn test_error_duplicate_mod() {
         let dir = TempDir::new().unwrap();
-        create_file(dir.path(), "main.zoya", "mod utils mod utils");
-        create_file(dir.path(), "utils.zoya", "");
+        create_file(dir.path(), "main.zy", "mod utils mod utils");
+        create_file(dir.path(), "utils.zy", "");
 
-        let result = load_package(&dir.path().join("main.zoya"));
+        let result = load_package(&dir.path().join("main.zy"));
 
         assert!(
             matches!(result, Err(LoaderError::DuplicateMod { mod_name }) if mod_name == "utils")
@@ -431,7 +431,7 @@ mod integration_tests {
     #[test]
     fn test_error_io_file_not_found() {
         let dir = TempDir::new().unwrap();
-        let result = load_package(&dir.path().join("nonexistent.zoya"));
+        let result = load_package(&dir.path().join("nonexistent.zy"));
 
         assert!(matches!(result, Err(LoaderError::SourceError { .. })));
     }
@@ -439,9 +439,9 @@ mod integration_tests {
     #[test]
     fn test_error_lex_error() {
         let dir = TempDir::new().unwrap();
-        create_file(dir.path(), "main.zoya", "fn foo() # invalid");
+        create_file(dir.path(), "main.zy", "fn foo() # invalid");
 
-        let result = load_package(&dir.path().join("main.zoya"));
+        let result = load_package(&dir.path().join("main.zy"));
 
         assert!(matches!(result, Err(LoaderError::LexError { .. })));
     }
@@ -449,9 +449,9 @@ mod integration_tests {
     #[test]
     fn test_error_parse_error() {
         let dir = TempDir::new().unwrap();
-        create_file(dir.path(), "main.zoya", "fn fn fn");
+        create_file(dir.path(), "main.zy", "fn fn fn");
 
-        let result = load_package(&dir.path().join("main.zoya"));
+        let result = load_package(&dir.path().join("main.zy"));
 
         assert!(matches!(result, Err(LoaderError::ParseError { .. })));
     }
@@ -461,10 +461,10 @@ mod integration_tests {
     #[test]
     fn test_package_get() {
         let dir = TempDir::new().unwrap();
-        create_file(dir.path(), "main.zoya", "mod utils");
-        create_file(dir.path(), "utils.zoya", "");
+        create_file(dir.path(), "main.zy", "mod utils");
+        create_file(dir.path(), "utils.zy", "");
 
-        let tree = load_package(&dir.path().join("main.zoya")).unwrap();
+        let tree = load_package(&dir.path().join("main.zy")).unwrap();
 
         assert!(tree.get(&QualifiedPath::root()).is_some());
         assert!(tree.get(&QualifiedPath::root().child("utils")).is_some());

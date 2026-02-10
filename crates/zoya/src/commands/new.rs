@@ -58,8 +58,8 @@ pub fn execute(path: &Path, name_override: Option<&str>) -> Result<(), NewError>
         source: e,
     })?;
 
-    // Create src/main.zoya
-    let main_path = src_dir.join("main.zoya");
+    // Create src/main.zy
+    let main_path = src_dir.join("main.zy");
     std::fs::write(&main_path, "pub fn main() { \"hello world\" }\n").map_err(|e| {
         NewError::Io {
             path: main_path,
@@ -133,7 +133,7 @@ mod tests {
         // Check files were created
         assert!(project_path.join("package.toml").exists());
         assert!(project_path.join("src").exists());
-        assert!(project_path.join("src/main.zoya").exists());
+        assert!(project_path.join("src/main.zy").exists());
         assert!(project_path.join(".gitignore").exists());
 
         // Check package.toml content — main should be omitted (uses default)
@@ -142,15 +142,15 @@ mod tests {
         assert_eq!(config.main, None);
         assert_eq!(
             config.main_path(),
-            std::path::PathBuf::from("src/main.zoya")
+            std::path::PathBuf::from("src/main.zy")
         );
 
         // Check .gitignore content
         let gitignore = std::fs::read_to_string(project_path.join(".gitignore")).unwrap();
         assert!(gitignore.contains("build/"));
 
-        // Check main.zoya content
-        let main_content = std::fs::read_to_string(project_path.join("src/main.zoya")).unwrap();
+        // Check main.zy content
+        let main_content = std::fs::read_to_string(project_path.join("src/main.zy")).unwrap();
         assert!(main_content.contains("pub fn main()"));
     }
 

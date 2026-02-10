@@ -78,14 +78,14 @@ This creates:
 my_project/
 ├── package.toml       # Package configuration
 └── src/
-    └── main.zoya      # Entry point
+    └── main.zy      # Entry point
 ```
 
 The `package.toml` file defines the package:
 
 ```toml
 name = "my_project"
-main = "src/main.zoya"
+main = "src/main.zy"
 ```
 
 ### REPL
@@ -110,7 +110,7 @@ let add: (?0, ?0) -> ?0
 ### Run a File
 
 ```bash
-zoya run program.zoya         # Run a single file
+zoya run program.zy         # Run a single file
 zoya run                      # Run package in current directory
 zoya run path/to/project      # Run package at path
 ```
@@ -120,15 +120,15 @@ zoya run path/to/project      # Run package at path
 Validate types without executing:
 
 ```bash
-zoya check program.zoya       # Check a single file
+zoya check program.zy       # Check a single file
 zoya check                    # Check package in current directory
 ```
 
 ### Compile to JavaScript
 
 ```bash
-zoya build program.zoya           # Output to stdout
-zoya build program.zoya -o out.js # Output to file
+zoya build program.zy           # Output to stdout
+zoya build program.zy -o out.js # Output to file
 ```
 
 ## Language Tour
@@ -289,9 +289,9 @@ Pattern matching is exhaustive - the compiler ensures all cases are covered.
 Zoya organizes code into modules using `mod` declarations. Each module maps to a file:
 
 ```zoya
-// src/main.zoya
-mod utils              // loads src/utils.zoya
-mod math               // loads src/math.zoya
+// src/main.zy
+mod utils              // loads src/utils.zy
+mod math               // loads src/math.zy
 
 fn main() -> Int {
     utils::helper()
@@ -299,21 +299,21 @@ fn main() -> Int {
 ```
 
 ```zoya
-// src/utils.zoya
+// src/utils.zy
 pub fn helper() -> Int { 42 }
 ```
 
 For nested modules:
 
 ```zoya
-// src/math.zoya
-mod geometry           // loads src/math/geometry.zoya
+// src/math.zy
+mod geometry           // loads src/math/geometry.zy
 
 pub fn add(x: Int, y: Int) -> Int x + y
 ```
 
 ```zoya
-// src/math/geometry.zoya
+// src/math/geometry.zy
 pub fn area(w: Int, h: Int) -> Int w * h
 ```
 

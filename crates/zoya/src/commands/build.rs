@@ -58,7 +58,7 @@ mod tests {
     #[test]
     fn test_execute_to_file() {
         let dir = tempfile::tempdir().unwrap();
-        let input = dir.path().join("test.zoya");
+        let input = dir.path().join("test.zy");
         let output = dir.path().join("test.js");
         std::fs::write(&input, "pub fn main() -> Int { 42 }").unwrap();
 
@@ -73,7 +73,7 @@ mod tests {
     #[test]
     fn test_execute_no_output_errors() {
         let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("test.zoya");
+        let file = dir.path().join("test.zy");
         std::fs::write(&file, "pub fn main() -> Int { 42 }").unwrap();
 
         let result = execute(&file, None);
@@ -95,7 +95,7 @@ mod tests {
         // Create main file at default location
         std::fs::create_dir(dir.path().join("src")).unwrap();
         std::fs::write(
-            dir.path().join("src/main.zoya"),
+            dir.path().join("src/main.zy"),
             "pub fn main() -> Int { 42 }",
         )
         .unwrap();
@@ -121,7 +121,7 @@ mod tests {
         // Create main file at default location
         std::fs::create_dir(dir.path().join("src")).unwrap();
         std::fs::write(
-            dir.path().join("src/main.zoya"),
+            dir.path().join("src/main.zy"),
             "pub fn main() -> Int { 42 }",
         )
         .unwrap();
@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn test_execute_creates_parent_dirs() {
         let dir = tempfile::tempdir().unwrap();
-        let input = dir.path().join("test.zoya");
+        let input = dir.path().join("test.zy");
         let output = dir.path().join("deep/nested/out.js");
         std::fs::write(&input, "pub fn main() -> Int { 42 }").unwrap();
 
@@ -151,7 +151,7 @@ mod tests {
     #[test]
     fn test_execute_type_error() {
         let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("test.zoya");
+        let file = dir.path().join("test.zy");
         let output = dir.path().join("test.js");
         std::fs::write(&file, "pub fn main() -> Int { true }").unwrap();
 
@@ -162,7 +162,7 @@ mod tests {
     #[test]
     fn test_execute_file_not_found() {
         let output = PathBuf::from("/tmp/out.js");
-        let result = execute(Path::new("nonexistent.zoya"), Some(&output));
+        let result = execute(Path::new("nonexistent.zy"), Some(&output));
         assert!(result.is_err());
     }
 }

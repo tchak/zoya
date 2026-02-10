@@ -8,7 +8,7 @@ Provides functions to run Zoya programs by compiling to JavaScript and executing
 
 - **Package execution** - Run type-checked packages with module and dependency support
 - **Source execution** - Compile and run source strings directly
-- **File execution** - Load, check, and run `.zoya` files
+- **File execution** - Load, check, and run `.zy` files
 - **Value marshaling** - Convert JavaScript results to typed Zoya values
 
 ## Usage
@@ -28,7 +28,7 @@ assert_eq!(result, Value::Int(42));
 use zoya_run::run_file;
 use std::path::Path;
 
-let result = run_file(Path::new("program.zoya"))?;
+let result = run_file(Path::new("program.zy"))?;
 println!("Result: {}", result);
 ```
 
@@ -43,7 +43,7 @@ use std::path::Path;
 
 // Load and type-check with standard library
 let std = std();
-let pkg = load_package(Path::new("src/main.zoya"))?;
+let pkg = load_package(Path::new("src/main.zy"))?;
 let checked_pkg = check(&pkg, &[std])?;
 
 // Run the main function in the root module
