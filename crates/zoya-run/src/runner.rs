@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use zoya_check::check;
@@ -41,11 +42,11 @@ pub fn run(
 
     let return_type = main_def.return_type.clone();
 
-    // Create virtual modules and register dependency modules first
-    let virtual_modules = VirtualModules::new();
+    // Build module map with dependency modules first
+    let mut modules = HashMap::new();
     for dep in deps {
         let dep_output = codegen(dep);
-        virtual_modules.register(&dep.name, dep_output.code);
+        modules.insert(dep.name.clone(), dep_output.code);
     }
 
     // Generate JS module code (ESM with exports)
@@ -53,7 +54,8 @@ pub fn run(
 
     // Register the generated code
     let module_name = format!("{}_{}", package.name, output.hash);
-    virtual_modules.register(&module_name, output.code);
+    modules.insert(module_name.clone(), output.code);
+    let virtual_modules = VirtualModules::new(modules);
 
     // Build the entry function name using the package name
     let entry_func = match module {

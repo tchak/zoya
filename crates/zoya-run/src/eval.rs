@@ -1,36 +1,28 @@
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-pub use rquickjs::Context;
 use rquickjs::loader::{BuiltinResolver, Loader, ModuleLoader, Resolver};
-use rquickjs::{BigInt, CatchResultExt, Ctx, Module, Result as QjsResult, Runtime};
+use rquickjs::{BigInt, CatchResultExt, Context, Ctx, Module, Result as QjsResult, Runtime};
 
 use zoya_ir::{EnumVariantType, Type};
 
 /// Virtual module storage - maps module names to source code
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub(crate) struct VirtualModules {
-    modules: Arc<Mutex<HashMap<String, String>>>,
+    modules: Arc<HashMap<String, String>>,
 }
 
 impl VirtualModules {
-    pub fn new() -> Self {
+    pub fn new(modules: HashMap<String, String>) -> Self {
         Self {
-            modules: Arc::new(Mutex::new(HashMap::new())),
+            modules: Arc::new(modules),
         }
-    }
-
-    /// Register a module with its source code
-    pub fn register(&self, name: &str, source: String) {
-        let mut modules = self.modules.lock().unwrap();
-        modules.insert(name.to_string(), source);
     }
 
     /// Get source code for a module
     pub fn get(&self, name: &str) -> Option<String> {
-        let modules = self.modules.lock().unwrap();
-        modules.get(name).cloned()
+        self.modules.get(name).cloned()
     }
 }
 
@@ -47,12 +39,12 @@ impl VirtualResolver {
 }
 
 impl Resolver for VirtualResolver {
-    fn resolve(&mut self, _ctx: &Ctx<'_>, _base: &str, name: &str) -> QjsResult<String> {
+    fn resolve(&mut self, _ctx: &Ctx<'_>, base: &str, name: &str) -> QjsResult<String> {
         // Check if we have this module registered
         if self.modules.get(name).is_some() {
             Ok(name.to_string())
         } else {
-            Err(rquickjs::Error::new_resolving(_base, name))
+            Err(rquickjs::Error::new_resolving(base, name))
         }
     }
 }
@@ -100,6 +92,15 @@ pub(crate) fn create_module_runtime(
     Ok((runtime, context))
 }
 
+fn map_js_error(e: rquickjs::CaughtError<'_>) -> EvalError {
+    let msg = e.to_string();
+    if msg.contains("division by zero") {
+        EvalError::DivisionByZero
+    } else {
+        EvalError::RuntimeError(msg)
+    }
+}
+
 /// Evaluate an ESM module and get the result
 ///
 /// The module_source should be ESM code that exports functions.
@@ -120,35 +121,14 @@ pub(crate) fn eval_module(
     // Declare and evaluate the entry module
     let entry_module = Module::declare(ctx.clone(), "__entry__", entry_script)
         .catch(ctx)
-        .map_err(|e| {
-            let msg = e.to_string();
-            if msg.contains("division by zero") {
-                EvalError::DivisionByZero
-            } else {
-                EvalError::RuntimeError(msg)
-            }
-        })?;
+        .map_err(map_js_error)?;
 
     // Evaluate the module - eval() takes ownership and returns (Module<Evaluated>, Promise)
-    let (evaluated_module, promise) = entry_module.eval().catch(ctx).map_err(|e| {
-        let msg = e.to_string();
-        if msg.contains("division by zero") {
-            EvalError::DivisionByZero
-        } else {
-            EvalError::RuntimeError(msg)
-        }
-    })?;
+    let (evaluated_module, promise) = entry_module.eval().catch(ctx).map_err(map_js_error)?;
 
     // Check if the promise was rejected (module threw an error)
     // The result() method returns Err(Error::Exception) if rejected
-    let _: () = promise.finish().catch(ctx).map_err(|e| {
-        let msg = e.to_string();
-        if msg.contains("division by zero") {
-            EvalError::DivisionByZero
-        } else {
-            EvalError::RuntimeError(msg)
-        }
-    })?;
+    let _: () = promise.finish().catch(ctx).map_err(map_js_error)?;
 
     // Get the result from the module's exports
     let js_val: rquickjs::Value = evaluated_module.get("$result").catch(ctx).map_err(|e| {
@@ -189,6 +169,32 @@ pub enum EnumValueFields {
     Struct(Vec<(String, Value)>),
 }
 
+fn write_comma_separated(
+    f: &mut fmt::Formatter<'_>,
+    items: impl IntoIterator<Item = impl fmt::Display>,
+) -> fmt::Result {
+    for (i, item) in items.into_iter().enumerate() {
+        if i > 0 {
+            write!(f, ", ")?;
+        }
+        write!(f, "{}", item)?;
+    }
+    Ok(())
+}
+
+fn write_fields(
+    f: &mut fmt::Formatter<'_>,
+    fields: &[(String, Value)],
+) -> fmt::Result {
+    for (i, (k, v)) in fields.iter().enumerate() {
+        if i > 0 {
+            write!(f, ", ")?;
+        }
+        write!(f, "{}: {}", k, v)?;
+    }
+    Ok(())
+}
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -198,26 +204,26 @@ impl fmt::Display for Value {
             Value::Bool(b) => write!(f, "{}", b),
             Value::String(s) => write!(f, "\"{}\"", s),
             Value::List(elements) => {
-                let items: Vec<String> = elements.iter().map(|v| v.to_string()).collect();
-                write!(f, "[{}]", items.join(", "))
+                write!(f, "[")?;
+                write_comma_separated(f, elements)?;
+                write!(f, "]")
             }
             Value::Tuple(elements) => {
-                let items: Vec<String> = elements.iter().map(|v| v.to_string()).collect();
+                write!(f, "(")?;
+                write_comma_separated(f, elements)?;
                 if elements.len() == 1 {
-                    write!(f, "({},)", items.join(", "))
+                    write!(f, ",)")
                 } else {
-                    write!(f, "({})", items.join(", "))
+                    write!(f, ")")
                 }
             }
             Value::Struct { name, fields } => {
                 if fields.is_empty() {
                     write!(f, "{} {{}}", name)
                 } else {
-                    let field_strs: Vec<String> = fields
-                        .iter()
-                        .map(|(k, v)| format!("{}: {}", k, v))
-                        .collect();
-                    write!(f, "{} {{ {} }}", name, field_strs.join(", "))
+                    write!(f, "{} {{ ", name)?;
+                    write_fields(f, fields)?;
+                    write!(f, " }}")
                 }
             }
             Value::Fn { params, ret } => {
@@ -226,8 +232,9 @@ impl fmt::Display for Value {
                 } else if params.len() == 1 {
                     write!(f, "<fn({}) -> {}>", params[0], ret)
                 } else {
-                    let param_strs: Vec<String> = params.iter().map(|p| p.to_string()).collect();
-                    write!(f, "<fn({}) -> {}>", param_strs.join(", "), ret)
+                    write!(f, "<fn(")?;
+                    write_comma_separated(f, params)?;
+                    write!(f, ") -> {}>", ret)
                 }
             }
             Value::Enum {
@@ -239,18 +246,17 @@ impl fmt::Display for Value {
                 match fields {
                     EnumValueFields::Unit => write!(f, "{}", path),
                     EnumValueFields::Tuple(values) => {
-                        let items: Vec<String> = values.iter().map(|v| v.to_string()).collect();
-                        write!(f, "{}({})", path, items.join(", "))
+                        write!(f, "{}(", path)?;
+                        write_comma_separated(f, values)?;
+                        write!(f, ")")
                     }
                     EnumValueFields::Struct(field_values) => {
                         if field_values.is_empty() {
                             write!(f, "{} {{}}", path)
                         } else {
-                            let field_strs: Vec<String> = field_values
-                                .iter()
-                                .map(|(k, v)| format!("{}: {}", k, v))
-                                .collect();
-                            write!(f, "{} {{ {} }}", path, field_strs.join(", "))
+                            write!(f, "{} {{ ", path)?;
+                            write_fields(f, field_values)?;
+                            write!(f, " }}")
                         }
                     }
                 }

@@ -11,6 +11,3 @@ zoya-ir = { path = "../zoya-ir" }
 zoya-loader = { path = "../zoya-loader" }
 zoya-package = { path = "../zoya-package" }
 zoya-std = { path = "../zoya-std" }
-
-[dev-dependencies]
-tempfile = "3"
