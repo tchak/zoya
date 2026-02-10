@@ -296,6 +296,22 @@ pub fn resolve_expr_path<'a>(
         });
     }
 
+    // Priority 4: Package fallback — treat raw segments as a package-rooted path
+    // e.g., std::option::Some → QualifiedPath(["std", "option", "Some"])
+    if path.prefix == PathPrefix::None && path.segments.len() > 1 {
+        let package_path = QualifiedPath::new(path.segments.clone());
+        if let Some(def) = definitions.get(&package_path) {
+            check_module_path_visible(&package_path, current_module, definitions)?;
+            check_item_visibility(def, package_path.last(), current_module)?;
+            let canonical = follow_reexports(&package_path, reexports);
+            let canonical_def = definitions.get(&canonical).unwrap_or(def);
+            return Ok(ResolvedPath::Definition {
+                qualified_path: canonical,
+                def: canonical_def,
+            });
+        }
+    }
+
     // Nothing found - generate appropriate error
     if path.segments.len() == 1 {
         Err(TypeError {
@@ -395,6 +411,22 @@ pub fn resolve_pattern_path<'a>(
             qualified_path: canonical,
             def: canonical_def,
         });
+    }
+
+    // Priority 4: Package fallback — treat raw segments as a package-rooted path
+    // e.g., std::option::Some → QualifiedPath(["std", "option", "Some"])
+    if path.prefix == PathPrefix::None && path.segments.len() > 1 {
+        let package_path = QualifiedPath::new(path.segments.clone());
+        if let Some(def) = definitions.get(&package_path) {
+            check_module_path_visible(&package_path, current_module, definitions)?;
+            check_item_visibility(def, package_path.last(), current_module)?;
+            let canonical = follow_reexports(&package_path, reexports);
+            let canonical_def = definitions.get(&canonical).unwrap_or(def);
+            return Ok(ResolvedPath::Definition {
+                qualified_path: canonical,
+                def: canonical_def,
+            });
+        }
     }
 
     // Nothing found
@@ -913,5 +945,154 @@ mod tests {
         let current = QualifiedPath::root();
         let result = resolve_path(&path, &current).unwrap();
         assert_eq!(result.to_string(), "serde::Deserialize");
+    }
+
+    // ========================================================================
+    // Package Fallback Tests
+    // ========================================================================
+
+    #[test]
+    fn test_package_fallback_resolves_expr_path() {
+        let mut definitions = HashMap::new();
+        definitions.insert(
+            qpath("std::option::Some"),
+            Definition::EnumVariant(
+                EnumType {
+                    visibility: Visibility::Public,
+                    module: qpath("std::option"),
+                    name: "Option".to_string(),
+                    type_params: vec![],
+                    type_var_ids: vec![],
+                    variants: vec![("Some".to_string(), EnumVariantType::Tuple(vec![Type::Int]))],
+                },
+                EnumVariantType::Tuple(vec![Type::Int]),
+            ),
+        );
+        let locals = HashMap::new();
+        let imports = HashMap::new();
+        // Path: std::option::Some with PathPrefix::None (no use import)
+        let path = path_from_segments(PathPrefix::None, &["std", "option", "Some"]);
+        let current = QualifiedPath::root();
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &HashMap::new()).unwrap();
+        match result {
+            ResolvedPath::Definition { qualified_path, .. } => {
+                assert_eq!(qualified_path.to_string(), "std::option::Some");
+            }
+            _ => panic!("expected definition"),
+        }
+    }
+
+    #[test]
+    fn test_package_fallback_resolves_pattern_path() {
+        let mut definitions = HashMap::new();
+        definitions.insert(
+            qpath("std::option::Some"),
+            Definition::EnumVariant(
+                EnumType {
+                    visibility: Visibility::Public,
+                    module: qpath("std::option"),
+                    name: "Option".to_string(),
+                    type_params: vec![],
+                    type_var_ids: vec![],
+                    variants: vec![("Some".to_string(), EnumVariantType::Tuple(vec![Type::Int]))],
+                },
+                EnumVariantType::Tuple(vec![Type::Int]),
+            ),
+        );
+        let imports = HashMap::new();
+        let path = path_from_segments(PathPrefix::None, &["std", "option", "Some"]);
+        let current = QualifiedPath::root();
+        let result = resolve_pattern_path(&path, &current, &imports, &definitions, &HashMap::new()).unwrap();
+        match result {
+            ResolvedPath::Definition { qualified_path, .. } => {
+                assert_eq!(qualified_path.to_string(), "std::option::Some");
+            }
+            _ => panic!("expected definition"),
+        }
+    }
+
+    #[test]
+    fn test_relative_module_path_takes_priority_over_package_fallback() {
+        let mut definitions = HashMap::new();
+        // Package-level definition
+        definitions.insert(
+            qpath("std::option::Some"),
+            Definition::Function(FunctionType {
+                visibility: Visibility::Public,
+                module: qpath("std::option"),
+                type_params: vec![],
+                type_var_ids: vec![],
+                params: vec![],
+                return_type: Type::Int,
+            }),
+        );
+        // Relative module definition (root::std::option::Some) — should win
+        definitions.insert(
+            qpath("root::std::option::Some"),
+            Definition::Function(FunctionType {
+                visibility: Visibility::Public,
+                module: qpath("root::std::option"),
+                type_params: vec![],
+                type_var_ids: vec![],
+                params: vec![],
+                return_type: Type::Bool,
+            }),
+        );
+        let locals = HashMap::new();
+        let imports = HashMap::new();
+        let path = path_from_segments(PathPrefix::None, &["std", "option", "Some"]);
+        let current = QualifiedPath::root();
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &HashMap::new()).unwrap();
+        match result {
+            ResolvedPath::Definition { qualified_path, .. } => {
+                // Relative module path (Priority 3) should win over package fallback (Priority 4)
+                assert_eq!(qualified_path.to_string(), "root::std::option::Some");
+            }
+            _ => panic!("expected definition"),
+        }
+    }
+
+    #[test]
+    fn test_import_takes_priority_over_package_fallback() {
+        let mut definitions = HashMap::new();
+        // Package-level definition
+        definitions.insert(
+            qpath("pkg::utils::helper"),
+            Definition::Function(FunctionType {
+                visibility: Visibility::Public,
+                module: qpath("pkg::utils"),
+                type_params: vec![],
+                type_var_ids: vec![],
+                params: vec![],
+                return_type: Type::Int,
+            }),
+        );
+        // Imported definition that maps "pkg" to something else
+        definitions.insert(
+            qpath("root::other::utils::helper"),
+            Definition::Function(FunctionType {
+                visibility: Visibility::Public,
+                module: qpath("root::other::utils"),
+                type_params: vec![],
+                type_var_ids: vec![],
+                params: vec![],
+                return_type: Type::Bool,
+            }),
+        );
+        let locals = HashMap::new();
+        let mut imports = HashMap::new();
+        let mut root_imports = ImportTable::new();
+        root_imports.insert("pkg".to_string(), qpath("root::other"));
+        imports.insert(QualifiedPath::root(), root_imports);
+        let path = path_from_segments(PathPrefix::None, &["pkg", "utils", "helper"]);
+        let current = QualifiedPath::root();
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &HashMap::new()).unwrap();
+        match result {
+            ResolvedPath::Definition { qualified_path, .. } => {
+                // Import (Priority 2) should win over package fallback (Priority 4)
+                assert_eq!(qualified_path.to_string(), "root::other::utils::helper");
+            }
+            _ => panic!("expected definition"),
+        }
     }
 }

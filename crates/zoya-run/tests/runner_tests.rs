@@ -4331,3 +4331,78 @@ fn test_std_option_multi_module_match() {
     );
 }
 
+// ── std library direct package path tests (no use imports) ─────────
+
+#[test]
+fn test_std_option_direct_some_expr() {
+    let source = r#"
+        pub fn main() -> std::option::Option<Int> { std::option::Some(42) }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some(42)");
+}
+
+#[test]
+fn test_std_option_direct_none_expr() {
+    let source = r#"
+        pub fn main() -> std::option::Option<Int> { std::option::Option::None::<Int> }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::None");
+}
+
+#[test]
+fn test_std_option_direct_match_pattern() {
+    let source = r#"
+        pub fn main() -> Int {
+            let x = std::option::Some(42);
+            match x {
+                std::option::Some(v) => v,
+                std::option::Option::None => 0
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_std_option_direct_type_annotation() {
+    let source = r#"
+        pub fn main() -> Int {
+            let x: std::option::Option<Int> = std::option::Some(10);
+            match x {
+                std::option::Some(v) => v + 1,
+                std::option::Option::None => 0
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(11));
+}
+
+#[test]
+fn test_std_option_direct_multi_module() {
+    run_multi_module_with_std(
+        vec![
+            (
+                "root",
+                r#"
+                mod helper
+
+                use root::helper::make_some
+
+                pub fn main() -> std::option::Option<Int> { make_some(42) }
+            "#,
+            ),
+            (
+                "helper",
+                r#"
+                pub fn make_some(x: Int) -> std::option::Option<Int> { std::option::Some(x) }
+            "#,
+            ),
+        ],
+        "Option::Some(42)",
+    );
+}
+
