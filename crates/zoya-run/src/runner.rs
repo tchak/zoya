@@ -17,6 +17,7 @@ use crate::eval::{self, EvalError, Value, VirtualModules};
 /// unresolved type variables.
 pub fn run(
     package: CheckedPackage,
+    deps: &[&CheckedPackage],
     module: Option<&str>,
     return_type: Option<Type>,
 ) -> Result<Value, EvalError> {
@@ -45,11 +46,17 @@ pub fn run(
     // Use provided return type or fall back to the one from the checked package
     let return_type = return_type.unwrap_or_else(|| main_def.return_type.clone());
 
+    // Create virtual modules and register dependency modules first
+    let virtual_modules = VirtualModules::new();
+    for dep in deps {
+        let dep_output = codegen(dep);
+        virtual_modules.register(&dep.name, dep_output.code);
+    }
+
     // Generate JS module code (ESM with exports)
     let output = codegen(&package);
 
-    // Create virtual modules and register the generated code
-    let virtual_modules = VirtualModules::new();
+    // Register the generated code
     let module_name = format!("{}_{}", package.name, output.hash);
     virtual_modules.register(&module_name, output.code);
 
@@ -69,17 +76,19 @@ pub fn run(
 
 /// Load, check, and run source code from a string
 pub fn run_source(source: &str) -> Result<Value, EvalError> {
+    let std = zoya_std::std();
     let mem_source = MemorySource::new().with_module("root", source);
     let package = load_memory_package(&mem_source)
         .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-    let checked = check(&package).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-    run(checked, None, None)
+    let checked = check(&package, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+    run(checked, &[std], None, None)
 }
 
 /// Load, check, and run source code from a file
 pub fn run_file(path: &Path) -> Result<Value, EvalError> {
+    let std = zoya_std::std();
     let package =
         load_package(path).map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?;
-    let checked = check(&package).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-    run(checked, None, None)
+    let checked = check(&package, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+    run(checked, &[std], None, None)
 }

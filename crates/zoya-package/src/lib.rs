@@ -94,6 +94,16 @@ impl QualifiedPath {
     pub fn iter(&self) -> std::slice::Iter<'_, String> {
         self.0.iter()
     }
+
+    /// Replace the root segment ("root") with a new name.
+    /// e.g., root::option::Option → std::option::Option
+    pub fn with_root(&self, name: &str) -> Self {
+        let mut segments = self.0.clone();
+        if segments.first().is_some_and(|s| s == "root") {
+            segments[0] = name.to_string();
+        }
+        QualifiedPath(segments)
+    }
 }
 
 impl std::fmt::Display for QualifiedPath {
@@ -186,5 +196,20 @@ mod tests {
         let path = QualifiedPath::root().child("a").child("b").child("c");
         assert_eq!(path.segments(), &["root", "a", "b", "c"]);
         assert_eq!(path.to_string(), "root::a::b::c");
+    }
+
+    #[test]
+    fn test_qualified_path_with_root() {
+        let path = QualifiedPath::root().child("option").child("Option");
+        let remapped = path.with_root("std");
+        assert_eq!(remapped.segments(), &["std", "option", "Option"]);
+        assert_eq!(remapped.to_string(), "std::option::Option");
+    }
+
+    #[test]
+    fn test_qualified_path_with_root_no_change() {
+        let path = QualifiedPath::local("x".to_string());
+        let remapped = path.with_root("std");
+        assert_eq!(remapped.segments(), &["x"]);
     }
 }

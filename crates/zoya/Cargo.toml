@@ -17,6 +17,7 @@ zoya-loader = { path = "../zoya-loader" }
 zoya-package = { path = "../zoya-package" }
 zoya-parser = { path = "../zoya-parser" }
 zoya-run = { path = "../zoya-run" }
+zoya-std = { path = "../zoya-std" }
 clap = { version = "4", features = ["derive"] }
 rustyline = "14"
 dirs = "5"

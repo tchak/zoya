@@ -2196,8 +2196,8 @@ fn run_multi_module(modules: Vec<(&str, &str)>, expected: &str) {
     let package = load_memory_package(&source)
         .unwrap_or_else(|e| panic!("failed to load package: {}", e));
     let checked =
-        check(&package).unwrap_or_else(|e| panic!("failed to type check package: {}", e));
-    let result = run(checked, None, None).unwrap_or_else(|e| panic!("failed to run package: {}", e));
+        check(&package, &[]).unwrap_or_else(|e| panic!("failed to type check package: {}", e));
+    let result = run(checked, &[], None, None).unwrap_or_else(|e| panic!("failed to run package: {}", e));
     assert_eq!(result.to_string(), expected, "unexpected result");
 }
 
@@ -2219,7 +2219,7 @@ fn expect_check_error(modules: Vec<(&str, &str)>, expected_substring: &str) {
             );
         }
         Ok(pkg) => {
-            let result = check(&pkg);
+            let result = check(&pkg, &[]);
             assert!(
                 result.is_err(),
                 "expected error containing '{}', but check succeeded",
@@ -2879,7 +2879,7 @@ fn test_error_duplicate_import_names() {
 
 #[test]
 fn test_error_use_without_prefix() {
-    // Parser now treats prefix-free use paths as package paths, which fail at check time
+    // Parser treats prefix-free use paths as package paths; fails because no "utils" package exists
     let mut source = MemorySource::new();
     source.add_module(
         "root",
@@ -2891,10 +2891,10 @@ fn test_error_use_without_prefix() {
     );
     source.add_module("utils", "pub fn helper() -> Int { 42 }");
     let result = load_memory_package(&source);
-    // Parsing succeeds but check fails with "package imports are not implemented yet"
+    // Parsing succeeds but check fails because there's no "utils" package dependency
     assert!(result.is_err() || {
         let pkg = result.unwrap();
-        check(&pkg).is_err()
+        check(&pkg, &[]).is_err()
     });
 }
 

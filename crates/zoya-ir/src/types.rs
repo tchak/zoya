@@ -265,6 +265,41 @@ impl Definition {
             Definition::Module(m) => m.visibility,
         }
     }
+
+    /// Remap the module field, replacing "root" with a new name.
+    pub fn with_root(self, name: &str) -> Self {
+        match self {
+            Definition::Function(f) => Definition::Function(FunctionType {
+                module: f.module.with_root(name),
+                ..f
+            }),
+            Definition::Struct(s) => Definition::Struct(StructType {
+                module: s.module.with_root(name),
+                ..s
+            }),
+            Definition::Enum(e) => Definition::Enum(EnumType {
+                module: e.module.with_root(name),
+                ..e
+            }),
+            Definition::EnumVariant(parent_enum, variant) => {
+                Definition::EnumVariant(
+                    EnumType {
+                        module: parent_enum.module.with_root(name),
+                        ..parent_enum
+                    },
+                    variant,
+                )
+            }
+            Definition::TypeAlias(a) => Definition::TypeAlias(TypeAliasType {
+                module: a.module.with_root(name),
+                ..a
+            }),
+            Definition::Module(m) => Definition::Module(ModuleType {
+                module: m.module.with_root(name),
+                ..m
+            }),
+        }
+    }
 }
 
 /// Type scheme for polymorphic values (let polymorphism)

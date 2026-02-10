@@ -1287,6 +1287,7 @@ dependencies = [
  "zoya-package",
  "zoya-parser",
  "zoya-run",
+ "zoya-std",
 ]
 
 [[package]]
@@ -1375,6 +1376,7 @@ dependencies = [
  "zoya-ir",
  "zoya-loader",
  "zoya-package",
+ "zoya-std",
 ]
 
 [[package]]

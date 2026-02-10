@@ -5,10 +5,11 @@ use zoya_run::{run, EvalError};
 
 /// Run a Zoya package or file and print the result
 pub fn execute(path: &Path) -> Result<(), EvalError> {
+    let std = zoya_std::std();
     let pkg = zoya_loader::load_package(path)
         .map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?;
-    let checked = check(&pkg).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-    let value = run(checked, None, None)?;
+    let checked = check(&pkg, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+    let value = run(checked, &[std], None, None)?;
     println!("{}", value);
     Ok(())
 }

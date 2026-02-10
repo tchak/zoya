@@ -74,6 +74,22 @@ pub fn codegen(pkg: &CheckedPackage) -> CodegenOutput {
     js.push_str(prelude());
     js.push('\n');
 
+    // Generate import statements for dependency functions
+    let mut dep_names: Vec<&String> = pkg.imports.keys().collect();
+    dep_names.sort();
+    for dep_name in dep_names {
+        let paths = &pkg.imports[dep_name];
+        let mut import_names: Vec<String> = paths.iter().map(format_path).collect();
+        import_names.sort();
+        if !import_names.is_empty() {
+            js.push_str(&format!(
+                "import {{ {} }} from '{}';\n",
+                import_names.join(", "),
+                dep_name
+            ));
+        }
+    }
+
     // Sort items by path depth (parents before children)
     let mut item_paths: Vec<_> = pkg.items.keys().collect();
     item_paths.sort_by_key(|p| p.depth());

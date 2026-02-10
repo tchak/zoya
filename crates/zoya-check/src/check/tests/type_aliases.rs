@@ -25,7 +25,7 @@ fn test_type_alias_simple() {
         }),
     ];
     let tree = build_test_package(items);
-    let result = check(&tree);
+    let result = check(&tree, &[]);
     assert!(result.is_ok());
 }
 
@@ -59,7 +59,7 @@ fn test_type_alias_generic() {
         }),
     ];
     let tree = build_test_package(items);
-    let result = check(&tree);
+    let result = check(&tree, &[]);
     assert!(result.is_ok());
 }
 
@@ -73,7 +73,7 @@ fn test_type_alias_non_pascal_case_error() {
         typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
     })];
     let tree = build_test_package(items);
-    let result = check(&tree);
+    let result = check(&tree, &[]);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("PascalCase"));
 }
@@ -105,7 +105,7 @@ fn test_type_alias_wrong_arity_error() {
         }),
     ];
     let tree = build_test_package(items);
-    let result = check(&tree);
+    let result = check(&tree, &[]);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("type argument"));
 }

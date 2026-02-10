@@ -55,9 +55,11 @@ pub(crate) fn resolve_use_path(
             segments.extend(path.segments.iter().cloned());
             Ok(QualifiedPath::new(segments))
         }
-        PathPrefix::Package(name) => Err(TypeError {
-            message: format!("package imports are not implemented yet: {name}"),
-        }),
+        PathPrefix::Package(name) => {
+            let mut segments = vec![name.clone()];
+            segments.extend(path.segments.iter().cloned());
+            Ok(QualifiedPath::new(segments))
+        }
         PathPrefix::None => {
             // This should not happen - parser transforms prefix-free paths to Package
             Err(TypeError {
@@ -103,9 +105,11 @@ pub(crate) fn resolve_use_module_path(
             segments.extend(path.segments.iter().cloned());
             Ok(QualifiedPath::new(segments))
         }
-        PathPrefix::Package(name) => Err(TypeError {
-            message: format!("package imports are not implemented yet: {name}"),
-        }),
+        PathPrefix::Package(name) => {
+            let mut segments = vec![name.clone()];
+            segments.extend(path.segments.iter().cloned());
+            Ok(QualifiedPath::new(segments))
+        }
         PathPrefix::None => Err(TypeError {
             message: "use declarations require a prefix (root::, self::, or super::)".to_string(),
         }),
@@ -748,8 +752,21 @@ mod tests {
     }
 
     #[test]
-    fn test_package_import_not_implemented() {
-        let definitions = HashMap::new();
+    fn test_package_import_resolves() {
+        let mut definitions = HashMap::new();
+        // Register a definition under the package prefix (as if injected from a dep)
+        definitions.insert(
+            qpath("serde::Deserialize"),
+            Definition::Function(FunctionType {
+                visibility: Visibility::Public,
+                module: qpath("serde"),
+                type_params: vec![],
+                type_var_ids: vec![],
+                params: vec![],
+                return_type: Type::Int,
+            }),
+        );
+
         let uses = vec![UseDecl {
             visibility: Visibility::Private,
             path: UsePath {
@@ -759,8 +776,7 @@ mod tests {
             },
         }];
         let current = QualifiedPath::root();
-        let result = resolve_module_imports(&uses, &current, &definitions, &HashMap::new());
-        assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("package imports are not implemented yet"));
+        let result = resolve_module_imports(&uses, &current, &definitions, &HashMap::new()).unwrap();
+        assert_eq!(result.get("Deserialize"), Some(&qpath("serde::Deserialize")));
     }
 }

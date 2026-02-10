@@ -51,9 +51,12 @@ pub fn resolve_path(path: &Path, current_module: &QualifiedPath) -> Result<Quali
             segments.extend(path.segments.iter().cloned());
             Ok(QualifiedPath::new(segments))
         }
-        PathPrefix::Package(name) => Err(TypeError {
-            message: format!("package paths are not implemented yet: {name}::{}", path.segments.join("::")),
-        }),
+        PathPrefix::Package(name) => {
+            // std::option::Option → std::option::Option
+            let mut segments = vec![name.clone()];
+            segments.extend(path.segments.iter().cloned());
+            Ok(QualifiedPath::new(segments))
+        }
         PathPrefix::None => {
             // Relative path: check current module or child module
             resolve_relative_path(path, current_module)
@@ -298,10 +301,6 @@ pub fn resolve_expr_path<'a>(
         Err(TypeError {
             message: format!("unknown identifier: {}", path.segments[0]),
         })
-    } else if path.prefix == PathPrefix::None && path.segments.len() > 1 {
-        Err(TypeError {
-            message: format!("package paths are not implemented yet (unknown path: {})", path),
-        })
     } else {
         Err(TypeError {
             message: format!("unknown path: {}", path),
@@ -402,10 +401,6 @@ pub fn resolve_pattern_path<'a>(
     if path.segments.len() == 1 {
         Err(TypeError {
             message: format!("unknown identifier: {}", path.segments[0]),
-        })
-    } else if path.prefix == PathPrefix::None && path.segments.len() > 1 {
-        Err(TypeError {
-            message: format!("package paths are not implemented yet (unknown path: {})", path),
         })
     } else {
         Err(TypeError {
@@ -901,7 +896,7 @@ mod tests {
     }
 
     #[test]
-    fn test_unresolved_multi_segment_no_prefix_is_package_error() {
+    fn test_unresolved_multi_segment_no_prefix_gives_unknown_path() {
         let definitions = HashMap::new();
         let locals = HashMap::new();
         let imports = HashMap::new();
@@ -909,15 +904,14 @@ mod tests {
         let current = QualifiedPath::root();
         let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &HashMap::new());
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("package paths are not implemented yet"));
+        assert!(result.unwrap_err().message.contains("unknown path"));
     }
 
     #[test]
-    fn test_resolve_package_prefix_error() {
+    fn test_resolve_package_prefix() {
         let path = path_from_segments(PathPrefix::Package("serde".to_string()), &["Deserialize"]);
         let current = QualifiedPath::root();
-        let result = resolve_path(&path, &current);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("package paths are not implemented yet"));
+        let result = resolve_path(&path, &current).unwrap();
+        assert_eq!(result.to_string(), "serde::Deserialize");
     }
 }

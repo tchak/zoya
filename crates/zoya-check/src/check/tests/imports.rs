@@ -93,7 +93,7 @@ fn test_import_function_from_submodule() {
         (QualifiedPath::root().child("utils"), utils_items),
     ]);
 
-    let result = check(&tree).unwrap();
+    let result = check(&tree, &[]).unwrap();
     let test_fn = find_test_function_in(&result, &QualifiedPath::root()).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
@@ -117,7 +117,7 @@ fn test_import_private_function_fails() {
         (QualifiedPath::root().child("utils"), utils_items),
     ]);
 
-    let result = check(&tree);
+    let result = check(&tree, &[]);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("private"));
 }
@@ -139,7 +139,7 @@ fn test_import_private_struct_fails() {
         (QualifiedPath::root().child("utils"), utils_items),
     ]);
 
-    let result = check(&tree);
+    let result = check(&tree, &[]);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("private"));
 }
@@ -152,7 +152,7 @@ fn test_import_not_found_fails() {
         (QualifiedPath::root(), root_items),
     ]);
 
-    let result = check(&tree);
+    let result = check(&tree, &[]);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("cannot find"));
 }
@@ -215,7 +215,7 @@ fn test_duplicate_import_fails() {
     );
 
     let pkg = Package { name: "test".to_string(), output: None, modules };
-    let result = check(&pkg);
+    let result = check(&pkg, &[]);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("already imported"));
 }
@@ -259,7 +259,7 @@ fn test_local_shadows_import() {
         (QualifiedPath::root().child("utils"), utils_items),
     ]);
 
-    let result = check(&tree).unwrap();
+    let result = check(&tree, &[]).unwrap();
     let test_fn = find_test_function_in(&result, &QualifiedPath::root()).unwrap();
     // Should be Bool (from local), not Int (from import)
     assert_eq!(test_fn.return_type, Type::Bool);
@@ -309,7 +309,7 @@ fn test_import_shadows_module_level_definition() {
         (QualifiedPath::root().child("utils"), utils_items),
     ]);
 
-    let result = check(&tree).unwrap();
+    let result = check(&tree, &[]).unwrap();
     let test_fn = find_test_function_in(&result, &QualifiedPath::root()).unwrap();
     // Should be Int (from import), not Bool (from local function)
     assert_eq!(test_fn.return_type, Type::Int);
@@ -349,7 +349,7 @@ fn test_import_with_super_prefix() {
         (QualifiedPath::root().child("child"), child_items_with_uses),
     ]);
 
-    let result = check(&tree).unwrap();
+    let result = check(&tree, &[]).unwrap();
     let test_fn = find_test_function_in(&result, &QualifiedPath::root().child("child")).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
@@ -418,7 +418,7 @@ fn test_imported_enum_variant_in_match_pattern() {
         (QualifiedPath::root().child("types"), types_items),
     ]);
 
-    let result = check(&tree).unwrap();
+    let result = check(&tree, &[]).unwrap();
     let test_fn = find_test_function_in(&result, &QualifiedPath::root()).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
@@ -509,7 +509,7 @@ fn test_imported_enum_variant_in_struct_pattern() {
         (QualifiedPath::root().child("types"), types_items),
     ]);
 
-    let result = check(&tree).unwrap();
+    let result = check(&tree, &[]).unwrap();
     let test_fn = find_test_function_in(&result, &QualifiedPath::root()).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
@@ -564,7 +564,7 @@ fn test_pub_use_reexport_function() {
         (QualifiedPath::root().child("b"), b_items),
     ]);
 
-    let result = check(&tree).unwrap();
+    let result = check(&tree, &[]).unwrap();
     let test_fn = find_test_function_in(&result, &QualifiedPath::root()).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
@@ -610,7 +610,7 @@ fn test_pub_use_reexport_enum() {
         (QualifiedPath::root().child("reexporter"), reexporter_items),
     ]);
 
-    let result = check(&tree).unwrap();
+    let result = check(&tree, &[]).unwrap();
     let test_fn = find_test_function_in(&result, &QualifiedPath::root()).unwrap();
     assert!(matches!(test_fn.return_type, Type::Enum { ref name, .. } if name == "Color"));
 }
@@ -636,7 +636,7 @@ fn test_pub_use_cannot_reexport_private() {
         (QualifiedPath::root().child("b"), b_items),
     ]);
 
-    let result = check(&tree);
+    let result = check(&tree, &[]);
     assert!(result.is_err());
     let msg = result.unwrap_err().message;
     assert!(msg.contains("pub use cannot re-export private"), "unexpected error: {}", msg);
@@ -679,7 +679,7 @@ fn test_private_use_does_not_reexport() {
         (QualifiedPath::root().child("b"), b_items),
     ]);
 
-    let result = check(&tree);
+    let result = check(&tree, &[]);
     assert!(result.is_err());
     let msg = result.unwrap_err().message;
     assert!(msg.contains("cannot find"), "unexpected error: {}", msg);
@@ -728,7 +728,7 @@ fn test_pub_use_reexport_module() {
         (QualifiedPath::root().child("b"), b_items),
     ]);
 
-    let result = check(&tree).unwrap();
+    let result = check(&tree, &[]).unwrap();
     let test_fn = find_test_function_in(&result, &QualifiedPath::root()).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
@@ -770,7 +770,7 @@ fn test_pub_use_reexport_module_item_import() {
         (QualifiedPath::root().child("b"), b_items),
     ]);
 
-    let result = check(&tree).unwrap();
+    let result = check(&tree, &[]).unwrap();
     let test_fn = find_test_function_in(&result, &QualifiedPath::root()).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
@@ -826,7 +826,7 @@ fn test_external_visibility_pub_items_in_pub_modules() {
         (QualifiedPath::root().child("utils"), utils_items),
     ]);
 
-    let result = check(&tree).unwrap();
+    let result = check(&tree, &[]).unwrap();
     let helper_path = QualifiedPath::root().child("utils").child("helper");
     assert!(
         result.definitions.contains_key(&helper_path),
@@ -850,7 +850,7 @@ fn test_external_visibility_private_items_excluded() {
         (QualifiedPath::root().child("utils"), utils_items),
     ]);
 
-    let result = check(&tree).unwrap();
+    let result = check(&tree, &[]).unwrap();
     let secret_path = QualifiedPath::root().child("utils").child("secret");
     assert!(
         !result.definitions.contains_key(&secret_path),
@@ -878,7 +878,7 @@ fn test_external_visibility_pub_item_in_private_module_excluded() {
         ),
     ]);
 
-    let result = check(&tree).unwrap();
+    let result = check(&tree, &[]).unwrap();
     let helper_path = QualifiedPath::root().child("internal").child("helper");
     assert!(
         !result.definitions.contains_key(&helper_path),
@@ -909,7 +909,7 @@ fn test_external_visibility_pub_enum_variants_retained() {
         (QualifiedPath::root().child("utils"), utils_items),
     ]);
 
-    let result = check(&tree).unwrap();
+    let result = check(&tree, &[]).unwrap();
     let color_path = QualifiedPath::root().child("utils").child("Color");
     let red_path = color_path.child("Red");
     let blue_path = color_path.child("Blue");
@@ -949,7 +949,7 @@ fn test_external_visibility_deeply_nested_pub_items() {
         ),
     ]);
 
-    let result = check(&tree).unwrap();
+    let result = check(&tree, &[]).unwrap();
     let deep_fn_path = QualifiedPath::root()
         .child("a")
         .child("b")
@@ -991,7 +991,7 @@ fn test_external_visibility_private_module_blocks_deeply_nested() {
         ),
     ]);
 
-    let result = check(&tree).unwrap();
+    let result = check(&tree, &[]).unwrap();
     let deep_fn_path = QualifiedPath::root()
         .child("a")
         .child("b")
@@ -1016,7 +1016,7 @@ fn test_external_visibility_root_level_pub_item() {
 
     let tree = build_multi_module_package(vec![(QualifiedPath::root(), root_items)]);
 
-    let result = check(&tree).unwrap();
+    let result = check(&tree, &[]).unwrap();
     let main_path = QualifiedPath::root().child("main");
     assert!(
         result.definitions.contains_key(&main_path),
@@ -1037,7 +1037,7 @@ fn test_external_visibility_root_level_private_item_excluded() {
 
     let tree = build_multi_module_package(vec![(QualifiedPath::root(), root_items)]);
 
-    let result = check(&tree).unwrap();
+    let result = check(&tree, &[]).unwrap();
     let internal_path = QualifiedPath::root().child("internal");
     assert!(
         !result.definitions.contains_key(&internal_path),
@@ -1061,7 +1061,7 @@ fn test_external_visibility_modules_themselves() {
         ),
     ]);
 
-    let result = check(&tree).unwrap();
+    let result = check(&tree, &[]).unwrap();
     let pub_mod_path = QualifiedPath::root().child("public_mod");
     let priv_mod_path = QualifiedPath::root().child("private_mod");
 

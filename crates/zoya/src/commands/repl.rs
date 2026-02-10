@@ -224,8 +224,9 @@ impl State {
 
         let pkg = build_repl_package(self.base_pkg.as_ref(), all_items);
 
-        // Type check the package
-        let checked_pkg = check(&pkg).map_err(|e| e.to_string())?;
+        // Type check the package with std
+        let std = zoya_std::std();
+        let checked_pkg = check(&pkg, &[std]).map_err(|e| e.to_string())?;
 
         // Collect results
         let mut results = Vec::new();
@@ -266,7 +267,7 @@ impl State {
 
             // Call combined main function via runner with explicit type
             let combined_value =
-                runner::run(checked_pkg.clone(), Some("repl"), Some(combined_type))
+                runner::run(checked_pkg.clone(), &[std], Some("repl"), Some(combined_type))
                     .map_err(|e| e.to_string())?;
 
             // Unpack tuple result

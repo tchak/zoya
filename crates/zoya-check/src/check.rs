@@ -1656,15 +1656,49 @@ fn is_externally_visible(
 /// This performs multi-module type checking:
 /// 1. Register all declarations from all modules
 /// 2. Type-check all function bodies with module context for path resolution
-pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
+pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, TypeError> {
     let mut env = TypeEnv::default();
     let mut ctx = UnifyCtx::new();
 
-    // Phase 1: Register ALL declarations from ALL modules
-    // Process modules in dependency order (parents before children)
+    // Phase 0: Inject dependency definitions
+    for dep in deps {
+        for (qpath, def) in &dep.definitions {
+            let remapped = qpath.with_root(&dep.name);
+            env.register(remapped, def.clone().with_root(&dep.name));
+        }
+        for (reexport, original) in &dep.reexports {
+            let remapped_reexport = reexport.with_root(&dep.name);
+            let remapped_original = original.with_root(&dep.name);
+            env.reexports.insert(remapped_reexport, remapped_original);
+        }
+    }
+
+    // Phase 0.5: Pre-resolve package imports so they're available during declaration registration.
+    // Package-prefix imports (e.g., `use std::option::Option`) reference dep definitions
+    // already injected in Phase 0, so they can be resolved before Phase 1.
     let mut module_paths: Vec<_> = pkg.modules.keys().cloned().collect();
     module_paths.sort_by_key(|p| p.depth());
 
+    for path in &module_paths {
+        if let Some(module) = pkg.modules.get(path) {
+            let pkg_uses: Vec<UseDecl> = module.items.iter().filter_map(|item| {
+                if let Item::Use(u) = item
+                    && matches!(u.path.prefix, zoya_ast::PathPrefix::Package(_))
+                {
+                    Some(u.clone())
+                } else {
+                    None
+                }
+            }).collect();
+            if !pkg_uses.is_empty() {
+                let item_imports = resolve_module_imports(&pkg_uses, path, &env.definitions, &env.reexports)?;
+                env.imports.entry(path.clone()).or_default().extend(item_imports);
+            }
+        }
+    }
+
+    // Phase 1: Register ALL declarations from ALL modules
+    // Process modules in dependency order (parents before children)
     for path in &module_paths {
         if let Some(module) = pkg.modules.get(path) {
             register_module_declarations(&module.items, path, &mut env, &mut ctx)?;
@@ -1836,13 +1870,20 @@ pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
     }
 
     // Phase 1.5b: Resolve imports for all modules
+    // Skip package-prefix imports (already resolved in Phase 0.5)
     for path in &module_paths {
         if let Some(module) = pkg.modules.get(path) {
             let uses: Vec<UseDecl> = module.items.iter().filter_map(|item| {
-                if let Item::Use(u) = item { Some(u.clone()) } else { None }
+                if let Item::Use(u) = item
+                    && !matches!(u.path.prefix, zoya_ast::PathPrefix::Package(_))
+                {
+                    Some(u.clone())
+                } else {
+                    None
+                }
             }).collect();
             let item_imports = resolve_module_imports(&uses, path, &env.definitions, &env.reexports)?;
-            env.imports.insert(path.clone(), item_imports);
+            env.imports.entry(path.clone()).or_default().extend(item_imports);
         }
     }
 
@@ -1876,12 +1917,28 @@ pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
         .map(|(path, target)| (path.clone(), target.clone()))
         .collect();
 
+    // Build imports map: for each dep, collect function definition paths that were injected
+    let mut imports: HashMap<String, Vec<QualifiedPath>> = HashMap::new();
+    for dep in deps {
+        let mut fn_paths: Vec<QualifiedPath> = dep
+            .definitions
+            .iter()
+            .filter(|(_, def)| def.as_function().is_some())
+            .map(|(qpath, _)| qpath.with_root(&dep.name))
+            .collect();
+        fn_paths.sort_by_key(|a| a.to_string());
+        if !fn_paths.is_empty() {
+            imports.insert(dep.name.clone(), fn_paths);
+        }
+    }
+
     Ok(CheckedPackage {
         name: pkg.name.clone(),
         output: pkg.output.clone(),
         items: checked_items,
         definitions: external_definitions,
         reexports: external_reexports,
+        imports,
     })
 }
 

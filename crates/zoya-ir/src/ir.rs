@@ -258,4 +258,6 @@ pub struct CheckedPackage {
     pub items: std::collections::HashMap<QualifiedPath, TypedFunction>,
     pub definitions: std::collections::HashMap<QualifiedPath, Definition>,
     pub reexports: std::collections::HashMap<QualifiedPath, QualifiedPath>,
+    /// Dependency imports: dep_name → [function paths (remapped)]
+    pub imports: std::collections::HashMap<String, Vec<QualifiedPath>>,
 }

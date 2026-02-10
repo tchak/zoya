@@ -7,8 +7,9 @@ pub fn execute(path: &Path) -> Result<(), String> {
     // Load and parse package
     let pkg = zoya_loader::load_package(path).map_err(|e| format!("error: {}", e))?;
 
-    // Type check entire package
-    check(&pkg).map_err(|e| format!("error: {}", e))?;
+    // Type check entire package with std
+    let std = zoya_std::std();
+    check(&pkg, &[std]).map_err(|e| format!("error: {}", e))?;
 
     // Success
     eprintln!("✓ Type checking passed: {}", path.display());

@@ -17,7 +17,7 @@ fn test_check_let_binding_in_block() {
         result: Box::new(Expr::Tuple(vec![])),
     };
     let tree = build_test_package_with_expr(vec![], test_expr);
-    let checked_tree = check(&tree).unwrap();
+    let checked_tree = check(&tree, &[]).unwrap();
     // Only the test_fn function should be present
     assert_eq!(checked_tree.items.len(), 1);
     let test_fn = find_test_function_in(&checked_tree, &QualifiedPath::root()).unwrap();
@@ -41,7 +41,7 @@ fn test_check_let_binding_usage() {
         }),
     };
     let tree = build_test_package_with_expr(vec![], test_expr);
-    let checked_tree = check(&tree).unwrap();
+    let checked_tree = check(&tree, &[]).unwrap();
     // Only test_fn function
     assert_eq!(checked_tree.items.len(), 1);
     let test_fn = find_test_function_in(&checked_tree, &QualifiedPath::root()).unwrap();
@@ -60,7 +60,7 @@ fn test_check_let_with_type_annotation() {
         result: Box::new(Expr::Tuple(vec![])),
     };
     let tree = build_test_package_with_expr(vec![], test_expr);
-    let checked_tree = check(&tree).unwrap();
+    let checked_tree = check(&tree, &[]).unwrap();
     // Only test_fn function
     assert_eq!(checked_tree.items.len(), 1);
     // Type checking succeeded
@@ -78,7 +78,7 @@ fn test_check_let_type_mismatch() {
         result: Box::new(Expr::Tuple(vec![])),
     };
     let tree = build_test_package_with_expr(vec![], test_expr);
-    let result = check(&tree);
+    let result = check(&tree, &[]);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("declares type"));
 }

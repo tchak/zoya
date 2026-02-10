@@ -8,8 +8,9 @@ pub fn execute(path: &Path, output: Option<&Path>) -> Result<(), String> {
     // Load and parse package
     let pkg = zoya_loader::load_package(path).map_err(|e| format!("error: {}", e))?;
 
-    // Type check entire package
-    let checked_pkg = check(&pkg).map_err(|e| format!("error: {}", e))?;
+    // Type check entire package with std
+    let std = zoya_std::std();
+    let checked_pkg = check(&pkg, &[std]).map_err(|e| format!("error: {}", e))?;
 
     // Resolve output path: CLI arg > package.toml output > error
     let out_path = output

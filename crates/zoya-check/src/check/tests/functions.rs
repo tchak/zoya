@@ -284,7 +284,7 @@ fn test_check_function_definition() {
         body: Expr::Int(42),
     })];
     let tree = build_test_package(items);
-    let checked_tree = check(&tree).unwrap();
+    let checked_tree = check(&tree, &[]).unwrap();
     assert_eq!(checked_tree.items.len(), 1);
 }
 
@@ -310,7 +310,7 @@ fn test_check_function_call_in_module() {
         args: vec![Expr::Int(5)],
     };
     let tree = build_test_package_with_expr(items, test_expr);
-    let checked_tree = check(&tree).unwrap();
+    let checked_tree = check(&tree, &[]).unwrap();
     // double + test_fn
     assert_eq!(checked_tree.items.len(), 2);
     let test_fn = find_test_function_in(&checked_tree, &QualifiedPath::root()).unwrap();
@@ -345,7 +345,7 @@ fn test_check_forward_reference() {
         }),
     ];
     let tree = build_test_package(items);
-    let result = check(&tree);
+    let result = check(&tree, &[]);
     assert!(result.is_ok(), "Forward reference should succeed: {:?}", result.err());
     let checked_tree = result.unwrap();
     assert_eq!(checked_tree.items.len(), 2);
@@ -419,7 +419,7 @@ fn test_check_mutual_recursion() {
         }),
     ];
     let tree = build_test_package(items);
-    let result = check(&tree);
+    let result = check(&tree, &[]);
     assert!(result.is_ok(), "Mutual recursion should succeed: {:?}", result.err());
 }
 
@@ -462,7 +462,7 @@ fn test_check_module_with_test_expr() {
         }),
     };
     let tree = build_test_package_with_expr(items, test_expr);
-    let result = check(&tree);
+    let result = check(&tree, &[]);
     assert!(result.is_ok(), "Mixed items and expr should succeed: {:?}", result.err());
     let checked_tree = result.unwrap();
     // f2 + f1 + test_fn = 3 functions
@@ -485,7 +485,7 @@ fn test_check_undefined_variable_error() {
         body: Expr::Path(Path::simple("x".to_string())),
     })];
     let tree = build_test_package(items);
-    let result = check(&tree);
+    let result = check(&tree, &[]);
     assert!(result.is_err(), "Unknown variable should fail, but got: {:?}", result);
     let err_msg = result.unwrap_err().message;
     assert!(
@@ -533,7 +533,7 @@ fn test_check_self_recursion() {
         },
     })];
     let tree = build_test_package(items);
-    let result = check(&tree);
+    let result = check(&tree, &[]);
     assert!(result.is_ok(), "Self-recursion should succeed: {:?}", result.err());
 }
 

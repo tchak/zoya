@@ -18,7 +18,7 @@ fn build_std() -> Result<CheckedPackage, String> {
         .map_err(|e| format!("failed to load std package: {e}"))?;
     pkg.name = "std".to_string();
 
-    check(&pkg).map_err(|e| format!("failed to check std package: {e}"))
+    check(&pkg, &[]).map_err(|e| format!("failed to check std package: {e}"))
 }
 
 /// Returns the standard library as a checked package.

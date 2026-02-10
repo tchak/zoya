@@ -96,7 +96,7 @@ fn test_let_literal_pattern_rejected() {
         result: Box::new(Expr::Tuple(vec![])),
     };
     let tree = build_test_package_with_expr(vec![], test_expr);
-    let result = check(&tree);
+    let result = check(&tree, &[]);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("refutable"));
 }
@@ -112,7 +112,7 @@ fn test_let_list_pattern_rejected() {
         result: Box::new(Expr::Tuple(vec![])),
     };
     let tree = build_test_package_with_expr(vec![], test_expr);
-    let result = check(&tree);
+    let result = check(&tree, &[]);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("refutable"));
 }
@@ -136,7 +136,7 @@ fn test_let_call_pattern_rejected() {
         result: Box::new(Expr::Tuple(vec![])),
     };
     let tree = build_test_package_with_expr(vec![], test_expr);
-    let result = check(&tree);
+    let result = check(&tree, &[]);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("refutable"));
 }
@@ -155,7 +155,7 @@ fn test_let_tuple_pattern_irrefutable() {
         result: Box::new(Expr::Tuple(vec![])),
     };
     let tree = build_test_package_with_expr(vec![], test_expr);
-    let result = check(&tree);
+    let result = check(&tree, &[]);
     // Type checking should succeed
     assert!(result.is_ok());
 }
