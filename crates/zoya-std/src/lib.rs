@@ -12,6 +12,7 @@ fn build_std() -> Result<CheckedPackage, String> {
     let source = MemorySource::new()
         .with_module("root", include_str!("std/main.zoya"))
         .with_module("option", include_str!("std/option.zoya"))
+        .with_module("prelude", include_str!("std/prelude.zoya"))
         .with_module("result", include_str!("std/result.zoya"));
 
     let mut pkg = load_memory_package(&source)
@@ -84,6 +85,21 @@ mod tests {
             pkg.definitions.contains_key(&err_path),
             "Err should be re-exported in result module"
         );
+    }
+
+    #[test]
+    fn test_std_has_prelude_definitions() {
+        let pkg = std();
+        let prelude = QualifiedPath::root().child("prelude");
+        // Prelude should re-export Option, Some, None, Result, Ok, Err
+        for name in &["Option", "Some", "None", "Result", "Ok", "Err"] {
+            let path = prelude.child(name);
+            assert!(
+                pkg.definitions.contains_key(&path),
+                "{} should be re-exported in prelude module",
+                name
+            );
+        }
     }
 
     #[test]

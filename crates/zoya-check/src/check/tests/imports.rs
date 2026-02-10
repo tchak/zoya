@@ -1155,3 +1155,68 @@ fn test_glob_import_includes_reexported_variants() {
     let test_fn = find_test_function_in(&result, &QualifiedPath::root()).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
+
+#[test]
+fn test_cascading_glob_reexport_across_same_depth_modules() {
+    // Module "types" has pub enum Color { Red, Blue } + pub use self::Color::*
+    // Module "reexporter" does pub use root::types::* (depends on types' re-exports)
+    // Root does use root::reexporter::* and uses Red directly
+    // This must work regardless of whether "types" or "reexporter" is processed first
+    // in Phase 1.5a (they are at the same depth).
+    let types_items = vec![
+        Item::Enum(EnumDef {
+            visibility: Visibility::Public,
+            name: "Color".to_string(),
+            type_params: vec![],
+            variants: vec![
+                EnumVariant {
+                    name: "Red".to_string(),
+                    kind: EnumVariantKind::Unit,
+                },
+                EnumVariant {
+                    name: "Blue".to_string(),
+                    kind: EnumVariantKind::Unit,
+                },
+            ],
+        }),
+        Item::Use(make_pub_use_glob(PathPrefix::Self_, &["Color"])),
+    ];
+
+    let reexporter_items = vec![
+        Item::Use(make_pub_use_glob(PathPrefix::Root, &["types"])),
+    ];
+
+    let root_items = vec![
+        Item::Use(make_use_glob(PathPrefix::Root, &["reexporter"])),
+        Item::Function(FunctionDef {
+            visibility: Visibility::Public,
+            name: "test_fn".to_string(),
+            type_params: vec![],
+            params: vec![],
+            return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+            body: Expr::Match {
+                scrutinee: Box::new(Expr::Path(Path::simple("Red".to_string()))),
+                arms: vec![
+                    MatchArm {
+                        pattern: Pattern::Path(Path::simple("Red".to_string())),
+                        result: Expr::Int(1),
+                    },
+                    MatchArm {
+                        pattern: Pattern::Path(Path::simple("Blue".to_string())),
+                        result: Expr::Int(2),
+                    },
+                ],
+            },
+        }),
+    ];
+
+    let tree = build_multi_module_package(vec![
+        (QualifiedPath::root(), root_items),
+        (QualifiedPath::root().child("types"), types_items),
+        (QualifiedPath::root().child("reexporter"), reexporter_items),
+    ]);
+
+    let result = check(&tree, &[]).unwrap();
+    let test_fn = find_test_function_in(&result, &QualifiedPath::root()).unwrap();
+    assert_eq!(test_fn.return_type, Type::Int);
+}

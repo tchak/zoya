@@ -1567,6 +1567,142 @@ fn make_reexport_enum(e: &EnumType) -> EnumType {
     }
 }
 
+/// Process all `pub use` re-export declarations across all modules in a single pass.
+/// Returns Ok(()) after registering any new re-exports found.
+/// Called in a fixpoint loop so that cascading re-exports between same-depth modules
+/// are resolved regardless of processing order.
+fn process_reexports(
+    module_paths: &[QualifiedPath],
+    pkg: &Package,
+    env: &mut TypeEnv,
+) -> Result<(), TypeError> {
+    for path in module_paths {
+        if let Some(module) = pkg.modules.get(path) {
+            for item in &module.items {
+                if let Item::Use(use_decl) = item
+                    && use_decl.visibility == Visibility::Public
+                {
+                    match &use_decl.path.target {
+                        UseTarget::Single { .. } => {
+                            let qualified = resolve_use_path(use_decl, path)?;
+                            let local_name = use_decl.path.segments.last().unwrap();
+                            register_reexport(env, path, local_name, &qualified)?;
+                        }
+                        UseTarget::Glob => {
+                            let target_path = resolve_use_module_path(use_decl, path)?;
+
+                            // Determine container type and follow re-export chain
+                            let def = env.definitions.get(&target_path).cloned();
+                            let mut resolved = target_path.clone();
+                            while let Some(real) = env.reexports.get(&resolved) {
+                                resolved = real.clone();
+                            }
+
+                            match def {
+                                Some(Definition::Module(_)) => {
+                                    let module_segments = resolved.segments().to_vec();
+
+                                    // Collect public items to re-export (skip enum variants
+                                    // unless they were re-exported to module level)
+                                    let items_to_reexport: Vec<(String, QualifiedPath)> = env
+                                        .definitions
+                                        .iter()
+                                        .filter(|(qpath, def)| {
+                                            qpath.len() == module_segments.len() + 1
+                                                && qpath.segments()[..module_segments.len()]
+                                                    == module_segments[..]
+                                                && (!matches!(def, Definition::EnumVariant(..))
+                                                    || env.reexports.contains_key(qpath))
+                                                && def.visibility() == Visibility::Public
+                                        })
+                                        .map(|(qpath, _)| {
+                                            let name = qpath.last().to_string();
+                                            (name, qpath.clone())
+                                        })
+                                        .collect();
+
+                                    for (local_name, qualified) in items_to_reexport {
+                                        register_reexport(
+                                            env,
+                                            path,
+                                            &local_name,
+                                            &qualified,
+                                        )?;
+                                    }
+                                }
+                                Some(Definition::Enum(_)) => {
+                                    let enum_segments = resolved.segments().to_vec();
+
+                                    // Collect all variants of this enum
+                                    let variants_to_reexport: Vec<(String, QualifiedPath)> = env
+                                        .definitions
+                                        .iter()
+                                        .filter(|(qpath, def)| {
+                                            qpath.len() == enum_segments.len() + 1
+                                                && qpath.segments()[..enum_segments.len()]
+                                                    == enum_segments[..]
+                                                && matches!(def, Definition::EnumVariant(..))
+                                        })
+                                        .map(|(qpath, _)| {
+                                            let name = qpath.last().to_string();
+                                            (name, qpath.clone())
+                                        })
+                                        .collect();
+
+                                    for (variant_name, qualified) in variants_to_reexport {
+                                        register_reexport(
+                                            env,
+                                            path,
+                                            &variant_name,
+                                            &qualified,
+                                        )?;
+                                    }
+                                }
+                                _ => {
+                                    return Err(TypeError {
+                                        message: format!(
+                                            "cannot find module or enum '{}' for glob re-export",
+                                            target_path
+                                        ),
+                                    });
+                                }
+                            }
+                        }
+                        UseTarget::Group(items) => {
+                            let target_path = resolve_use_module_path(use_decl, path)?;
+
+                            // Verify target is a module or enum, follow re-export chain
+                            match env.definitions.get(&target_path) {
+                                Some(Definition::Module(_) | Definition::Enum(_)) => {}
+                                _ => {
+                                    return Err(TypeError {
+                                        message: format!(
+                                            "cannot find module or enum '{}' for group re-export",
+                                            target_path
+                                        ),
+                                    });
+                                }
+                            }
+                            let mut resolved = target_path;
+                            while let Some(real) = env.reexports.get(&resolved) {
+                                resolved = real.clone();
+                            }
+
+                            for group_item in items {
+                                let qualified = resolved.child(&group_item.name);
+                                let local_name =
+                                    group_item.alias.as_deref().unwrap_or(&group_item.name);
+                                register_reexport(env, path, local_name, &qualified)?;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Register a re-export: check visibility, create re-export definition, handle enum variants.
 fn register_reexport(
     env: &mut TypeEnv,
@@ -1697,6 +1833,37 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
         }
     }
 
+    // Phase 0.6: Inject prelude imports for non-std packages
+    // Prelude names (Option, Some, None, Result, Ok, Err) are auto-imported into
+    // every module so they can be used without explicit imports, including in
+    // function signatures resolved during Phase 1.
+    if pkg.name != "std" {
+        let prelude_path = QualifiedPath::new(vec!["std".into(), "prelude".into()]);
+        if env.definitions.contains_key(&prelude_path) {
+            let prelude_items: Vec<(String, QualifiedPath)> = env
+                .definitions
+                .iter()
+                .filter(|(qpath, def)| {
+                    qpath.len() == 3
+                        && qpath.segments()[0] == "std"
+                        && qpath.segments()[1] == "prelude"
+                        && def.visibility() == Visibility::Public
+                        && !matches!(def, Definition::Module(_))
+                })
+                .map(|(qpath, _)| (qpath.last().to_string(), qpath.clone()))
+                .collect();
+
+            for path in &module_paths {
+                let module_imports = env.imports.entry(path.clone()).or_default();
+                for (name, qpath) in &prelude_items {
+                    module_imports
+                        .entry(name.clone())
+                        .or_insert_with(|| qpath.clone());
+                }
+            }
+        }
+    }
+
     // Phase 1: Register ALL declarations from ALL modules
     // Process modules in dependency order (parents before children)
     for path in &module_paths {
@@ -1732,141 +1899,16 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
         }
     }
 
-    // Phase 1.5a: Register re-exports from pub use declarations
-    // This must happen before import resolution so other modules can reference re-exported items.
-    for path in &module_paths {
-        if let Some(module) = pkg.modules.get(path) {
-            for item in &module.items {
-                if let Item::Use(use_decl) = item
-                    && use_decl.visibility == Visibility::Public
-                {
-                    match &use_decl.path.target {
-                        UseTarget::Single { .. } => {
-                            let qualified = resolve_use_path(use_decl, path)?;
-                            let local_name = use_decl.path.segments.last().unwrap();
-                            register_reexport(&mut env, path, local_name, &qualified)?;
-                        }
-                        UseTarget::Glob => {
-                            let target_path = resolve_use_module_path(use_decl, path)?;
-
-                            // Determine container type and follow re-export chain
-                            let def = env.definitions.get(&target_path).cloned();
-                            let mut resolved = target_path.clone();
-                            while let Some(real) = env.reexports.get(&resolved) {
-                                resolved = real.clone();
-                            }
-
-                            match def {
-                                Some(Definition::Module(_)) => {
-                                    let module_segments = resolved.segments().to_vec();
-
-                                    // Collect public items to re-export (skip enum variants)
-                                    let items_to_reexport: Vec<(String, QualifiedPath)> = env
-                                        .definitions
-                                        .iter()
-                                        .filter(|(qpath, def)| {
-                                            qpath.len() == module_segments.len() + 1
-                                                && qpath.segments()[..module_segments.len()]
-                                                    == module_segments[..]
-                                                && (!matches!(def, Definition::EnumVariant(..))
-                                                    || env.reexports.contains_key(qpath))
-                                                && {
-                                                    let vis = match def {
-                                                        Definition::Function(f) => f.visibility,
-                                                        Definition::Struct(s) => s.visibility,
-                                                        Definition::Enum(e) => e.visibility,
-                                                        Definition::TypeAlias(a) => a.visibility,
-                                                        Definition::EnumVariant(parent, _) => {
-                                                            parent.visibility
-                                                        }
-                                                        Definition::Module(m) => m.visibility,
-                                                    };
-                                                    vis == Visibility::Public
-                                                }
-                                        })
-                                        .map(|(qpath, _)| {
-                                            let name = qpath.last().to_string();
-                                            (name, qpath.clone())
-                                        })
-                                        .collect();
-
-                                    for (local_name, qualified) in items_to_reexport {
-                                        register_reexport(
-                                            &mut env,
-                                            path,
-                                            &local_name,
-                                            &qualified,
-                                        )?;
-                                    }
-                                }
-                                Some(Definition::Enum(_)) => {
-                                    let enum_segments = resolved.segments().to_vec();
-
-                                    // Collect all variants of this enum
-                                    let variants_to_reexport: Vec<(String, QualifiedPath)> = env
-                                        .definitions
-                                        .iter()
-                                        .filter(|(qpath, def)| {
-                                            qpath.len() == enum_segments.len() + 1
-                                                && qpath.segments()[..enum_segments.len()]
-                                                    == enum_segments[..]
-                                                && matches!(def, Definition::EnumVariant(..))
-                                        })
-                                        .map(|(qpath, _)| {
-                                            let name = qpath.last().to_string();
-                                            (name, qpath.clone())
-                                        })
-                                        .collect();
-
-                                    for (variant_name, qualified) in variants_to_reexport {
-                                        register_reexport(
-                                            &mut env,
-                                            path,
-                                            &variant_name,
-                                            &qualified,
-                                        )?;
-                                    }
-                                }
-                                _ => {
-                                    return Err(TypeError {
-                                        message: format!(
-                                            "cannot find module or enum '{}' for glob re-export",
-                                            target_path
-                                        ),
-                                    });
-                                }
-                            }
-                        }
-                        UseTarget::Group(items) => {
-                            let target_path = resolve_use_module_path(use_decl, path)?;
-
-                            // Verify target is a module or enum, follow re-export chain
-                            match env.definitions.get(&target_path) {
-                                Some(Definition::Module(_) | Definition::Enum(_)) => {}
-                                _ => {
-                                    return Err(TypeError {
-                                        message: format!(
-                                            "cannot find module or enum '{}' for group re-export",
-                                            target_path
-                                        ),
-                                    });
-                                }
-                            }
-                            let mut resolved = target_path;
-                            while let Some(real) = env.reexports.get(&resolved) {
-                                resolved = real.clone();
-                            }
-
-                            for group_item in items {
-                                let qualified = resolved.child(&group_item.name);
-                                let local_name =
-                                    group_item.alias.as_deref().unwrap_or(&group_item.name);
-                                register_reexport(&mut env, path, local_name, &qualified)?;
-                            }
-                        }
-                    }
-                }
-            }
+    // Phase 1.5a: Register re-exports from pub use declarations (fixpoint)
+    // Re-exports may depend on other re-exports at the same module depth (e.g., prelude
+    // re-exports from option's re-exports). Since module_paths order within the same depth
+    // is non-deterministic (HashMap iteration), we iterate until no new definitions are
+    // registered, ensuring all cascading re-exports are resolved.
+    loop {
+        let prev_count = env.definitions.len();
+        process_reexports(&module_paths, pkg, &mut env)?;
+        if env.definitions.len() == prev_count {
+            break;
         }
     }
 

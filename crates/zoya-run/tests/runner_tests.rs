@@ -4456,3 +4456,124 @@ fn test_std_option_glob_import() {
     assert_eq!(result, Value::Int(42));
 }
 
+// ===== Prelude (auto-imported) =====
+
+#[test]
+fn test_prelude_option_some_without_import() {
+    let source = r#"
+        pub fn main() -> Option<Int> { Some(42) }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some(42)");
+}
+
+#[test]
+fn test_prelude_option_none_without_import() {
+    let source = r#"
+        pub fn main() -> Option<Int> { None::<Int> }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::None");
+}
+
+#[test]
+fn test_prelude_result_ok_without_import() {
+    let source = r#"
+        pub fn main() -> Result<Int, String> { Ok(42) }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Result::Ok(42)");
+}
+
+#[test]
+fn test_prelude_result_err_without_import() {
+    let source = r#"
+        pub fn main() -> Result<Int, String> { Err("oops") }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), r#"Result::Err("oops")"#);
+}
+
+#[test]
+fn test_prelude_match_option_without_import() {
+    let source = r#"
+        pub fn main() -> Int {
+            let x = Some(42);
+            match x {
+                Some(v) => v,
+                None => 0
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_prelude_match_result_without_import() {
+    let source = r#"
+        pub fn main() -> Int {
+            let x: Result<Int, String> = Ok(10);
+            match x {
+                Ok(v) => v,
+                Err(_) => 0
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(10));
+}
+
+#[test]
+fn test_prelude_explicit_import_takes_priority() {
+    // Explicit import should not conflict with prelude
+    let source = r#"
+        use std::option::{Option, Some, None}
+
+        pub fn main() -> Option<Int> { Some(99) }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some(99)");
+}
+
+#[test]
+fn test_cascading_glob_reexport_between_same_depth_modules() {
+    // Module "types" defines enum + re-exports variants to module level
+    // Module "facade" re-exports everything from types via pub use root::types::*
+    // Root imports from facade and uses the variant directly
+    // This tests that cascading re-exports work regardless of module processing order
+    run_multi_module(
+        vec![
+            (
+                "root",
+                r#"
+                pub mod types
+                pub mod facade
+                use root::facade::*
+
+                pub fn main() -> Int {
+                    match Red {
+                        Red => 1,
+                        Blue => 2,
+                    }
+                }
+            "#,
+            ),
+            (
+                "types",
+                r#"
+                pub enum Color { Red, Blue }
+                pub use self::Color::*
+            "#,
+            ),
+            (
+                "facade",
+                r#"
+                pub use root::types::*
+            "#,
+            ),
+        ],
+        "1",
+    );
+}
+
