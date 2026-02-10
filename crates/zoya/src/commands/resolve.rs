@@ -117,7 +117,7 @@ main = "src/main.zoya"
 
         // Create main file
         std::fs::create_dir(dir.path().join("src")).unwrap();
-        std::fs::write(dir.path().join("src/main.zoya"), "fn main() { 1 }").unwrap();
+        std::fs::write(dir.path().join("src/main.zoya"), "pub fn main() { 1 }").unwrap();
 
         let result = resolve_entry_point(Some(dir.path()));
         assert!(result.is_ok());
@@ -139,7 +139,7 @@ name = "test_project"
 
         // Create main file at default location
         std::fs::create_dir(dir.path().join("src")).unwrap();
-        std::fs::write(dir.path().join("src/main.zoya"), "fn main() { 1 }").unwrap();
+        std::fs::write(dir.path().join("src/main.zoya"), "pub fn main() { 1 }").unwrap();
 
         let result = resolve_entry_point(Some(dir.path()));
         assert!(result.is_ok());

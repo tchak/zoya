@@ -23,7 +23,7 @@ mod tests {
     fn test_execute_success() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zoya");
-        std::fs::write(&file, "fn main() -> Int { 42 }").unwrap();
+        std::fs::write(&file, "pub fn main() -> Int { 42 }").unwrap();
 
         let result = execute(&file);
         assert!(result.is_ok());
@@ -33,7 +33,7 @@ mod tests {
     fn test_execute_type_error() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zoya");
-        std::fs::write(&file, "fn main() -> Int { true }").unwrap();
+        std::fs::write(&file, "pub fn main() -> Int { true }").unwrap();
 
         let result = execute(&file);
         assert!(result.is_err());
@@ -57,7 +57,7 @@ mod tests {
             r#"
             mod utils
 
-            fn main() -> Int { 42 }
+            pub fn main() -> Int { 42 }
             "#,
         )
         .unwrap();
@@ -87,7 +87,7 @@ mod tests {
             r#"
             mod utils
 
-            fn main() -> Int { 42 }
+            pub fn main() -> Int { 42 }
             "#,
         )
         .unwrap();

@@ -21,27 +21,24 @@ pub fn run(
 ) -> Result<Value, EvalError> {
     let module_path = module.unwrap_or_else(QualifiedPath::root);
 
-    // Find main in the specified module
-    let target_module = package
-        .get(&module_path)
-        .ok_or_else(|| EvalError::RuntimeError(format!("module {} not found", module_path)))?;
-
-    let main_func = target_module
-        .items
-        .iter()
-        .find(|f| f.name == "main")
+    // Find main in the specified module's definitions (must be pub)
+    let main_path = module_path.child("main");
+    let main_def = package
+        .definitions
+        .get(&main_path)
+        .and_then(|d| d.as_function())
         .ok_or_else(|| {
-            EvalError::RuntimeError(format!("no main() function found in {}", module_path))
+            EvalError::RuntimeError(format!("no pub fn main() found in {}", module_path))
         })?;
 
-    if !main_func.params.is_empty() {
+    if !main_def.params.is_empty() {
         return Err(EvalError::RuntimeError(
             "main() must not take any parameters".to_string(),
         ));
     }
 
     // Use provided return type or fall back to the one from the checked package
-    let return_type = return_type.unwrap_or_else(|| main_func.return_type.clone());
+    let return_type = return_type.unwrap_or_else(|| main_def.return_type.clone());
 
     // Generate JS module code (ESM with exports)
     let output = codegen(&package);

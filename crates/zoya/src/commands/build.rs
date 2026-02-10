@@ -36,7 +36,7 @@ mod tests {
     fn test_execute_to_stdout() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zoya");
-        std::fs::write(&file, "fn main() -> Int { 42 }").unwrap();
+        std::fs::write(&file, "pub fn main() -> Int { 42 }").unwrap();
 
         let result = execute(&file, None);
         assert!(result.is_ok());
@@ -47,7 +47,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let input = dir.path().join("test.zoya");
         let output = dir.path().join("test.js");
-        std::fs::write(&input, "fn main() -> Int { 42 }").unwrap();
+        std::fs::write(&input, "pub fn main() -> Int { 42 }").unwrap();
 
         let result = execute(&input, Some(&output));
         assert!(result.is_ok());
@@ -60,7 +60,7 @@ mod tests {
     fn test_execute_type_error() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zoya");
-        std::fs::write(&file, "fn main() -> Int { true }").unwrap();
+        std::fs::write(&file, "pub fn main() -> Int { true }").unwrap();
 
         let result = execute(&file, None);
         assert!(result.is_err());

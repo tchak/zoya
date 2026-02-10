@@ -4,14 +4,14 @@ use zoya_run::{run, run_source, EvalError, Value};
 
 #[test]
 fn test_run_simple_main() {
-    let source = "fn main() -> Int { 42 }";
+    let source = "pub fn main() -> Int { 42 }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(42));
 }
 
 #[test]
 fn test_run_main_with_expression() {
-    let source = "fn main() -> Int { 1 + 2 * 3 }";
+    let source = "pub fn main() -> Int { 1 + 2 * 3 }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(7));
 }
@@ -20,7 +20,7 @@ fn test_run_main_with_expression() {
 fn test_run_main_calling_function() {
     let source = r#"
         fn add(x: Int, y: Int) -> Int { x + y }
-        fn main() -> Int { add(10, 20) }
+        pub fn main() -> Int { add(10, 20) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(30));
@@ -28,7 +28,7 @@ fn test_run_main_calling_function() {
 
 #[test]
 fn test_run_main_with_float() {
-    let source = "fn main() -> Float { 3.14 }";
+    let source = "pub fn main() -> Float { 3.14 }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Float(3.14));
 }
@@ -37,12 +37,19 @@ fn test_run_main_with_float() {
 fn test_run_no_main_error() {
     let source = "fn foo() -> Int { 42 }";
     let result = run_source(source);
-    assert!(matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("no main()")));
+    assert!(matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("no pub fn main()")));
+}
+
+#[test]
+fn test_run_private_main_error() {
+    let source = "fn main() -> Int { 42 }";
+    let result = run_source(source);
+    assert!(matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("no pub fn main()")));
 }
 
 #[test]
 fn test_run_main_with_params_error() {
-    let source = "fn main(x: Int) -> Int { x }";
+    let source = "pub fn main(x: Int) -> Int { x }";
     let result = run_source(source);
     assert!(
         matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("must not take any parameters"))
@@ -54,7 +61,7 @@ fn test_run_multiple_functions() {
     let source = r#"
         fn square(x: Int) -> Int { x * x }
         fn double(x: Int) -> Int { x + x }
-        fn main() -> Int { square(double(3)) }
+        pub fn main() -> Int { square(double(3)) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(36)); // double(3) = 6, square(6) = 36
@@ -65,7 +72,7 @@ fn test_run_function_no_braces() {
     // Functions with simple expression bodies can omit braces
     let source = r#"
         fn square(x: Int) -> Int x * x
-        fn main() -> Int { square(5) }
+        pub fn main() -> Int { square(5) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(25));
@@ -77,7 +84,7 @@ fn test_run_function_no_braces_multiple() {
     let source = r#"
         fn add(x: Int, y: Int) -> Int x + y
         fn double(x: Int) -> Int x * 2
-        fn main() -> Int add(double(3), 4)
+        pub fn main() -> Int add(double(3), 4)
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(10)); // double(3) = 6, add(6, 4) = 10
@@ -85,168 +92,168 @@ fn test_run_function_no_braces_multiple() {
 
 #[test]
 fn test_run_division_by_zero() {
-    let source = "fn main() -> Int { 1 / 0 }";
+    let source = "pub fn main() -> Int { 1 / 0 }";
     let result = run_source(source);
     assert!(matches!(result, Err(EvalError::DivisionByZero)));
 }
 
 #[test]
 fn test_run_bool_true() {
-    let source = "fn main() -> Bool { true }";
+    let source = "pub fn main() -> Bool { true }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
 }
 
 #[test]
 fn test_run_bool_false() {
-    let source = "fn main() -> Bool { false }";
+    let source = "pub fn main() -> Bool { false }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(false));
 }
 
 #[test]
 fn test_run_equality_true() {
-    let source = "fn main() -> Bool { 1 == 1 }";
+    let source = "pub fn main() -> Bool { 1 == 1 }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
 }
 
 #[test]
 fn test_run_equality_false() {
-    let source = "fn main() -> Bool { 1 == 2 }";
+    let source = "pub fn main() -> Bool { 1 == 2 }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(false));
 }
 
 #[test]
 fn test_run_inequality() {
-    let source = "fn main() -> Bool { 1 != 2 }";
+    let source = "pub fn main() -> Bool { 1 != 2 }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
 }
 
 #[test]
 fn test_run_less_than() {
-    let source = "fn main() -> Bool { 1 < 2 }";
+    let source = "pub fn main() -> Bool { 1 < 2 }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
 }
 
 #[test]
 fn test_run_greater_than() {
-    let source = "fn main() -> Bool { 2 > 1 }";
+    let source = "pub fn main() -> Bool { 2 > 1 }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
 }
 
 #[test]
 fn test_run_less_equal() {
-    let source = "fn main() -> Bool { 2 <= 2 }";
+    let source = "pub fn main() -> Bool { 2 <= 2 }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
 }
 
 #[test]
 fn test_run_greater_equal() {
-    let source = "fn main() -> Bool { 2 >= 2 }";
+    let source = "pub fn main() -> Bool { 2 >= 2 }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
 }
 
 #[test]
 fn test_run_bool_equality() {
-    let source = "fn main() -> Bool { true == false }";
+    let source = "pub fn main() -> Bool { true == false }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(false));
 }
 
 #[test]
 fn test_run_float_comparison() {
-    let source = "fn main() -> Bool { 1.5 < 2.5 }";
+    let source = "pub fn main() -> Bool { 1.5 < 2.5 }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
 }
 
 #[test]
 fn test_run_comparison_with_arithmetic() {
-    let source = "fn main() -> Bool { 1 + 2 == 3 }";
+    let source = "pub fn main() -> Bool { 1 + 2 == 3 }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
 }
 
 #[test]
 fn test_run_string_len() {
-    let source = r#"fn main() -> Int { "hello".len() }"#;
+    let source = r#"pub fn main() -> Int { "hello".len() }"#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(5));
 }
 
 #[test]
 fn test_run_string_is_empty_false() {
-    let source = r#"fn main() -> Bool { "hello".is_empty() }"#;
+    let source = r#"pub fn main() -> Bool { "hello".is_empty() }"#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(false));
 }
 
 #[test]
 fn test_run_string_is_empty_true() {
-    let source = r#"fn main() -> Bool { "".is_empty() }"#;
+    let source = r#"pub fn main() -> Bool { "".is_empty() }"#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
 }
 
 #[test]
 fn test_run_string_contains_true() {
-    let source = r#"fn main() -> Bool { "hello world".contains("world") }"#;
+    let source = r#"pub fn main() -> Bool { "hello world".contains("world") }"#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
 }
 
 #[test]
 fn test_run_string_contains_false() {
-    let source = r#"fn main() -> Bool { "hello".contains("xyz") }"#;
+    let source = r#"pub fn main() -> Bool { "hello".contains("xyz") }"#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(false));
 }
 
 #[test]
 fn test_run_string_starts_with() {
-    let source = r#"fn main() -> Bool { "hello".starts_with("he") }"#;
+    let source = r#"pub fn main() -> Bool { "hello".starts_with("he") }"#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
 }
 
 #[test]
 fn test_run_string_ends_with() {
-    let source = r#"fn main() -> Bool { "hello".ends_with("lo") }"#;
+    let source = r#"pub fn main() -> Bool { "hello".ends_with("lo") }"#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
 }
 
 #[test]
 fn test_run_string_to_uppercase() {
-    let source = r#"fn main() -> String { "hello".to_uppercase() }"#;
+    let source = r#"pub fn main() -> String { "hello".to_uppercase() }"#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::String("HELLO".to_string()));
 }
 
 #[test]
 fn test_run_string_to_lowercase() {
-    let source = r#"fn main() -> String { "HELLO".to_lowercase() }"#;
+    let source = r#"pub fn main() -> String { "HELLO".to_lowercase() }"#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::String("hello".to_string()));
 }
 
 #[test]
 fn test_run_string_trim() {
-    let source = r#"fn main() -> String { "  hello  ".trim() }"#;
+    let source = r#"pub fn main() -> String { "  hello  ".trim() }"#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::String("hello".to_string()));
 }
 
 #[test]
 fn test_run_chained_method_calls() {
-    let source = r#"fn main() -> Int { "hello".to_uppercase().len() }"#;
+    let source = r#"pub fn main() -> Int { "hello".to_uppercase().len() }"#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(5));
 }
@@ -255,7 +262,7 @@ fn test_run_chained_method_calls() {
 fn test_run_method_call_in_function() {
     let source = r#"
         fn get_length(s: String) -> Int { s.len() }
-        fn main() -> Int { get_length("hello") }
+        pub fn main() -> Int { get_length("hello") }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(5));
@@ -264,35 +271,35 @@ fn test_run_method_call_in_function() {
 // Int method tests
 #[test]
 fn test_run_int32_abs() {
-    let source = "fn main() -> Int { (-5).abs() }";
+    let source = "pub fn main() -> Int { (-5).abs() }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(5));
 }
 
 #[test]
 fn test_run_int32_to_string() {
-    let source = "fn main() -> String { 42.to_string() }";
+    let source = "pub fn main() -> String { 42.to_string() }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::String("42".to_string()));
 }
 
 #[test]
 fn test_run_int32_to_float() {
-    let source = "fn main() -> Float { 42.to_float() }";
+    let source = "pub fn main() -> Float { 42.to_float() }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Float(42.0));
 }
 
 #[test]
 fn test_run_int32_min() {
-    let source = "fn main() -> Int { 3.min(5) }";
+    let source = "pub fn main() -> Int { 3.min(5) }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(3));
 }
 
 #[test]
 fn test_run_int32_max() {
-    let source = "fn main() -> Int { 3.max(5) }";
+    let source = "pub fn main() -> Int { 3.max(5) }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(5));
 }
@@ -300,35 +307,35 @@ fn test_run_int32_max() {
 // BigInt literal tests
 #[test]
 fn test_run_int64_literal() {
-    let source = "fn main() -> BigInt { 42n }";
+    let source = "pub fn main() -> BigInt { 42n }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::BigInt(42));
 }
 
 #[test]
 fn test_run_int64_large_literal() {
-    let source = "fn main() -> BigInt { 9_000_000_000n }";
+    let source = "pub fn main() -> BigInt { 9_000_000_000n }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::BigInt(9_000_000_000));
 }
 
 #[test]
 fn test_run_int64_addition() {
-    let source = "fn main() -> BigInt { 1n + 2n }";
+    let source = "pub fn main() -> BigInt { 1n + 2n }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::BigInt(3));
 }
 
 #[test]
 fn test_run_int64_method_abs() {
-    let source = "fn main() -> BigInt { (-42n).abs() }";
+    let source = "pub fn main() -> BigInt { (-42n).abs() }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::BigInt(42));
 }
 
 #[test]
 fn test_run_int64_method_to_string() {
-    let source = "fn main() -> String { 42n.to_string() }";
+    let source = "pub fn main() -> String { 42n.to_string() }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::String("42".to_string()));
 }
@@ -336,63 +343,63 @@ fn test_run_int64_method_to_string() {
 // Float method tests
 #[test]
 fn test_run_float_abs() {
-    let source = "fn main() -> Float { (-3.14).abs() }";
+    let source = "pub fn main() -> Float { (-3.14).abs() }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Float(3.14));
 }
 
 #[test]
 fn test_run_float_to_string() {
-    let source = "fn main() -> String { 3.14.to_string() }";
+    let source = "pub fn main() -> String { 3.14.to_string() }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::String("3.14".to_string()));
 }
 
 #[test]
 fn test_run_float_to_int() {
-    let source = "fn main() -> Int { 3.7.to_int() }";
+    let source = "pub fn main() -> Int { 3.7.to_int() }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(3));
 }
 
 #[test]
 fn test_run_float_floor() {
-    let source = "fn main() -> Float { 3.7.floor() }";
+    let source = "pub fn main() -> Float { 3.7.floor() }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Float(3.0));
 }
 
 #[test]
 fn test_run_float_ceil() {
-    let source = "fn main() -> Float { 3.2.ceil() }";
+    let source = "pub fn main() -> Float { 3.2.ceil() }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Float(4.0));
 }
 
 #[test]
 fn test_run_float_round() {
-    let source = "fn main() -> Float { 3.5.round() }";
+    let source = "pub fn main() -> Float { 3.5.round() }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Float(4.0));
 }
 
 #[test]
 fn test_run_float_sqrt() {
-    let source = "fn main() -> Float { 9.0.sqrt() }";
+    let source = "pub fn main() -> Float { 9.0.sqrt() }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Float(3.0));
 }
 
 #[test]
 fn test_run_float_min() {
-    let source = "fn main() -> Float { 3.5.min(2.5) }";
+    let source = "pub fn main() -> Float { 3.5.min(2.5) }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Float(2.5));
 }
 
 #[test]
 fn test_run_float_max() {
-    let source = "fn main() -> Float { 3.5.max(2.5) }";
+    let source = "pub fn main() -> Float { 3.5.max(2.5) }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Float(3.5));
 }
@@ -400,7 +407,7 @@ fn test_run_float_max() {
 // List tests
 #[test]
 fn test_run_list_literal() {
-    let source = "fn main() -> List<Int> { [1, 2, 3] }";
+    let source = "pub fn main() -> List<Int> { [1, 2, 3] }";
     let result = run_source(source).unwrap();
     assert_eq!(
         result,
@@ -410,63 +417,63 @@ fn test_run_list_literal() {
 
 #[test]
 fn test_run_empty_list() {
-    let source = "fn main() -> List<Int> { [] }";
+    let source = "pub fn main() -> List<Int> { [] }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::List(vec![]));
 }
 
 #[test]
 fn test_run_list_equality_true() {
-    let source = "fn main() -> Bool { [1, 2, 3] == [1, 2, 3] }";
+    let source = "pub fn main() -> Bool { [1, 2, 3] == [1, 2, 3] }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
 }
 
 #[test]
 fn test_run_list_equality_false_different_elements() {
-    let source = "fn main() -> Bool { [1, 2, 3] == [1, 2, 4] }";
+    let source = "pub fn main() -> Bool { [1, 2, 3] == [1, 2, 4] }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(false));
 }
 
 #[test]
 fn test_run_list_equality_false_different_length() {
-    let source = "fn main() -> Bool { [1, 2] == [1, 2, 3] }";
+    let source = "pub fn main() -> Bool { [1, 2] == [1, 2, 3] }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(false));
 }
 
 #[test]
 fn test_run_list_inequality() {
-    let source = "fn main() -> Bool { [1, 2] != [1, 3] }";
+    let source = "pub fn main() -> Bool { [1, 2] != [1, 3] }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
 }
 
 #[test]
 fn test_run_empty_list_equality() {
-    let source = "fn main() -> Bool { [] == [] }";
+    let source = "pub fn main() -> Bool { [] == [] }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
 }
 
 #[test]
 fn test_run_tuple_equality_true() {
-    let source = "fn main() -> Bool { (1, 2) == (1, 2) }";
+    let source = "pub fn main() -> Bool { (1, 2) == (1, 2) }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
 }
 
 #[test]
 fn test_run_tuple_equality_false() {
-    let source = "fn main() -> Bool { (1, 2) == (1, 3) }";
+    let source = "pub fn main() -> Bool { (1, 2) == (1, 3) }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(false));
 }
 
 #[test]
 fn test_run_tuple_inequality() {
-    let source = "fn main() -> Bool { (1, 2) != (1, 3) }";
+    let source = "pub fn main() -> Bool { (1, 2) != (1, 3) }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
 }
@@ -480,7 +487,7 @@ fn test_run_list_match_empty() {
                 [_, ..] => false,
             }
         }
-        fn main() -> Bool { is_empty([]) }
+        pub fn main() -> Bool { is_empty([]) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
@@ -495,7 +502,7 @@ fn test_run_list_match_nonempty() {
                 [_, ..] => false,
             }
         }
-        fn main() -> Bool { is_empty([1, 2, 3]) }
+        pub fn main() -> Bool { is_empty([1, 2, 3]) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(false));
@@ -510,7 +517,7 @@ fn test_run_list_match_head() {
                 [x, ..] => x,
             }
         }
-        fn main() -> Int { head_or_zero([42, 1, 2]) }
+        pub fn main() -> Int { head_or_zero([42, 1, 2]) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(42));
@@ -525,7 +532,7 @@ fn test_run_list_match_head_empty() {
                 [x, ..] => x,
             }
         }
-        fn main() -> Int { head_or_zero([]) }
+        pub fn main() -> Int { head_or_zero([]) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(0));
@@ -540,7 +547,7 @@ fn test_run_list_match_exact() {
                 _ => 0,
             }
         }
-        fn main() -> Int { sum_pair([10, 20]) }
+        pub fn main() -> Int { sum_pair([10, 20]) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(30));
@@ -555,7 +562,7 @@ fn test_run_list_match_exact_wrong_length() {
                 _ => 0,
             }
         }
-        fn main() -> Int { sum_pair([1, 2, 3]) }
+        pub fn main() -> Int { sum_pair([1, 2, 3]) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(0));
@@ -571,7 +578,7 @@ fn test_run_list_match_literal_pattern() {
                 [] => false,
             }
         }
-        fn main() -> Bool { starts_with_one([1, 2, 3]) }
+        pub fn main() -> Bool { starts_with_one([1, 2, 3]) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
@@ -587,7 +594,7 @@ fn test_run_list_match_literal_pattern_not_matching() {
                 [] => false,
             }
         }
-        fn main() -> Bool { starts_with_one([2, 3, 4]) }
+        pub fn main() -> Bool { starts_with_one([2, 3, 4]) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(false));
@@ -602,7 +609,7 @@ fn test_run_list_exhaustiveness_error() {
                 [x, ..] => x,
             }
         }
-        fn main() -> Int { bad([1]) }
+        pub fn main() -> Int { bad([1]) }
     "#;
     let result = run_source(source);
     assert!(matches!(
@@ -613,7 +620,7 @@ fn test_run_list_exhaustiveness_error() {
 
 #[test]
 fn test_run_list_string() {
-    let source = r#"fn main() -> List<String> { ["hello", "world"] }"#;
+    let source = r#"pub fn main() -> List<String> { ["hello", "world"] }"#;
     let result = run_source(source).unwrap();
     assert_eq!(
         result,
@@ -635,7 +642,7 @@ fn test_run_list_function_param() {
                 _ => false,
             }
         }
-        fn main() -> Bool { len_check([1, 2]) }
+        pub fn main() -> Bool { len_check([1, 2]) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
@@ -651,7 +658,7 @@ fn test_run_list_match_suffix_pattern() {
                 [] => 0,
             }
         }
-        fn main() -> Int { last_elem([1, 2, 3]) }
+        pub fn main() -> Int { last_elem([1, 2, 3]) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(3));
@@ -666,7 +673,7 @@ fn test_run_list_match_suffix_pattern_single_elem() {
                 [] => 0,
             }
         }
-        fn main() -> Int { last_elem([42]) }
+        pub fn main() -> Int { last_elem([42]) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(42));
@@ -682,7 +689,7 @@ fn test_run_list_match_suffix_two_elements() {
                 [] => 0,
             }
         }
-        fn main() -> Int { last_two([1, 2, 3, 4]) }
+        pub fn main() -> Int { last_two([1, 2, 3, 4]) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(7)); // 3 + 4
@@ -698,7 +705,7 @@ fn test_run_list_match_suffix_literal_pattern() {
                 [] => false,
             }
         }
-        fn main() -> Bool { ends_with_zero([1, 2, 0]) }
+        pub fn main() -> Bool { ends_with_zero([1, 2, 0]) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
@@ -715,7 +722,7 @@ fn test_run_list_match_prefix_suffix_pattern() {
                 [] => 0,
             }
         }
-        fn main() -> Int { first_and_last([1, 2, 3, 4]) }
+        pub fn main() -> Int { first_and_last([1, 2, 3, 4]) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(5)); // 1 + 4
@@ -732,7 +739,7 @@ fn test_run_list_match_prefix_suffix_min_length() {
                 [] => 0,
             }
         }
-        fn main() -> Int { first_and_last([10, 20]) }
+        pub fn main() -> Int { first_and_last([10, 20]) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(30)); // 10 + 20
@@ -748,7 +755,7 @@ fn test_run_list_match_prefix_suffix_literals() {
                 [] => false,
             }
         }
-        fn main() -> Bool { bookended_by_ones([1, 2, 3, 1]) }
+        pub fn main() -> Bool { bookended_by_ones([1, 2, 3, 1]) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
@@ -766,7 +773,7 @@ fn test_run_list_match_prefix_suffix_multiple() {
                 [] => 0,
             }
         }
-        fn main() -> Int { middle_free([1, 2, 3, 4, 5, 6]) }
+        pub fn main() -> Int { middle_free([1, 2, 3, 4, 5, 6]) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(14)); // 1 + 2 + 5 + 6
@@ -776,35 +783,35 @@ fn test_run_list_match_prefix_suffix_multiple() {
 
 #[test]
 fn test_run_list_len() {
-    let source = "fn main() -> Int { [1, 2, 3].len() }";
+    let source = "pub fn main() -> Int { [1, 2, 3].len() }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(3));
 }
 
 #[test]
 fn test_run_list_len_empty() {
-    let source = "fn main() -> Int { [].len() }";
+    let source = "pub fn main() -> Int { [].len() }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(0));
 }
 
 #[test]
 fn test_run_list_is_empty_true() {
-    let source = "fn main() -> Bool { [].is_empty() }";
+    let source = "pub fn main() -> Bool { [].is_empty() }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
 }
 
 #[test]
 fn test_run_list_is_empty_false() {
-    let source = "fn main() -> Bool { [1, 2].is_empty() }";
+    let source = "pub fn main() -> Bool { [1, 2].is_empty() }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(false));
 }
 
 #[test]
 fn test_run_list_reverse() {
-    let source = "fn main() -> List<Int> { [1, 2, 3].reverse() }";
+    let source = "pub fn main() -> List<Int> { [1, 2, 3].reverse() }";
     let result = run_source(source).unwrap();
     assert_eq!(
         result,
@@ -814,14 +821,14 @@ fn test_run_list_reverse() {
 
 #[test]
 fn test_run_list_reverse_empty() {
-    let source = "fn main() -> List<Int> { [].reverse() }";
+    let source = "pub fn main() -> List<Int> { [].reverse() }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::List(vec![]));
 }
 
 #[test]
 fn test_run_list_push() {
-    let source = "fn main() -> List<Int> { [1, 2].push(3) }";
+    let source = "pub fn main() -> List<Int> { [1, 2].push(3) }";
     let result = run_source(source).unwrap();
     assert_eq!(
         result,
@@ -831,14 +838,14 @@ fn test_run_list_push() {
 
 #[test]
 fn test_run_list_push_empty() {
-    let source = "fn main() -> List<Int> { [].push(1) }";
+    let source = "pub fn main() -> List<Int> { [].push(1) }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::List(vec![Value::Int(1)]));
 }
 
 #[test]
 fn test_run_list_concat() {
-    let source = "fn main() -> List<Int> { [1, 2].concat([3, 4]) }";
+    let source = "pub fn main() -> List<Int> { [1, 2].concat([3, 4]) }";
     let result = run_source(source).unwrap();
     assert_eq!(
         result,
@@ -853,14 +860,14 @@ fn test_run_list_concat() {
 
 #[test]
 fn test_run_list_concat_empty() {
-    let source = "fn main() -> List<Int> { [1, 2].concat([]) }";
+    let source = "pub fn main() -> List<Int> { [1, 2].concat([]) }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::List(vec![Value::Int(1), Value::Int(2)]));
 }
 
 #[test]
 fn test_run_list_chained_methods() {
-    let source = "fn main() -> List<Int> { [1, 2].push(3).reverse() }";
+    let source = "pub fn main() -> List<Int> { [1, 2].push(3).reverse() }";
     let result = run_source(source).unwrap();
     assert_eq!(
         result,
@@ -871,7 +878,7 @@ fn test_run_list_chained_methods() {
 // Tuple tests
 #[test]
 fn test_run_tuple_literal() {
-    let source = r#"fn main() -> (Int, String) { (42, "hello") }"#;
+    let source = r#"pub fn main() -> (Int, String) { (42, "hello") }"#;
     let result = run_source(source).unwrap();
     assert_eq!(
         result,
@@ -881,14 +888,14 @@ fn test_run_tuple_literal() {
 
 #[test]
 fn test_run_empty_tuple() {
-    let source = "fn main() -> () { () }";
+    let source = "pub fn main() -> () { () }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Tuple(vec![]));
 }
 
 #[test]
 fn test_run_single_element_tuple() {
-    let source = "fn main() -> (Int,) { (42,) }";
+    let source = "pub fn main() -> (Int,) { (42,) }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Tuple(vec![Value::Int(42)]));
 }
@@ -901,7 +908,7 @@ fn test_run_tuple_match_exact() {
                 (x, _) => x,
             }
         }
-        fn main() -> Int { first((10, "hello")) }
+        pub fn main() -> Int { first((10, "hello")) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(10));
@@ -915,7 +922,7 @@ fn test_run_tuple_match_prefix() {
                 (x, ..) => x,
             }
         }
-        fn main() -> Int { get_first((1, 2, 3)) }
+        pub fn main() -> Int { get_first((1, 2, 3)) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(1));
@@ -929,7 +936,7 @@ fn test_run_tuple_match_suffix() {
                 (.., z) => z,
             }
         }
-        fn main() -> Int { get_last((1, 2, 3)) }
+        pub fn main() -> Int { get_last((1, 2, 3)) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(3));
@@ -943,7 +950,7 @@ fn test_run_tuple_match_prefix_suffix() {
                 (a, .., c) => a + c,
             }
         }
-        fn main() -> Int { first_and_last((1, 2, 3)) }
+        pub fn main() -> Int { first_and_last((1, 2, 3)) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(4)); // 1 + 3
@@ -957,7 +964,7 @@ fn test_run_tuple_heterogeneous() {
                 (x, _, _) => x,
             }
         }
-        fn main() -> Int { get_int((42, "hello", true)) }
+        pub fn main() -> Int { get_int((42, "hello", true)) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(42));
@@ -966,7 +973,7 @@ fn test_run_tuple_heterogeneous() {
 #[test]
 fn test_run_tuple_with_list() {
     let source = r#"
-        fn main() -> (Int, List<Int>) { (1, [2, 3]) }
+        pub fn main() -> (Int, List<Int>) { (1, [2, 3]) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(
@@ -982,7 +989,7 @@ fn test_run_tuple_with_list() {
 #[test]
 fn test_run_match_with_commas() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             match 1 { 0 => 0, 1 => 10, _ => 100 }
         }
     "#;
@@ -993,7 +1000,7 @@ fn test_run_match_with_commas() {
 #[test]
 fn test_run_match_braced_simple() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             match 1 { 0 => { 0 }, 1 => { 10 }, _ => { 100 } }
         }
     "#;
@@ -1004,7 +1011,7 @@ fn test_run_match_braced_simple() {
 #[test]
 fn test_run_match_braced_block() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             match 5 {
                 n => {
                     let doubled = n * 2;
@@ -1020,7 +1027,7 @@ fn test_run_match_braced_block() {
 #[test]
 fn test_run_match_block_multiple_bindings() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             match 3 {
                 n => {
                     let a = n * 2;
@@ -1038,7 +1045,7 @@ fn test_run_match_block_multiple_bindings() {
 #[test]
 fn test_run_match_block_pattern_binding_visible() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             match 10 {
                 x => {
                     let y = x + 5;
@@ -1054,7 +1061,7 @@ fn test_run_match_block_pattern_binding_visible() {
 #[test]
 fn test_run_match_mixed_arms() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             match 2 {
                 0 => 100,
                 1 => { let x = 1; x * 10 },
@@ -1082,7 +1089,7 @@ fn test_run_match_block_with_list_pattern() {
                 [] => 0,
             }
         }
-        fn main() -> Int { sum_first_two([5, 7, 9]) }
+        pub fn main() -> Int { sum_first_two([5, 7, 9]) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(12));
@@ -1100,7 +1107,7 @@ fn test_run_match_block_with_tuple_pattern() {
                 }
             }
         }
-        fn main() -> Int { process((3, 4)) }
+        pub fn main() -> Int { process((3, 4)) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(19)); // (3 + 4) + (3 * 4) = 7 + 12
@@ -1113,7 +1120,7 @@ fn test_run_forward_reference() {
     let source = r#"
         fn caller() -> Int { callee() }
         fn callee() -> Int { 42 }
-        fn main() -> Int { caller() }
+        pub fn main() -> Int { caller() }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(42));
@@ -1135,7 +1142,7 @@ fn test_run_mutual_recursion() {
                 _ => is_even(n - 1),
             }
         }
-        fn main() -> Bool { is_even(4) }
+        pub fn main() -> Bool { is_even(4) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
@@ -1156,7 +1163,7 @@ fn test_run_mutual_recursion_odd() {
                 _ => is_even(n - 1),
             }
         }
-        fn main() -> Bool { is_odd(3) }
+        pub fn main() -> Bool { is_odd(3) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Bool(true));
@@ -1166,7 +1173,7 @@ fn test_run_mutual_recursion_odd() {
 #[test]
 fn test_run_simple_lambda() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let f = |x| x + 1;
             f(41)
         }
@@ -1178,7 +1185,7 @@ fn test_run_simple_lambda() {
 #[test]
 fn test_run_lambda_multi_param() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let add = |x, y| x + y;
             add(10, 32)
         }
@@ -1190,7 +1197,7 @@ fn test_run_lambda_multi_param() {
 #[test]
 fn test_run_lambda_with_type_annotation() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let f = |x: Int| -> Int x * 2;
             f(21)
         }
@@ -1202,7 +1209,7 @@ fn test_run_lambda_with_type_annotation() {
 #[test]
 fn test_run_lambda_block_body() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let f = |x| {
                 let y = x * 2;
                 y + 1
@@ -1217,7 +1224,7 @@ fn test_run_lambda_block_body() {
 #[test]
 fn test_run_lambda_nested() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let add = |x| |y| x + y;
             let add10 = add(10);
             add10(32)
@@ -1231,7 +1238,7 @@ fn test_run_lambda_nested() {
 fn test_run_lambda_polymorphic_identity() {
     // Test let polymorphism: id can be used at different types
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let id = |x| x;
             let a = id(42);
             let b = id(true);
@@ -1246,7 +1253,7 @@ fn test_run_lambda_polymorphic_identity() {
 fn test_run_lambda_polymorphic_const() {
     // Test polymorphic const function
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let const_ = |x| |y| x;
             let always42 = const_(42);
             always42(true)
@@ -1259,7 +1266,7 @@ fn test_run_lambda_polymorphic_const() {
 #[test]
 fn test_run_lambda_no_params() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let f = || 42;
             f()
         }
@@ -1272,7 +1279,7 @@ fn test_run_lambda_no_params() {
 fn test_run_lambda_captures_outer_var() {
     // Lambda captures variable from outer scope
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let x = 10;
             let f = |y| x + y;
             f(32)
@@ -1285,7 +1292,7 @@ fn test_run_lambda_captures_outer_var() {
 #[test]
 fn test_run_lambda_with_function_type_annotation() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let f: Int -> Int = |x| x * 2;
             f(21)
         }
@@ -1297,7 +1304,7 @@ fn test_run_lambda_with_function_type_annotation() {
 #[test]
 fn test_run_lambda_multi_param_function_type() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let add: (Int, Int) -> Int = |x, y| x + y;
             add(10, 32)
         }
@@ -1309,7 +1316,7 @@ fn test_run_lambda_multi_param_function_type() {
 #[test]
 fn test_run_lambda_no_param_function_type() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let f: () -> Int = || 42;
             f()
         }
@@ -1323,7 +1330,7 @@ fn test_run_lambda_passed_to_function() {
     let source = r#"
         fn apply(f: Int -> Int, x: Int) -> Int f(x)
 
-        fn main() -> Int {
+        pub fn main() -> Int {
             apply(|x| x * 2, 21)
         }
     "#;
@@ -1336,7 +1343,7 @@ fn test_run_higher_order_function_returns_lambda() {
     let source = r#"
         fn make_adder(n: Int) -> Int -> Int |x| x + n
 
-        fn main() -> Int {
+        pub fn main() -> Int {
             let add5 = make_adder(5);
             add5(37)
         }
@@ -1348,7 +1355,7 @@ fn test_run_higher_order_function_returns_lambda() {
 #[test]
 fn test_run_function_type_mismatch_error() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let f: Int -> Int = |x| true;
             0
         }
@@ -1368,7 +1375,7 @@ fn test_run_function_type_mismatch_error() {
 fn test_run_struct_simple() {
     let source = r#"
         struct Point { x: Int, y: Int }
-        fn main() -> Int {
+        pub fn main() -> Int {
             let p = Point { x: 10, y: 20 };
             p.x + p.y
         }
@@ -1381,7 +1388,7 @@ fn test_run_struct_simple() {
 fn test_run_struct_field_access() {
     let source = r#"
         struct Person { name: String, age: Int }
-        fn main() -> String {
+        pub fn main() -> String {
             let p = Person { name: "Alice", age: 30 };
             p.name
         }
@@ -1394,7 +1401,7 @@ fn test_run_struct_field_access() {
 fn test_run_struct_empty() {
     let source = r#"
         struct Empty {}
-        fn main() -> Int {
+        pub fn main() -> Int {
             let e = Empty {};
             42
         }
@@ -1407,7 +1414,7 @@ fn test_run_struct_empty() {
 fn test_run_struct_generic() {
     let source = r#"
         struct Pair<T, U> { first: T, second: U }
-        fn main() -> Int {
+        pub fn main() -> Int {
             let p = Pair { first: 1, second: 2 };
             p.first + p.second
         }
@@ -1420,7 +1427,7 @@ fn test_run_struct_generic() {
 fn test_run_struct_match_exact() {
     let source = r#"
         struct Point { x: Int, y: Int }
-        fn main() -> Int {
+        pub fn main() -> Int {
             let p = Point { x: 10, y: 20 };
             match p {
                 Point { x, y } => x + y,
@@ -1435,7 +1442,7 @@ fn test_run_struct_match_exact() {
 fn test_run_struct_match_partial() {
     let source = r#"
         struct Point { x: Int, y: Int }
-        fn main() -> Int {
+        pub fn main() -> Int {
             let p = Point { x: 10, y: 20 };
             match p {
                 Point { x, .. } => x,
@@ -1450,7 +1457,7 @@ fn test_run_struct_match_partial() {
 fn test_run_struct_match_with_binding() {
     let source = r#"
         struct Point { x: Int, y: Int }
-        fn main() -> Int {
+        pub fn main() -> Int {
             let p = Point { x: 10, y: 20 };
             match p {
                 Point { x: a, y: b } => a * b,
@@ -1466,7 +1473,7 @@ fn test_run_struct_nested() {
     let source = r#"
         struct Point { x: Int, y: Int }
         struct Line { start: Point, end: Point }
-        fn main() -> Int {
+        pub fn main() -> Int {
             let l = Line {
                 start: Point { x: 0, y: 0 },
                 end: Point { x: 10, y: 20 }
@@ -1482,7 +1489,7 @@ fn test_run_struct_nested() {
 fn test_run_struct_field_shorthand() {
     let source = r#"
         struct Point { x: Int, y: Int }
-        fn main() -> Int {
+        pub fn main() -> Int {
             let x = 10;
             let y = 20;
             let p = Point { x, y };
@@ -1497,7 +1504,7 @@ fn test_run_struct_field_shorthand() {
 fn test_run_struct_equality() {
     let source = r#"
         struct Point { x: Int, y: Int }
-        fn main() -> Bool {
+        pub fn main() -> Bool {
             let p1 = Point { x: 10, y: 20 };
             let p2 = Point { x: 10, y: 20 };
             p1 == p2
@@ -1511,7 +1518,7 @@ fn test_run_struct_equality() {
 fn test_run_struct_inequality() {
     let source = r#"
         struct Point { x: Int, y: Int }
-        fn main() -> Bool {
+        pub fn main() -> Bool {
             let p1 = Point { x: 10, y: 20 };
             let p2 = Point { x: 10, y: 30 };
             p1 != p2
@@ -1527,7 +1534,7 @@ fn test_run_struct_inequality() {
 fn test_run_enum_unit_variant() {
     let source = r#"
         enum Option<T> { None, Some(T) }
-        fn main() -> Int {
+        pub fn main() -> Int {
             let x = Option::None;
             match x {
                 Option::None => 0,
@@ -1543,7 +1550,7 @@ fn test_run_enum_unit_variant() {
 fn test_run_enum_tuple_variant() {
     let source = r#"
         enum Option<T> { None, Some(T) }
-        fn main() -> Int {
+        pub fn main() -> Int {
             let x = Option::Some(42);
             match x {
                 Option::None => 0,
@@ -1559,7 +1566,7 @@ fn test_run_enum_tuple_variant() {
 fn test_run_enum_struct_variant() {
     let source = r#"
         enum Message { Quit, Move { x: Int, y: Int }, Write(String) }
-        fn main() -> Int {
+        pub fn main() -> Int {
             let msg = Message::Move { x: 10, y: 20 };
             match msg {
                 Message::Quit => 0,
@@ -1592,7 +1599,7 @@ fn test_run_enum_all_variant_types() {
                 Message::Write(s) => s.len()
             }
         }
-        fn main() -> Int {
+        pub fn main() -> Int {
             handle_quit() + handle_write()
         }
     "#;
@@ -1604,7 +1611,7 @@ fn test_run_enum_all_variant_types() {
 fn test_run_enum_generic_multiple_types() {
     let source = r#"
         enum Option<T> { None, Some(T) }
-        fn main() -> Int {
+        pub fn main() -> Int {
             let x = Option::Some(10);
             let y = Option::Some("hello");
             let a = match x {
@@ -1626,7 +1633,7 @@ fn test_run_enum_generic_multiple_types() {
 fn test_run_enum_nested_pattern() {
     let source = r#"
         enum Option<T> { None, Some(T) }
-        fn main() -> Int {
+        pub fn main() -> Int {
             let x = Option::Some((1, 2));
             match x {
                 Option::None => 0,
@@ -1642,7 +1649,7 @@ fn test_run_enum_nested_pattern() {
 fn test_run_enum_partial_struct_pattern() {
     let source = r#"
         enum Message { Quit, Move { x: Int, y: Int, z: Int } }
-        fn main() -> Int {
+        pub fn main() -> Int {
             let msg = Message::Move { x: 1, y: 2, z: 3 };
             match msg {
                 Message::Quit => 0,
@@ -1658,7 +1665,7 @@ fn test_run_enum_partial_struct_pattern() {
 fn test_run_match_multiple_unit_variants() {
     let source = r#"
         enum Color { Red, Green, Blue }
-        fn main() -> Int {
+        pub fn main() -> Int {
             let x = Color::Blue;
             match x {
                 Color::Red => 1,
@@ -1675,7 +1682,7 @@ fn test_run_match_multiple_unit_variants() {
 fn test_run_enum_wildcard_pattern() {
     let source = r#"
         enum Message { Quit, Move { x: Int, y: Int }, Write(String) }
-        fn main() -> Int {
+        pub fn main() -> Int {
             let msg = Message::Write("hello");
             match msg {
                 Message::Quit => 0,
@@ -1691,7 +1698,7 @@ fn test_run_enum_wildcard_pattern() {
 fn test_run_enum_equality() {
     let source = r#"
         enum Option<T> { None, Some(T) }
-        fn main() -> Bool {
+        pub fn main() -> Bool {
             let x = Option::Some(42);
             let y = Option::Some(42);
             x == y
@@ -1705,7 +1712,7 @@ fn test_run_enum_equality() {
 fn test_run_enum_inequality() {
     let source = r#"
         enum Option<T> { None, Some(T) }
-        fn main() -> Bool {
+        pub fn main() -> Bool {
             let x = Option::Some(42);
             let y = Option::None;
             x != y
@@ -1719,7 +1726,7 @@ fn test_run_enum_inequality() {
 fn test_run_enum_multi_field_tuple() {
     let source = r#"
         enum Result<T, E> { Ok(T), Err(E) }
-        fn main() -> Int {
+        pub fn main() -> Int {
             let x = Result::Ok(42);
             match x {
                 Result::Ok(v) => v,
@@ -1737,7 +1744,7 @@ fn test_run_enum_multi_field_tuple() {
 fn test_turbofish_unit_variant() {
     let source = r#"
         enum Option<T> { None, Some(T) }
-        fn main() -> Int {
+        pub fn main() -> Int {
             let x = Option::None::<Int>;
             match x {
                 Option::None => 0,
@@ -1753,7 +1760,7 @@ fn test_turbofish_unit_variant() {
 fn test_turbofish_tuple_variant() {
     let source = r#"
         enum Option<T> { None, Some(T) }
-        fn main() -> Int {
+        pub fn main() -> Int {
             let x = Option::Some::<Int>(42);
             match x {
                 Option::None => 0,
@@ -1769,7 +1776,7 @@ fn test_turbofish_tuple_variant() {
 fn test_turbofish_function_call() {
     let source = r#"
         fn identity<T>(x: T) -> T x
-        fn main() -> Int {
+        pub fn main() -> Int {
             identity::<Int>(42)
         }
     "#;
@@ -1781,7 +1788,7 @@ fn test_turbofish_function_call() {
 fn test_turbofish_multiple_type_args() {
     let source = r#"
         enum Result<T, E> { Ok(T), Err(E) }
-        fn main() -> Int {
+        pub fn main() -> Int {
             let x = Result::Ok::<Int, String>(42);
             match x {
                 Result::Ok(v) => v,
@@ -1797,7 +1804,7 @@ fn test_turbofish_multiple_type_args() {
 #[test]
 fn test_as_pattern_literal() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let x = 42;
             match x {
                 n @ 42 => n,
@@ -1813,7 +1820,7 @@ fn test_as_pattern_literal() {
 fn test_as_pattern_with_enum() {
     let source = r#"
         enum Option<T> { None, Some(T) }
-        fn main() -> Int {
+        pub fn main() -> Int {
             let opt = Option::Some(10);
             match opt {
                 whole @ Option::Some(x) => x,
@@ -1828,7 +1835,7 @@ fn test_as_pattern_with_enum() {
 #[test]
 fn test_list_rest_binding() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let xs = [1, 2, 3, 4];
             match xs {
                 [first, rest @ ..] => {
@@ -1848,7 +1855,7 @@ fn test_list_rest_binding() {
 #[test]
 fn test_list_rest_binding_suffix() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let xs = [1, 2, 3, 4];
             match xs {
                 [rest @ .., last] => {
@@ -1868,7 +1875,7 @@ fn test_list_rest_binding_suffix() {
 #[test]
 fn test_list_rest_binding_middle() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let xs = [1, 2, 3, 4, 5];
             match xs {
                 [_, middle @ .., _] => {
@@ -1889,7 +1896,7 @@ fn test_list_rest_binding_middle() {
 fn test_tuple_rest_binding() {
     // rest @ .. on (1, 2, 3) with (first, rest @ ..) gives rest: (Int, Int)
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let t = (1, 2, 3);
             match t {
                 (first, rest @ ..) => {
@@ -1908,7 +1915,7 @@ fn test_tuple_rest_binding() {
 fn test_tuple_rest_binding_suffix() {
     // rest @ .. on (1, 2, 3, 4) with (rest @ .., last) gives rest: (Int, Int, Int)
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let t = (1, 2, 3, 4);
             match t {
                 (rest @ .., last) => {
@@ -1928,7 +1935,7 @@ fn test_tuple_rest_binding_suffix() {
 #[test]
 fn test_let_tuple_destructuring() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let (a, b) = (1, 2);
             a + b
         }
@@ -1940,7 +1947,7 @@ fn test_let_tuple_destructuring() {
 #[test]
 fn test_let_tuple_nested_destructuring() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let (a, (b, c)) = (1, (2, 3));
             a + b + c
         }
@@ -1953,7 +1960,7 @@ fn test_let_tuple_nested_destructuring() {
 fn test_let_struct_destructuring() {
     let source = r#"
         struct Point { x: Int, y: Int }
-        fn main() -> Int {
+        pub fn main() -> Int {
             let p = Point { x: 10, y: 20 };
             let Point { x, y } = p;
             x + y
@@ -1967,7 +1974,7 @@ fn test_let_struct_destructuring() {
 fn test_let_struct_partial_destructuring() {
     let source = r#"
         struct Point { x: Int, y: Int, z: Int }
-        fn main() -> Int {
+        pub fn main() -> Int {
             let p = Point { x: 1, y: 2, z: 3 };
             let Point { x, .. } = p;
             x
@@ -1980,7 +1987,7 @@ fn test_let_struct_partial_destructuring() {
 #[test]
 fn test_let_tuple_rest_prefix() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let (first, ..) = (1, 2, 3, 4);
             first
         }
@@ -1992,7 +1999,7 @@ fn test_let_tuple_rest_prefix() {
 #[test]
 fn test_let_tuple_rest_suffix() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let (.., last) = (1, 2, 3, 4);
             last
         }
@@ -2004,7 +2011,7 @@ fn test_let_tuple_rest_suffix() {
 #[test]
 fn test_let_wildcard() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let _ = 42;
             0
         }
@@ -2016,7 +2023,7 @@ fn test_let_wildcard() {
 #[test]
 fn test_let_as_pattern() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let pair @ (a, b) = (1, 2);
             match pair {
                 (x, y) => a + b + x + y,
@@ -2030,7 +2037,7 @@ fn test_let_as_pattern() {
 #[test]
 fn test_let_empty_tuple() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let () = ();
             42
         }
@@ -2043,7 +2050,7 @@ fn test_let_empty_tuple() {
 fn test_function_tuple_param_destructuring() {
     let source = r#"
         fn swap((a, b): (Int, Int)) -> (Int, Int) (b, a)
-        fn main() -> Int {
+        pub fn main() -> Int {
             let (x, y) = swap((1, 2));
             x * 10 + y
         }
@@ -2056,7 +2063,7 @@ fn test_function_tuple_param_destructuring() {
 fn test_function_nested_tuple_param() {
     let source = r#"
         fn nested(((a, b), c): ((Int, Int), Int)) -> Int a + b + c
-        fn main() -> Int { nested(((1, 2), 3)) }
+        pub fn main() -> Int { nested(((1, 2), 3)) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(6));
@@ -2067,7 +2074,7 @@ fn test_function_struct_param_destructuring() {
     let source = r#"
         struct Point { x: Int, y: Int }
         fn get_x(Point { x, .. }: Point) -> Int x
-        fn main() -> Int { get_x(Point { x: 42, y: 0 }) }
+        pub fn main() -> Int { get_x(Point { x: 42, y: 0 }) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(42));
@@ -2076,7 +2083,7 @@ fn test_function_struct_param_destructuring() {
 #[test]
 fn test_lambda_tuple_param_destructuring() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let add = |(a, b): (Int, Int)| a + b;
             add((3, 4))
         }
@@ -2088,7 +2095,7 @@ fn test_lambda_tuple_param_destructuring() {
 #[test]
 fn test_lambda_tuple_param_type_inference() {
     let source = r#"
-        fn main() -> Int {
+        pub fn main() -> Int {
             let add = |(a, b)| a + b;
             add((3, 4))
         }
@@ -2101,7 +2108,7 @@ fn test_lambda_tuple_param_type_inference() {
 fn test_function_wildcard_param() {
     let source = r#"
         fn first((a, _): (Int, Int)) -> Int a
-        fn main() -> Int { first((5, 10)) }
+        pub fn main() -> Int { first((5, 10)) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(5));
@@ -2114,7 +2121,7 @@ fn test_function_as_pattern_param() {
             let (x, y) = pair;
             a + b + x + y
         }
-        fn main() -> Int { with_as((1, 2)) }
+        pub fn main() -> Int { with_as((1, 2)) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(6)); // 1+2+1+2=6
@@ -2125,7 +2132,7 @@ fn test_type_alias_simple() {
     let source = r#"
         type UserId = Int
         fn get_id() -> UserId { 42 }
-        fn main() -> Int { get_id() }
+        pub fn main() -> Int { get_id() }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(42));
@@ -2136,7 +2143,7 @@ fn test_type_alias_generic() {
     let source = r#"
         type Pair<A, B> = (A, B)
         fn make_pair() -> Pair<Int, Bool> { (1, true) }
-        fn main() -> Int {
+        pub fn main() -> Int {
             let (x, _) = make_pair();
             x
         }
@@ -2151,7 +2158,7 @@ fn test_type_alias_function_type() {
     let source = r#"
         type IntOp = (Int) -> Int
         fn apply(f: IntOp, x: Int) -> Int { f(x) }
-        fn main() -> Int { apply(|x| x * 2, 21) }
+        pub fn main() -> Int { apply(|x| x * 2, 21) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(42));
@@ -2167,7 +2174,7 @@ fn test_type_alias_to_list() {
                 [x, rest @ ..] => x + sum(rest),
             }
         }
-        fn main() -> Int { sum([1, 2, 3, 4]) }
+        pub fn main() -> Int { sum([1, 2, 3, 4]) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(10));
@@ -2179,7 +2186,7 @@ fn test_type_alias_to_list() {
 
 /// Helper function to run a multi-module package and assert the result.
 /// Modules are specified as (path, source) tuples.
-/// The first module should be "root" containing `fn main()`.
+/// The first module should be "root" containing `pub fn main()`.
 /// The expected value is compared using Display representation.
 fn run_multi_module(modules: Vec<(&str, &str)>, expected: &str) {
     let mut source = MemorySource::new();
@@ -2236,7 +2243,7 @@ fn expect_check_error(modules: Vec<(&str, &str)>, expected_substring: &str) {
 fn test_module_pub_fn_qualified_call() {
     run_multi_module(
         vec![
-            ("root", "mod utils\nfn main() -> Int { utils::add(1, 2) }"),
+            ("root", "mod utils\npub fn main() -> Int { utils::add(1, 2) }"),
             ("utils", "pub fn add(x: Int, y: Int) -> Int { x + y }"),
         ],
         "3",
@@ -2252,7 +2259,7 @@ fn test_module_pub_fn_with_use() {
                 r#"
             mod utils
             use root::utils::add
-            fn main() -> Int { add(1, 2) }
+            pub fn main() -> Int { add(1, 2) }
         "#,
             ),
             ("utils", "pub fn add(x: Int, y: Int) -> Int { x + y }"),
@@ -2268,7 +2275,7 @@ fn test_module_call_same_module_no_import() {
             "root",
             r#"
             fn helper() -> Int { 42 }
-            fn main() -> Int { helper() }
+            pub fn main() -> Int { helper() }
         "#,
         )],
         "42",
@@ -2282,7 +2289,7 @@ fn test_module_private_fn_same_module() {
             "root",
             r#"
             fn secret() -> Int { 42 }
-            fn main() -> Int { secret() }
+            pub fn main() -> Int { secret() }
         "#,
         )],
         "42",
@@ -2300,7 +2307,7 @@ fn test_use_root_prefix() {
                 r#"
             mod utils
             use root::utils::helper
-            fn main() -> Int { helper() }
+            pub fn main() -> Int { helper() }
         "#,
             ),
             ("utils", "pub fn helper() -> Int { 42 }"),
@@ -2317,7 +2324,7 @@ fn test_use_self_prefix() {
             r#"
             use self::helper
             fn helper() -> Int { 42 }
-            fn main() -> Int { helper() }
+            pub fn main() -> Int { helper() }
         "#,
         )],
         "42",
@@ -2333,7 +2340,7 @@ fn test_use_super_prefix() {
                 r#"
             mod child
             pub fn parent_fn() -> Int { 42 }
-            fn main() -> Int { child::test() }
+            pub fn main() -> Int { child::test() }
         "#,
             ),
             (
@@ -2358,7 +2365,7 @@ fn test_use_super_nested() {
                 r#"
             pub mod level1
             pub fn root_fn() -> Int { 100 }
-            fn main() -> Int { level1::level2::test() }
+            pub fn main() -> Int { level1::level2::test() }
         "#,
             ),
             ("level1", "pub mod level2"),
@@ -2381,7 +2388,7 @@ fn test_use_super_from_root_fails() {
             "root",
             r#"
             use super::something
-            fn main() -> Int { 0 }
+            pub fn main() -> Int { 0 }
         "#,
         )],
         "super::",
@@ -2398,7 +2405,7 @@ fn test_visibility_pub_fn_accessible_everywhere() {
                 "root",
                 r#"
             mod utils
-            fn main() -> Int { utils::helper() }
+            pub fn main() -> Int { utils::helper() }
         "#,
             ),
             ("utils", "pub fn helper() -> Int { 42 }"),
@@ -2414,7 +2421,7 @@ fn test_visibility_private_fn_accessible_in_same_module() {
             "root",
             r#"
             fn private_helper() -> Int { 42 }
-            fn main() -> Int { private_helper() }
+            pub fn main() -> Int { private_helper() }
         "#,
         )],
         "42",
@@ -2430,7 +2437,7 @@ fn test_visibility_private_fn_accessible_in_child_module() {
                 r#"
             mod child
             fn private_helper() -> Int { 42 }
-            fn main() -> Int { child::test() }
+            pub fn main() -> Int { child::test() }
         "#,
             ),
             (
@@ -2455,7 +2462,7 @@ fn test_visibility_private_fn_accessible_in_deep_descendant() {
                 r#"
             pub mod level1
             fn root_secret() -> Int { 99 }
-            fn main() -> Int { level1::level2::level3::test() }
+            pub fn main() -> Int { level1::level2::level3::test() }
         "#,
             ),
             ("level1", "pub mod level2"),
@@ -2481,7 +2488,7 @@ fn test_visibility_private_fn_not_accessible_from_sibling() {
                 r#"
             mod a
             mod b
-            fn main() -> Int { b::try_access() }
+            pub fn main() -> Int { b::try_access() }
         "#,
             ),
             (
@@ -2510,7 +2517,7 @@ fn test_visibility_private_fn_not_accessible_from_parent() {
                 "root",
                 r#"
             mod child
-            fn main() -> Int { child::secret() }
+            pub fn main() -> Int { child::secret() }
         "#,
             ),
             (
@@ -2532,7 +2539,7 @@ fn test_visibility_struct_always_public() {
                 "root",
                 r#"
             mod types
-            fn main() -> Int {
+            pub fn main() -> Int {
                 let p = types::Point { x: 10, y: 20 };
                 p.x + p.y
             }
@@ -2552,7 +2559,7 @@ fn test_visibility_enum_always_public() {
                 "root",
                 r#"
             mod types
-            fn main() -> Int {
+            pub fn main() -> Int {
                 let opt = types::Option::Some(42);
                 match opt {
                     types::Option::Some(x) => x,
@@ -2577,7 +2584,7 @@ fn test_module_three_level_hierarchy() {
                 "root",
                 r#"
             pub mod utils
-            fn main() -> Int { utils::helpers::deep_fn() }
+            pub fn main() -> Int { utils::helpers::deep_fn() }
         "#,
             ),
             ("utils", "pub mod helpers"),
@@ -2596,7 +2603,7 @@ fn test_module_sibling_imports() {
                 r#"
             mod a
             mod b
-            fn main() -> Int { b::use_a() }
+            pub fn main() -> Int { b::use_a() }
         "#,
             ),
             ("a", "pub fn get_val() -> Int { 10 }"),
@@ -2623,7 +2630,7 @@ fn test_module_diamond_imports() {
             mod common
             mod a
             mod b
-            fn main() -> Int { a::from_a() + b::from_b() }
+            pub fn main() -> Int { a::from_a() + b::from_b() }
         "#,
             ),
             ("common", "pub fn base() -> Int { 5 }"),
@@ -2656,7 +2663,7 @@ fn test_module_grandchild_to_root_access() {
                 r#"
             pub mod parent
             pub fn grandparent_fn() -> Int { 77 }
-            fn main() -> Int { parent::child::test() }
+            pub fn main() -> Int { parent::child::test() }
         "#,
             ),
             ("parent", "pub mod child"),
@@ -2683,7 +2690,7 @@ fn test_import_struct_and_use() {
                 r#"
             mod types
             use root::types::Point
-            fn main() -> Int {
+            pub fn main() -> Int {
                 let p = Point { x: 10, y: 20 };
                 p.x + p.y
             }
@@ -2704,7 +2711,7 @@ fn test_import_struct_pattern_match() {
                 r#"
             mod types
             use root::types::Point
-            fn main() -> Int {
+            pub fn main() -> Int {
                 let p = Point { x: 10, y: 20 };
                 match p {
                     Point { x, y } => x * y,
@@ -2728,7 +2735,7 @@ fn test_import_enum_type_and_variants() {
             mod types
             use root::types::Option::Some
             use root::types::Option::None
-            fn main() -> Int {
+            pub fn main() -> Int {
                 let opt = Some(42);
                 match opt {
                     Some(x) => x,
@@ -2753,7 +2760,7 @@ fn test_import_enum_variant_in_pattern() {
             mod types
             use root::types::Result::Ok
             use root::types::Result::Err
-            fn main() -> Int {
+            pub fn main() -> Int {
                 let r = Ok(100);
                 match r {
                     Ok(v) => v,
@@ -2777,7 +2784,7 @@ fn test_import_type_alias() {
                 r#"
             mod types
             use root::types::IntPair
-            fn main() -> Int {
+            pub fn main() -> Int {
                 let p: IntPair = (10, 20);
                 match p {
                     (a, b) => a + b,
@@ -2800,7 +2807,7 @@ fn test_imported_generic_struct() {
                 r#"
             mod types
             use root::types::Pair
-            fn main() -> Int {
+            pub fn main() -> Int {
                 let p = Pair::<Int, Bool> { first: 42, second: true };
                 p.first
             }
@@ -2822,7 +2829,7 @@ fn test_error_import_nonexistent_item() {
             r#"
             mod utils
             use root::utils::nonexistent
-            fn main() -> Int { 0 }
+            pub fn main() -> Int { 0 }
         "#,
         ),
         ("utils", "pub fn helper() -> Int { 42 }")],
@@ -2840,7 +2847,7 @@ fn test_error_import_private_from_sibling() {
             mod a
             mod b
             use root::b::secret
-            fn main() -> Int { secret() }
+            pub fn main() -> Int { secret() }
         "#,
             ),
             ("a", "pub fn helper() -> Int { 1 }"),
@@ -2861,7 +2868,7 @@ fn test_error_duplicate_import_names() {
             mod b
             use root::a::foo
             use root::b::foo
-            fn main() -> Int { foo() }
+            pub fn main() -> Int { foo() }
         "#,
             ),
             ("a", "pub fn foo() -> Int { 1 }"),
@@ -2880,7 +2887,7 @@ fn test_error_use_without_prefix() {
         r#"
         mod utils
         use utils::helper
-        fn main() -> Int { helper() }
+        pub fn main() -> Int { helper() }
     "#,
     );
     source.add_module("utils", "pub fn helper() -> Int { 42 }");
@@ -2899,7 +2906,7 @@ fn test_error_module_not_found() {
         "root",
         r#"
         mod missing_module
-        fn main() -> Int { 0 }
+        pub fn main() -> Int { 0 }
     "#,
     );
     let result = load_package_with(&source, &"root".to_string());
@@ -2920,7 +2927,7 @@ fn test_error_call_private_via_qualified_path() {
                 "root",
                 r#"
             mod utils
-            fn main() -> Int { utils::secret() }
+            pub fn main() -> Int { utils::secret() }
         "#,
             ),
             ("utils", "fn secret() -> Int { 42 }"),
@@ -2940,7 +2947,7 @@ fn test_shadowing_local_shadows_import() {
                 r#"
             mod utils
             use root::utils::x
-            fn main() -> Bool {
+            pub fn main() -> Bool {
                 let x = true;
                 x
             }
@@ -2963,7 +2970,7 @@ fn test_shadowing_import_shadows_module_level() {
             mod utils
             use root::utils::foo
             fn foo() -> Bool { true }
-            fn main() -> Int { foo() }
+            pub fn main() -> Int { foo() }
         "#,
             ),
             ("utils", "pub fn foo() -> Int { 42 }"),
@@ -2983,7 +2990,7 @@ fn test_resolution_qualified_path_bypasses_import() {
             mod utils
             use root::utils::helper
             fn helper() -> Int { 1 }
-            fn main() -> Int {
+            pub fn main() -> Int {
                 let a = helper();
                 let b = self::helper();
                 a + b
@@ -3006,7 +3013,7 @@ fn test_multiple_paths_same_function() {
                 r#"
             mod utils
             use root::utils::add
-            fn main() -> Int {
+            pub fn main() -> Int {
                 let a = add(1, 2);
                 let b = utils::add(3, 4);
                 let c = root::utils::add(5, 6);
@@ -3032,7 +3039,7 @@ fn test_visibility_pub_mod_accessible_from_sibling() {
                 r#"
             pub mod utils
             pub mod other
-            fn main() -> Int { other::call_utils() }
+            pub fn main() -> Int { other::call_utils() }
         "#,
             ),
             ("utils", "pub fn helper() -> Int { 42 }"),
@@ -3058,7 +3065,7 @@ fn test_visibility_pub_mod_accessible_from_unrelated() {
                 r#"
             pub mod a
             pub mod b
-            fn main() -> Int { b::test() }
+            pub fn main() -> Int { b::test() }
         "#,
             ),
             ("a", "pub mod inner\npub fn top() -> Int { 1 }"),
@@ -3086,7 +3093,7 @@ fn test_visibility_private_mod_not_accessible_from_non_descendant() {
                 r#"
             pub mod a
             pub mod b
-            fn main() -> Int { 0 }
+            pub fn main() -> Int { 0 }
         "#,
             ),
             ("a", "mod internal"),
@@ -3113,7 +3120,7 @@ fn test_visibility_private_mod_blocks_nested_pub_item() {
                 r#"
             pub mod a
             pub mod b
-            fn main() -> Int { 0 }
+            pub fn main() -> Int { 0 }
         "#,
             ),
             ("a", "mod internal"),
@@ -3139,7 +3146,7 @@ fn test_visibility_private_mod_accessible_from_declaring_module() {
                 "root",
                 r#"
             mod internal
-            fn main() -> Int { internal::helper() }
+            pub fn main() -> Int { internal::helper() }
         "#,
             ),
             ("internal", "pub fn helper() -> Int { 42 }"),
@@ -3158,7 +3165,7 @@ fn test_visibility_private_mod_accessible_from_descendant() {
                 r#"
             mod internal
             pub mod child
-            fn main() -> Int { child::test() }
+            pub fn main() -> Int { child::test() }
         "#,
             ),
             ("internal", "pub fn helper() -> Int { 42 }"),
@@ -3184,7 +3191,7 @@ fn test_visibility_all_modules_in_path_must_be_visible() {
                 r#"
             pub mod a
             pub mod outside
-            fn main() -> Int { 0 }
+            pub fn main() -> Int { 0 }
         "#,
             ),
             ("a", "mod b"),
@@ -3210,7 +3217,7 @@ fn test_visibility_nested_pub_mods_chain() {
                 "root",
                 r#"
             pub mod a
-            fn main() -> Int { a::b::c::deep() }
+            pub fn main() -> Int { a::b::c::deep() }
         "#,
             ),
             ("a", "pub mod b"),
@@ -3231,7 +3238,7 @@ fn test_visibility_pub_use_parses() {
                 r#"
             pub mod utils
             pub use root::utils::helper
-            fn main() -> Int { helper() }
+            pub fn main() -> Int { helper() }
         "#,
             ),
             ("utils", "pub fn helper() -> Int { 42 }"),
@@ -3250,7 +3257,7 @@ fn test_visibility_struct_through_private_mod_error() {
                 r#"
             pub mod a
             pub mod b
-            fn main() -> Int { 0 }
+            pub fn main() -> Int { 0 }
         "#,
             ),
             (
@@ -3287,7 +3294,7 @@ fn test_visibility_enum_through_pub_mod() {
                 r#"
             pub mod types
             use root::types::Color::Red
-            fn main() -> Int {
+            pub fn main() -> Int {
                 match Red {
                     _ => 1,
                 }
@@ -3315,7 +3322,7 @@ fn test_visibility_private_mod_qualified_path_error() {
                 r#"
             pub mod a
             pub mod b
-            fn main() -> Int { 0 }
+            pub fn main() -> Int { 0 }
         "#,
             ),
             ("a", "mod internal"),
@@ -3341,7 +3348,7 @@ fn test_visibility_pub_mod_parsing() {
                 r#"
             pub mod public_mod
             mod private_mod
-            fn main() -> Int { public_mod::value() + private_mod::value() }
+            pub fn main() -> Int { public_mod::value() + private_mod::value() }
         "#,
             ),
             ("public_mod", "pub fn value() -> Int { 10 }"),
@@ -3363,7 +3370,7 @@ fn test_pub_use_reexport_function_e2e() {
             mod a
             mod b
             use root::b::helper
-            fn main() -> Int { helper() }
+            pub fn main() -> Int { helper() }
         "#,
             ),
             ("a", "pub fn helper() -> Int { 42 }"),
@@ -3383,7 +3390,7 @@ fn test_pub_use_reexport_enum_e2e() {
             mod types
             mod reexporter
             use root::reexporter::Color::Red
-            fn main() -> Int {
+            pub fn main() -> Int {
                 let x = Red;
                 match x { Red => 1, _ => 2 }
             }
@@ -3406,7 +3413,7 @@ fn test_pub_use_reexport_enum_via_qualified_path_e2e() {
                 r#"
             mod types
             mod reexporter
-            fn main() -> Int {
+            pub fn main() -> Int {
                 let x = reexporter::Color::Red;
                 match x { reexporter::Color::Red => 10, _ => 20 }
             }
@@ -3428,7 +3435,7 @@ fn test_pub_use_visibility_error_e2e() {
                 r#"
             mod a
             mod b
-            fn main() -> Int { 0 }
+            pub fn main() -> Int { 0 }
         "#,
             ),
             ("a", "fn secret() -> Int { 42 }"),
@@ -3451,7 +3458,7 @@ fn test_module_import_basic() {
                 r#"
                 mod math
                 use root::math
-                fn main() -> Int { math::add(1, 2) }
+                pub fn main() -> Int { math::add(1, 2) }
             "#,
             ),
             (
@@ -3474,7 +3481,7 @@ fn test_module_import_enum_variant() {
                 r#"
                 mod types
                 use root::types
-                fn main() -> Int {
+                pub fn main() -> Int {
                     match types::Color::Red {
                         types::Color::Red => 1,
                         types::Color::Green => 2,
@@ -3507,7 +3514,7 @@ fn test_glob_import_functions() {
                 r#"
                 mod math
                 use root::math::*
-                fn main() -> Int { add(1, mul(2, 3)) }
+                pub fn main() -> Int { add(1, mul(2, 3)) }
             "#,
             ),
             (
@@ -3532,7 +3539,7 @@ fn test_glob_import_skips_private() {
                 r#"
                 mod math
                 use root::math::*
-                fn main() -> Int { secret() }
+                pub fn main() -> Int { secret() }
             "#,
             ),
             (
@@ -3556,7 +3563,7 @@ fn test_glob_import_enum() {
                 r#"
                 mod types
                 use root::types::*
-                fn main() -> Int {
+                pub fn main() -> Int {
                     match Color::Red {
                         Color::Red => 1,
                         Color::Green => 2,
@@ -3585,7 +3592,7 @@ fn test_glob_import_struct() {
                 r#"
                 mod geom
                 use root::geom::*
-                fn main() -> Int {
+                pub fn main() -> Int {
                     let p = Point { x: 3, y: 4 };
                     p.x + p.y
                 }
@@ -3615,7 +3622,7 @@ fn test_group_import_basic() {
                 r#"
                 mod math
                 use root::math::{add, mul}
-                fn main() -> Int { add(1, mul(2, 3)) }
+                pub fn main() -> Int { add(1, mul(2, 3)) }
             "#,
             ),
             (
@@ -3640,7 +3647,7 @@ fn test_group_import_not_found() {
                 r#"
                 mod math
                 use root::math::{add, nonexistent}
-                fn main() -> Int { add(1, 2) }
+                pub fn main() -> Int { add(1, 2) }
             "#,
             ),
             (
@@ -3663,7 +3670,7 @@ fn test_group_import_private_error() {
                 r#"
                 mod math
                 use root::math::{add, secret}
-                fn main() -> Int { add(1, 2) }
+                pub fn main() -> Int { add(1, 2) }
             "#,
             ),
             (
@@ -3687,7 +3694,7 @@ fn test_group_import_enum_and_function() {
                 r#"
                 mod types
                 use root::types::{Color, helper}
-                fn main() -> Int {
+                pub fn main() -> Int {
                     match Color::Red {
                         Color::Red => helper(),
                         Color::Green => 2,
@@ -3722,7 +3729,7 @@ fn test_pub_use_glob_reexport() {
                 mod a
                 mod b
                 use root::b::add
-                fn main() -> Int { add(1, 2) }
+                pub fn main() -> Int { add(1, 2) }
             "#,
             ),
             (
@@ -3748,7 +3755,7 @@ fn test_pub_use_group_reexport() {
                 mod a
                 mod b
                 use root::b::add
-                fn main() -> Int { add(10, 20) }
+                pub fn main() -> Int { add(10, 20) }
             "#,
             ),
             (
@@ -3775,7 +3782,7 @@ fn test_pub_use_module_reexport_namespace() {
                 mod a
                 mod b
                 use root::b::a
-                fn main() -> Int { a::helper() }
+                pub fn main() -> Int { a::helper() }
             "#,
             ),
             ("a", "pub fn helper() -> Int { 42 }"),
@@ -3796,7 +3803,7 @@ fn test_pub_use_module_reexport_item_import() {
                 mod a
                 mod b
                 use root::b::a::helper
-                fn main() -> Int { helper() }
+                pub fn main() -> Int { helper() }
             "#,
             ),
             ("a", "pub fn helper() -> Int { 42 }"),
@@ -3817,7 +3824,7 @@ fn test_pub_use_module_reexport_glob() {
                 mod a
                 mod b
                 use root::b::a::*
-                fn main() -> Int { add(10, 20) }
+                pub fn main() -> Int { add(10, 20) }
             "#,
             ),
             (
@@ -3843,7 +3850,7 @@ fn test_pub_use_module_reexport_group() {
                 mod a
                 mod b
                 use root::b::a::{add, mul}
-                fn main() -> Int { add(2, 3) + mul(4, 5) }
+                pub fn main() -> Int { add(2, 3) + mul(4, 5) }
             "#,
             ),
             (
@@ -3872,7 +3879,7 @@ fn test_duplicate_group_import_error() {
                 r#"
                 mod math
                 use root::math::{add, add}
-                fn main() -> Int { add(1, 2) }
+                pub fn main() -> Int { add(1, 2) }
             "#,
             ),
             (
@@ -3897,7 +3904,7 @@ fn test_glob_import_enum_variants() {
                 r#"
                 mod types
                 use root::types::Color::*
-                fn main() -> Int {
+                pub fn main() -> Int {
                     match Red {
                         Red => 1,
                         Green => 2,
@@ -3923,7 +3930,7 @@ fn test_group_import_enum_variants() {
                 r#"
                 mod types
                 use root::types::Color::{Red, Green, Blue}
-                fn main() -> Int {
+                pub fn main() -> Int {
                     match Red {
                         Red => 1,
                         Green => 2,
@@ -3949,7 +3956,7 @@ fn test_glob_import_includes_modules() {
                 r#"
                 mod parent
                 use root::parent::*
-                fn main() -> Int { child::helper() }
+                pub fn main() -> Int { child::helper() }
             "#,
             ),
             ("parent", "pub mod child"),
@@ -3971,7 +3978,7 @@ fn test_pub_use_glob_reexport_module() {
                 mod parent
                 mod reexporter
                 use root::reexporter::child::helper
-                fn main() -> Int { helper() }
+                pub fn main() -> Int { helper() }
             "#,
             ),
             (
@@ -4000,7 +4007,7 @@ fn test_pub_use_glob_reexport_enum_variants() {
                 mod types
                 mod reexporter
                 use root::reexporter::{Some, None}
-                fn main() -> Int {
+                pub fn main() -> Int {
                     match Some(42) {
                         Some(x) => x,
                         None => 0,
@@ -4027,7 +4034,7 @@ fn test_pub_use_group_reexport_enum_variants() {
                 mod types
                 mod reexporter
                 use root::reexporter::{Red, Green, Blue}
-                fn main() -> Int {
+                pub fn main() -> Int {
                     match Green {
                         Red => 1,
                         Green => 2,
@@ -4055,7 +4062,7 @@ fn test_pub_use_group_reexport_module_and_items() {
                 mod parent
                 mod reexporter
                 use root::reexporter::{child, add}
-                fn main() -> Int { add(child::helper(), 1) }
+                pub fn main() -> Int { add(child::helper(), 1) }
             "#,
             ),
             (

@@ -17,7 +17,7 @@ mod tests {
     fn test_execute_success() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zoya");
-        std::fs::write(&file, "fn main() -> Int { 42 }").unwrap();
+        std::fs::write(&file, "pub fn main() -> Int { 42 }").unwrap();
 
         let result = execute(&file);
         assert!(result.is_ok());
@@ -33,7 +33,7 @@ mod tests {
     fn test_execute_type_error() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zoya");
-        std::fs::write(&file, "fn main() -> Int { true }").unwrap();
+        std::fs::write(&file, "pub fn main() -> Int { true }").unwrap();
 
         let result = execute(&file);
         assert!(result.is_err());
@@ -55,7 +55,7 @@ mod tests {
     fn test_execute_main_with_parameters() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zoya");
-        std::fs::write(&file, "fn main(x: Int) -> Int { x }").unwrap();
+        std::fs::write(&file, "pub fn main(x: Int) -> Int { x }").unwrap();
 
         let result = execute(&file);
         assert!(result.is_err());
@@ -67,7 +67,7 @@ mod tests {
     fn test_execute_returns_bool() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zoya");
-        std::fs::write(&file, "fn main() -> Bool { true }").unwrap();
+        std::fs::write(&file, "pub fn main() -> Bool { true }").unwrap();
 
         let result = execute(&file);
         assert!(result.is_ok());
@@ -77,7 +77,7 @@ mod tests {
     fn test_execute_returns_string() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zoya");
-        std::fs::write(&file, r#"fn main() -> String { "hello" }"#).unwrap();
+        std::fs::write(&file, r#"pub fn main() -> String { "hello" }"#).unwrap();
 
         let result = execute(&file);
         assert!(result.is_ok());
@@ -94,7 +94,7 @@ mod tests {
             r#"
             mod utils
 
-            fn main() -> Int { utils::helper() }
+            pub fn main() -> Int { utils::helper() }
             "#,
         )
         .unwrap();

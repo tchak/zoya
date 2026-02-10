@@ -60,7 +60,7 @@ pub fn execute(path: &Path, name_override: Option<&str>) -> Result<(), NewError>
 
     // Create src/main.zoya
     let main_path = src_dir.join("main.zoya");
-    std::fs::write(&main_path, "fn main() { \"hello world\" }\n").map_err(|e| NewError::Io {
+    std::fs::write(&main_path, "pub fn main() { \"hello world\" }\n").map_err(|e| NewError::Io {
         path: main_path,
         source: e,
     })?;
@@ -149,7 +149,7 @@ mod tests {
 
         // Check main.zoya content
         let main_content = std::fs::read_to_string(project_path.join("src/main.zoya")).unwrap();
-        assert!(main_content.contains("fn main()"));
+        assert!(main_content.contains("pub fn main()"));
     }
 
     #[test]
