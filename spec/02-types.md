@@ -274,7 +274,7 @@ When type inference is insufficient, use turbofish syntax to specify type argume
 ```zoya
 let x = identity::<Int>(42)
 let box = Box::<String> { value: "hello" }
-let left = Either::<Int, String>::Left(42)
+let left = Either::Left::<Int, String>(42)
 ```
 
 ## Type Annotations
