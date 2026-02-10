@@ -88,43 +88,20 @@ impl PackageConfig {
 }
 
 /// Errors that can occur when loading package configuration.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     /// IO error reading the config file
+    #[error("failed to read '{}': {source}", path.display())]
     Io {
         path: PathBuf,
         source: std::io::Error,
     },
     /// TOML parsing error
+    #[error("invalid TOML: {source}")]
     Parse { source: toml::de::Error },
     /// Invalid package name
+    #[error("invalid package name '{name}': must be lowercase alphanumeric with underscores or hyphens, starting with a letter, and must not be a reserved name (root, self, super, std, zoya)")]
     InvalidName { name: String },
-}
-
-impl std::fmt::Display for ConfigError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ConfigError::Io { path, source } => {
-                write!(f, "failed to read '{}': {}", path.display(), source)
-            }
-            ConfigError::Parse { source } => write!(f, "invalid TOML: {}", source),
-            ConfigError::InvalidName { name } => write!(
-                f,
-                "invalid package name '{}': must be lowercase alphanumeric with underscores or hyphens, starting with a letter, and must not be a reserved name (root, self, super, std, zoya)",
-                name
-            ),
-        }
-    }
-}
-
-impl std::error::Error for ConfigError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            ConfigError::Io { source, .. } => Some(source),
-            ConfigError::Parse { source } => Some(source),
-            ConfigError::InvalidName { .. } => None,
-        }
-    }
 }
 
 #[cfg(test)]

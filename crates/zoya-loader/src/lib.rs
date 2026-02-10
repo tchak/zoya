@@ -12,113 +12,55 @@ mod sources;
 pub use source::{ModuleSource, SourceError, SourceErrorKind};
 pub use sources::{FilePath, FsSource, MemorySource};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum LoaderError<P: Clone + Debug + Display = FilePath> {
+    #[error("module '{mod_name}' not found at '{expected_path}'")]
     ModuleNotFound {
         mod_name: String,
         expected_path: P,
     },
+    #[error("duplicate module declaration: '{mod_name}'")]
     DuplicateMod {
         mod_name: String,
     },
+    #[error("failed to read '{path}': {error}")]
     SourceError {
         path: P,
         error: SourceError,
     },
+    #[error("lexer error in '{path}': {message}")]
     LexError {
         path: P,
         message: String,
     },
+    #[error("parse error in '{path}': {message}")]
     ParseError {
         path: P,
         message: String,
     },
+    #[error("invalid module name '{mod_name}': module names must be snake_case (try '{suggestion}')")]
     InvalidModName {
         mod_name: String,
         suggestion: String,
     },
+    #[error("invalid module name '{mod_name}': this name is reserved (root, self, super, std, zoya)")]
     ReservedModName {
         mod_name: String,
     },
+    #[error("no package.toml found in '{}'\nhint: provide a .zoya file path or create a package with `zoya new`", dir.display())]
     NoPackageToml {
         dir: PathBuf,
     },
+    #[error("main file '{}' not found in package at '{}'", main.display(), package_dir.display())]
     MainNotFound {
         main: PathBuf,
         package_dir: PathBuf,
     },
+    #[error("{0}")]
     ConfigError(String),
+    #[error("missing root module")]
     MissingRoot,
 }
-
-impl<P: Clone + Debug + Display> std::fmt::Display for LoaderError<P> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            LoaderError::ModuleNotFound {
-                mod_name,
-                expected_path,
-            } => {
-                write!(f, "module '{}' not found at '{}'", mod_name, expected_path)
-            }
-            LoaderError::DuplicateMod { mod_name } => {
-                write!(f, "duplicate module declaration: '{}'", mod_name)
-            }
-            LoaderError::SourceError { path, error } => {
-                write!(f, "failed to read '{}': {}", path, error)
-            }
-            LoaderError::LexError { path, message } => {
-                write!(f, "lexer error in '{}': {}", path, message)
-            }
-            LoaderError::ParseError { path, message } => {
-                write!(f, "parse error in '{}': {}", path, message)
-            }
-            LoaderError::InvalidModName {
-                mod_name,
-                suggestion,
-            } => {
-                write!(
-                    f,
-                    "invalid module name '{}': module names must be snake_case (try '{}')",
-                    mod_name, suggestion
-                )
-            }
-            LoaderError::ReservedModName { mod_name } => {
-                write!(
-                    f,
-                    "invalid module name '{}': this name is reserved (root, self, super, std, zoya)",
-                    mod_name
-                )
-            }
-            LoaderError::NoPackageToml { dir } => {
-                if dir == Path::new(".") {
-                    write!(
-                        f,
-                        "no package.toml found in current directory\nhint: provide a file path or create a package with `zoya new`"
-                    )
-                } else {
-                    write!(
-                        f,
-                        "no package.toml found in '{}'\nhint: provide a .zoya file path or create a package with `zoya new {}`",
-                        dir.display(),
-                        dir.display()
-                    )
-                }
-            }
-            LoaderError::MainNotFound { main, package_dir } => {
-                write!(
-                    f,
-                    "main file '{}' not found in package at '{}'",
-                    main.display(),
-                    package_dir.display()
-                )
-            }
-            LoaderError::ConfigError(msg) => write!(f, "{}", msg),
-            LoaderError::MissingRoot => write!(f, "missing root module"),
-        }
-    }
-}
-
-impl<P: Clone + Debug + Display> std::error::Error for LoaderError<P> {}
 
 /// Load a package from a filesystem path.
 ///

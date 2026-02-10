@@ -15,7 +15,8 @@ pub enum SourceErrorKind {
 }
 
 /// Error from a module source operation
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[error("{message}")]
 pub struct SourceError {
     pub kind: SourceErrorKind,
     pub message: String,
@@ -36,14 +37,6 @@ impl SourceError {
         }
     }
 }
-
-impl Display for SourceError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for SourceError {}
 
 // ============================================================================
 // ModuleSource Trait

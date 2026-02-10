@@ -1355,6 +1355,7 @@ name = "zoya-loader"
 version = "0.1.0"
 dependencies = [
  "tempfile",
+ "thiserror 2.0.18",
  "zoya-ast",
  "zoya-lexer",
  "zoya-naming",
@@ -1372,6 +1373,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "tempfile",
+ "thiserror 2.0.18",
  "toml",
  "zoya-ast",
  "zoya-naming",
