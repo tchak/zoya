@@ -7,7 +7,7 @@ use zoya_ir::{
 use zoya_package::QualifiedPath;
 
 use crate::check::TypeEnv;
-use crate::naming::{is_pascal_case, to_pascal_case};
+use zoya_naming::{is_pascal_case, to_pascal_case};
 use crate::type_resolver::resolve_type_annotation;
 use crate::unify::UnifyCtx;
 

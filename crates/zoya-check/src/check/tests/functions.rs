@@ -311,10 +311,10 @@ fn test_check_function_call_in_module() {
     };
     let tree = build_test_package_with_expr(items, test_expr);
     let checked_tree = check(&tree).unwrap();
-    // double + __test
+    // double + test_fn
     assert_eq!(checked_tree.items.len(), 2);
     let test_fn = find_test_function_in(&checked_tree, &QualifiedPath::root()).unwrap();
-    // The call expression becomes the return value of __test (returns Int)
+    // The call expression becomes the return value of test_fn (returns Int)
     assert_eq!(test_fn.return_type, Type::Int);
 }
 
@@ -465,9 +465,9 @@ fn test_check_module_with_test_expr() {
     let result = check(&tree);
     assert!(result.is_ok(), "Mixed items and expr should succeed: {:?}", result.err());
     let checked_tree = result.unwrap();
-    // f2 + f1 + __test = 3 functions
+    // f2 + f1 + test_fn = 3 functions
     assert_eq!(checked_tree.items.len(), 3);
-    // Verify __test function has the correct return type
+    // Verify test_fn function has the correct return type
     let test_fn = find_test_function_in(&checked_tree, &QualifiedPath::root()).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }

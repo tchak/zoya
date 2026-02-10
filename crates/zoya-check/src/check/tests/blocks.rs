@@ -18,10 +18,10 @@ fn test_check_let_binding_in_block() {
     };
     let tree = build_test_package_with_expr(vec![], test_expr);
     let checked_tree = check(&tree).unwrap();
-    // Only the __test function should be present
+    // Only the test_fn function should be present
     assert_eq!(checked_tree.items.len(), 1);
     let test_fn = find_test_function_in(&checked_tree, &QualifiedPath::root()).unwrap();
-    // The __test function body is a block with the let binding
+    // The test_fn function body is a block with the let binding
     // Since there's no result expression, the return type is Unit
     assert_eq!(test_fn.return_type, Type::Tuple(vec![]));
 }
@@ -42,7 +42,7 @@ fn test_check_let_binding_usage() {
     };
     let tree = build_test_package_with_expr(vec![], test_expr);
     let checked_tree = check(&tree).unwrap();
-    // Only __test function
+    // Only test_fn function
     assert_eq!(checked_tree.items.len(), 1);
     let test_fn = find_test_function_in(&checked_tree, &QualifiedPath::root()).unwrap();
     // The expression x + 1 returns Int
@@ -61,7 +61,7 @@ fn test_check_let_with_type_annotation() {
     };
     let tree = build_test_package_with_expr(vec![], test_expr);
     let checked_tree = check(&tree).unwrap();
-    // Only __test function
+    // Only test_fn function
     assert_eq!(checked_tree.items.len(), 1);
     // Type checking succeeded
     assert!(find_test_function_in(&checked_tree, &QualifiedPath::root()).is_some());

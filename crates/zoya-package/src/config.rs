@@ -34,7 +34,7 @@ impl PackageConfig {
 
     /// Get the module name (hyphens replaced with underscores).
     pub fn module_name(&self) -> String {
-        self.name.replace('-', "_")
+        zoya_naming::package_name_to_module_name(&self.name)
     }
 
     /// Load package config from a directory's `package.toml`.
@@ -68,22 +68,10 @@ impl PackageConfig {
     /// Check if a name is a valid package name.
     ///
     /// Valid names are lowercase, alphanumeric with underscores or hyphens,
-    /// and must not start with a digit, underscore, or hyphen.
+    /// must not start with a digit, underscore, or hyphen, and must not be
+    /// a reserved name (`root`, `self`, `super`, `std`, `zoya`).
     pub fn is_valid_name(name: &str) -> bool {
-        if name.is_empty() {
-            return false;
-        }
-
-        let mut chars = name.chars();
-        let first = chars.next().unwrap();
-
-        // Must start with a lowercase letter
-        if !first.is_ascii_lowercase() {
-            return false;
-        }
-
-        // Rest must be lowercase alphanumeric, underscore, or hyphen
-        chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+        zoya_naming::is_valid_package_name(name)
     }
 
     /// Sanitize an input string into a valid package name.
@@ -91,45 +79,11 @@ impl PackageConfig {
     /// - Converts to lowercase
     /// - Preserves hyphens
     /// - Replaces other non-alphanumeric characters with underscores
-    /// - Collapses multiple underscores
+    /// - Collapses all consecutive separators
+    /// - Unifies separator style based on the first separator encountered
     /// - Prepends `pkg_` if starts with digit or underscore
     pub fn sanitize_name(input: &str) -> String {
-        if input.is_empty() {
-            return "pkg".to_string();
-        }
-
-        // Convert to lowercase, preserve hyphens, replace other invalid chars with underscores
-        let mut result: String = input
-            .chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() {
-                    c.to_ascii_lowercase()
-                } else if c == '-' {
-                    '-'
-                } else {
-                    '_'
-                }
-            })
-            .collect();
-
-        // Collapse multiple underscores
-        while result.contains("__") {
-            result = result.replace("__", "_");
-        }
-
-        // Trim leading/trailing underscores and hyphens
-        result = result.trim_matches(|c| c == '_' || c == '-').to_string();
-
-        if result.is_empty() {
-            return "pkg".to_string();
-        }
-
-        // Prepend pkg_ if starts with digit
-        if result.chars().next().unwrap().is_ascii_digit() {
-            result = format!("pkg_{}", result);
-        }
-
-        result
+        zoya_naming::sanitize_package_name(input)
     }
 }
 
@@ -156,7 +110,7 @@ impl std::fmt::Display for ConfigError {
             ConfigError::Parse { source } => write!(f, "invalid TOML: {}", source),
             ConfigError::InvalidName { name } => write!(
                 f,
-                "invalid package name '{}': must be lowercase alphanumeric with underscores or hyphens, starting with a letter",
+                "invalid package name '{}': must be lowercase alphanumeric with underscores or hyphens, starting with a letter, and must not be a reserved name (root, self, super, std, zoya)",
                 name
             ),
         }
@@ -178,40 +132,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_is_valid_name() {
-        // Valid names
-        assert!(PackageConfig::is_valid_name("myproject"));
-        assert!(PackageConfig::is_valid_name("my_project"));
-        assert!(PackageConfig::is_valid_name("my-project"));
-        assert!(PackageConfig::is_valid_name("foo-bar-baz"));
-        assert!(PackageConfig::is_valid_name("project123"));
-        assert!(PackageConfig::is_valid_name("a"));
-
-        // Invalid names
-        assert!(!PackageConfig::is_valid_name("")); // empty
-        assert!(!PackageConfig::is_valid_name("123project")); // starts with digit
-        assert!(!PackageConfig::is_valid_name("_project")); // starts with underscore
-        assert!(!PackageConfig::is_valid_name("-project")); // starts with hyphen
-        assert!(!PackageConfig::is_valid_name("MyProject")); // uppercase
-        assert!(!PackageConfig::is_valid_name("my project")); // space
-    }
-
-    #[test]
-    fn test_sanitize_name() {
-        assert_eq!(PackageConfig::sanitize_name("my-project"), "my-project");
-        assert_eq!(PackageConfig::sanitize_name("MyProject"), "myproject");
-        assert_eq!(PackageConfig::sanitize_name("123project"), "pkg_123project");
-        assert_eq!(PackageConfig::sanitize_name("my--project"), "my--project");
-        assert_eq!(PackageConfig::sanitize_name("  spaces  "), "spaces");
-        assert_eq!(PackageConfig::sanitize_name(""), "pkg");
-        assert_eq!(PackageConfig::sanitize_name("---"), "pkg");
-        assert_eq!(PackageConfig::sanitize_name("_leading"), "leading");
-        assert_eq!(PackageConfig::sanitize_name("trailing_"), "trailing");
-        assert_eq!(PackageConfig::sanitize_name("-leading"), "leading");
-        assert_eq!(PackageConfig::sanitize_name("trailing-"), "trailing");
-    }
-
-    #[test]
     fn test_sanitize_name_produces_valid_names() {
         let inputs = [
             "my-project",
@@ -223,6 +143,11 @@ mod tests {
             "UPPERCASE",
             "with spaces",
             "_underscore_",
+            "std",
+            "zoya",
+            "root",
+            "self",
+            "super",
         ];
 
         for input in inputs {

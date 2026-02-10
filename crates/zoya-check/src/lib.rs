@@ -2,7 +2,6 @@ mod builtin;
 mod check;
 mod definition;
 mod imports;
-mod naming;
 mod pattern;
 mod resolution;
 mod type_resolver;

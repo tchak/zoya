@@ -40,12 +40,12 @@ pub fn build_test_package(items: Vec<Item>) -> Package {
 }
 
 /// Build a test package with items and a test expression.
-/// The test expression is wrapped in a synthetic `__test` function.
+/// The test expression is wrapped in a synthetic `test_fn` function.
 pub fn build_test_package_with_expr(items: Vec<Item>, test_expr: Expr) -> Package {
     let mut all_items = items;
     all_items.push(Item::Function(FunctionDef {
         visibility: Visibility::Public,
-        name: "__test".to_string(),
+        name: "test_fn".to_string(),
         type_params: vec![],
         params: vec![],
         return_type: None,
@@ -54,7 +54,7 @@ pub fn build_test_package_with_expr(items: Vec<Item>, test_expr: Expr) -> Packag
     build_test_package(all_items)
 }
 
-/// Find the `__test` function from checked package at the given module path
+/// Find the `test_fn` function from checked package at the given module path
 pub fn find_test_function_in<'a>(pkg: &'a CheckedPackage, module_path: &QualifiedPath) -> Option<&'a TypedFunction> {
-    pkg.items.get(&module_path.child("__test"))
+    pkg.items.get(&module_path.child("test_fn"))
 }

@@ -9,6 +9,7 @@
 mod config;
 
 pub use config::{ConfigError, PackageConfig};
+pub use zoya_naming::RESERVED_NAMES;
 
 use std::collections::HashMap;
 

@@ -16,7 +16,7 @@ use crate::definition::{
     enum_type_from_def, function_type_from_def, struct_type_from_def, type_alias_from_def,
 };
 use crate::imports::{resolve_module_imports, resolve_use_module_path, resolve_use_path, ImportTable};
-use crate::naming::{is_pascal_case, is_snake_case, to_pascal_case, to_snake_case};
+use zoya_naming::{is_pascal_case, is_snake_case, to_pascal_case, to_snake_case};
 use crate::pattern::{check_irrefutable, check_let_binding, check_match_arm, check_pattern};
 use crate::resolution::{self, ResolvedPath};
 use crate::type_resolver::resolve_type_annotation;

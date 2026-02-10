@@ -75,7 +75,7 @@ fn test_import_function_from_submodule() {
     // Test function calls helper (imported)
     let root_items = vec![Item::Function(FunctionDef {
         visibility: Visibility::Public,
-        name: "__test".to_string(),
+        name: "test_fn".to_string(),
         type_params: vec![],
         params: vec![],
         return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
@@ -237,7 +237,7 @@ fn test_local_shadows_import() {
     // Test function has local `x` that shadows the import
     let root_items = vec![Item::Function(FunctionDef {
         visibility: Visibility::Public,
-        name: "__test".to_string(),
+        name: "test_fn".to_string(),
         type_params: vec![],
         params: vec![],
         return_type: None,
@@ -290,7 +290,7 @@ fn test_import_shadows_module_level_definition() {
         }),
         Item::Function(FunctionDef {
             visibility: Visibility::Public,
-            name: "__test".to_string(),
+            name: "test_fn".to_string(),
             type_params: vec![],
             params: vec![],
             return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
@@ -331,7 +331,7 @@ fn test_import_with_super_prefix() {
 
     let child_items = vec![Item::Function(FunctionDef {
         visibility: Visibility::Public,
-        name: "__test".to_string(),
+        name: "test_fn".to_string(),
         type_params: vec![],
         params: vec![],
         return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
@@ -378,11 +378,11 @@ fn test_imported_enum_variant_in_match_pattern() {
     })];
 
     // Root module imports Some and None, uses them in expressions and patterns
-    // fn __test() -> Int
+    // fn test_fn() -> Int
     //     match Some(42) { Some(x) => x, None => 0 }
     let root_items = vec![Item::Function(FunctionDef {
         visibility: Visibility::Public,
-        name: "__test".to_string(),
+        name: "test_fn".to_string(),
         type_params: vec![],
         params: vec![],
         return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
@@ -452,11 +452,11 @@ fn test_imported_enum_variant_in_struct_pattern() {
     })];
 
     // Root module imports Move and Quit, uses them in expressions and patterns
-    // fn __test() -> Int
+    // fn test_fn() -> Int
     //     match Move { x: 1, y: 2 } { Move { x, y } => x + y, Quit => 0 }
     let root_items = vec![Item::Function(FunctionDef {
         visibility: Visibility::Public,
-        name: "__test".to_string(),
+        name: "test_fn".to_string(),
         type_params: vec![],
         params: vec![],
         return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
@@ -547,7 +547,7 @@ fn test_pub_use_reexport_function() {
         Item::Use(make_use(PathPrefix::Root, &["b", "helper"])),
         Item::Function(FunctionDef {
             visibility: Visibility::Public,
-            name: "__test".to_string(),
+            name: "test_fn".to_string(),
             type_params: vec![],
             params: vec![],
             return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
@@ -596,7 +596,7 @@ fn test_pub_use_reexport_enum() {
         Item::Use(make_use(PathPrefix::Root, &["reexporter", "Color", "Red"])),
         Item::Function(FunctionDef {
             visibility: Visibility::Public,
-            name: "__test".to_string(),
+            name: "test_fn".to_string(),
             type_params: vec![],
             params: vec![],
             return_type: None,
@@ -662,7 +662,7 @@ fn test_private_use_does_not_reexport() {
         Item::Use(make_use(PathPrefix::Root, &["b", "helper"])),
         Item::Function(FunctionDef {
             visibility: Visibility::Public,
-            name: "__test".to_string(),
+            name: "test_fn".to_string(),
             type_params: vec![],
             params: vec![],
             return_type: None,
@@ -707,7 +707,7 @@ fn test_pub_use_reexport_module() {
         Item::Use(make_use(PathPrefix::Root, &["b", "a"])),
         Item::Function(FunctionDef {
             visibility: Visibility::Public,
-            name: "__test".to_string(),
+            name: "test_fn".to_string(),
             type_params: vec![],
             params: vec![],
             return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
@@ -753,7 +753,7 @@ fn test_pub_use_reexport_module_item_import() {
         Item::Use(make_use(PathPrefix::Root, &["b", "a", "helper"])),
         Item::Function(FunctionDef {
             visibility: Visibility::Public,
-            name: "__test".to_string(),
+            name: "test_fn".to_string(),
             type_params: vec![],
             params: vec![],
             return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),

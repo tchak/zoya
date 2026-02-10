@@ -7,7 +7,7 @@ use zoya_ir::{
 };
 
 use crate::check::{TypeEnv, check_expr, substitute_type_vars, substitute_variant_type_vars};
-use crate::naming::{is_snake_case, to_snake_case};
+use zoya_naming::{is_snake_case, to_snake_case};
 use crate::resolution::{self, ResolvedPath};
 use crate::type_resolver::resolve_type_annotation;
 use crate::unify::UnifyCtx;
@@ -1557,7 +1557,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pattern_var_underscore_prefix() {
+    fn test_pattern_var_underscore_prefix_rejected() {
         let pattern = Pattern::Path(Path::simple("_unused".to_string()));
         let mut ctx = UnifyCtx::new();
         let result = check_pattern(
@@ -1567,7 +1567,9 @@ mod tests {
             &default_env(),
             &mut ctx,
         );
-        assert!(result.is_ok());
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("should be snake_case"));
     }
 
     // ========================================================================

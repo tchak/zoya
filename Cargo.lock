@@ -1299,6 +1299,7 @@ version = "0.1.0"
 dependencies = [
  "zoya-ast",
  "zoya-ir",
+ "zoya-naming",
  "zoya-package",
 ]
 
@@ -1334,9 +1335,14 @@ dependencies = [
  "tempfile",
  "zoya-ast",
  "zoya-lexer",
+ "zoya-naming",
  "zoya-package",
  "zoya-parser",
 ]
+
+[[package]]
+name = "zoya-naming"
+version = "0.1.0"
 
 [[package]]
 name = "zoya-package"
@@ -1346,6 +1352,7 @@ dependencies = [
  "tempfile",
  "toml",
  "zoya-ast",
+ "zoya-naming",
 ]
 
 [[package]]

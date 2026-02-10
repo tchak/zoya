@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 zoya-ast = { path = "../zoya-ast" }
 zoya-lexer = { path = "../zoya-lexer" }
+zoya-naming = { path = "../zoya-naming" }
 zoya-package = { path = "../zoya-package" }
 zoya-parser = { path = "../zoya-parser" }
 
