@@ -63,18 +63,8 @@ function $$eq(a, b) {
 }"#
 }
 
-/// Generate JavaScript code for all functions in the checked items.
-fn codegen_items(items: &[TypedFunction], module_path: &QualifiedPath) -> String {
-    let mut js = String::new();
-    for f in items {
-        js.push_str(&codegen_function(f, module_path));
-        js.push('\n');
-    }
-    js
-}
-
-/// Generate JavaScript code for all modules in the checked package.
-/// Processes modules in dependency order (parents before children).
+/// Generate JavaScript code for all items in the checked package.
+/// Processes items in dependency order (parents before children).
 /// Includes the prelude (runtime helper functions) at the start.
 /// Returns a `CodegenOutput` containing the generated code and its Blake3 hash.
 pub fn codegen(pkg: &CheckedPackage) -> CodegenOutput {
@@ -84,13 +74,14 @@ pub fn codegen(pkg: &CheckedPackage) -> CodegenOutput {
     js.push_str(prelude());
     js.push('\n');
 
-    // Sort modules by depth (parents before children)
-    let mut module_paths: Vec<_> = pkg.modules.keys().collect();
-    module_paths.sort_by_key(|p| p.depth());
+    // Sort items by path depth (parents before children)
+    let mut item_paths: Vec<_> = pkg.items.keys().collect();
+    item_paths.sort_by_key(|p| p.depth());
 
-    for path in module_paths {
-        if let Some(module) = pkg.modules.get(path) {
-            js.push_str(&codegen_items(&module.items, path));
+    for path in item_paths {
+        if let Some(func) = pkg.items.get(path) {
+            js.push_str(&codegen_function(func, path));
+            js.push('\n');
         }
     }
 
@@ -697,24 +688,21 @@ fn codegen_params(params: &[(TypedPattern, Type)]) -> (Vec<String>, Vec<String>)
     (param_names, prologue)
 }
 
-fn codegen_function(func: &TypedFunction, module_path: &QualifiedPath) -> String {
+fn codegen_function(func: &TypedFunction, path: &QualifiedPath) -> String {
     let (param_names, prologue) = codegen_params(&func.params);
     let body = codegen_expr(&func.body);
-
-    // Build qualified path from module path + function name
-    let path = module_path.child(&func.name);
 
     if prologue.is_empty() {
         format!(
             "export function {}({}) {{ return {}; }}",
-            format_path(&path),
+            format_path(path),
             param_names.join(", "),
             body
         )
     } else {
         format!(
             "export function {}({}) {{ {} return {}; }}",
-            format_path(&path),
+            format_path(path),
             param_names.join(", "),
             prologue.join(" "),
             body
@@ -1000,7 +988,7 @@ mod tests {
             return_type: Type::Int,
         };
         assert_eq!(
-            codegen_function(&func, &QualifiedPath::root()),
+            codegen_function(&func, &QualifiedPath::root().child(&func.name)),
             "export function $root$square($x) { return ($x * $x); }"
         );
     }
@@ -1028,7 +1016,7 @@ mod tests {
             return_type: Type::Int,
         };
         assert_eq!(
-            codegen_function(&func, &QualifiedPath::root()),
+            codegen_function(&func, &QualifiedPath::root().child(&func.name)),
             "export function $root$add($x, $y) { return ($x + $y); }"
         );
     }
@@ -1042,7 +1030,7 @@ mod tests {
             return_type: Type::Int,
         };
         assert_eq!(
-            codegen_function(&func, &QualifiedPath::root()),
+            codegen_function(&func, &QualifiedPath::root().child(&func.name)),
             "export function $root$answer() { return 42; }"
         );
     }
@@ -1064,7 +1052,7 @@ mod tests {
             return_type: Type::BigInt,
         };
         assert_eq!(
-            codegen_function(&func, &QualifiedPath::root()),
+            codegen_function(&func, &QualifiedPath::root().child(&func.name)),
             "export function $root$big($x) { return ($x + 1n); }"
         );
     }

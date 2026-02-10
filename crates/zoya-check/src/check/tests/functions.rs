@@ -5,7 +5,7 @@ use crate::check::{check, check_expr, check_function, TypeEnv};
 use crate::definition::function_type_from_def;
 use crate::unify::UnifyCtx;
 
-use super::{build_test_package, build_test_package_with_expr, find_test_function};
+use super::{build_test_package, build_test_package_with_expr, find_test_function_in};
 
 fn qpath(path: &str) -> QualifiedPath {
     QualifiedPath::new(path.split("::").map(|s| s.to_string()).collect())
@@ -285,9 +285,7 @@ fn test_check_function_definition() {
     })];
     let tree = build_test_package(items);
     let checked_tree = check(&tree).unwrap();
-    let root = checked_tree.root().unwrap();
-    assert_eq!(root.items.len(), 1);
-
+    assert_eq!(checked_tree.items.len(), 1);
 }
 
 #[test]
@@ -313,11 +311,9 @@ fn test_check_function_call_in_module() {
     };
     let tree = build_test_package_with_expr(items, test_expr);
     let checked_tree = check(&tree).unwrap();
-    let root = checked_tree.root().unwrap();
     // double + __test
-    assert_eq!(root.items.len(), 2);
-
-    let test_fn = find_test_function(&root.items).unwrap();
+    assert_eq!(checked_tree.items.len(), 2);
+    let test_fn = find_test_function_in(&checked_tree, &QualifiedPath::root()).unwrap();
     // The call expression becomes the return value of __test (returns Int)
     assert_eq!(test_fn.return_type, Type::Int);
 }
@@ -352,11 +348,7 @@ fn test_check_forward_reference() {
     let result = check(&tree);
     assert!(result.is_ok(), "Forward reference should succeed: {:?}", result.err());
     let checked_tree = result.unwrap();
-    let root = checked_tree.root().unwrap();
-    assert_eq!(root.items.len(), 2);
-    // Both should be functions
-
-
+    assert_eq!(checked_tree.items.len(), 2);
 }
 
 #[test]
@@ -473,14 +465,10 @@ fn test_check_module_with_test_expr() {
     let result = check(&tree);
     assert!(result.is_ok(), "Mixed items and expr should succeed: {:?}", result.err());
     let checked_tree = result.unwrap();
-    let root = checked_tree.root().unwrap();
     // f2 + f1 + __test = 3 functions
-    assert_eq!(root.items.len(), 3);
-    // Verify items (f2, f1)
-
-
+    assert_eq!(checked_tree.items.len(), 3);
     // Verify __test function has the correct return type
-    let test_fn = find_test_function(&root.items).unwrap();
+    let test_fn = find_test_function_in(&checked_tree, &QualifiedPath::root()).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
 

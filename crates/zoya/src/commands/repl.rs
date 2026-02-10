@@ -415,9 +415,8 @@ fn find_typed_function<'a>(
     pkg: &'a CheckedPackage,
     name: &str,
 ) -> Option<&'a zoya_ir::TypedFunction> {
-    let repl_path = QualifiedPath::root().child("repl");
-    let repl_module = pkg.modules.get(&repl_path)?;
-    repl_module.items.iter().find(|f| f.name == name)
+    let func_path = QualifiedPath::root().child("repl").child(name);
+    pkg.items.get(&func_path)
 }
 
 /// Extract binding information from a typed expression (for let-only blocks).

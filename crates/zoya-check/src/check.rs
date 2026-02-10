@@ -5,7 +5,7 @@ use zoya_ast::{
     UseTarget,
 };
 use zoya_ir::{
-    CheckedModule, CheckedPackage, Definition, EnumType, EnumVariantType,
+    CheckedPackage, Definition, EnumType, EnumVariantType,
     FunctionType, ModuleType, QualifiedPath, StructType, Type, TypeAliasType, TypeError,
     TypeScheme, TypeVarId, TypedEnumConstructFields, TypedExpr, TypedFunction, Visibility,
 };
@@ -1847,11 +1847,14 @@ pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
     }
 
     // Phase 2: Type-check ALL function bodies
-    let mut checked_modules = HashMap::new();
+    let mut checked_items = HashMap::new();
     for path in &module_paths {
         if let Some(module) = pkg.modules.get(path) {
-            let checked = check_module_bodies(&module.items, path, &env, &mut ctx)?;
-            checked_modules.insert(path.clone(), checked);
+            let functions = check_module_bodies(&module.items, path, &env, &mut ctx)?;
+            for func in functions {
+                let func_path = path.child(&func.name);
+                checked_items.insert(func_path, func);
+            }
         }
     }
 
@@ -1874,7 +1877,7 @@ pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
         .collect();
 
     Ok(CheckedPackage {
-        modules: checked_modules,
+        items: checked_items,
         definitions: external_definitions,
         reexports: external_reexports,
     })
@@ -1986,7 +1989,7 @@ fn check_module_bodies(
     current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
-) -> Result<CheckedModule, TypeError> {
+) -> Result<Vec<TypedFunction>, TypeError> {
     let mut checked_items = Vec::new();
 
     for item in items {
@@ -1996,9 +1999,7 @@ fn check_module_bodies(
         }
     }
 
-    Ok(CheckedModule {
-        items: checked_items,
-    })
+    Ok(checked_items)
 }
 
 /// Check a function definition within a specific module context.

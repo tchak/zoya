@@ -250,28 +250,10 @@ impl TypedExpr {
     }
 }
 
-/// A checked module containing type-checked functions
-#[derive(Debug, Clone, PartialEq)]
-pub struct CheckedModule {
-    pub items: Vec<TypedFunction>,
-}
-
 /// The complete checked package
 #[derive(Debug, Clone, PartialEq)]
 pub struct CheckedPackage {
-    pub modules: std::collections::HashMap<QualifiedPath, CheckedModule>,
+    pub items: std::collections::HashMap<QualifiedPath, TypedFunction>,
     pub definitions: std::collections::HashMap<QualifiedPath, Definition>,
     pub reexports: std::collections::HashMap<QualifiedPath, QualifiedPath>,
-}
-
-impl CheckedPackage {
-    /// Get the root module
-    pub fn root(&self) -> Option<&CheckedModule> {
-        self.modules.get(&QualifiedPath::root())
-    }
-
-    /// Get a module by path
-    pub fn get(&self, path: &QualifiedPath) -> Option<&CheckedModule> {
-        self.modules.get(path)
-    }
 }

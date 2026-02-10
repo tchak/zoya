@@ -32,9 +32,9 @@ mod tests {
     use zoya_loader::QualifiedPath;
 
     #[test]
-    fn test_std_has_three_modules() {
+    fn test_std_has_definitions() {
         let pkg = std();
-        assert_eq!(pkg.modules.len(), 3);
+        assert!(!pkg.definitions.is_empty(), "std package should have definitions");
     }
 
     #[test]

@@ -3,7 +3,8 @@ use zoya_ir::Type;
 
 use crate::check::check;
 
-use super::{build_test_package_with_expr, check_expr_with_env, find_test_function};
+use super::{build_test_package_with_expr, check_expr_with_env, find_test_function_in};
+use zoya_package::QualifiedPath;
 
 #[test]
 fn test_check_let_binding_in_block() {
@@ -17,10 +18,9 @@ fn test_check_let_binding_in_block() {
     };
     let tree = build_test_package_with_expr(vec![], test_expr);
     let checked_tree = check(&tree).unwrap();
-    let root = checked_tree.root().unwrap();
     // Only the __test function should be present
-    assert_eq!(root.items.len(), 1);
-    let test_fn = find_test_function(&root.items).unwrap();
+    assert_eq!(checked_tree.items.len(), 1);
+    let test_fn = find_test_function_in(&checked_tree, &QualifiedPath::root()).unwrap();
     // The __test function body is a block with the let binding
     // Since there's no result expression, the return type is Unit
     assert_eq!(test_fn.return_type, Type::Tuple(vec![]));
@@ -42,10 +42,9 @@ fn test_check_let_binding_usage() {
     };
     let tree = build_test_package_with_expr(vec![], test_expr);
     let checked_tree = check(&tree).unwrap();
-    let root = checked_tree.root().unwrap();
     // Only __test function
-    assert_eq!(root.items.len(), 1);
-    let test_fn = find_test_function(&root.items).unwrap();
+    assert_eq!(checked_tree.items.len(), 1);
+    let test_fn = find_test_function_in(&checked_tree, &QualifiedPath::root()).unwrap();
     // The expression x + 1 returns Int
     assert_eq!(test_fn.return_type, Type::Int);
 }
@@ -62,11 +61,10 @@ fn test_check_let_with_type_annotation() {
     };
     let tree = build_test_package_with_expr(vec![], test_expr);
     let checked_tree = check(&tree).unwrap();
-    let root = checked_tree.root().unwrap();
     // Only __test function
-    assert_eq!(root.items.len(), 1);
+    assert_eq!(checked_tree.items.len(), 1);
     // Type checking succeeded
-    assert!(find_test_function(&root.items).is_some());
+    assert!(find_test_function_in(&checked_tree, &QualifiedPath::root()).is_some());
 }
 
 #[test]

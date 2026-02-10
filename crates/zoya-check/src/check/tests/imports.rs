@@ -12,7 +12,7 @@ use zoya_package::{Module, QualifiedPath, Package};
 
 use crate::check::check;
 
-use super::find_test_function;
+use super::find_test_function_in;
 
 /// Build a multi-module test package with the given modules.
 /// Properly sets up parent-child relationships.
@@ -94,8 +94,7 @@ fn test_import_function_from_submodule() {
     ]);
 
     let result = check(&tree).unwrap();
-    let root_module = result.modules.get(&QualifiedPath::root()).unwrap();
-    let test_fn = find_test_function(&root_module.items).unwrap();
+    let test_fn = find_test_function_in(&result, &QualifiedPath::root()).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
 
@@ -261,8 +260,7 @@ fn test_local_shadows_import() {
     ]);
 
     let result = check(&tree).unwrap();
-    let root_module = result.modules.get(&QualifiedPath::root()).unwrap();
-    let test_fn = find_test_function(&root_module.items).unwrap();
+    let test_fn = find_test_function_in(&result, &QualifiedPath::root()).unwrap();
     // Should be Bool (from local), not Int (from import)
     assert_eq!(test_fn.return_type, Type::Bool);
 }
@@ -312,8 +310,7 @@ fn test_import_shadows_module_level_definition() {
     ]);
 
     let result = check(&tree).unwrap();
-    let root_module = result.modules.get(&QualifiedPath::root()).unwrap();
-    let test_fn = find_test_function(&root_module.items).unwrap();
+    let test_fn = find_test_function_in(&result, &QualifiedPath::root()).unwrap();
     // Should be Int (from import), not Bool (from local function)
     assert_eq!(test_fn.return_type, Type::Int);
 }
@@ -353,8 +350,7 @@ fn test_import_with_super_prefix() {
     ]);
 
     let result = check(&tree).unwrap();
-    let child_module = result.modules.get(&QualifiedPath::root().child("child")).unwrap();
-    let test_fn = find_test_function(&child_module.items).unwrap();
+    let test_fn = find_test_function_in(&result, &QualifiedPath::root().child("child")).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
 
@@ -423,8 +419,7 @@ fn test_imported_enum_variant_in_match_pattern() {
     ]);
 
     let result = check(&tree).unwrap();
-    let root_module = result.modules.get(&QualifiedPath::root()).unwrap();
-    let test_fn = find_test_function(&root_module.items).unwrap();
+    let test_fn = find_test_function_in(&result, &QualifiedPath::root()).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
 
@@ -515,8 +510,7 @@ fn test_imported_enum_variant_in_struct_pattern() {
     ]);
 
     let result = check(&tree).unwrap();
-    let root_module = result.modules.get(&QualifiedPath::root()).unwrap();
-    let test_fn = find_test_function(&root_module.items).unwrap();
+    let test_fn = find_test_function_in(&result, &QualifiedPath::root()).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
 
@@ -571,8 +565,7 @@ fn test_pub_use_reexport_function() {
     ]);
 
     let result = check(&tree).unwrap();
-    let root_module = result.modules.get(&QualifiedPath::root()).unwrap();
-    let test_fn = find_test_function(&root_module.items).unwrap();
+    let test_fn = find_test_function_in(&result, &QualifiedPath::root()).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
 
@@ -618,8 +611,7 @@ fn test_pub_use_reexport_enum() {
     ]);
 
     let result = check(&tree).unwrap();
-    let root_module = result.modules.get(&QualifiedPath::root()).unwrap();
-    let test_fn = find_test_function(&root_module.items).unwrap();
+    let test_fn = find_test_function_in(&result, &QualifiedPath::root()).unwrap();
     assert!(matches!(test_fn.return_type, Type::Enum { ref name, .. } if name == "Color"));
 }
 
@@ -737,8 +729,7 @@ fn test_pub_use_reexport_module() {
     ]);
 
     let result = check(&tree).unwrap();
-    let root_module = result.modules.get(&QualifiedPath::root()).unwrap();
-    let test_fn = find_test_function(&root_module.items).unwrap();
+    let test_fn = find_test_function_in(&result, &QualifiedPath::root()).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
 
@@ -780,8 +771,7 @@ fn test_pub_use_reexport_module_item_import() {
     ]);
 
     let result = check(&tree).unwrap();
-    let root_module = result.modules.get(&QualifiedPath::root()).unwrap();
-    let test_fn = find_test_function(&root_module.items).unwrap();
+    let test_fn = find_test_function_in(&result, &QualifiedPath::root()).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
 
