@@ -2,6 +2,16 @@
 
 Strongly-typed functional language compiling to JavaScript. See [README.md](README.md) for language documentation.
 
+## Documentation
+
+**IMPORTANT: Always consult the spec and docs when working on language features.**
+
+- **Specification** (`docs/src/specification/`): Formal language spec — grammar, type system, expressions, definitions, modules. Read these to understand exact semantics and grammar rules before implementing or modifying language features.
+- **Language Guide** (`docs/src/language/`): User-facing tutorials and examples.
+- **Reference** (`docs/src/reference/`): CLI and naming conventions.
+
+When adding or changing language features, **update the spec and docs alongside the code**. Documentation should stay in sync with the implementation.
+
 ## Architecture
 
 ```
