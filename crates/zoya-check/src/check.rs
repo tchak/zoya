@@ -24,7 +24,7 @@ use crate::unify::UnifyCtx;
 use crate::usefulness;
 
 /// Type environment for checking expressions
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TypeEnv {
     /// All named definitions (functions, structs, enums, type aliases, modules) in a unified namespace
     pub definitions: HashMap<QualifiedPath, Definition>,
@@ -37,22 +37,6 @@ pub struct TypeEnv {
     /// Used to resolve re-exports to their original definition locations for codegen.
     /// Includes both item re-exports and module re-exports.
     pub reexports: HashMap<QualifiedPath, QualifiedPath>,
-    /// The package (for module visibility checking)
-    pub pkg: Package,
-}
-
-impl Default for TypeEnv {
-    fn default() -> Self {
-        TypeEnv {
-            definitions: HashMap::new(),
-            locals: HashMap::new(),
-            imports: HashMap::new(),
-            reexports: HashMap::new(),
-            pkg: Package {
-                modules: HashMap::new(),
-            },
-        }
-    }
 }
 
 impl TypeEnv {
@@ -62,7 +46,6 @@ impl TypeEnv {
             locals,
             imports: self.imports.clone(),
             reexports: self.reexports.clone(),
-            pkg: self.pkg.clone(),
         }
     }
 
@@ -195,7 +178,7 @@ fn check_path_expr(
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
     let resolved =
-        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.definitions, &env.pkg, &env.reexports)?;
+        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.definitions, &env.reexports)?;
 
     match resolved {
         ResolvedPath::Local { name, scheme } => {
@@ -329,7 +312,7 @@ fn check_path_call(
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
     let resolved =
-        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.definitions, &env.pkg, &env.reexports)?;
+        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.definitions, &env.reexports)?;
 
     match resolved {
         ResolvedPath::Local { name, scheme } => {
@@ -1082,7 +1065,7 @@ fn check_path_struct(
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
     let resolved =
-        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.definitions, &env.pkg, &env.reexports)?;
+        resolution::resolve_expr_path(path, current_module, &env.locals, &env.imports, &env.definitions, &env.reexports)?;
 
     match resolved {
         ResolvedPath::Definition {
@@ -1674,10 +1657,7 @@ fn is_externally_visible(
 /// 1. Register all declarations from all modules
 /// 2. Type-check all function bodies with module context for path resolution
 pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
-    let mut env = TypeEnv {
-        pkg: pkg.clone(),
-        ..Default::default()
-    };
+    let mut env = TypeEnv::default();
     let mut ctx = UnifyCtx::new();
 
     // Phase 1: Register ALL declarations from ALL modules
@@ -1861,7 +1841,7 @@ pub fn check(pkg: &Package) -> Result<CheckedPackage, TypeError> {
             let uses: Vec<UseDecl> = module.items.iter().filter_map(|item| {
                 if let Item::Use(u) = item { Some(u.clone()) } else { None }
             }).collect();
-            let item_imports = resolve_module_imports(&uses, path, &env.definitions, &env.pkg, &env.reexports)?;
+            let item_imports = resolve_module_imports(&uses, path, &env.definitions, &env.reexports)?;
             env.imports.insert(path.clone(), item_imports);
         }
     }

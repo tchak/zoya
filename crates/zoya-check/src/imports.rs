@@ -6,7 +6,6 @@ use std::collections::HashMap;
 
 use zoya_ast::{PathPrefix, UseDecl, UseTarget};
 use zoya_ir::{Definition, QualifiedPath, TypeError, Visibility};
-use zoya_package::Package;
 
 /// Resolved import entry: maps a local name to a qualified path
 pub type ImportTable = HashMap<String, QualifiedPath>;
@@ -160,7 +159,7 @@ fn check_import_visible(
 fn check_import_module_path_visible(
     qualified: &QualifiedPath,
     accessor_module: &QualifiedPath,
-    pkg: &Package,
+    definitions: &HashMap<QualifiedPath, Definition>,
 ) -> Result<(), TypeError> {
     let segments = qualified.segments();
 
@@ -171,11 +170,10 @@ fn check_import_module_path_visible(
     for i in 1..segments.len() - 1 {
         let parent_module_path = QualifiedPath::new(segments[0..i].to_vec());
         let child_name = &segments[i];
+        let child_module_path = parent_module_path.child(child_name);
 
-        if let Some(parent_module) = pkg.get(&parent_module_path)
-            && let Some((_, visibility)) = parent_module.children.get(child_name)
-        {
-            if *visibility == Visibility::Public {
+        if let Some(Definition::Module(m)) = definitions.get(&child_module_path) {
+            if m.visibility == Visibility::Public {
                 continue;
             }
 
@@ -294,7 +292,6 @@ pub fn resolve_module_imports(
     uses: &[UseDecl],
     current_module: &QualifiedPath,
     definitions: &HashMap<QualifiedPath, Definition>,
-    pkg: &Package,
     reexports: &HashMap<QualifiedPath, QualifiedPath>,
 ) -> Result<ImportTable, TypeError> {
     let mut imports = HashMap::new();
@@ -305,7 +302,7 @@ pub fn resolve_module_imports(
                 let qualified = resolve_use_path(use_decl, current_module)?;
 
                 // Check intermediate modules are visible
-                check_import_module_path_visible(&qualified, current_module, pkg)?;
+                check_import_module_path_visible(&qualified, current_module, definitions)?;
 
                 // Try as item or module import (both are in definitions now)
                 if definitions.contains_key(&qualified) {
@@ -373,7 +370,7 @@ pub fn resolve_module_imports(
                         // Check module path visibility
                         let module_qpath =
                             QualifiedPath::new(resolved_module.segments().to_vec());
-                        check_import_module_path_visible(&module_qpath, current_module, pkg)?;
+                        check_import_module_path_visible(&module_qpath, current_module, definitions)?;
 
                         // Find all definitions in the resolved module (exactly one segment deeper)
                         let module_segments = resolved_module.segments();
@@ -448,7 +445,7 @@ pub fn resolve_module_imports(
                         // Check module path visibility
                         let module_qpath =
                             QualifiedPath::new(resolved_module.segments().to_vec());
-                        check_import_module_path_visible(&module_qpath, current_module, pkg)?;
+                        check_import_module_path_visible(&module_qpath, current_module, definitions)?;
 
                         for group_item in items {
                             let qualified = resolved_module.child(&group_item.name);
@@ -514,12 +511,6 @@ mod tests {
         QualifiedPath::new(path.split("::").map(|s| s.to_string()).collect())
     }
 
-    fn empty_pkg() -> Package {
-        Package {
-            modules: HashMap::new(),
-        }
-    }
-
     #[test]
     fn test_resolve_use_path_root() {
         let use_decl = make_use(PathPrefix::Root, &["foo", "bar"]);
@@ -570,7 +561,7 @@ mod tests {
 
         let uses = vec![make_use(PathPrefix::Root, &["foo", "bar"])];
         let current = QualifiedPath::root();
-        let imports = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new()).unwrap();
+        let imports = resolve_module_imports(&uses, &current, &definitions, &HashMap::new()).unwrap();
 
         assert_eq!(imports.len(), 1);
         assert_eq!(
@@ -610,7 +601,7 @@ mod tests {
             make_use(PathPrefix::Root, &["baz", "bar"]),
         ];
         let current = QualifiedPath::root();
-        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_module_imports(&uses, &current, &definitions, &HashMap::new());
 
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("already imported"));
@@ -622,7 +613,7 @@ mod tests {
 
         let uses = vec![make_use(PathPrefix::Root, &["foo", "bar"])];
         let current = QualifiedPath::root();
-        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_module_imports(&uses, &current, &definitions, &HashMap::new());
 
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("cannot find"));
@@ -645,7 +636,7 @@ mod tests {
 
         let uses = vec![make_use(PathPrefix::Root, &["other", "secret"])];
         let current = QualifiedPath::root().child("mine"); // sibling module
-        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_module_imports(&uses, &current, &definitions, &HashMap::new());
 
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
@@ -668,7 +659,7 @@ mod tests {
 
         let uses = vec![make_use(PathPrefix::Root, &["other", "Point"])];
         let current = QualifiedPath::root().child("mine"); // sibling module
-        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_module_imports(&uses, &current, &definitions, &HashMap::new());
 
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
@@ -691,7 +682,7 @@ mod tests {
 
         let uses = vec![make_use(PathPrefix::Root, &["other", "Color"])];
         let current = QualifiedPath::root().child("mine"); // sibling module
-        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_module_imports(&uses, &current, &definitions, &HashMap::new());
 
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
@@ -726,7 +717,7 @@ mod tests {
         // pub use from same module (so import visibility passes), but target is private
         let uses = vec![make_pub_use(PathPrefix::Root, &["other", "secret"])];
         let current = QualifiedPath::root().child("other"); // same module
-        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_module_imports(&uses, &current, &definitions, &HashMap::new());
 
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("pub use cannot re-export private"));
@@ -749,7 +740,7 @@ mod tests {
 
         let uses = vec![make_pub_use(PathPrefix::Root, &["other", "helper"])];
         let current = QualifiedPath::root().child("reexporter");
-        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_module_imports(&uses, &current, &definitions, &HashMap::new());
 
         assert!(result.is_ok());
         let imports = result.unwrap();
@@ -768,7 +759,7 @@ mod tests {
             },
         }];
         let current = QualifiedPath::root();
-        let result = resolve_module_imports(&uses, &current, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_module_imports(&uses, &current, &definitions, &HashMap::new());
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("package imports are not implemented yet"));
     }

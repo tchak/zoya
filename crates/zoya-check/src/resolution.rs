@@ -7,7 +7,6 @@ use std::collections::HashMap;
 
 use zoya_ast::{Path, PathPrefix};
 use zoya_ir::{Definition, QualifiedPath, TypeError, TypeScheme, Visibility};
-use zoya_package::Package;
 
 
 /// Resolve an AST path to a fully qualified path.
@@ -135,7 +134,7 @@ fn check_item_visibility(
 fn check_module_path_visible(
     qualified: &QualifiedPath,
     accessor_module: &QualifiedPath,
-    pkg: &Package,
+    definitions: &HashMap<QualifiedPath, Definition>,
 ) -> Result<(), TypeError> {
     let segments = qualified.segments();
 
@@ -151,11 +150,10 @@ fn check_module_path_visible(
     for i in 1..segments.len() - 1 {
         let parent_module_path = QualifiedPath::new(segments[0..i].to_vec());
         let child_name = &segments[i];
+        let child_module_path = parent_module_path.child(child_name);
 
-        if let Some(parent_module) = pkg.get(&parent_module_path)
-            && let Some((_, visibility)) = parent_module.children.get(child_name)
-        {
-            if *visibility == Visibility::Public {
+        if let Some(Definition::Module(m)) = definitions.get(&child_module_path) {
+            if m.visibility == Visibility::Public {
                 continue;
             }
 
@@ -220,7 +218,6 @@ pub fn resolve_expr_path<'a>(
     locals: &'a HashMap<String, TypeScheme>,
     imports: &'a HashMap<QualifiedPath, ImportTable>,
     definitions: &'a HashMap<QualifiedPath, Definition>,
-    pkg: &Package,
     reexports: &HashMap<QualifiedPath, QualifiedPath>,
 ) -> Result<ResolvedPath<'a>, TypeError> {
     // Single-segment path with no prefix: check locals first, then imports
@@ -264,7 +261,7 @@ pub fn resolve_expr_path<'a>(
             let qualified_path = QualifiedPath::new(segments);
 
             if let Some(def) = definitions.get(&qualified_path) {
-                check_module_path_visible(&qualified_path, current_module, pkg)?;
+                check_module_path_visible(&qualified_path, current_module, definitions)?;
                 check_item_visibility(
                     def,
                     qualified_path.last(),
@@ -285,7 +282,7 @@ pub fn resolve_expr_path<'a>(
 
     // Try exact match in definitions
     if let Some(def) = definitions.get(&qualified_path) {
-        check_module_path_visible(&qualified_path, current_module, pkg)?;
+        check_module_path_visible(&qualified_path, current_module, definitions)?;
         check_item_visibility(def, qualified_path.last(), current_module)?;
         // Follow re-export chain to the original definition
         let canonical = follow_reexports(&qualified_path, reexports);
@@ -334,7 +331,6 @@ pub fn resolve_pattern_path<'a>(
     current_module: &QualifiedPath,
     imports: &'a HashMap<QualifiedPath, ImportTable>,
     definitions: &'a HashMap<QualifiedPath, Definition>,
-    pkg: &Package,
     reexports: &HashMap<QualifiedPath, QualifiedPath>,
 ) -> Result<ResolvedPath<'a>, TypeError> {
     // For single-segment paths without prefix, check imports first
@@ -370,7 +366,7 @@ pub fn resolve_pattern_path<'a>(
             let qualified_path = QualifiedPath::new(segments);
 
             if let Some(def) = definitions.get(&qualified_path) {
-                check_module_path_visible(&qualified_path, current_module, pkg)?;
+                check_module_path_visible(&qualified_path, current_module, definitions)?;
                 check_item_visibility(
                     def,
                     qualified_path.last(),
@@ -391,7 +387,7 @@ pub fn resolve_pattern_path<'a>(
 
     // Try exact match in definitions
     if let Some(def) = definitions.get(&qualified_path) {
-        check_module_path_visible(&qualified_path, current_module, pkg)?;
+        check_module_path_visible(&qualified_path, current_module, definitions)?;
         check_item_visibility(def, qualified_path.last(), current_module)?;
         // Follow re-export chain to the original definition
         let canonical = follow_reexports(&qualified_path, reexports);
@@ -428,12 +424,6 @@ mod tests {
             prefix,
             segments: segments.iter().map(|s| s.to_string()).collect(),
             type_args: None,
-        }
-    }
-
-    fn empty_pkg() -> Package {
-        Package {
-            modules: HashMap::new(),
         }
     }
 
@@ -537,7 +527,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["utils", "helper"]);
         let current = QualifiedPath::root(); // calling from root
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &HashMap::new());
         assert!(result.is_ok());
     }
 
@@ -559,7 +549,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::None, &["helper"]);
         let current = QualifiedPath::root().child("utils"); // calling from same module
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &HashMap::new());
         assert!(result.is_ok());
     }
 
@@ -581,7 +571,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Super, &["helper"]);
         let current = QualifiedPath::root().child("utils"); // child accessing parent
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &HashMap::new());
         assert!(result.is_ok());
     }
 
@@ -603,7 +593,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::None, &["utils", "helper"]);
         let current = QualifiedPath::root(); // parent trying to access child's private
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &HashMap::new());
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("private"));
@@ -627,7 +617,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["a", "helper"]);
         let current = QualifiedPath::root().child("b"); // sibling trying to access
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &HashMap::new());
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("private"));
@@ -651,7 +641,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["helper"]);
         let current = QualifiedPath::root().child("a").child("b").child("c"); // deeply nested
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &HashMap::new());
         assert!(result.is_ok());
     }
 
@@ -677,7 +667,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["a", "Point"]);
         let current = QualifiedPath::root().child("b"); // sibling
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &HashMap::new());
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
     }
@@ -700,7 +690,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["a", "Color"]);
         let current = QualifiedPath::root().child("b");
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &HashMap::new());
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
     }
@@ -723,7 +713,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["a", "MyInt"]);
         let current = QualifiedPath::root().child("b");
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &HashMap::new());
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
     }
@@ -747,7 +737,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["a", "Color", "Red"]);
         let current = QualifiedPath::root().child("b");
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &HashMap::new());
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
     }
@@ -770,7 +760,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["a", "Point"]);
         let current = QualifiedPath::root().child("b");
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &HashMap::new());
         assert!(result.is_ok());
     }
 
@@ -792,7 +782,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["Point"]);
         let current = QualifiedPath::root().child("child"); // descendant
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &HashMap::new());
         assert!(result.is_ok());
     }
 
@@ -813,7 +803,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::Root, &["a", "Point"]);
         let current = QualifiedPath::root().child("b");
-        let result = resolve_pattern_path(&path, &current, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_pattern_path(&path, &current, &imports, &definitions, &HashMap::new());
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("private"));
     }
@@ -857,7 +847,7 @@ mod tests {
 
         let path = path_from_segments(PathPrefix::None, &["helper"]);
         let current = QualifiedPath::root();
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new()).unwrap();
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &HashMap::new()).unwrap();
 
         // Should resolve to the imported version (root::utils::helper)
         match result {
@@ -899,7 +889,7 @@ mod tests {
 
         let path = path_from_segments(PathPrefix::None, &["helper"]);
         let current = QualifiedPath::root();
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new()).unwrap();
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &HashMap::new()).unwrap();
 
         // Should resolve to the local variable, not the import
         match result {
@@ -917,7 +907,7 @@ mod tests {
         let imports = HashMap::new();
         let path = path_from_segments(PathPrefix::None, &["serde", "Deserialize"]);
         let current = QualifiedPath::root();
-        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &empty_pkg(), &HashMap::new());
+        let result = resolve_expr_path(&path, &current, &locals, &imports, &definitions, &HashMap::new());
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("package paths are not implemented yet"));
     }
