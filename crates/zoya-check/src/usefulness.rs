@@ -1499,7 +1499,7 @@ mod tests {
         match result {
             Exhaustiveness::NonExhaustive(witnesses) => {
                 assert!(!witnesses.is_empty());
-                let missing = witnesses[0].to_string(&[tuple_ty.clone()]);
+                let missing = witnesses[0].to_string(std::slice::from_ref(&tuple_ty));
                 assert!(missing.contains("false"));
             }
             _ => panic!("expected non-exhaustive"),
@@ -1621,7 +1621,7 @@ mod tests {
         match result {
             Exhaustiveness::NonExhaustive(witnesses) => {
                 assert!(!witnesses.is_empty());
-                let missing = witnesses[0].to_string(&[option_ty.clone()]);
+                let missing = witnesses[0].to_string(std::slice::from_ref(&option_ty));
                 assert!(missing.contains("Some"));
             }
             _ => panic!("expected non-exhaustive"),
@@ -1684,7 +1684,7 @@ mod tests {
         match result {
             Exhaustiveness::NonExhaustive(witnesses) => {
                 assert!(!witnesses.is_empty());
-                let missing = witnesses[0].to_string(&[color_ty.clone()]);
+                let missing = witnesses[0].to_string(std::slice::from_ref(&color_ty));
                 assert!(missing.contains("Blue"));
             }
             _ => panic!("expected non-exhaustive"),
@@ -2196,7 +2196,7 @@ mod tests {
         match result {
             Exhaustiveness::NonExhaustive(witnesses) => {
                 assert!(!witnesses.is_empty());
-                let missing = witnesses[0].to_string(&[option_ty.clone()]);
+                let missing = witnesses[0].to_string(std::slice::from_ref(&option_ty));
                 assert!(missing.contains("None"));
             }
             _ => panic!("expected non-exhaustive"),
@@ -2233,7 +2233,7 @@ mod tests {
             Exhaustiveness::NonExhaustive(witnesses) => {
                 assert!(!witnesses.is_empty());
                 // Should show something like (true, false) or (false, true)
-                let missing = witnesses[0].to_string(&[tuple_ty.clone()]);
+                let missing = witnesses[0].to_string(std::slice::from_ref(&tuple_ty));
                 assert!(missing.contains("true") || missing.contains("false"));
             }
             _ => panic!("expected non-exhaustive"),
@@ -2342,7 +2342,7 @@ mod tests {
         let result = check_exhaustiveness(&arms, &struct_ty);
         match result {
             Exhaustiveness::NonExhaustive(witnesses) => {
-                let missing = witnesses[0].to_string(&[struct_ty.clone()]);
+                let missing = witnesses[0].to_string(std::slice::from_ref(&struct_ty));
                 assert!(missing.contains("Flags"));
                 assert!(missing.contains("false"));
             }
@@ -2365,7 +2365,7 @@ mod tests {
         let result = check_exhaustiveness(&arms, &option_ty);
         match result {
             Exhaustiveness::NonExhaustive(witnesses) => {
-                let missing = witnesses[0].to_string(&[option_ty.clone()]);
+                let missing = witnesses[0].to_string(std::slice::from_ref(&option_ty));
                 assert!(missing.contains("Some"));
             }
             _ => panic!("expected non-exhaustive"),
@@ -2390,7 +2390,7 @@ mod tests {
         let result = check_exhaustiveness(&arms, &msg_ty);
         match result {
             Exhaustiveness::NonExhaustive(witnesses) => {
-                let missing = witnesses[0].to_string(&[msg_ty.clone()]);
+                let missing = witnesses[0].to_string(std::slice::from_ref(&msg_ty));
                 assert!(missing.contains("Move"));
             }
             _ => panic!("expected non-exhaustive"),
@@ -2426,7 +2426,7 @@ mod tests {
         let result = check_exhaustiveness(&arms, &tuple_ty);
         match result {
             Exhaustiveness::NonExhaustive(witnesses) => {
-                let missing = witnesses[0].to_string(&[tuple_ty.clone()]);
+                let missing = witnesses[0].to_string(std::slice::from_ref(&tuple_ty));
                 // Single element tuple should display as (false,)
                 assert!(missing.contains("false"));
             }

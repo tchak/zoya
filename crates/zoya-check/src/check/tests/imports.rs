@@ -33,12 +33,12 @@ fn build_multi_module_package(modules_data: Vec<(QualifiedPath, Vec<Item>)>) -> 
 
     // Second pass: set up parent-child relationships
     for (path, _) in &modules_data {
-        if *path != QualifiedPath::root() {
-            if let Some(parent_path) = path.parent() {
-                let child_name = path.segments().last().unwrap().clone();
-                if let Some(parent) = modules.get_mut(&parent_path) {
-                    parent.children.insert(child_name, (path.clone(), Visibility::Public));
-                }
+        if *path != QualifiedPath::root()
+            && let Some(parent_path) = path.parent()
+        {
+            let child_name = path.segments().last().unwrap().clone();
+            if let Some(parent) = modules.get_mut(&parent_path) {
+                parent.children.insert(child_name, (path.clone(), Visibility::Public));
             }
         }
     }
@@ -807,12 +807,12 @@ fn build_package_with_visibility(
     }
 
     for (path, _, vis) in &modules_data {
-        if *path != QualifiedPath::root() {
-            if let Some(parent_path) = path.parent() {
-                let child_name = path.segments().last().unwrap().clone();
-                if let Some(parent) = modules.get_mut(&parent_path) {
-                    parent.children.insert(child_name, (path.clone(), *vis));
-                }
+        if *path != QualifiedPath::root()
+            && let Some(parent_path) = path.parent()
+        {
+            let child_name = path.segments().last().unwrap().clone();
+            if let Some(parent) = modules.get_mut(&parent_path) {
+                parent.children.insert(child_name, (path.clone(), *vis));
             }
         }
     }

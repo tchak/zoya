@@ -38,10 +38,10 @@ fn test_check_bigint_large() {
 
 #[test]
 fn test_check_float() {
-    let expr = Expr::Float(3.14);
+    let expr = Expr::Float(3.15);
     let result = check_expr_with_env(&expr).unwrap();
     assert_eq!(result.ty(), Type::Float);
-    assert_eq!(result, TypedExpr::Float(3.14));
+    assert_eq!(result, TypedExpr::Float(3.15));
 }
 
 #[test]

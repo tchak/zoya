@@ -328,8 +328,8 @@ mod tests {
 
     #[test]
     fn test_float_standard() {
-        let tokens = lex("3.14").unwrap();
-        assert_eq!(tokens, vec![Token::Float(3.14)]);
+        let tokens = lex("3.15").unwrap();
+        assert_eq!(tokens, vec![Token::Float(3.15)]);
     }
 
     #[test]

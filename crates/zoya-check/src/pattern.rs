@@ -2407,7 +2407,7 @@ mod tests {
         let (typed, bindings) = result.unwrap();
         assert!(matches!(typed, TypedPattern::StructPartial { .. }));
         assert_eq!(bindings.get("px"), Some(&Type::Int));
-        assert!(bindings.get("py").is_none()); // y not bound
+        assert!(!bindings.contains_key("py")); // y not bound
     }
 
     #[test]

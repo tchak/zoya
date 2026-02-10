@@ -28,9 +28,9 @@ fn test_run_main_calling_function() {
 
 #[test]
 fn test_run_main_with_float() {
-    let source = "pub fn main() -> Float { 3.14 }";
+    let source = "pub fn main() -> Float { 3.15 }";
     let result = run_source(source).unwrap();
-    assert_eq!(result, Value::Float(3.14));
+    assert_eq!(result, Value::Float(3.15));
 }
 
 #[test]
@@ -343,16 +343,16 @@ fn test_run_int64_method_to_string() {
 // Float method tests
 #[test]
 fn test_run_float_abs() {
-    let source = "pub fn main() -> Float { (-3.14).abs() }";
+    let source = "pub fn main() -> Float { (-3.15).abs() }";
     let result = run_source(source).unwrap();
-    assert_eq!(result, Value::Float(3.14));
+    assert_eq!(result, Value::Float(3.15));
 }
 
 #[test]
 fn test_run_float_to_string() {
-    let source = "pub fn main() -> String { 3.14.to_string() }";
+    let source = "pub fn main() -> String { 3.15.to_string() }";
     let result = run_source(source).unwrap();
-    assert_eq!(result, Value::String("3.14".to_string()));
+    assert_eq!(result, Value::String("3.15".to_string()));
 }
 
 #[test]
@@ -2217,7 +2217,6 @@ fn expect_check_error(modules: Vec<(&str, &str)>, expected_substring: &str) {
                 expected_substring,
                 msg
             );
-            return;
         }
         Ok(pkg) => {
             let result = check(&pkg);

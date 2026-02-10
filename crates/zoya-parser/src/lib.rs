@@ -350,8 +350,8 @@ mod tests {
 
     #[test]
     fn test_parse_float() {
-        let expr = parse_str("3.14").unwrap();
-        assert_eq!(expr, Expr::Float(3.14));
+        let expr = parse_str("3.15").unwrap();
+        assert_eq!(expr, Expr::Float(3.15));
     }
 
     #[test]
@@ -369,12 +369,12 @@ mod tests {
 
     #[test]
     fn test_parse_negate_float() {
-        let expr = parse_str("-3.14").unwrap();
+        let expr = parse_str("-3.15").unwrap();
         assert_eq!(
             expr,
             Expr::UnaryOp {
                 op: UnaryOp::Neg,
-                expr: Box::new(Expr::Float(3.14)),
+                expr: Box::new(Expr::Float(3.15)),
             }
         );
     }
@@ -3266,7 +3266,7 @@ mod tests {
     // Use declaration parsing tests
     // ========================================================================
 
-    use zoya_ast::{UseDecl, UseGroupItem, UsePath};
+    use zoya_ast::UseDecl;
 
     fn get_use_decl(input: &str) -> UseDecl {
         let module = parse_module_str(input).unwrap();

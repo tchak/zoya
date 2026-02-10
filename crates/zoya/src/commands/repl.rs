@@ -551,8 +551,8 @@ mod tests {
     #[test]
     fn test_repl_float_expression() {
         let mut state = State::new(None).unwrap();
-        let results = state.eval("3.14").unwrap();
-        assert_eq!(results, vec![ReplResult::Expression(Value::Float(3.14))]);
+        let results = state.eval("3.15").unwrap();
+        assert_eq!(results, vec![ReplResult::Expression(Value::Float(3.15))]);
     }
 
     #[test]

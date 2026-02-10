@@ -132,10 +132,10 @@ fn test_check_generic_function_call_float() {
         }),
     );
 
-    // identity(3.14) should return Float
+    // identity(3.15) should return Float
     let expr = Expr::Call {
         path: Path::simple("identity".to_string()),
-        args: vec![Expr::Float(3.14)],
+        args: vec![Expr::Float(3.15)],
     };
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx).unwrap();
     assert_eq!(result.ty(), Type::Float);

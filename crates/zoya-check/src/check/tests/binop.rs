@@ -63,7 +63,7 @@ fn test_check_negate_int() {
 fn test_check_negate_float() {
     let expr = Expr::UnaryOp {
         op: UnaryOp::Neg,
-        expr: Box::new(Expr::Float(3.14)),
+        expr: Box::new(Expr::Float(3.15)),
     };
     let result = check_expr_with_env(&expr).unwrap();
     assert_eq!(result.ty(), Type::Float);

@@ -794,8 +794,8 @@ mod tests {
 
     #[test]
     fn test_codegen_float() {
-        let expr = TypedExpr::Float(3.14);
-        assert_eq!(codegen_expr(&expr), "3.14");
+        let expr = TypedExpr::Float(3.15);
+        assert_eq!(codegen_expr(&expr), "3.15");
     }
 
     #[test]
