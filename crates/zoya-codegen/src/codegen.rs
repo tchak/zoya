@@ -107,26 +107,14 @@ pub fn codegen(pkg: &CheckedPackage) -> CodegenOutput {
     // Export public definitions (functions that appear in both definitions and items)
     for path in pkg.definitions.keys() {
         if pkg.definitions[path].as_function().is_some() && pkg.items.contains_key(path) {
-            let internal = format_path(path);
-            let external = format_export_path(path, &pkg.name);
-            if internal == external {
-                exports.push(internal);
-            } else {
-                exports.push(format!("{} as {}", internal, external));
-            }
+            push_export(&mut exports, format_path(path), format_export_path(path, &pkg.name));
         }
     }
 
     // Export reexports (re-exported functions that exist in items)
     for (reexport_path, original_path) in &pkg.reexports {
         if pkg.items.contains_key(original_path) {
-            let internal = format_path(original_path);
-            let external = format_export_path(reexport_path, &pkg.name);
-            if internal == external {
-                exports.push(internal);
-            } else {
-                exports.push(format!("{} as {}", internal, external));
-            }
+            push_export(&mut exports, format_path(original_path), format_export_path(reexport_path, &pkg.name));
         }
     }
 
@@ -192,6 +180,15 @@ fn format_export_path(path: &QualifiedPath, pkg_name: &str) -> String {
         .chain(segments[1..].iter().map(|s| s.as_str()))
         .collect();
     format!("${}", renamed.join("$"))
+}
+
+/// Push an export entry, using `as` syntax only when internal and external names differ.
+fn push_export(exports: &mut Vec<String>, internal: String, external: String) {
+    if internal == external {
+        exports.push(internal);
+    } else {
+        exports.push(format!("{} as {}", internal, external));
+    }
 }
 
 /// Format a simple name as a JS identifier: x -> $x
@@ -509,8 +506,8 @@ fn codegen_expr(expr: &TypedExpr) -> String {
                 return format!("{}({}, {})", DIV_CHECK_FN, l, r);
             }
 
-            let l = codegen_operand(left);
-            let r = codegen_operand(right);
+            let l = if is_safe_operand(left) { l } else { format!("({})", l) };
+            let r = if is_safe_operand(right) { r } else { format!("({})", r) };
             let op_str = match op {
                 BinOp::Add => "+",
                 BinOp::Sub => "-",
@@ -527,29 +524,28 @@ fn codegen_expr(expr: &TypedExpr) -> String {
         }
         TypedExpr::Block { bindings, result } => {
             // Generate IIFE for proper scoping
-            let mut parts = Vec::new();
-            parts.push("(function() {".to_string());
+            let mut out = String::from("(function() {");
 
             for (i, binding) in bindings.iter().enumerate() {
                 let value_code = codegen_expr(&binding.value);
 
                 // For simple Var patterns, use direct assignment
                 if let TypedPattern::Var { name, .. } = &binding.pattern {
-                    parts.push(format!("const {} = {};", format_name(name), value_code));
+                    out.push_str(&format!(" const {} = {};", format_name(name), value_code));
                 } else {
                     // For complex patterns, store in temp and destructure
                     let temp_name = format!("$$let{}", i);
-                    parts.push(format!("const {} = {};", temp_name, value_code));
+                    out.push_str(&format!(" const {} = {};", temp_name, value_code));
                     let (_, binding_stmts) = codegen_pattern_at_path(&binding.pattern, &temp_name);
-                    parts.extend(binding_stmts);
+                    for stmt in &binding_stmts {
+                        out.push(' ');
+                        out.push_str(stmt);
+                    }
                 }
             }
 
-            let result_code = codegen_expr(result);
-            parts.push(format!("return {};", result_code));
-            parts.push("})()".to_string());
-
-            parts.join(" ")
+            out.push_str(&format!(" return {}; }})()", codegen_expr(result)));
+            out
         }
         TypedExpr::Match { scrutinee, arms, .. } => {
             codegen_match(scrutinee, arms)
@@ -643,34 +639,23 @@ fn codegen_expr(expr: &TypedExpr) -> String {
             format!("({}).{}", codegen_expr(expr), field)
         }
         TypedExpr::EnumConstruct { path, fields, .. } => {
-                        let variant_name = path.last();
-            match fields {
-                TypedEnumConstructFields::Unit => {
-                    format!("({{ $tag: \"{}\" }})", variant_name)
-                }
-                TypedEnumConstructFields::Tuple(exprs) => {
-                    if exprs.is_empty() {
-                        format!("({{ $tag: \"{}\" }})", variant_name)
-                    } else {
-                        let field_strs: Vec<String> = exprs
-                            .iter()
-                            .enumerate()
-                            .map(|(i, e)| format!("${}: {}", i, codegen_expr(e)))
-                            .collect();
-                        format!("({{ $tag: \"{}\", {} }})", variant_name, field_strs.join(", "))
-                    }
-                }
-                TypedEnumConstructFields::Struct(fields) => {
-                    if fields.is_empty() {
-                        format!("({{ $tag: \"{}\" }})", variant_name)
-                    } else {
-                        let field_strs: Vec<String> = fields
-                            .iter()
-                            .map(|(name, e)| format!("{}: {}", name, codegen_expr(e)))
-                            .collect();
-                        format!("({{ $tag: \"{}\", {} }})", variant_name, field_strs.join(", "))
-                    }
-                }
+            let variant_name = path.last();
+            let field_strs: Vec<String> = match fields {
+                TypedEnumConstructFields::Unit => vec![],
+                TypedEnumConstructFields::Tuple(exprs) => exprs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, e)| format!("${}: {}", i, codegen_expr(e)))
+                    .collect(),
+                TypedEnumConstructFields::Struct(fields) => fields
+                    .iter()
+                    .map(|(name, e)| format!("{}: {}", name, codegen_expr(e)))
+                    .collect(),
+            };
+            if field_strs.is_empty() {
+                format!("({{ $tag: \"{}\" }})", variant_name)
+            } else {
+                format!("({{ $tag: \"{}\", {} }})", variant_name, field_strs.join(", "))
             }
         }
     }
@@ -715,14 +700,15 @@ fn codegen_match_arm(pattern: &TypedPattern, result: &TypedExpr) -> String {
 /// Generate JS code for a match expression
 fn codegen_match(scrutinee: &TypedExpr, arms: &[TypedMatchArm]) -> String {
     let scrutinee_code = codegen_expr(scrutinee);
-    let mut parts = vec!["(function($match) {".to_string()];
+    let mut out = String::from("(function($match) {");
 
     for arm in arms {
-        parts.push(codegen_match_arm(&arm.pattern, &arm.result));
+        out.push(' ');
+        out.push_str(&codegen_match_arm(&arm.pattern, &arm.result));
     }
 
-    parts.push(format!("}})({})", scrutinee_code));
-    parts.join(" ")
+    out.push_str(&format!(" }})({})", scrutinee_code));
+    out
 }
 
 /// Generate JS code for a function definition
@@ -740,9 +726,9 @@ fn codegen_params(params: &[(TypedPattern, Type)]) -> (Vec<String>, Vec<String>)
             _ => {
                 let synthetic_name = format!("$$param{}", param_counter);
                 param_counter += 1;
-                param_names.push(synthetic_name.clone());
                 let (_, bindings) = codegen_pattern_at_path(pattern, &synthetic_name);
                 prologue.extend(bindings);
+                param_names.push(synthetic_name);
             }
         }
     }
