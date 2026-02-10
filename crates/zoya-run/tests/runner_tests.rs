@@ -1,6 +1,7 @@
 use zoya_check::check;
 use zoya_loader::{load_memory_package, MemorySource};
 use zoya_run::{run, run_source, EvalError, Value};
+use zoya_std::std as zoya_std;
 
 #[test]
 fn test_run_simple_main() {
@@ -2236,6 +2237,22 @@ fn expect_check_error(modules: Vec<(&str, &str)>, expected_substring: &str) {
     }
 }
 
+/// Helper function to run multi-module code with std library available
+fn run_multi_module_with_std(modules: Vec<(&str, &str)>, expected: &str) {
+    let std = zoya_std();
+    let mut source = MemorySource::new();
+    for (path, content) in modules {
+        source.add_module(path, content);
+    }
+    let package = load_memory_package(&source)
+        .unwrap_or_else(|e| panic!("failed to load package: {}", e));
+    let checked = check(&package, &[std])
+        .unwrap_or_else(|e| panic!("failed to type check package: {}", e));
+    let result =
+        run(checked, &[std], None, None).unwrap_or_else(|e| panic!("failed to run package: {}", e));
+    assert_eq!(result.to_string(), expected, "unexpected result");
+}
+
 // ===== Basic Module Imports =====
 
 #[test]
@@ -4075,6 +4092,242 @@ fn test_pub_use_group_reexport_module_and_items() {
             ("reexporter", "pub use root::parent::{child, add}"),
         ],
         "11",
+    );
+}
+
+// ── std library integration tests ──────────────────────────────────
+
+#[test]
+fn test_std_option_use_type_and_variants() {
+    let source = r#"
+        use std::option::Option
+
+        pub fn main() -> Option<Int> { Option::Some(42) }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some(42)");
+}
+
+#[test]
+fn test_std_option_use_none() {
+    let source = r#"
+        use std::option::Option
+
+        pub fn main() -> Option<Int> { Option::None::<Int> }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::None");
+}
+
+#[test]
+fn test_std_option_use_group_some() {
+    let source = r#"
+        use std::option::{Option, Some}
+
+        pub fn main() -> Option<Int> { Some(42) }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some(42)");
+}
+
+#[test]
+fn test_std_option_use_group_none() {
+    let source = r#"
+        use std::option::{Option, None}
+
+        pub fn main() -> Option<Int> { None::<Int> }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::None");
+}
+
+#[test]
+fn test_std_option_use_variant_directly() {
+    let source = r#"
+        use std::option::Some
+        use std::option::None
+        use std::option::Option
+
+        pub fn main() -> Option<Int> { Some(42) }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some(42)");
+}
+
+#[test]
+fn test_std_option_match_some() {
+    let source = r#"
+        use std::option::{Option, Some, None}
+
+        pub fn main() -> Int {
+            let x = Some(42);
+            match x {
+                Some(v) => v,
+                None => 0
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_std_option_match_none() {
+    let source = r#"
+        use std::option::{Option, None}
+
+        pub fn main() -> Int {
+            let x: Option<Int> = None::<Int>;
+            match x {
+                Option::Some(v) => v,
+                None => 0
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(0));
+}
+
+#[test]
+fn test_std_option_match_with_qualified_patterns() {
+    let source = r#"
+        use std::option::Option
+
+        pub fn main() -> Int {
+            let x = Option::Some(10);
+            match x {
+                Option::Some(v) => v * 2,
+                Option::None => 0
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(20));
+}
+
+#[test]
+fn test_std_option_in_function_signature() {
+    let source = r#"
+        use std::option::{Option, Some, None}
+
+        fn unwrap_or(opt: Option<Int>, default: Int) -> Int {
+            match opt {
+                Some(v) => v,
+                None => default
+            }
+        }
+
+        pub fn main() -> Int {
+            unwrap_or(Some(5), 0) + unwrap_or(None::<Int>, 10)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(15));
+}
+
+#[test]
+fn test_std_option_nested() {
+    let source = r#"
+        use std::option::{Option, Some}
+
+        pub fn main() -> Option<Option<Int>> {
+            Some(Some(42))
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some(Option::Some(42))");
+}
+
+#[test]
+fn test_std_option_with_string() {
+    let source = r#"
+        use std::option::{Option, Some, None}
+
+        pub fn main() -> Int {
+            let x = Some("hello");
+            match x {
+                Some(s) => s.len(),
+                None => 0
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(5));
+}
+
+#[test]
+fn test_std_option_use_group() {
+    let source = r#"
+        use std::option::{Option, Some, None}
+
+        pub fn main() -> Option<Int> { Some(99) }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some(99)");
+}
+
+#[test]
+fn test_std_option_multi_module_with_use() {
+    run_multi_module_with_std(
+        vec![
+            (
+                "root",
+                r#"
+                mod helper
+                use std::option::Option
+                use root::helper::make_some
+
+                pub fn main() -> Option<Int> { make_some(42) }
+            "#,
+            ),
+            (
+                "helper",
+                r#"
+                use std::option::{Option, Some}
+
+                pub fn make_some(x: Int) -> Option<Int> { Some(x) }
+            "#,
+            ),
+        ],
+        "Option::Some(42)",
+    );
+}
+
+#[test]
+fn test_std_option_multi_module_match() {
+    run_multi_module_with_std(
+        vec![
+            (
+                "root",
+                r#"
+                mod utils
+                use std::option::{Option, Some, None}
+                use root::utils::safe_div
+
+                pub fn main() -> Int {
+                    let a = safe_div(10, 2);
+                    let b = safe_div(10, 0);
+                    let va = match a { Some(v) => v, None => 0 };
+                    let vb = match b { Some(v) => v, None => -1 };
+                    va + vb
+                }
+            "#,
+            ),
+            (
+                "utils",
+                r#"
+                use std::option::{Option, Some, None}
+
+                pub fn safe_div(a: Int, b: Int) -> Option<Int> {
+                    match b == 0 {
+                        true => None::<Int>,
+                        false => Some(a / b)
+                    }
+                }
+            "#,
+            ),
+        ],
+        "4",
     );
 }
 
