@@ -127,6 +127,38 @@ pair.first
 nested.inner.value
 ```
 
+## Index Expressions
+
+Bracket notation accesses a list element by index, returning `Option<T>`.
+
+```
+index_expr ::= expr '[' expr ']'
+```
+
+The receiver must be `List<T>` and the index must be `Int`. The result type is `Option<T>` — `Some(value)` for valid indices, `None` for out-of-bounds.
+
+```zoya
+[10, 20, 30][1]         // Some(20)
+[10, 20, 30][5]         // None
+[10, 20, 30][-1]        // Some(30) — negative indices count from end
+```
+
+Negative indices: `-1` is the last element, `-2` the second-to-last, etc. Out-of-range negatives return `None`.
+
+```zoya
+let xs = [1, 2, 3]
+match xs[0] {
+  Some(v) => v,
+  None => -1,
+}
+```
+
+Index expressions can be chained with method calls and field access:
+
+```zoya
+list.reverse()[0]
+```
+
 ## Method Calls
 
 Dot notation followed by parenthesized arguments calls a method on the receiver.
@@ -149,7 +181,8 @@ Method calls and field access can be chained and are evaluated left to right.
 ### Unary Operators
 
 ```
-unary_expr ::= '-' unary_expr | postfix_expr
+unary_expr   ::= '-' unary_expr | postfix_expr
+postfix_expr ::= atom ('.' identifier ('(' args ')')? | '[' expr ']')*
 ```
 
 Negation works on `Int`, `BigInt`, and `Float`.

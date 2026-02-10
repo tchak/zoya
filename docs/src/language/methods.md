@@ -33,6 +33,14 @@ Zoya provides built-in methods on primitive types.
 
 ## List Methods
 
+Lists support index access with bracket notation, returning `Option<T>`:
+
+```zoya
+[10, 20, 30][0]         // Some(10)
+[10, 20, 30][-1]        // Some(30)
+[10, 20, 30][5]         // None
+```
+
 All list operations return new lists (immutable):
 
 ```zoya
