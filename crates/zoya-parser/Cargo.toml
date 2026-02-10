@@ -7,3 +7,4 @@ edition = "2024"
 zoya-ast = { path = "../zoya-ast" }
 zoya-lexer = { path = "../zoya-lexer" }
 chumsky = "0.10"
+thiserror = "2"

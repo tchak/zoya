@@ -14,9 +14,10 @@ use helpers::{mod_decl_parser, use_decl_parser};
 use items::item_parser;
 use statements::stmt_parser;
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct ParseError {
-    pub message: String,
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum ParseError {
+    #[error("{message}")]
+    SyntaxError { message: String },
 }
 
 /// Element type for REPL input parsing
@@ -62,7 +63,7 @@ pub fn parse_input(tokens: Vec<Token>) -> Result<(Vec<Item>, Vec<Stmt>), ParseEr
     parser
         .parse(&tokens)
         .into_result()
-        .map_err(|errs| ParseError {
+        .map_err(|errs| ParseError::SyntaxError {
             message: errs
                 .into_iter()
                 .map(|e| format!("{:?}", e))
@@ -103,7 +104,7 @@ pub fn parse_module(tokens: Vec<Token>) -> Result<ModuleDef, ParseError> {
     parser
         .parse(&tokens)
         .into_result()
-        .map_err(|errs| ParseError {
+        .map_err(|errs| ParseError::SyntaxError {
             message: errs
                 .into_iter()
                 .map(|e| format!("{:?}", e))
@@ -123,7 +124,7 @@ mod tests {
         expr_parser()
             .parse(&tokens)
             .into_result()
-            .map_err(|errs| ParseError {
+            .map_err(|errs| ParseError::SyntaxError {
                 message: errs
                     .into_iter()
                     .map(|e| format!("{:?}", e))
@@ -136,7 +137,7 @@ mod tests {
         item_parser()
             .parse(&tokens)
             .into_result()
-            .map_err(|errs| ParseError {
+            .map_err(|errs| ParseError::SyntaxError {
                 message: errs
                     .into_iter()
                     .map(|e| format!("{:?}", e))
@@ -2576,7 +2577,7 @@ mod tests {
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
-            .message
+            .to_string()
             .contains("only one .. allowed in struct pattern"));
     }
 
@@ -2608,7 +2609,7 @@ mod tests {
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
-            .message
+            .to_string()
             .contains("type annotations are only allowed on simple variable patterns"));
     }
 
@@ -2619,7 +2620,7 @@ mod tests {
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
-            .message
+            .to_string()
             .contains("type annotations are only allowed on simple variable patterns"));
     }
 
@@ -2637,7 +2638,7 @@ mod tests {
     // === Module parsing tests ===
 
     fn parse_module_str(input: &str) -> Result<ModuleDef, ParseError> {
-        let tokens = lex(input).map_err(|e| ParseError { message: e.message })?;
+        let tokens = lex(input).map_err(|e| ParseError::SyntaxError { message: e.to_string() })?;
         parse_module(tokens)
     }
 

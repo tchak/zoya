@@ -188,9 +188,10 @@ pub enum Token {
     At,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct LexError {
-    pub message: String,
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum LexError {
+    #[error("unexpected character at '{slice}'")]
+    UnexpectedCharacter { slice: String },
 }
 
 pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
@@ -201,8 +202,8 @@ pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
         match result {
             Ok(token) => tokens.push(token),
             Err(()) => {
-                return Err(LexError {
-                    message: format!("unexpected character at '{}'", lexer.slice()),
+                return Err(LexError::UnexpectedCharacter {
+                    slice: lexer.slice().to_string(),
                 });
             }
         }
@@ -281,7 +282,7 @@ mod tests {
         let result = lex("2 + #");
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("#"));
+        assert!(err.to_string().contains("#"));
     }
 
     #[test]

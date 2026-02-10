@@ -214,13 +214,13 @@ fn load_module_recursive<S: ModuleSource>(
     // Lex
     let tokens = zoya_lexer::lex(&content).map_err(|e| LoaderError::LexError {
         path: file_path.clone(),
-        message: e.message,
+        message: e.to_string(),
     })?;
 
     // Parse
     let module_def = zoya_parser::parse_module(tokens).map_err(|e| LoaderError::ParseError {
         path: file_path.clone(),
-        message: e.message,
+        message: e.to_string(),
     })?;
 
     // Validate, check duplicates, build children map, and resolve submodules in one pass
