@@ -20,3 +20,11 @@
 
 - [Naming Conventions](reference/naming-conventions.md)
 - [CLI](reference/cli.md)
+
+# Specification
+
+- [Lexical Structure](specification/lexical-structure.md)
+- [Types](specification/types.md)
+- [Expressions](specification/expressions.md)
+- [Definitions](specification/definitions.md)
+- [Modules](specification/modules.md)

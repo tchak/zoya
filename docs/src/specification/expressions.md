@@ -4,7 +4,7 @@ Zoya is an expression-oriented language. All computations produce values; there 
 
 ## Literals
 
-Literal expressions produce values of primitive types. See [Lexical Structure](01-lexical-structure.md) for detailed syntax.
+Literal expressions produce values of primitive types. See [Lexical Structure](lexical-structure.md) for detailed syntax.
 
 ```
 literal ::= int_literal | bigint_literal | float_literal | string_literal | bool_literal

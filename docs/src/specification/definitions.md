@@ -7,7 +7,7 @@ module ::= (mod_decl | use_decl | item)*
 item   ::= function_def | struct_def | enum_def | type_alias_def
 ```
 
-Items are described using grammar productions that reference [type annotations](02-types.md), [expressions](03-expressions.md), and [lexical tokens](01-lexical-structure.md) defined in earlier sections.
+Items are described using grammar productions that reference [type annotations](types.md), [expressions](expressions.md), and [lexical tokens](lexical-structure.md) defined in earlier sections.
 
 ## Visibility
 
@@ -164,7 +164,7 @@ pub fn apply<T, U>(f: T -> U, x: T) -> U f(x)
 
 ### Parameter Destructuring
 
-Function parameters support [pattern](03-expressions.md#patterns) matching:
+Function parameters support [pattern](expressions.md#patterns) matching:
 
 ```zoya
 fn sum_pair((a, b): (Int, Int)) -> Int a + b
@@ -192,7 +192,7 @@ fields     ::= field (',' field)* ','?
 field      ::= identifier ':' type
 ```
 
-See [Struct Types](02-types.md#struct-types) for construction, field access, and usage.
+See [Struct Types](types.md#struct-types) for construction, field access, and usage.
 
 ```zoya
 struct Config { debug: Bool, verbose: Bool }
@@ -223,7 +223,7 @@ variant  ::= identifier
            | identifier '{' fields? '}'
 ```
 
-See [Enum Types](02-types.md#enum-types) for construction and usage.
+See [Enum Types](types.md#enum-types) for construction and usage.
 
 ### Variant Forms
 
@@ -280,7 +280,7 @@ type_alias_def ::= visibility 'type' identifier type_params? '=' type
 
 A type alias introduces a synonym for an existing type. Aliases are transparent: the alias and the underlying type are fully interchangeable.
 
-See [Type Aliases](02-types.md#type-aliases) for usage.
+See [Type Aliases](types.md#type-aliases) for usage.
 
 ```zoya
 pub type UserId = Int

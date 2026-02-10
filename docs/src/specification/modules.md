@@ -144,7 +144,7 @@ use_group   ::= identifier (',' identifier)* ','?
 path_prefix ::= 'root' '::' | 'self' '::' | 'super' '::'
 ```
 
-See [Definitions](04-definitions.md#use-declarations) for the full grammar.
+See [Definitions](definitions.md#use-declarations) for the full grammar.
 
 ### Single Imports
 
@@ -397,7 +397,7 @@ fn main() -> Int {
 
 Every item and module declaration has a visibility: **private** (default) or **public** (`pub`).
 
-See [Definitions](04-definitions.md#visibility) for the full rules, access table, and visibility consistency requirements.
+See [Definitions](definitions.md#visibility) for the full rules, access table, and visibility consistency requirements.
 
 ### Summary
 
