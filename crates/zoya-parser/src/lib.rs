@@ -1963,6 +1963,17 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_struct_unit_no_braces() {
+        let item = parse_item_str("struct Empty").unwrap();
+        let Item::Struct(s) = item else {
+            panic!("expected struct")
+        };
+        assert_eq!(s.name, "Empty");
+        assert_eq!(s.type_params, Vec::<String>::new());
+        assert_eq!(s.fields.len(), 0);
+    }
+
+    #[test]
     fn test_parse_struct_generic() {
         let item = parse_item_str("struct Pair<T, U> { first: T, second: U }").unwrap();
         let Item::Struct(s) = item else {

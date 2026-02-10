@@ -297,6 +297,21 @@ fn check_path_expr(
         }
         ResolvedPath::Definition {
             qualified_path,
+            def: Definition::Struct(struct_type),
+        } if struct_type.fields.is_empty() => {
+            // Unit struct used as a bare path: `Empty`
+            Ok(TypedExpr::StructConstruct {
+                path: qualified_path.clone(),
+                fields: vec![],
+                ty: Type::Struct {
+                    name: struct_type.name.clone(),
+                    type_args: vec![],
+                    fields: vec![],
+                },
+            })
+        }
+        ResolvedPath::Definition {
+            qualified_path,
             def,
         } => {
             // Functions, structs, enums, type aliases can't be used as values directly

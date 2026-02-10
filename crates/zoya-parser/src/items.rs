@@ -104,12 +104,13 @@ pub(crate) fn item_parser<'a>()
         .delimited_by(just(Token::LBrace), just(Token::RBrace));
 
     // [pub] struct Name<T> { field: Type, ... }
+    // [pub] struct Name  (unit struct, no braces)
     let struct_def = just(Token::Pub)
         .or_not()
         .then_ignore(just(Token::Struct))
         .then(ident())
         .then(type_params.clone())
-        .then(struct_fields.clone())
+        .then(struct_fields.clone().or_not())
         .map(|(((is_pub, name), type_params), fields)| {
             Item::Struct(StructDef {
                 visibility: if is_pub.is_some() {
@@ -119,7 +120,7 @@ pub(crate) fn item_parser<'a>()
                 },
                 name,
                 type_params,
-                fields,
+                fields: fields.unwrap_or_default(),
             })
         });
 

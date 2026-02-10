@@ -598,7 +598,13 @@ mod tests {
     #[test]
     fn test_empty_struct() {
         let result = format_source("struct Unit {}");
-        assert_eq!(result, "struct Unit {}\n");
+        assert_eq!(result, "struct Unit\n");
+    }
+
+    #[test]
+    fn test_unit_struct_no_braces() {
+        let result = format_source("struct Unit");
+        assert_eq!(result, "struct Unit\n");
     }
 
     // --- Empty enum ---

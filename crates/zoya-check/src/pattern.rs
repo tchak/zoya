@@ -694,6 +694,35 @@ fn check_path_pattern_resolved(
         }
         ResolvedPath::Definition {
             qualified_path,
+            def: Definition::Struct(struct_type),
+        } if struct_type.fields.is_empty() => {
+            // Unit struct used as a bare path pattern: `Empty`
+            let expected_struct_ty = Type::Struct {
+                name: struct_type.name.clone(),
+                type_args: vec![],
+                fields: vec![],
+            };
+
+            ctx.unify(scrutinee_ty, &expected_struct_ty)
+                .map_err(|e| TypeError {
+                    message: format!(
+                        "struct pattern {} cannot match type {}: {}",
+                        qualified_path,
+                        ctx.resolve(scrutinee_ty),
+                        e.message
+                    ),
+                })?;
+
+            Ok((
+                TypedPattern::StructExact {
+                    path: qualified_path.clone(),
+                    fields: vec![],
+                },
+                HashMap::new(),
+            ))
+        }
+        ResolvedPath::Definition {
+            qualified_path,
             def,
         } => {
             let kind = def.kind_name();
@@ -2359,6 +2388,45 @@ mod tests {
             }),
         );
         env
+    }
+
+    fn env_with_unit_struct() -> TypeEnv {
+        let mut env = TypeEnv::default();
+        env.register(
+            qpath("root::Empty"),
+            Definition::Struct(StructType {
+                visibility: Visibility::Public,
+                module: QualifiedPath::root(),
+                name: "Empty".to_string(),
+                type_params: vec![],
+                type_var_ids: vec![],
+                fields: vec![],
+            }),
+        );
+        env
+    }
+
+    #[test]
+    fn test_unit_struct_bare_path_pattern() {
+        let pattern = Pattern::Path(Path::simple("Empty".to_string()));
+        let env = env_with_unit_struct();
+        let mut ctx = UnifyCtx::new();
+        let scrutinee_ty = Type::Struct {
+            name: "Empty".to_string(),
+            type_args: vec![],
+            fields: vec![],
+        };
+        let result = check_pattern(
+            &pattern,
+            &scrutinee_ty,
+            &QualifiedPath::root(),
+            &env,
+            &mut ctx,
+        );
+        assert!(result.is_ok());
+        let (typed, bindings) = result.unwrap();
+        assert!(matches!(typed, TypedPattern::StructExact { .. }));
+        assert!(bindings.is_empty());
     }
 
     #[test]

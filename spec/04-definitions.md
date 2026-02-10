@@ -187,7 +187,7 @@ fn curry_add(x: Int) -> Int -> Int |y| x + y
 ## Struct Definitions
 
 ```
-struct_def ::= visibility 'struct' identifier type_params? '{' fields? '}'
+struct_def ::= visibility 'struct' identifier type_params? ('{' fields '}')?
 fields     ::= field (',' field)* ','?
 field      ::= identifier ':' type
 ```
@@ -197,6 +197,7 @@ See [Struct Types](02-types.md#struct-types) for construction, field access, and
 ```zoya
 struct Config { debug: Bool, verbose: Bool }
 pub struct Point { x: Float, y: Float }
+struct Empty
 ```
 
 ### Generic Structs

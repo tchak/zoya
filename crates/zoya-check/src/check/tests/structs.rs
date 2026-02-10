@@ -107,3 +107,45 @@ fn test_struct_construct_unknown_struct() {
     let err = result.unwrap_err();
     assert!(err.message.contains("unknown identifier"));
 }
+
+fn env_with_empty_struct() -> TypeEnv {
+    let mut env = TypeEnv::default();
+    env.register(
+        qpath("root::Empty"),
+        Definition::Struct(StructType {
+            visibility: Visibility::Public,
+            module: QualifiedPath::root(),
+            name: "Empty".to_string(),
+            type_params: vec![],
+            type_var_ids: vec![],
+            fields: vec![],
+        }),
+    );
+    env
+}
+
+#[test]
+fn test_unit_struct_bare_path_construct() {
+    let env = env_with_empty_struct();
+    let mut ctx = UnifyCtx::new();
+    let expr = Expr::Path(Path::simple("Empty".to_string()));
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx).unwrap();
+    match result.ty() {
+        Type::Struct { name, fields, .. } => {
+            assert_eq!(name, "Empty");
+            assert!(fields.is_empty());
+        }
+        _ => panic!("Expected struct type"),
+    }
+}
+
+#[test]
+fn test_non_unit_struct_bare_path_error() {
+    let env = env_with_point_struct();
+    let mut ctx = UnifyCtx::new();
+    let expr = Expr::Path(Path::simple("Point".to_string()));
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.message.contains("cannot be used as a value"));
+}

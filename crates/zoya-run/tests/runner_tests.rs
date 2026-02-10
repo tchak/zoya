@@ -1416,6 +1416,21 @@ fn test_run_struct_empty() {
 }
 
 #[test]
+fn test_run_unit_struct() {
+    let source = r#"
+        struct Empty
+        pub fn main() -> Int {
+            let e = Empty;
+            match e {
+                Empty => 42,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
 fn test_run_struct_generic() {
     let source = r#"
         struct Pair<T, U> { first: T, second: U }

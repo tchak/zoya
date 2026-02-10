@@ -165,17 +165,21 @@ pub fn fmt_type_alias(ta: &TypeAliasDef) -> RcDoc<'static> {
 // --- Struct ---
 
 pub fn fmt_struct(s: &StructDef) -> RcDoc<'static> {
-    fmt_vis(s.visibility)
+    let doc = fmt_vis(s.visibility)
         .append(RcDoc::text("struct "))
         .append(RcDoc::text(s.name.clone()))
-        .append(fmt_type_params(&s.type_params))
-        .append(RcDoc::text(" "))
-        .append(fmt_struct_fields(&s.fields))
+        .append(fmt_type_params(&s.type_params));
+    if s.fields.is_empty() {
+        doc
+    } else {
+        doc.append(RcDoc::text(" "))
+            .append(fmt_struct_fields(&s.fields))
+    }
 }
 
 fn fmt_struct_fields(fields: &[StructFieldDef]) -> RcDoc<'static> {
     if fields.is_empty() {
-        return RcDoc::text("{}");
+        return RcDoc::nil();
     }
     let entries: Vec<RcDoc<'static>> = fields
         .iter()

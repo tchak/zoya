@@ -140,10 +140,7 @@ mod tests {
         let config = PackageConfig::load(&project_path).unwrap();
         assert_eq!(config.name, "my_project");
         assert_eq!(config.main, None);
-        assert_eq!(
-            config.main_path(),
-            std::path::PathBuf::from("src/main.zy")
-        );
+        assert_eq!(config.main_path(), std::path::PathBuf::from("src/main.zy"));
 
         // Check .gitignore content
         let gitignore = std::fs::read_to_string(project_path.join(".gitignore")).unwrap();

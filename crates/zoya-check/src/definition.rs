@@ -71,6 +71,13 @@ pub fn struct_type_from_def(
         });
     }
 
+    // Unit structs cannot have type parameters
+    if def.fields.is_empty() && !def.type_params.is_empty() {
+        return Err(TypeError {
+            message: format!("unit struct '{}' cannot have type parameters", def.name),
+        });
+    }
+
     // Create fresh type variables for type parameters
     let mut type_param_map = HashMap::new();
     let mut type_var_ids = Vec::new();
@@ -320,7 +327,10 @@ mod tests {
             visibility: Visibility::Public,
             name: "Container".to_string(),
             type_params: vec!["t".to_string()],
-            fields: vec![],
+            fields: vec![StructFieldDef {
+                name: "value".to_string(),
+                typ: TypeAnnotation::Named(Path::simple("t".to_string())),
+            }],
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
@@ -337,7 +347,10 @@ mod tests {
             visibility: Visibility::Public,
             name: "Container".to_string(),
             type_params: vec!["my_type".to_string()],
-            fields: vec![],
+            fields: vec![StructFieldDef {
+                name: "value".to_string(),
+                typ: TypeAnnotation::Named(Path::simple("my_type".to_string())),
+            }],
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
@@ -366,6 +379,25 @@ mod tests {
         let st = result.unwrap();
         assert_eq!(st.type_params.len(), 2);
         assert_eq!(st.type_var_ids.len(), 2);
+    }
+
+    #[test]
+    fn test_struct_unit_generic_rejected() {
+        let def = StructDef {
+            visibility: Visibility::Public,
+            name: "Phantom".to_string(),
+            type_params: vec!["T".to_string()],
+            fields: vec![],
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = struct_type_from_def(&def, &root(), &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.message
+                .contains("unit struct 'Phantom' cannot have type parameters")
+        );
     }
 
     // ========================================================================
