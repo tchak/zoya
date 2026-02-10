@@ -1,5 +1,8 @@
 use logos::Logos;
 
+pub type Span = std::ops::Range<usize>;
+pub type Spanned = (Token, Span);
+
 fn parse_float(lex: &logos::Lexer<Token>) -> Option<f64> {
     lex.slice().replace('_', "").parse::<f64>().ok()
 }
@@ -190,20 +193,21 @@ pub enum Token {
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum LexError {
-    #[error("unexpected character at '{slice}'")]
-    UnexpectedCharacter { slice: String },
+    #[error("unexpected character '{slice}' at {span:?}")]
+    UnexpectedCharacter { slice: String, span: Span },
 }
 
-pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
+pub fn lex(input: &str) -> Result<Vec<Spanned>, LexError> {
     let mut tokens = Vec::new();
     let mut lexer = Token::lexer(input);
 
     while let Some(result) = lexer.next() {
         match result {
-            Ok(token) => tokens.push(token),
+            Ok(token) => tokens.push((token, lexer.span())),
             Err(()) => {
                 return Err(LexError::UnexpectedCharacter {
                     slice: lexer.slice().to_string(),
+                    span: lexer.span(),
                 });
             }
         }
@@ -216,38 +220,46 @@ pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
 mod tests {
     use super::*;
 
+    fn toks(input: &str) -> Vec<Token> {
+        lex(input)
+            .unwrap()
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect()
+    }
+
     #[test]
     fn test_single_integer() {
-        let tokens = lex("42").unwrap();
-        assert_eq!(tokens, vec![Token::Int(42)]);
+        let toks = toks("42");
+        assert_eq!(toks, vec![Token::Int(42)]);
     }
 
     #[test]
     fn test_large_integer() {
-        let tokens = lex("123456789").unwrap();
-        assert_eq!(tokens, vec![Token::Int(123456789)]);
+        let toks = toks("123456789");
+        assert_eq!(toks, vec![Token::Int(123456789)]);
     }
 
     #[test]
     fn test_all_operators() {
-        let tokens = lex("+ - * /").unwrap();
+        let toks = toks("+ - * /");
         assert_eq!(
-            tokens,
+            toks,
             vec![Token::Plus, Token::Minus, Token::Star, Token::Slash]
         );
     }
 
     #[test]
     fn test_parentheses() {
-        let tokens = lex("()").unwrap();
-        assert_eq!(tokens, vec![Token::LParen, Token::RParen]);
+        let toks = toks("()");
+        assert_eq!(toks, vec![Token::LParen, Token::RParen]);
     }
 
     #[test]
     fn test_full_expression() {
-        let tokens = lex("2 + 3 * (4 - 1)").unwrap();
+        let toks = toks("2 + 3 * (4 - 1)");
         assert_eq!(
-            tokens,
+            toks,
             vec![
                 Token::Int(2),
                 Token::Plus,
@@ -264,9 +276,9 @@ mod tests {
 
     #[test]
     fn test_no_whitespace() {
-        let tokens = lex("1+2*3").unwrap();
+        let toks = toks("1+2*3");
         assert_eq!(
-            tokens,
+            toks,
             vec![
                 Token::Int(1),
                 Token::Plus,
@@ -287,136 +299,136 @@ mod tests {
 
     #[test]
     fn test_at_token() {
-        let tokens = lex("@").unwrap();
-        assert_eq!(tokens, vec![Token::At]);
+        let toks = toks("@");
+        assert_eq!(toks, vec![Token::At]);
     }
 
     #[test]
     fn test_as_pattern_tokens() {
-        let tokens = lex("n @ 42").unwrap();
+        let toks = toks("n @ 42");
         assert_eq!(
-            tokens,
+            toks,
             vec![Token::Ident("n".to_string()), Token::At, Token::Int(42)]
         );
     }
 
     #[test]
     fn test_rest_binding_tokens() {
-        let tokens = lex("rest @ ..").unwrap();
+        let toks = toks("rest @ ..");
         assert_eq!(
-            tokens,
+            toks,
             vec![Token::Ident("rest".to_string()), Token::At, Token::DotDot]
         );
     }
 
     #[test]
     fn test_integer_with_underscores() {
-        let tokens = lex("1_000_000").unwrap();
-        assert_eq!(tokens, vec![Token::Int(1_000_000)]);
+        let toks = toks("1_000_000");
+        assert_eq!(toks, vec![Token::Int(1_000_000)]);
     }
 
     #[test]
     fn test_integer_with_single_underscore() {
-        let tokens = lex("1_0").unwrap();
-        assert_eq!(tokens, vec![Token::Int(10)]);
+        let toks = toks("1_0");
+        assert_eq!(toks, vec![Token::Int(10)]);
     }
 
     #[test]
     fn test_integer_with_trailing_underscore() {
-        let tokens = lex("100_").unwrap();
-        assert_eq!(tokens, vec![Token::Int(100)]);
+        let toks = toks("100_");
+        assert_eq!(toks, vec![Token::Int(100)]);
     }
 
     #[test]
     fn test_float_standard() {
-        let tokens = lex("3.15").unwrap();
-        assert_eq!(tokens, vec![Token::Float(3.15)]);
+        let toks = toks("3.15");
+        assert_eq!(toks, vec![Token::Float(3.15)]);
     }
 
     #[test]
     fn test_float_with_underscores() {
-        let tokens = lex("1_000.5").unwrap();
-        assert_eq!(tokens, vec![Token::Float(1000.5)]);
+        let toks = toks("1_000.5");
+        assert_eq!(toks, vec![Token::Float(1000.5)]);
     }
 
     #[test]
     fn test_float_expression() {
-        let tokens = lex("1.5 + 0.5").unwrap();
+        let toks = toks("1.5 + 0.5");
         assert_eq!(
-            tokens,
+            toks,
             vec![Token::Float(1.5), Token::Plus, Token::Float(0.5)]
         );
     }
 
     #[test]
     fn test_fn_keyword() {
-        let tokens = lex("fn").unwrap();
-        assert_eq!(tokens, vec![Token::Fn]);
+        let toks = toks("fn");
+        assert_eq!(toks, vec![Token::Fn]);
     }
 
     #[test]
     fn test_identifier() {
-        let tokens = lex("foo").unwrap();
-        assert_eq!(tokens, vec![Token::Ident("foo".to_string())]);
+        let toks = toks("foo");
+        assert_eq!(toks, vec![Token::Ident("foo".to_string())]);
     }
 
     #[test]
     fn test_identifier_with_underscore() {
-        let tokens = lex("foo_bar").unwrap();
-        assert_eq!(tokens, vec![Token::Ident("foo_bar".to_string())]);
+        let toks = toks("foo_bar");
+        assert_eq!(toks, vec![Token::Ident("foo_bar".to_string())]);
     }
 
     #[test]
     fn test_identifier_starting_with_underscore() {
-        let tokens = lex("_foo").unwrap();
-        assert_eq!(tokens, vec![Token::Ident("_foo".to_string())]);
+        let toks = toks("_foo");
+        assert_eq!(toks, vec![Token::Ident("_foo".to_string())]);
     }
 
     #[test]
     fn test_identifier_with_numbers() {
-        let tokens = lex("foo123").unwrap();
-        assert_eq!(tokens, vec![Token::Ident("foo123".to_string())]);
+        let toks = toks("foo123");
+        assert_eq!(toks, vec![Token::Ident("foo123".to_string())]);
     }
 
     #[test]
     fn test_fn_not_identifier() {
         // fn should be keyword, not identifier
-        let tokens = lex("fn foo").unwrap();
+        let toks = toks("fn foo");
         assert_eq!(
-            tokens,
+            toks,
             vec![Token::Fn, Token::Ident("foo".to_string())]
         );
     }
 
     #[test]
     fn test_arrow() {
-        let tokens = lex("->").unwrap();
-        assert_eq!(tokens, vec![Token::Arrow]);
+        let toks = toks("->");
+        assert_eq!(toks, vec![Token::Arrow]);
     }
 
     #[test]
     fn test_braces() {
-        let tokens = lex("{}").unwrap();
-        assert_eq!(tokens, vec![Token::LBrace, Token::RBrace]);
+        let toks = toks("{}");
+        assert_eq!(toks, vec![Token::LBrace, Token::RBrace]);
     }
 
     #[test]
     fn test_angle_brackets() {
-        let tokens = lex("<>").unwrap();
-        assert_eq!(tokens, vec![Token::Lt, Token::Gt]);
+        let toks = toks("<>");
+        assert_eq!(toks, vec![Token::Lt, Token::Gt]);
     }
 
     #[test]
     fn test_colon_and_comma() {
-        let tokens = lex(":,").unwrap();
-        assert_eq!(tokens, vec![Token::Colon, Token::Comma]);
+        let toks = toks(":,");
+        assert_eq!(toks, vec![Token::Colon, Token::Comma]);
     }
 
     #[test]
     fn test_function_signature() {
-        let tokens = lex("fn add(x: Int, y: Int) -> Int { x + y }").unwrap();
+        let toks = toks("fn add(x: Int, y: Int) -> Int { x + y }");
         assert_eq!(
-            tokens,
+            toks,
             vec![
                 Token::Fn,
                 Token::Ident("add".to_string()),
@@ -442,9 +454,9 @@ mod tests {
 
     #[test]
     fn test_generic_function_signature() {
-        let tokens = lex("fn identity<T>(x: T) -> T { x }").unwrap();
+        let toks = toks("fn identity<T>(x: T) -> T { x }");
         assert_eq!(
-            tokens,
+            toks,
             vec![
                 Token::Fn,
                 Token::Ident("identity".to_string()),
@@ -467,67 +479,67 @@ mod tests {
 
     #[test]
     fn test_bool_literals() {
-        let tokens = lex("true false").unwrap();
-        assert_eq!(tokens, vec![Token::True, Token::False]);
+        let toks = toks("true false");
+        assert_eq!(toks, vec![Token::True, Token::False]);
     }
 
     #[test]
     fn test_string_literal() {
-        let tokens = lex(r#""hello""#).unwrap();
-        assert_eq!(tokens, vec![Token::String("hello".to_string())]);
+        let toks = toks(r#""hello""#);
+        assert_eq!(toks, vec![Token::String("hello".to_string())]);
     }
 
     #[test]
     fn test_string_with_escapes() {
-        let tokens = lex(r#""hello\nworld""#).unwrap();
-        assert_eq!(tokens, vec![Token::String("hello\nworld".to_string())]);
+        let toks = toks(r#""hello\nworld""#);
+        assert_eq!(toks, vec![Token::String("hello\nworld".to_string())]);
     }
 
     #[test]
     fn test_string_with_escaped_quote() {
-        let tokens = lex(r#""say \"hi\"""#).unwrap();
-        assert_eq!(tokens, vec![Token::String("say \"hi\"".to_string())]);
+        let toks = toks(r#""say \"hi\"""#);
+        assert_eq!(toks, vec![Token::String("say \"hi\"".to_string())]);
     }
 
     #[test]
     fn test_string_with_tab_escape() {
-        let tokens = lex(r#""hello\tworld""#).unwrap();
-        assert_eq!(tokens, vec![Token::String("hello\tworld".to_string())]);
+        let toks = toks(r#""hello\tworld""#);
+        assert_eq!(toks, vec![Token::String("hello\tworld".to_string())]);
     }
 
     #[test]
     fn test_string_with_carriage_return_escape() {
-        let tokens = lex(r#""line\rend""#).unwrap();
-        assert_eq!(tokens, vec![Token::String("line\rend".to_string())]);
+        let toks = toks(r#""line\rend""#);
+        assert_eq!(toks, vec![Token::String("line\rend".to_string())]);
     }
 
     #[test]
     fn test_string_with_backslash_escape() {
-        let tokens = lex(r#""path\\to\\file""#).unwrap();
-        assert_eq!(tokens, vec![Token::String("path\\to\\file".to_string())]);
+        let toks = toks(r#""path\\to\\file""#);
+        assert_eq!(toks, vec![Token::String("path\\to\\file".to_string())]);
     }
 
     #[test]
     fn test_string_with_unknown_escape() {
         // Unknown escape sequences are preserved literally
-        let tokens = lex(r#""test\xvalue""#).unwrap();
-        assert_eq!(tokens, vec![Token::String("test\\xvalue".to_string())]);
+        let toks = toks(r#""test\xvalue""#);
+        assert_eq!(toks, vec![Token::String("test\\xvalue".to_string())]);
     }
 
     #[test]
     fn test_comparison_operators() {
-        let tokens = lex("== != <= >= < >").unwrap();
+        let toks = toks("== != <= >= < >");
         assert_eq!(
-            tokens,
+            toks,
             vec![Token::EqEq, Token::Ne, Token::Le, Token::Ge, Token::Lt, Token::Gt]
         );
     }
 
     #[test]
     fn test_comparison_expression() {
-        let tokens = lex("1 == 2").unwrap();
+        let toks = toks("1 == 2");
         assert_eq!(
-            tokens,
+            toks,
             vec![Token::Int(1), Token::EqEq, Token::Int(2)]
         );
     }
@@ -535,24 +547,24 @@ mod tests {
     #[test]
     fn test_le_ge_not_arrow() {
         // Make sure <= and >= don't interfere with -> or <>
-        let tokens = lex("<= >= -> < >").unwrap();
+        let toks = toks("<= >= -> < >");
         assert_eq!(
-            tokens,
+            toks,
             vec![Token::Le, Token::Ge, Token::Arrow, Token::Lt, Token::Gt]
         );
     }
 
     #[test]
     fn test_brackets() {
-        let tokens = lex("[]").unwrap();
-        assert_eq!(tokens, vec![Token::LBracket, Token::RBracket]);
+        let toks = toks("[]");
+        assert_eq!(toks, vec![Token::LBracket, Token::RBracket]);
     }
 
     #[test]
     fn test_list_literal() {
-        let tokens = lex("[1, 2, 3]").unwrap();
+        let toks = toks("[1, 2, 3]");
         assert_eq!(
-            tokens,
+            toks,
             vec![
                 Token::LBracket,
                 Token::Int(1),
@@ -567,22 +579,22 @@ mod tests {
 
     #[test]
     fn test_dot_dot() {
-        let tokens = lex("..").unwrap();
-        assert_eq!(tokens, vec![Token::DotDot]);
+        let toks = toks("..");
+        assert_eq!(toks, vec![Token::DotDot]);
     }
 
     #[test]
     fn test_dot_vs_dot_dot() {
         // Make sure .. is separate from .
-        let tokens = lex(". .. .").unwrap();
-        assert_eq!(tokens, vec![Token::Dot, Token::DotDot, Token::Dot]);
+        let toks = toks(". .. .");
+        assert_eq!(toks, vec![Token::Dot, Token::DotDot, Token::Dot]);
     }
 
     #[test]
     fn test_list_pattern_tokens() {
-        let tokens = lex("[x, ..]").unwrap();
+        let toks = toks("[x, ..]");
         assert_eq!(
-            tokens,
+            toks,
             vec![
                 Token::LBracket,
                 Token::Ident("x".to_string()),
@@ -595,42 +607,42 @@ mod tests {
 
     #[test]
     fn test_bigint_simple() {
-        let tokens = lex("42n").unwrap();
-        assert_eq!(tokens, vec![Token::BigInt(42)]);
+        let toks = toks("42n");
+        assert_eq!(toks, vec![Token::BigInt(42)]);
     }
 
     #[test]
     fn test_bigint_with_underscores() {
-        let tokens = lex("9_000_000_000n").unwrap();
-        assert_eq!(tokens, vec![Token::BigInt(9_000_000_000)]);
+        let toks = toks("9_000_000_000n");
+        assert_eq!(toks, vec![Token::BigInt(9_000_000_000)]);
     }
 
     #[test]
     fn test_bigint_in_expression() {
-        let tokens = lex("42n + 1n").unwrap();
+        let toks = toks("42n + 1n");
         assert_eq!(
-            tokens,
+            toks,
             vec![Token::BigInt(42), Token::Plus, Token::BigInt(1)]
         );
     }
 
     #[test]
     fn test_bigint_zero() {
-        let tokens = lex("0n").unwrap();
-        assert_eq!(tokens, vec![Token::BigInt(0)]);
+        let toks = toks("0n");
+        assert_eq!(toks, vec![Token::BigInt(0)]);
     }
 
     #[test]
     fn test_pipe() {
-        let tokens = lex("|").unwrap();
-        assert_eq!(tokens, vec![Token::Pipe]);
+        let toks = toks("|");
+        assert_eq!(toks, vec![Token::Pipe]);
     }
 
     #[test]
     fn test_lambda_tokens() {
-        let tokens = lex("|x| x + 1").unwrap();
+        let toks = toks("|x| x + 1");
         assert_eq!(
-            tokens,
+            toks,
             vec![
                 Token::Pipe,
                 Token::Ident("x".to_string()),
@@ -644,9 +656,9 @@ mod tests {
 
     #[test]
     fn test_lambda_with_type_annotation() {
-        let tokens = lex("|x: Int32| -> Int32 x").unwrap();
+        let toks = toks("|x: Int32| -> Int32 x");
         assert_eq!(
-            tokens,
+            toks,
             vec![
                 Token::Pipe,
                 Token::Ident("x".to_string()),
@@ -662,15 +674,15 @@ mod tests {
 
     #[test]
     fn test_struct_keyword() {
-        let tokens = lex("struct").unwrap();
-        assert_eq!(tokens, vec![Token::Struct]);
+        let toks = toks("struct");
+        assert_eq!(toks, vec![Token::Struct]);
     }
 
     #[test]
     fn test_struct_definition_tokens() {
-        let tokens = lex("struct Point { x: Int32, y: Int32 }").unwrap();
+        let toks = toks("struct Point { x: Int32, y: Int32 }");
         assert_eq!(
-            tokens,
+            toks,
             vec![
                 Token::Struct,
                 Token::Ident("Point".to_string()),
@@ -689,21 +701,21 @@ mod tests {
 
     #[test]
     fn test_enum_keyword() {
-        let tokens = lex("enum").unwrap();
-        assert_eq!(tokens, vec![Token::Enum]);
+        let toks = toks("enum");
+        assert_eq!(toks, vec![Token::Enum]);
     }
 
     #[test]
     fn test_type_keyword() {
-        let tokens = lex("type").unwrap();
-        assert_eq!(tokens, vec![Token::Type]);
+        let toks = toks("type");
+        assert_eq!(toks, vec![Token::Type]);
     }
 
     #[test]
     fn test_type_alias_tokens() {
-        let tokens = lex("type UserId = Int").unwrap();
+        let toks = toks("type UserId = Int");
         assert_eq!(
-            tokens,
+            toks,
             vec![
                 Token::Type,
                 Token::Ident("UserId".to_string()),
@@ -715,21 +727,21 @@ mod tests {
 
     #[test]
     fn test_colon_colon() {
-        let tokens = lex("::").unwrap();
-        assert_eq!(tokens, vec![Token::ColonColon]);
+        let toks = toks("::");
+        assert_eq!(toks, vec![Token::ColonColon]);
     }
 
     #[test]
     fn test_colon_vs_colon_colon() {
-        let tokens = lex(": :: :").unwrap();
-        assert_eq!(tokens, vec![Token::Colon, Token::ColonColon, Token::Colon]);
+        let toks = toks(": :: :");
+        assert_eq!(toks, vec![Token::Colon, Token::ColonColon, Token::Colon]);
     }
 
     #[test]
     fn test_qualified_path() {
-        let tokens = lex("Option::Some").unwrap();
+        let toks = toks("Option::Some");
         assert_eq!(
-            tokens,
+            toks,
             vec![
                 Token::Ident("Option".to_string()),
                 Token::ColonColon,
@@ -740,9 +752,9 @@ mod tests {
 
     #[test]
     fn test_enum_definition_tokens() {
-        let tokens = lex("enum Option<T> { None, Some(T) }").unwrap();
+        let toks = toks("enum Option<T> { None, Some(T) }");
         assert_eq!(
-            tokens,
+            toks,
             vec![
                 Token::Enum,
                 Token::Ident("Option".to_string()),
@@ -763,27 +775,27 @@ mod tests {
 
     #[test]
     fn test_mod_keyword() {
-        let tokens = lex("mod").unwrap();
-        assert_eq!(tokens, vec![Token::Mod]);
+        let toks = toks("mod");
+        assert_eq!(toks, vec![Token::Mod]);
     }
 
     #[test]
     fn test_mod_declaration_tokens() {
-        let tokens = lex("mod foo").unwrap();
-        assert_eq!(tokens, vec![Token::Mod, Token::Ident("foo".to_string())]);
+        let toks = toks("mod foo");
+        assert_eq!(toks, vec![Token::Mod, Token::Ident("foo".to_string())]);
     }
 
     #[test]
     fn test_use_keyword() {
-        let tokens = lex("use").unwrap();
-        assert_eq!(tokens, vec![Token::Use]);
+        let toks = toks("use");
+        assert_eq!(toks, vec![Token::Use]);
     }
 
     #[test]
     fn test_use_statement_tokens() {
-        let tokens = lex("use root::foo::bar").unwrap();
+        let toks = toks("use root::foo::bar");
         assert_eq!(
-            tokens,
+            toks,
             vec![
                 Token::Use,
                 Token::Root,
@@ -797,15 +809,15 @@ mod tests {
 
     #[test]
     fn test_pub_keyword() {
-        let tokens = lex("pub").unwrap();
-        assert_eq!(tokens, vec![Token::Pub]);
+        let toks = toks("pub");
+        assert_eq!(toks, vec![Token::Pub]);
     }
 
     #[test]
     fn test_pub_fn_tokens() {
-        let tokens = lex("pub fn foo() 1").unwrap();
+        let toks = toks("pub fn foo() 1");
         assert_eq!(
-            tokens,
+            toks,
             vec![
                 Token::Pub,
                 Token::Fn,
@@ -819,27 +831,27 @@ mod tests {
 
     #[test]
     fn test_root_keyword() {
-        let tokens = lex("root").unwrap();
-        assert_eq!(tokens, vec![Token::Root]);
+        let toks = toks("root");
+        assert_eq!(toks, vec![Token::Root]);
     }
 
     #[test]
     fn test_self_keyword() {
-        let tokens = lex("self").unwrap();
-        assert_eq!(tokens, vec![Token::Self_]);
+        let toks = toks("self");
+        assert_eq!(toks, vec![Token::Self_]);
     }
 
     #[test]
     fn test_super_keyword() {
-        let tokens = lex("super").unwrap();
-        assert_eq!(tokens, vec![Token::Super]);
+        let toks = toks("super");
+        assert_eq!(toks, vec![Token::Super]);
     }
 
     #[test]
     fn test_root_path_tokens() {
-        let tokens = lex("root::foo").unwrap();
+        let toks = toks("root::foo");
         assert_eq!(
-            tokens,
+            toks,
             vec![
                 Token::Root,
                 Token::ColonColon,
@@ -850,9 +862,9 @@ mod tests {
 
     #[test]
     fn test_self_path_tokens() {
-        let tokens = lex("self::bar").unwrap();
+        let toks = toks("self::bar");
         assert_eq!(
-            tokens,
+            toks,
             vec![
                 Token::Self_,
                 Token::ColonColon,
@@ -863,9 +875,9 @@ mod tests {
 
     #[test]
     fn test_super_path_tokens() {
-        let tokens = lex("super::baz").unwrap();
+        let toks = toks("super::baz");
         assert_eq!(
-            tokens,
+            toks,
             vec![
                 Token::Super,
                 Token::ColonColon,
@@ -876,37 +888,73 @@ mod tests {
 
     #[test]
     fn test_line_comment() {
-        let tokens = lex("// this is a comment").unwrap();
-        assert_eq!(tokens, vec![]);
+        let toks = toks("// this is a comment");
+        assert_eq!(toks, vec![]);
     }
 
     #[test]
     fn test_comment_after_code() {
-        let tokens = lex("42 // comment").unwrap();
-        assert_eq!(tokens, vec![Token::Int(42)]);
+        let toks = toks("42 // comment");
+        assert_eq!(toks, vec![Token::Int(42)]);
     }
 
     #[test]
     fn test_comment_before_code() {
-        let tokens = lex("// comment\n42").unwrap();
-        assert_eq!(tokens, vec![Token::Int(42)]);
+        let toks = toks("// comment\n42");
+        assert_eq!(toks, vec![Token::Int(42)]);
     }
 
     #[test]
     fn test_multiple_comments() {
-        let tokens = lex("// first\n1\n// second\n2").unwrap();
-        assert_eq!(tokens, vec![Token::Int(1), Token::Int(2)]);
+        let toks = toks("// first\n1\n// second\n2");
+        assert_eq!(toks, vec![Token::Int(1), Token::Int(2)]);
     }
 
     #[test]
     fn test_comment_with_operators() {
-        let tokens = lex("// + - * /").unwrap();
-        assert_eq!(tokens, vec![]);
+        let toks = toks("// + - * /");
+        assert_eq!(toks, vec![]);
     }
 
     #[test]
     fn test_empty_comment() {
-        let tokens = lex("//").unwrap();
-        assert_eq!(tokens, vec![]);
+        let toks = toks("//");
+        assert_eq!(toks, vec![]);
+    }
+
+    #[test]
+    fn test_spans_simple_expression() {
+        let spanned = lex("42 + 3").unwrap();
+        assert_eq!(spanned.len(), 3);
+        assert_eq!(spanned[0], (Token::Int(42), 0..2));
+        assert_eq!(spanned[1], (Token::Plus, 3..4));
+        assert_eq!(spanned[2], (Token::Int(3), 5..6));
+    }
+
+    #[test]
+    fn test_spans_identifier_and_keyword() {
+        let spanned = lex("fn foo").unwrap();
+        assert_eq!(spanned.len(), 2);
+        assert_eq!(spanned[0], (Token::Fn, 0..2));
+        assert_eq!(spanned[1], (Token::Ident("foo".to_string()), 3..6));
+    }
+
+    #[test]
+    fn test_spans_string_literal() {
+        let spanned = lex(r#""hello" + 1"#).unwrap();
+        assert_eq!(spanned[0], (Token::String("hello".to_string()), 0..7));
+        assert_eq!(spanned[1], (Token::Plus, 8..9));
+        assert_eq!(spanned[2], (Token::Int(1), 10..11));
+    }
+
+    #[test]
+    fn test_lex_error_span() {
+        let err = lex("2 + #").unwrap_err();
+        match err {
+            LexError::UnexpectedCharacter { slice, span } => {
+                assert_eq!(slice, "#");
+                assert_eq!(span, 4..5);
+            }
+        }
     }
 }

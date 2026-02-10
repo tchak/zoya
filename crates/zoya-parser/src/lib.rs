@@ -16,8 +16,85 @@ use statements::stmt_parser;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum ParseError {
-    #[error("{message}")]
-    SyntaxError { message: String },
+    #[error("{}", format_errors(.0))]
+    SyntaxErrors(Vec<SyntaxError>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SyntaxError {
+    pub span: zoya_lexer::Span,
+    pub found: Option<String>,
+    pub expected: Vec<String>,
+    pub label: Option<String>,
+}
+
+/// Convert chumsky Rich errors (with token-index spans) to ParseError (with byte-offset spans).
+///
+/// `byte_spans` maps token indices to byte-offset spans from the lexer.
+fn convert_errors(errs: Vec<Rich<'_, Token>>, byte_spans: &[zoya_lexer::Span]) -> ParseError {
+    let map_span = |token_span: &SimpleSpan| -> zoya_lexer::Span {
+        let start_idx = token_span.start;
+        let end_idx = token_span.end;
+        let byte_start = byte_spans
+            .get(start_idx)
+            .map(|s| s.start)
+            .unwrap_or(byte_spans.last().map(|s| s.end).unwrap_or(0));
+        let byte_end = if end_idx > 0 {
+            byte_spans
+                .get(end_idx - 1)
+                .map(|s| s.end)
+                .unwrap_or(byte_spans.last().map(|s| s.end).unwrap_or(0))
+        } else {
+            byte_start
+        };
+        byte_start..byte_end
+    };
+
+    ParseError::SyntaxErrors(
+        errs.into_iter()
+            .map(|e| SyntaxError {
+                span: map_span(e.span()),
+                found: e.found().map(|t| format!("{:?}", t)),
+                expected: e.expected().map(|pat| format!("{:?}", pat)).collect(),
+                label: match e.reason() {
+                    chumsky::error::RichReason::Custom(msg) => Some(msg.to_string()),
+                    _ => None,
+                },
+            })
+            .collect(),
+    )
+}
+
+fn format_errors(errors: &[SyntaxError]) -> String {
+    errors
+        .iter()
+        .map(|e| {
+            let location = format!("at {}..{}", e.span.start, e.span.end);
+            match (&e.label, e.found.as_ref()) {
+                (Some(label), _) => format!("{} ({})", label, location),
+                (None, Some(found)) => {
+                    let expected = if e.expected.is_empty() {
+                        "something else".to_string()
+                    } else {
+                        e.expected.join(", ")
+                    };
+                    format!("found {} but expected {} ({})", found, expected, location)
+                }
+                (None, None) => {
+                    let expected = e.expected.join(", ");
+                    format!(
+                        "unexpected end of input, expected {} ({})",
+                        expected, location
+                    )
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+fn split_tokens(spanned_tokens: Vec<zoya_lexer::Spanned>) -> (Vec<Token>, Vec<zoya_lexer::Span>) {
+    spanned_tokens.into_iter().unzip()
 }
 
 /// Element type for REPL input parsing
@@ -42,7 +119,9 @@ enum ModuleElement {
 ///
 /// # Returns
 /// Tuple of (items, stmts) on success, or `ParseError` with diagnostics
-pub fn parse_input(tokens: Vec<Token>) -> Result<(Vec<Item>, Vec<Stmt>), ParseError> {
+pub fn parse_input(tokens: Vec<zoya_lexer::Spanned>) -> Result<(Vec<Item>, Vec<Stmt>), ParseError> {
+    let (toks, byte_spans) = split_tokens(tokens);
+
     let element = choice((
         item_parser().map(|i| InputElement::Item(Box::new(i))),
         stmt_parser().map(|s| InputElement::Stmt(Box::new(s))),
@@ -61,15 +140,9 @@ pub fn parse_input(tokens: Vec<Token>) -> Result<(Vec<Item>, Vec<Stmt>), ParseEr
     });
 
     parser
-        .parse(&tokens)
+        .parse(&toks)
         .into_result()
-        .map_err(|errs| ParseError::SyntaxError {
-            message: errs
-                .into_iter()
-                .map(|e| format!("{:?}", e))
-                .collect::<Vec<_>>()
-                .join(", "),
-        })
+        .map_err(|errs| convert_errors(errs, &byte_spans))
 }
 
 /// Parse a module file: mod declarations, use declarations, and items in any order.
@@ -82,7 +155,9 @@ pub fn parse_input(tokens: Vec<Token>) -> Result<(Vec<Item>, Vec<Stmt>), ParseEr
 ///
 /// # Returns
 /// `ModuleDef` containing module declarations, use declarations, and items on success, or `ParseError`
-pub fn parse_module(tokens: Vec<Token>) -> Result<ModuleDef, ParseError> {
+pub fn parse_module(tokens: Vec<zoya_lexer::Spanned>) -> Result<ModuleDef, ParseError> {
+    let (toks, byte_spans) = split_tokens(tokens);
+
     let element = choice((
         mod_decl_parser().map(ModuleElement::Mod),
         use_decl_parser().map(|u| ModuleElement::Item(Box::new(Item::Use(u)))),
@@ -102,15 +177,9 @@ pub fn parse_module(tokens: Vec<Token>) -> Result<ModuleDef, ParseError> {
     });
 
     parser
-        .parse(&tokens)
+        .parse(&toks)
         .into_result()
-        .map_err(|errs| ParseError::SyntaxError {
-            message: errs
-                .into_iter()
-                .map(|e| format!("{:?}", e))
-                .collect::<Vec<_>>()
-                .join(", "),
-        })
+        .map_err(|errs| convert_errors(errs, &byte_spans))
 }
 
 #[cfg(test)]
@@ -120,30 +189,20 @@ mod tests {
 
     use crate::expressions::expr_parser;
 
-    fn parse(tokens: Vec<Token>) -> Result<zoya_ast::Expr, ParseError> {
+    fn parse(tokens: Vec<zoya_lexer::Spanned>) -> Result<zoya_ast::Expr, ParseError> {
+        let (toks, byte_spans) = split_tokens(tokens);
         expr_parser()
-            .parse(&tokens)
+            .parse(&toks)
             .into_result()
-            .map_err(|errs| ParseError::SyntaxError {
-                message: errs
-                    .into_iter()
-                    .map(|e| format!("{:?}", e))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-            })
+            .map_err(|errs| convert_errors(errs, &byte_spans))
     }
 
-    fn parse_item(tokens: Vec<Token>) -> Result<Item, ParseError> {
+    fn parse_item(tokens: Vec<zoya_lexer::Spanned>) -> Result<Item, ParseError> {
+        let (toks, byte_spans) = split_tokens(tokens);
         item_parser()
-            .parse(&tokens)
+            .parse(&toks)
             .into_result()
-            .map_err(|errs| ParseError::SyntaxError {
-                message: errs
-                    .into_iter()
-                    .map(|e| format!("{:?}", e))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-            })
+            .map_err(|errs| convert_errors(errs, &byte_spans))
     }
 
     fn parse_str(input: &str) -> Result<zoya_ast::Expr, ParseError> {
@@ -2638,7 +2697,12 @@ mod tests {
     // === Module parsing tests ===
 
     fn parse_module_str(input: &str) -> Result<ModuleDef, ParseError> {
-        let tokens = lex(input).map_err(|e| ParseError::SyntaxError { message: e.to_string() })?;
+        let tokens = lex(input).map_err(|e| ParseError::SyntaxErrors(vec![SyntaxError {
+            span: 0..0,
+            found: Some(e.to_string()),
+            expected: vec![],
+            label: None,
+        }]))?;
         parse_module(tokens)
     }
 
