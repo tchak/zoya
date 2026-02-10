@@ -144,17 +144,18 @@ fn load_module_recursive<S: ModuleSource>(
     })?;
 
     // Parse
-    let module_def = zoya_parser::parse_module(tokens).map_err(|e| LoaderError::ParseError {
-        path: file_path.clone(),
-        message: e.to_string(),
-    })?;
+    let (mod_decls, items) =
+        zoya_parser::parse_module(tokens).map_err(|e| LoaderError::ParseError {
+            path: file_path.clone(),
+            message: e.to_string(),
+        })?;
 
     // Validate, check duplicates, build children map, and resolve submodules in one pass
     let mut seen_mods = HashSet::new();
     let mut children = HashMap::new();
     let mut submodules = Vec::new();
 
-    for mod_decl in &module_def.mods {
+    for mod_decl in &mod_decls {
         if zoya_naming::is_reserved_name(&mod_decl.name) {
             return Err(LoaderError::ReservedModName {
                 mod_name: mod_decl.name.clone(),
@@ -192,7 +193,7 @@ fn load_module_recursive<S: ModuleSource>(
     pkg.modules.insert(
         module_path.clone(),
         Module {
-            items: module_def.items,
+            items,
             path: module_path,
             children,
         },

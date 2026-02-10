@@ -461,12 +461,6 @@ pub struct UsePath {
     pub target: UseTarget,
 }
 
-/// A parsed module file containing mod declarations and items
-#[derive(Debug, Clone, PartialEq)]
-pub struct ModuleDef {
-    pub mods: Vec<ModDecl>,
-    pub items: Vec<Item>,
-}
 
 #[cfg(test)]
 mod tests {
