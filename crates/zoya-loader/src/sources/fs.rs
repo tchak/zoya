@@ -18,26 +18,6 @@ impl FilePath {
         Self(path.as_ref().to_path_buf())
     }
 
-    pub fn as_path(&self) -> &Path {
-        &self.0
-    }
-
-    pub fn join(&self, path: impl AsRef<Path>) -> Self {
-        Self(self.0.join(path))
-    }
-
-    pub fn parent(&self) -> Option<&Path> {
-        self.0.parent()
-    }
-
-    pub fn file_stem(&self) -> Option<&std::ffi::OsStr> {
-        self.0.file_stem()
-    }
-
-    pub fn file_name(&self) -> Option<&std::ffi::OsStr> {
-        self.0.file_name()
-    }
-
     pub fn exists(&self) -> bool {
         self.0.exists()
     }
@@ -90,10 +70,6 @@ impl FsSource {
         Self { base_dir }
     }
 
-    /// Get the base directory
-    pub fn base_dir(&self) -> &Path {
-        &self.base_dir
-    }
 }
 
 impl ModuleSource for FsSource {

@@ -144,13 +144,7 @@ pub fn load_package(path: &Path) -> Result<Package, LoaderError<FilePath>> {
         .unwrap_or_else(|| "root".to_string());
 
     let source = FsSource::from_file(path);
-    let mut pkg = Package {
-        name,
-        output: None,
-        modules: HashMap::new(),
-    };
-    load_module_recursive(&source, &FilePath::new(path), QualifiedPath::root(), &mut pkg)?;
-    Ok(pkg)
+    load_with_source(&source, &FilePath::new(path), name, None)
 }
 
 fn load_from_directory(dir: &Path) -> Result<Package, LoaderError<FilePath>> {
@@ -176,28 +170,32 @@ fn load_from_directory(dir: &Path) -> Result<Package, LoaderError<FilePath>> {
     }
 
     let source = FsSource::from_file(&main_path);
-    let mut pkg = Package {
-        name,
-        output,
-        modules: HashMap::new(),
-    };
-    load_module_recursive(&source, &FilePath::new(&main_path), QualifiedPath::root(), &mut pkg)?;
-    Ok(pkg)
+    load_with_source(&source, &FilePath::new(&main_path), name, output)
 }
 
 /// Load a package from an in-memory source.
 ///
 /// Expects a "root" module to exist in the source.
 pub fn load_memory_package(source: &MemorySource) -> Result<Package, LoaderError<String>> {
-    if !source.exists(&"root".to_string()) {
+    let root_path = "root".to_string();
+    if !source.exists(&root_path) {
         return Err(LoaderError::MissingRoot);
     }
+    load_with_source(source, &root_path, "root".to_string(), None)
+}
+
+fn load_with_source<S: ModuleSource>(
+    source: &S,
+    file_path: &S::Path,
+    name: String,
+    output: Option<PathBuf>,
+) -> Result<Package, LoaderError<S::Path>> {
     let mut pkg = Package {
-        name: "root".to_string(),
-        output: None,
+        name,
+        output,
         modules: HashMap::new(),
     };
-    load_module_recursive(source, &"root".to_string(), QualifiedPath::root(), &mut pkg)?;
+    load_module_recursive(source, file_path, QualifiedPath::root(), &mut pkg)?;
     Ok(pkg)
 }
 
@@ -225,7 +223,11 @@ fn load_module_recursive<S: ModuleSource>(
         message: e.message,
     })?;
 
-    // Validate module names
+    // Validate, check duplicates, build children map, and resolve submodules in one pass
+    let mut seen_mods = HashSet::new();
+    let mut children = HashMap::new();
+    let mut submodules = Vec::new();
+
     for mod_decl in &module_def.mods {
         if zoya_naming::is_reserved_name(&mod_decl.name) {
             return Err(LoaderError::ReservedModName {
@@ -238,23 +240,12 @@ fn load_module_recursive<S: ModuleSource>(
                 suggestion: zoya_naming::to_snake_case(&mod_decl.name),
             });
         }
-    }
-
-    // Check for duplicate mods
-    let mut seen_mods = HashSet::new();
-    for mod_decl in &module_def.mods {
         if !seen_mods.insert(&mod_decl.name) {
             return Err(LoaderError::DuplicateMod {
                 mod_name: mod_decl.name.clone(),
             });
         }
-    }
 
-    // Build children map and collect submodules to load
-    let mut children = HashMap::new();
-    let mut submodules = Vec::new();
-
-    for mod_decl in &module_def.mods {
         let child_path = module_path.child(&mod_decl.name);
         children.insert(mod_decl.name.clone(), (child_path.clone(), mod_decl.visibility));
 

@@ -12,7 +12,6 @@ pub enum SourceErrorKind {
     NotFound,
     PermissionDenied,
     IoError,
-    Other,
 }
 
 /// Error from a module source operation
