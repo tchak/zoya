@@ -43,7 +43,7 @@ fn parse_string(lex: &logos::Lexer<Token>) -> Option<String> {
 
 #[derive(Logos, Debug, Clone, PartialEq)]
 #[logos(skip r"[ \t\n\r]+")]
-#[logos(skip r"//[^\n]*")]
+#[logos(skip(r"//[^\n]*", allow_greedy = true))]
 pub enum Token {
     // Keywords (must come before Ident)
     #[token("fn")]
