@@ -61,6 +61,7 @@ mod tests {
         assert!(output.exists());
         let js = std::fs::read_to_string(&output).unwrap();
         assert!(js.contains("function $root$main()"));
+        assert!(js.contains("export {"));
     }
 
     #[test]

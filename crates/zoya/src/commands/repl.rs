@@ -265,9 +265,8 @@ impl State {
             let combined_type = Type::Tuple(return_types.clone());
 
             // Call combined main function via runner with explicit type
-            let module_path = QualifiedPath::root().child("repl");
             let combined_value =
-                runner::run(checked_pkg.clone(), Some(module_path), Some(combined_type))
+                runner::run(checked_pkg.clone(), Some("repl"), Some(combined_type))
                     .map_err(|e| e.to_string())?;
 
             // Unpack tuple result

@@ -85,6 +85,42 @@ pub fn codegen(pkg: &CheckedPackage) -> CodegenOutput {
         }
     }
 
+    // Build consolidated export block with only public definitions and reexports
+    let mut exports: Vec<String> = Vec::new();
+
+    // Export public definitions (functions that appear in both definitions and items)
+    for path in pkg.definitions.keys() {
+        if pkg.definitions[path].as_function().is_some() && pkg.items.contains_key(path) {
+            let internal = format_path(path);
+            let external = format_export_path(path, &pkg.name);
+            if internal == external {
+                exports.push(internal);
+            } else {
+                exports.push(format!("{} as {}", internal, external));
+            }
+        }
+    }
+
+    // Export reexports (re-exported functions that exist in items)
+    for (reexport_path, original_path) in &pkg.reexports {
+        if pkg.items.contains_key(original_path) {
+            let internal = format_path(original_path);
+            let external = format_export_path(reexport_path, &pkg.name);
+            if internal == external {
+                exports.push(internal);
+            } else {
+                exports.push(format!("{} as {}", internal, external));
+            }
+        }
+    }
+
+    // Sort for deterministic output
+    exports.sort();
+
+    if !exports.is_empty() {
+        js.push_str(&format!("export {{ {} }};\n", exports.join(", ")));
+    }
+
     let hash = blake3::hash(js.as_bytes()).to_hex().to_string();
 
     CodegenOutput { code: js, hash }
@@ -130,6 +166,16 @@ fn needs_deep_equality(ty: &Type) -> bool {
 /// Format a qualified path as a JS identifier: Option::Some -> $Option$Some
 fn format_path(path: &QualifiedPath) -> String {
     format!("${}", path.segments().join("$"))
+}
+
+/// Format a qualified path as a JS export name, replacing the "root" prefix with the package name.
+/// e.g., root::main with pkg_name "myapp" -> $myapp$main
+fn format_export_path(path: &QualifiedPath, pkg_name: &str) -> String {
+    let segments = path.segments();
+    let renamed: Vec<&str> = std::iter::once(pkg_name)
+        .chain(segments[1..].iter().map(|s| s.as_str()))
+        .collect();
+    format!("${}", renamed.join("$"))
 }
 
 /// Format a simple name as a JS identifier: x -> $x
@@ -694,14 +740,14 @@ fn codegen_function(func: &TypedFunction, path: &QualifiedPath) -> String {
 
     if prologue.is_empty() {
         format!(
-            "export function {}({}) {{ return {}; }}",
+            "function {}({}) {{ return {}; }}",
             format_path(path),
             param_names.join(", "),
             body
         )
     } else {
         format!(
-            "export function {}({}) {{ {} return {}; }}",
+            "function {}({}) {{ {} return {}; }}",
             format_path(path),
             param_names.join(", "),
             prologue.join(" "),
@@ -989,7 +1035,7 @@ mod tests {
         };
         assert_eq!(
             codegen_function(&func, &QualifiedPath::root().child(&func.name)),
-            "export function $root$square($x) { return ($x * $x); }"
+            "function $root$square($x) { return ($x * $x); }"
         );
     }
 
@@ -1017,7 +1063,7 @@ mod tests {
         };
         assert_eq!(
             codegen_function(&func, &QualifiedPath::root().child(&func.name)),
-            "export function $root$add($x, $y) { return ($x + $y); }"
+            "function $root$add($x, $y) { return ($x + $y); }"
         );
     }
 
@@ -1031,7 +1077,7 @@ mod tests {
         };
         assert_eq!(
             codegen_function(&func, &QualifiedPath::root().child(&func.name)),
-            "export function $root$answer() { return 42; }"
+            "function $root$answer() { return 42; }"
         );
     }
 
@@ -1053,7 +1099,7 @@ mod tests {
         };
         assert_eq!(
             codegen_function(&func, &QualifiedPath::root().child(&func.name)),
-            "export function $root$big($x) { return ($x + 1n); }"
+            "function $root$big($x) { return ($x + 1n); }"
         );
     }
 }

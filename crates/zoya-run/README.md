@@ -52,12 +52,10 @@ println!("Result: {}", result);
 ### Run a specific module's main function
 
 ```rust
-use zoya_package::QualifiedPath;
 use zoya_run::run;
 
 // Run main() from the "utils" submodule
-let module_path = QualifiedPath::root().child("utils");
-let result = run(checked_pkg, Some(module_path), None)?;
+let result = run(checked_pkg, Some("utils"), None)?;
 ```
 
 ## Public API
@@ -66,7 +64,7 @@ let result = run(checked_pkg, Some(module_path), None)?;
 /// Run a checked package by executing its main function
 pub fn run(
     package: CheckedPackage,
-    module: Option<QualifiedPath>,    // None = root module
+    module: Option<&str>,          // None = root module, Some("repl") = repl submodule
     return_type: Option<Type>,     // None = infer from main signature
 ) -> Result<Value, EvalError>;
 

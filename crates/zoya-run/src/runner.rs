@@ -11,18 +11,23 @@ use crate::eval::{self, EvalError, Value, VirtualModules};
 /// Run an already-checked package by executing its main function
 ///
 /// If `module` is `None`, the root module is used.
+/// If `module` is `Some("repl")`, the repl submodule's main is used.
 /// If `return_type` is `Some`, it overrides the return type from the checked package.
 /// This is useful when the main function has an inferred return type that may contain
 /// unresolved type variables.
 pub fn run(
     package: CheckedPackage,
-    module: Option<QualifiedPath>,
+    module: Option<&str>,
     return_type: Option<Type>,
 ) -> Result<Value, EvalError> {
-    let module_path = module.unwrap_or_else(QualifiedPath::root);
+    // Build the definition lookup path (always uses "root" prefix)
+    let module_path = match module {
+        Some(m) => QualifiedPath::root().child(m),
+        None => QualifiedPath::root(),
+    };
+    let main_path = module_path.child("main");
 
     // Find main in the specified module's definitions (must be pub)
-    let main_path = module_path.child("main");
     let main_def = package
         .definitions
         .get(&main_path)
@@ -45,12 +50,14 @@ pub fn run(
 
     // Create virtual modules and register the generated code
     let virtual_modules = VirtualModules::new();
-    let module_name = format!("root_{}", output.hash);
+    let module_name = format!("{}_{}", package.name, output.hash);
     virtual_modules.register(&module_name, output.code);
 
-    // Build the entry function path from module path segments
-    // e.g., ["root", "utils"] -> "$root$utils$main"
-    let entry_func = format!("${}$main", module_path.segments().join("$"));
+    // Build the entry function name using the package name
+    let entry_func = match module {
+        Some(m) => format!("${}${}$main", package.name, m),
+        None => format!("${}$main", package.name),
+    };
 
     // Create runtime with module loader
     let (_runtime, context) = eval::create_module_runtime(virtual_modules)
