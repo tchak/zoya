@@ -20,7 +20,7 @@ Zoya uses Hindley-Milner type inference. You rarely need to write type annotatio
 ```zoya
 let x = 42              // Inferred as Int
 let y = 3.14            // Inferred as Float
-let greet = |name| "Hello, " ++ name  // Inferred as String -> String
+let double = |x| x * 2    // Inferred as Int -> Int
 ```
 
 ## Type Annotations
@@ -42,8 +42,8 @@ type Callback = (Int) -> Bool
 type Pair<A, B> = (A, B)
 type StringList = List<String>
 
-fn get_user(id: UserId) -> String { ... }
-fn make_pair() -> Pair<Int, Bool> { (1, true) }
+fn get_user(id: UserId) -> String "user"
+fn make_pair() -> Pair<Int, Bool> (1, true)
 ```
 
 Type aliases are transparent - `UserId` and `Int` are interchangeable everywhere.

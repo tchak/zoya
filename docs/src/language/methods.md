@@ -1,15 +1,18 @@
 # Methods
 
-Zoya provides built-in methods on primitive types.
+Zoya provides built-in methods on primitive and collection types.
 
 ## String Methods
 
 ```zoya
-"hello".len()           // 5
-"hello".is_empty()      // false
-"hello".contains("ell") // true
-"hello".to_uppercase()  // "HELLO"
-"hello".to_lowercase()  // "hello"
+"hello".len()              // 5
+"hello".is_empty()         // false
+"hello".contains("ell")    // true
+"hello".starts_with("he")  // true
+"hello".ends_with("lo")    // true
+"hello".to_uppercase()     // "HELLO"
+"HELLO".to_lowercase()     // "hello"
+"  hi  ".trim()            // "hi"
 ```
 
 ## Int Methods
@@ -17,8 +20,18 @@ Zoya provides built-in methods on primitive types.
 ```zoya
 (-5).abs()              // 5
 42.to_string()          // "42"
+42.to_float()           // 42.0
 3.min(5)                // 3
 3.max(5)                // 5
+```
+
+## BigInt Methods
+
+```zoya
+(-5n).abs()             // 5n
+42n.to_string()         // "42"
+3n.min(5n)              // 3n
+3n.max(5n)              // 5n
 ```
 
 ## Float Methods
@@ -29,6 +42,10 @@ Zoya provides built-in methods on primitive types.
 3.14.round()            // 3.0
 4.0.sqrt()              // 2.0
 3.14.abs()              // 3.14
+3.14.to_string()        // "3.14"
+3.7.to_int()            // 3
+3.14.min(2.0)           // 2.0
+3.14.max(5.0)           // 5.0
 ```
 
 ## List Methods
@@ -49,6 +66,4 @@ All list operations return new lists (immutable):
 [1, 2].push(3)          // [1, 2, 3]
 [1, 2].concat([3, 4])   // [1, 2, 3, 4]
 [1, 2, 3].reverse()     // [3, 2, 1]
-[1, 2, 3].first()       // Option::Some(1)
-[1, 2, 3].last()        // Option::Some(3)
 ```

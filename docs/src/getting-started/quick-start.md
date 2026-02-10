@@ -24,7 +24,7 @@ let add: (?0, ?0) -> ?0
 Create a file called `hello.zy`:
 
 ```zoya
-fn main() -> String {
+pub fn main() -> String {
     "Hello, World!"
 }
 ```

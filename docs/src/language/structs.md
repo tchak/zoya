@@ -7,6 +7,7 @@ Structs are product types with named fields.
 ```zoya
 struct Point { x: Int, y: Int }
 struct Pair<T, U> { first: T, second: U }
+struct Empty
 ```
 
 ## Creating Instances
@@ -29,6 +30,19 @@ When variable names match field names:
 let x = 10
 let y = 20
 let p = Point { x, y }  // Same as Point { x: x, y: y }
+```
+
+## Unit Structs
+
+Structs without fields can be defined without braces:
+
+```zoya
+struct Token
+
+let t = Token
+match t {
+    Token => "matched",
+}
 ```
 
 ## Destructuring

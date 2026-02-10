@@ -9,10 +9,12 @@ Zoya enforces naming conventions at compile time.
 | Struct names | PascalCase | `MyStruct` |
 | Enum names | PascalCase | `MyEnum` |
 | Enum variants | PascalCase | `Some`, `None` |
+| Type alias names | PascalCase | `UserId`, `Callback` |
 | Type parameters | PascalCase | `T`, `Key`, `Value` |
 | Function names | snake_case | `my_function` |
 | Variable names | snake_case | `my_variable` |
 | Parameters | snake_case | `user_id` |
+| Module names | snake_case | `utils`, `my_helpers` |
 
 ## Examples
 

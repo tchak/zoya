@@ -162,6 +162,19 @@ struct Point {
 let p = Point { x: 1.0, y: 2.0 }
 ```
 
+### Unit Structs
+
+Structs without fields can be defined without braces. They are constructed and pattern-matched using a bare path:
+
+```zoya
+struct Token
+
+let t = Token
+match t {
+  Token => "matched",
+}
+```
+
 ### Field Access
 
 ```zoya
