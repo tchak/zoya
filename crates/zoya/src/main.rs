@@ -37,6 +37,14 @@ enum Command {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+    /// Format source files
+    Fmt {
+        /// Path to a .zoya file or directory (defaults to current directory)
+        path: Option<PathBuf>,
+        /// Check if files are formatted without writing (exit 1 if not)
+        #[arg(long)]
+        check: bool,
+    },
     /// Create a new Zoya project
     New {
         /// Path to create the project at
@@ -72,6 +80,13 @@ fn main() {
         Some(Command::Build { path, output }) => {
             let path = path.unwrap_or_else(|| PathBuf::from("."));
             if let Err(e) = commands::build::execute(&path, output.as_deref()) {
+                eprintln!("{}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Command::Fmt { path, check }) => {
+            let path = path.unwrap_or_else(|| PathBuf::from("."));
+            if let Err(e) = commands::fmt::execute(&path, check) {
                 eprintln!("{}", e);
                 std::process::exit(1);
             }
