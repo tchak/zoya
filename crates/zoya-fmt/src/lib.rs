@@ -577,6 +577,14 @@ mod tests {
         assert_eq!(first, second, "std/prelude.zy not idempotent");
     }
 
+    #[test]
+    fn test_idempotency_std_json() {
+        let source = include_str!("../../zoya-std/src/std/json.zy");
+        let first = format_source(source);
+        let second = format_source(&first);
+        assert_eq!(first, second, "std/json.zy not idempotent");
+    }
+
     // --- Function without return type ---
 
     #[test]
