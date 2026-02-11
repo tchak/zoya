@@ -354,6 +354,11 @@ impl fmt::Display for Value {
             Value::Struct { name, fields } => {
                 if fields.is_empty() {
                     write!(f, "{} {{}}", name)
+                } else if fields[0].0.starts_with('$') {
+                    // Tuple struct: display as Name(v0, v1)
+                    write!(f, "{}(", name)?;
+                    write_comma_separated(f, fields.iter().map(|(_, v)| v))?;
+                    write!(f, ")")
                 } else {
                     write!(f, "{} {{ ", name)?;
                     write_fields(f, fields)?;

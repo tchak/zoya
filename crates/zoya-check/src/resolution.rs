@@ -532,7 +532,8 @@ mod tests {
     // ========================================================================
 
     use zoya_ir::{
-        Definition, EnumType, EnumVariantType, FunctionType, StructType, Type, TypeAliasType,
+        Definition, EnumType, EnumVariantType, FunctionType, StructType, StructTypeKind, Type,
+        TypeAliasType,
     };
 
     fn qpath(path: &str) -> QualifiedPath {
@@ -732,6 +733,7 @@ mod tests {
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
+                kind: StructTypeKind::Unit,
                 fields: vec![],
             }),
         );
@@ -853,6 +855,7 @@ mod tests {
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
+                kind: StructTypeKind::Unit,
                 fields: vec![],
             }),
         );
@@ -882,6 +885,7 @@ mod tests {
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
+                kind: StructTypeKind::Unit,
                 fields: vec![],
             }),
         );
@@ -911,6 +915,7 @@ mod tests {
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
+                kind: StructTypeKind::Unit,
                 fields: vec![],
             }),
         );

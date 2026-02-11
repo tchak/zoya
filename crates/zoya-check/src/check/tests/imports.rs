@@ -141,7 +141,7 @@ fn test_import_private_struct_fails() {
         visibility: Visibility::Private,
         name: "Secret".to_string(),
         type_params: vec![],
-        fields: vec![],
+        kind: zoya_ast::StructKind::Unit,
     })];
 
     let root_items = vec![Item::Use(make_use(PathPrefix::Root, &["utils", "Secret"]))];
@@ -1308,7 +1308,7 @@ fn test_cross_module_function_returns_sibling_struct() {
         visibility: Visibility::Public,
         name: "Point".to_string(),
         type_params: vec![],
-        fields: vec![
+        kind: zoya_ast::StructKind::Named(vec![
             zoya_ast::StructFieldDef {
                 name: "x".to_string(),
                 typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
@@ -1317,7 +1317,7 @@ fn test_cross_module_function_returns_sibling_struct() {
                 name: "y".to_string(),
                 typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
             },
-        ],
+        ]),
     })];
 
     let mod_a_items = vec![Item::Function(FunctionDef {
@@ -1372,7 +1372,7 @@ fn test_cross_module_function_param_uses_sibling_type() {
         visibility: Visibility::Public,
         name: "Point".to_string(),
         type_params: vec![],
-        fields: vec![
+        kind: zoya_ast::StructKind::Named(vec![
             zoya_ast::StructFieldDef {
                 name: "x".to_string(),
                 typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
@@ -1381,7 +1381,7 @@ fn test_cross_module_function_param_uses_sibling_type() {
                 name: "y".to_string(),
                 typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
             },
-        ],
+        ]),
     })];
 
     let mod_a_items = vec![Item::Function(FunctionDef {
@@ -1429,7 +1429,7 @@ fn test_cross_module_struct_field_references_sibling_type() {
         visibility: Visibility::Public,
         name: "Point".to_string(),
         type_params: vec![],
-        fields: vec![
+        kind: zoya_ast::StructKind::Named(vec![
             zoya_ast::StructFieldDef {
                 name: "x".to_string(),
                 typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
@@ -1438,7 +1438,7 @@ fn test_cross_module_struct_field_references_sibling_type() {
                 name: "y".to_string(),
                 typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
             },
-        ],
+        ]),
     })];
 
     let mod_a_items = vec![
@@ -1447,14 +1447,14 @@ fn test_cross_module_struct_field_references_sibling_type() {
             visibility: Visibility::Public,
             name: "Wrapper".to_string(),
             type_params: vec![],
-            fields: vec![zoya_ast::StructFieldDef {
+            kind: zoya_ast::StructKind::Named(vec![zoya_ast::StructFieldDef {
                 name: "inner".to_string(),
                 typ: TypeAnnotation::Named(Path {
                     prefix: PathPrefix::Root,
                     segments: vec!["b".to_string(), "Point".to_string()],
                     type_args: None,
                 }),
-            }],
+            }]),
         }),
         Item::Function(FunctionDef {
             attributes: vec![],

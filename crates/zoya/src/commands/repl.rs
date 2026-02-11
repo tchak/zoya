@@ -31,7 +31,8 @@ fn extract_bindings_impl(pattern: &TypedPattern, bindings: &mut Vec<(String, Typ
         TypedPattern::ListEmpty | TypedPattern::TupleEmpty | TypedPattern::EnumUnit { .. } => {}
         TypedPattern::ListExact { patterns, .. }
         | TypedPattern::TupleExact { patterns, .. }
-        | TypedPattern::EnumTupleExact { patterns, .. } => {
+        | TypedPattern::EnumTupleExact { patterns, .. }
+        | TypedPattern::StructTupleExact { patterns, .. } => {
             for p in patterns {
                 extract_bindings_impl(p, bindings);
             }
@@ -65,6 +66,16 @@ fn extract_bindings_impl(pattern: &TypedPattern, bindings: &mut Vec<(String, Typ
             patterns,
             rest_binding,
             ..
+        }
+        | TypedPattern::StructTuplePrefix {
+            patterns,
+            rest_binding,
+            ..
+        }
+        | TypedPattern::StructTupleSuffix {
+            patterns,
+            rest_binding,
+            ..
         } => {
             for p in patterns {
                 extract_bindings_impl(p, bindings);
@@ -86,6 +97,12 @@ fn extract_bindings_impl(pattern: &TypedPattern, bindings: &mut Vec<(String, Typ
             ..
         }
         | TypedPattern::EnumTuplePrefixSuffix {
+            prefix,
+            suffix,
+            rest_binding,
+            ..
+        }
+        | TypedPattern::StructTuplePrefixSuffix {
             prefix,
             suffix,
             rest_binding,

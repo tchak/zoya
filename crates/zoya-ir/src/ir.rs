@@ -133,6 +133,34 @@ pub enum TypedPattern {
         path: QualifiedPath,
         fields: Vec<(String, TypedPattern)>,
     },
+    /// Tuple struct pattern (exact): `Pair(a, b)`
+    StructTupleExact {
+        path: QualifiedPath,
+        patterns: Vec<TypedPattern>,
+        total_fields: usize,
+    },
+    /// Tuple struct pattern (prefix): `Triple(a, ..)`
+    StructTuplePrefix {
+        path: QualifiedPath,
+        patterns: Vec<TypedPattern>,
+        rest_binding: Option<(String, Type)>,
+        total_fields: usize,
+    },
+    /// Tuple struct pattern (suffix): `Triple(.., c)`
+    StructTupleSuffix {
+        path: QualifiedPath,
+        patterns: Vec<TypedPattern>,
+        rest_binding: Option<(String, Type)>,
+        total_fields: usize,
+    },
+    /// Tuple struct pattern (prefix+suffix): `Triple(a, .., c)`
+    StructTuplePrefixSuffix {
+        path: QualifiedPath,
+        prefix: Vec<TypedPattern>,
+        suffix: Vec<TypedPattern>,
+        rest_binding: Option<(String, Type)>,
+        total_fields: usize,
+    },
 }
 
 /// Typed match arm
@@ -203,6 +231,12 @@ pub enum TypedExpr {
         fields: Vec<(String, TypedExpr)>, // field name -> typed value
         ty: Type,
     },
+    /// Tuple struct constructor: `Pair(1, "hello")`
+    StructTupleConstruct {
+        path: QualifiedPath,
+        args: Vec<TypedExpr>,
+        ty: Type,
+    },
     /// Field access: `point.x`
     FieldAccess {
         expr: Box<TypedExpr>,
@@ -253,6 +287,7 @@ impl TypedExpr {
             TypedExpr::MethodCall { ty, .. } => ty.clone(),
             TypedExpr::Lambda { ty, .. } => ty.clone(),
             TypedExpr::StructConstruct { ty, .. } => ty.clone(),
+            TypedExpr::StructTupleConstruct { ty, .. } => ty.clone(),
             TypedExpr::FieldAccess { ty, .. } => ty.clone(),
             TypedExpr::EnumConstruct { ty, .. } => ty.clone(),
             TypedExpr::ListIndex { ty, .. } => ty.clone(),

@@ -318,7 +318,8 @@ mod tests {
     use super::*;
     use zoya_ast::{Path, PathPrefix, TypeAnnotation, Visibility};
     use zoya_ir::{
-        Definition, EnumType, EnumVariantType, QualifiedPath, StructType, TypeAliasType,
+        Definition, EnumType, EnumVariantType, QualifiedPath, StructType, StructTypeKind,
+        TypeAliasType,
     };
 
     fn empty_env() -> TypeEnv {
@@ -534,6 +535,7 @@ mod tests {
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
+                kind: StructTypeKind::Named,
                 fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
             }),
         );
@@ -566,6 +568,7 @@ mod tests {
                 name: "Container".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
+                kind: StructTypeKind::Named,
                 fields: vec![("value".to_string(), Type::Var(TypeVarId(1)))],
             }),
         );
@@ -591,6 +594,7 @@ mod tests {
                 name: "Pair".to_string(),
                 type_params: vec!["A".to_string(), "B".to_string()],
                 type_var_ids: vec![TypeVarId(1), TypeVarId(2)],
+                kind: StructTypeKind::Named,
                 fields: vec![
                     ("first".to_string(), Type::Var(TypeVarId(1))),
                     ("second".to_string(), Type::Var(TypeVarId(2))),
@@ -623,6 +627,7 @@ mod tests {
                 name: "Container".to_string(),
                 type_params: vec!["T".to_string()],
                 type_var_ids: vec![TypeVarId(1)],
+                kind: StructTypeKind::Named,
                 fields: vec![("value".to_string(), Type::Var(TypeVarId(1)))],
             }),
         );

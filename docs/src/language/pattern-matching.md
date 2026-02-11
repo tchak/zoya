@@ -48,6 +48,30 @@ match point {
 }
 ```
 
+## Tuple Struct Patterns
+
+```zoya
+match wrapper {
+    Wrapper(0) => "zero",
+    Wrapper(n) => n.to_string(),
+}
+
+match pair {
+    Pair(name, 0) => name,
+    Pair(_, n) => n.to_string(),
+}
+```
+
+Spread patterns work like tuples:
+
+```zoya
+match triple {
+    Triple(1, ..) => "starts with one",
+    Triple(.., 3) => "ends with three",
+    Triple(a, .., c) => a + c,
+}
+```
+
 ## Wildcard Pattern
 
 Use `_` to match anything without binding:

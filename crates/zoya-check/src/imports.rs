@@ -511,7 +511,7 @@ pub fn resolve_module_imports(
 mod tests {
     use super::*;
     use zoya_ast::{UsePath, UseTarget};
-    use zoya_ir::{EnumType, FunctionType, StructType, Type};
+    use zoya_ir::{EnumType, FunctionType, StructType, StructTypeKind, Type};
 
     fn make_use(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
         UseDecl {
@@ -669,6 +669,7 @@ mod tests {
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
+                kind: StructTypeKind::Unit,
                 fields: vec![],
             }),
         );

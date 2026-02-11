@@ -205,17 +205,39 @@ The compiler substitutes a JavaScript implementation at code generation time. Ev
 
 ## Struct Definitions
 
+Structs come in three forms: named-field structs, tuple structs, and unit structs.
+
 ```
-struct_def ::= visibility 'struct' identifier type_params? ('{' fields '}')?
-fields     ::= field (',' field)* ','?
-field      ::= identifier ':' type
+struct_def   ::= visibility 'struct' identifier type_params? struct_body?
+struct_body  ::= '{' fields '}' | '(' tuple_fields ')'
+fields       ::= field (',' field)* ','?
+field        ::= identifier ':' type
+tuple_fields ::= type (',' type)* ','?
 ```
 
 See [Struct Types](types.md#struct-types) for construction, field access, and usage.
 
+### Named-Field Structs
+
 ```zoya
 struct Config { debug: Bool, verbose: Bool }
 pub struct Point { x: Float, y: Float }
+```
+
+### Tuple Structs
+
+Tuple structs have positional fields identified by type rather than name. They are constructed and destructured like function calls.
+
+```zoya
+struct Wrapper(Int)
+pub struct Pair(String, Int)
+```
+
+Tuple structs require at least one field. Use a unit struct for the zero-field case.
+
+### Unit Structs
+
+```zoya
 struct Empty
 ```
 
@@ -226,6 +248,8 @@ pub struct Pair<A, B> {
     first: A,
     second: B,
 }
+
+pub struct Box<T>(T)
 ```
 
 ### Naming Conventions

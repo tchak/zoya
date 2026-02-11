@@ -654,6 +654,85 @@ impl Pat {
                 )
             }
 
+            // Tuple struct patterns
+            TypedPattern::StructTupleExact { path, patterns, .. }
+            | TypedPattern::StructTuplePrefix { path, patterns, .. } => {
+                let (field_names, field_types) = Self::get_struct_field_info(ty, lookup);
+                let sub_pats: Vec<Pat> = patterns
+                    .iter()
+                    .zip(field_types.iter())
+                    .map(|(p, t)| Pat::from_typed(p, t, lookup))
+                    .collect();
+                // Pad with wildcards if prefix pattern
+                let mut all_pats = sub_pats;
+                while all_pats.len() < field_types.len() {
+                    all_pats.push(Pat::Wild);
+                }
+                Pat::Ctor(
+                    Constructor::Struct {
+                        name: path.last().to_string(),
+                        field_names,
+                        field_types,
+                    },
+                    all_pats,
+                )
+            }
+
+            TypedPattern::StructTupleSuffix {
+                path,
+                patterns,
+                total_fields,
+                ..
+            } => {
+                let (field_names, field_types) = Self::get_struct_field_info(ty, lookup);
+                let start_idx = total_fields - patterns.len();
+                let mut sub_pats = vec![Pat::Wild; start_idx];
+                for (p, t) in patterns.iter().zip(field_types.iter().skip(start_idx)) {
+                    sub_pats.push(Pat::from_typed(p, t, lookup));
+                }
+                Pat::Ctor(
+                    Constructor::Struct {
+                        name: path.last().to_string(),
+                        field_names,
+                        field_types,
+                    },
+                    sub_pats,
+                )
+            }
+
+            TypedPattern::StructTuplePrefixSuffix {
+                path,
+                prefix,
+                suffix,
+                total_fields,
+                ..
+            } => {
+                let (field_names, field_types) = Self::get_struct_field_info(ty, lookup);
+                let mut sub_pats = Vec::with_capacity(*total_fields);
+                // Add prefix patterns
+                for (p, t) in prefix.iter().zip(field_types.iter()) {
+                    sub_pats.push(Pat::from_typed(p, t, lookup));
+                }
+                // Add wildcards for middle
+                let middle_count = total_fields - prefix.len() - suffix.len();
+                for _ in 0..middle_count {
+                    sub_pats.push(Pat::Wild);
+                }
+                // Add suffix patterns
+                let suffix_start = total_fields - suffix.len();
+                for (p, t) in suffix.iter().zip(field_types.iter().skip(suffix_start)) {
+                    sub_pats.push(Pat::from_typed(p, t, lookup));
+                }
+                Pat::Ctor(
+                    Constructor::Struct {
+                        name: path.last().to_string(),
+                        field_names,
+                        field_types,
+                    },
+                    sub_pats,
+                )
+            }
+
             // Enum patterns
             TypedPattern::EnumUnit { path } => Pat::Ctor(
                 Constructor::EnumVariant {

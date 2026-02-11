@@ -2,7 +2,7 @@ use chumsky::prelude::*;
 
 use zoya_ast::{
     Attribute, EnumDef, EnumVariant, EnumVariantKind, Expr, FunctionDef, Item, Param, StructDef,
-    StructFieldDef, TypeAliasDef, Visibility,
+    StructFieldDef, StructKind, TypeAliasDef, Visibility,
 };
 use zoya_lexer::Token;
 
@@ -111,15 +111,30 @@ pub(crate) fn item_parser<'a>()
         .collect::<Vec<_>>()
         .delimited_by(just(Token::LBrace), just(Token::RBrace));
 
+    // Tuple struct fields: (Type, Type, ...)
+    let struct_tuple_fields = type_annotation()
+        .separated_by(just(Token::Comma))
+        .allow_trailing()
+        .at_least(1)
+        .collect::<Vec<_>>()
+        .delimited_by(just(Token::LParen), just(Token::RParen));
+
     // [pub] struct Name<T> { field: Type, ... }
+    // [pub] struct Name(Type, ...)  (tuple struct)
     // [pub] struct Name  (unit struct, no braces)
     let struct_def = just(Token::Pub)
         .or_not()
         .then_ignore(just(Token::Struct))
         .then(ident())
         .then(type_params.clone())
-        .then(struct_fields.clone().or_not())
-        .map(|(((is_pub, name), type_params), fields)| {
+        .then(
+            choice((
+                struct_fields.clone().map(StructKind::Named),
+                struct_tuple_fields.map(StructKind::Tuple),
+            ))
+            .or_not(),
+        )
+        .map(|(((is_pub, name), type_params), kind)| {
             Item::Struct(StructDef {
                 attributes: vec![],
                 visibility: if is_pub.is_some() {
@@ -129,7 +144,7 @@ pub(crate) fn item_parser<'a>()
                 },
                 name,
                 type_params,
-                fields: fields.unwrap_or_default(),
+                kind: kind.unwrap_or(StructKind::Unit),
             })
         });
 

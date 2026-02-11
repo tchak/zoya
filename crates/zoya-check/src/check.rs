@@ -1,13 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
 use zoya_ast::{
-    BinOp, Expr, FunctionDef, Item, LetBinding, MatchArm, Path, TypeAnnotation, UnaryOp, UseDecl,
-    UseTarget,
+    BinOp, Expr, FunctionDef, Item, LetBinding, MatchArm, Path, StructKind, TypeAnnotation,
+    UnaryOp, UseDecl, UseTarget,
 };
 use zoya_ir::{
     CheckedPackage, Definition, EnumType, EnumVariantType, FunctionType, ModuleType, QualifiedPath,
-    StructType, Type, TypeAliasType, TypeError, TypeScheme, TypeVarId, TypedEnumConstructFields,
-    TypedExpr, TypedFunction, Visibility,
+    StructType, StructTypeKind, Type, TypeAliasType, TypeError, TypeScheme, TypeVarId,
+    TypedEnumConstructFields, TypedExpr, TypedFunction, Visibility,
 };
 use zoya_package::Package;
 
@@ -344,7 +344,7 @@ fn check_path_expr(
         ResolvedPath::Definition {
             qualified_path,
             def: Definition::Struct(struct_type),
-        } if struct_type.fields.is_empty() => {
+        } if struct_type.kind == StructTypeKind::Unit => {
             // Unit struct used as a bare path: `Empty`
             Ok(TypedExpr::StructConstruct {
                 path: qualified_path.clone(),
@@ -438,6 +438,18 @@ fn check_path_call(
                 ),
             }),
         },
+        ResolvedPath::Definition {
+            def: Definition::Struct(struct_type),
+            qualified_path,
+        } if struct_type.kind == StructTypeKind::Tuple => check_struct_tuple_construct_resolved(
+            struct_type,
+            &qualified_path,
+            &path.type_args,
+            args,
+            current_module,
+            env,
+            ctx,
+        ),
         ResolvedPath::Definition {
             qualified_path,
             def,
@@ -768,6 +780,111 @@ fn check_enum_tuple_construct_resolved(
             name: enum_type.name.to_string(),
             type_args,
             variants: resolved_variants,
+        },
+    })
+}
+
+/// Check a tuple struct construction with a resolved struct type: Struct(args)
+#[allow(clippy::too_many_arguments)]
+fn check_struct_tuple_construct_resolved(
+    struct_type: &StructType,
+    qualified_path: &QualifiedPath,
+    explicit_type_args: &Option<Vec<TypeAnnotation>>,
+    args: &[Expr],
+    current_module: &QualifiedPath,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
+    let name = &struct_type.name;
+
+    // Check argument count
+    if args.len() != struct_type.fields.len() {
+        return Err(TypeError {
+            message: format!(
+                "tuple struct {} expects {} argument(s), got {}",
+                name,
+                struct_type.fields.len(),
+                args.len()
+            ),
+        });
+    }
+
+    // Handle explicit type arguments (turbofish) or create fresh type variables
+    let instantiation: HashMap<TypeVarId, Type> = if let Some(type_args) = explicit_type_args {
+        if type_args.len() != struct_type.type_params.len() {
+            return Err(TypeError {
+                message: format!(
+                    "struct {} expects {} type argument(s), got {}",
+                    name,
+                    struct_type.type_params.len(),
+                    type_args.len()
+                ),
+            });
+        }
+        let resolved: Vec<Type> = type_args
+            .iter()
+            .map(|ann| resolve_type_annotation(ann, &HashMap::new(), current_module, env))
+            .collect::<Result<_, _>>()?;
+        struct_type
+            .type_var_ids
+            .iter()
+            .zip(resolved)
+            .map(|(&id, ty)| (id, ty))
+            .collect()
+    } else {
+        struct_type
+            .type_var_ids
+            .iter()
+            .map(|&id| (id, ctx.fresh_var()))
+            .collect()
+    };
+
+    // Type check arguments and unify with field types
+    let mut typed_args = Vec::new();
+    for (arg, (_, field_type)) in args.iter().zip(struct_type.fields.iter()) {
+        let expected_type = substitute_type_vars(field_type, &instantiation);
+        let typed_arg = check_expr(arg, current_module, env, ctx)?;
+        let actual_type = typed_arg.ty();
+
+        ctx.unify(&actual_type, &expected_type)
+            .map_err(|e| TypeError {
+                message: format!(
+                    "in tuple struct {} expected {} but got {}: {}",
+                    name,
+                    ctx.resolve(&expected_type),
+                    ctx.resolve(&actual_type),
+                    e.message
+                ),
+            })?;
+
+        typed_args.push(typed_arg);
+    }
+
+    // Build the struct type with resolved type arguments
+    let type_args: Vec<Type> = struct_type
+        .type_var_ids
+        .iter()
+        .map(|id| ctx.resolve(&instantiation[id]))
+        .collect();
+
+    let resolved_fields: Vec<(String, Type)> = struct_type
+        .fields
+        .iter()
+        .map(|(field_name, ty)| {
+            (
+                field_name.clone(),
+                ctx.resolve(&substitute_type_vars(ty, &instantiation)),
+            )
+        })
+        .collect();
+
+    Ok(TypedExpr::StructTupleConstruct {
+        path: qualified_path.clone(),
+        args: typed_args,
+        ty: Type::Struct {
+            name: name.to_string(),
+            type_args,
+            fields: resolved_fields,
         },
     })
 }
@@ -1158,6 +1275,15 @@ fn check_path_struct(
     )?;
 
     match resolved {
+        ResolvedPath::Definition {
+            def: Definition::Struct(struct_type),
+            qualified_path,
+        } if struct_type.kind == StructTypeKind::Tuple => Err(TypeError {
+            message: format!(
+                "tuple struct '{}' must be constructed with () syntax, not {{}}",
+                qualified_path
+            ),
+        }),
         ResolvedPath::Definition {
             def: Definition::Struct(struct_type),
             qualified_path,
@@ -1672,7 +1798,7 @@ fn lookup_struct_fields(
     for def in definitions.values() {
         if let Definition::Struct(struct_type) = def
             && struct_type.name == name
-            && !struct_type.fields.is_empty()
+            && struct_type.kind == StructTypeKind::Named
         {
             if type_args.is_empty() || struct_type.type_var_ids.is_empty() {
                 return Some(struct_type.fields.clone());
@@ -2234,6 +2360,11 @@ fn register_type_names(
                     type_var_ids.push(id);
                 }
             }
+            let stub_kind = match &def.kind {
+                StructKind::Unit => StructTypeKind::Unit,
+                StructKind::Tuple(_) => StructTypeKind::Tuple,
+                StructKind::Named(_) => StructTypeKind::Named,
+            };
             env.register(
                 qualified_path,
                 Definition::Struct(StructType {
@@ -2242,6 +2373,7 @@ fn register_type_names(
                     name: def.name.clone(),
                     type_params: def.type_params.clone(),
                     type_var_ids,
+                    kind: stub_kind,
                     fields: vec![],
                 }),
             );

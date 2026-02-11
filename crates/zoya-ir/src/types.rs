@@ -119,6 +119,17 @@ pub struct FunctionType {
     pub return_type: Type,
 }
 
+/// The kind of a struct type
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StructTypeKind {
+    /// Unit struct: `struct Empty`
+    Unit,
+    /// Tuple struct: `struct Pair(Int, String)` — fields stored as `$0`, `$1`, etc.
+    Tuple,
+    /// Named-field struct: `struct Point { x: Int, y: Int }`
+    Named,
+}
+
 /// Struct type definition (stored in type environment)
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructType {
@@ -132,7 +143,10 @@ pub struct StructType {
     pub type_params: Vec<String>,
     /// TypeVarIds corresponding to each type parameter
     pub type_var_ids: Vec<TypeVarId>,
+    /// The kind of struct (Unit, Tuple, or Named)
+    pub kind: StructTypeKind,
     /// Fields: name and type (types may contain Var(id) for generics)
+    /// For tuple structs, field names are "$0", "$1", etc.
     pub fields: Vec<(String, Type)>,
 }
 

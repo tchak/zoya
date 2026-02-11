@@ -132,6 +132,24 @@ mod tests {
     }
 
     #[test]
+    fn test_tuple_struct() {
+        let result = format_source("struct Wrapper(Int)");
+        assert_eq!(result, "struct Wrapper(Int)\n");
+    }
+
+    #[test]
+    fn test_tuple_struct_multiple_fields() {
+        let result = format_source("pub struct Pair(String, Int)");
+        assert_eq!(result, "pub struct Pair(String, Int)\n");
+    }
+
+    #[test]
+    fn test_tuple_struct_generic() {
+        let result = format_source("struct Box<T>(T)");
+        assert_eq!(result, "struct Box<T>(T)\n");
+    }
+
+    #[test]
     fn test_enum() {
         let result = format_source("pub enum Option<T> { None, Some(T) }");
         assert_eq!(result, "pub enum Option<T> { None, Some(T) }\n");

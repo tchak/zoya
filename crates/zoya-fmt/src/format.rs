@@ -2,8 +2,8 @@ use pretty::RcDoc;
 use zoya_ast::{
     Attribute, BinOp, EnumDef, EnumVariant, EnumVariantKind, Expr, FunctionDef, Item, LambdaParam,
     LetBinding, ListPattern, MatchArm, ModDecl, Param, Path, PathPrefix, Pattern, StructDef,
-    StructFieldDef, StructFieldPattern, TuplePattern, TypeAliasDef, TypeAnnotation, UnaryOp,
-    UseDecl, UsePath, UseTarget, Visibility,
+    StructFieldDef, StructFieldPattern, StructKind, TuplePattern, TypeAliasDef, TypeAnnotation,
+    UnaryOp, UseDecl, UsePath, UseTarget, Visibility,
 };
 
 const INDENT: isize = 2;
@@ -183,11 +183,16 @@ pub fn fmt_struct(s: &StructDef) -> RcDoc<'static> {
         .append(RcDoc::text("struct "))
         .append(RcDoc::text(s.name.clone()))
         .append(fmt_type_params(&s.type_params));
-    if s.fields.is_empty() {
-        doc
-    } else {
-        doc.append(RcDoc::text(" "))
-            .append(fmt_struct_fields(&s.fields))
+    match &s.kind {
+        StructKind::Unit => doc,
+        StructKind::Named(fields) if !fields.is_empty() => doc
+            .append(RcDoc::text(" "))
+            .append(fmt_struct_fields(fields)),
+        StructKind::Named(_) => doc,
+        StructKind::Tuple(types) => {
+            let entries: Vec<RcDoc<'static>> = types.iter().map(fmt_type_annotation).collect();
+            doc.append(paren_list(entries, RcDoc::text(",")))
+        }
     }
 }
 

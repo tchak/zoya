@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use zoya_ast::{LetBinding, ListPattern, MatchArm, Path, PathPrefix, Pattern, TuplePattern};
 use zoya_ir::{
-    Definition, EnumVariantType, QualifiedPath, Type, TypeError, TypeScheme, TypeVarId,
-    TypedLetBinding, TypedMatchArm, TypedPattern,
+    Definition, EnumVariantType, QualifiedPath, StructTypeKind, Type, TypeError, TypeScheme,
+    TypeVarId, TypedLetBinding, TypedMatchArm, TypedPattern,
 };
 
 use crate::check::{TypeEnv, check_expr, substitute_type_vars, substitute_variant_type_vars};
@@ -834,6 +834,59 @@ fn check_call_pattern(
             )
         }
         ResolvedPath::Definition {
+            def: Definition::Struct(struct_type),
+            qualified_path,
+        } if struct_type.kind == StructTypeKind::Tuple => {
+            // Create fresh type variables for generic parameters
+            let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
+            for &old_id in &struct_type.type_var_ids {
+                instantiation.insert(old_id, ctx.fresh_var());
+            }
+
+            // Build the expected struct type and unify with scrutinee
+            let type_args: Vec<Type> = struct_type
+                .type_var_ids
+                .iter()
+                .map(|id| instantiation[id].clone())
+                .collect();
+            let resolved_fields: Vec<(String, Type)> = struct_type
+                .fields
+                .iter()
+                .map(|(n, ty)| (n.clone(), substitute_type_vars(ty, &instantiation)))
+                .collect();
+            let expected_struct_ty = Type::Struct {
+                name: struct_type.name.clone(),
+                type_args,
+                fields: resolved_fields,
+            };
+
+            ctx.unify(scrutinee_ty, &expected_struct_ty)
+                .map_err(|e| TypeError {
+                    message: format!(
+                        "tuple struct pattern '{}' cannot match type {}: {}",
+                        qualified_path,
+                        ctx.resolve(scrutinee_ty),
+                        e.message
+                    ),
+                })?;
+
+            // Resolve field types with substitution
+            let resolved_types: Vec<Type> = struct_type
+                .fields
+                .iter()
+                .map(|(_, ty)| ctx.resolve(&substitute_type_vars(ty, &instantiation)))
+                .collect();
+
+            check_struct_tuple_pattern(
+                &struct_type.name,
+                args,
+                &resolved_types,
+                current_module,
+                env,
+                ctx,
+            )
+        }
+        ResolvedPath::Definition {
             qualified_path,
             def,
         } => {
@@ -871,6 +924,15 @@ fn check_struct_pattern(
     )?;
 
     match resolved {
+        ResolvedPath::Definition {
+            def: Definition::Struct(struct_type),
+            qualified_path,
+        } if struct_type.kind == StructTypeKind::Tuple => Err(TypeError {
+            message: format!(
+                "tuple struct '{}' must be matched with () syntax, not {{}}",
+                qualified_path
+            ),
+        }),
         ResolvedPath::Definition {
             def: Definition::Struct(struct_type),
             qualified_path,
@@ -1345,6 +1407,217 @@ fn check_enum_tuple_pattern(
             Ok((
                 TypedPattern::EnumTuplePrefixSuffix {
                     path: QualifiedPath::new(vec![enum_name.to_string(), variant_name.to_string()]),
+                    prefix: prefix_typed,
+                    suffix: suffix_typed,
+                    rest_binding: rest_binding_with_type,
+                    total_fields,
+                },
+                bindings,
+            ))
+        }
+    }
+}
+
+/// Check a tuple struct pattern
+fn check_struct_tuple_pattern(
+    struct_name: &str,
+    tuple_pattern: &TuplePattern,
+    expected_types: &[Type],
+    current_module: &QualifiedPath,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
+    let total_fields = expected_types.len();
+    let path = QualifiedPath::new(vec![struct_name.to_string()]);
+
+    match tuple_pattern {
+        TuplePattern::Empty => {
+            if total_fields != 0 {
+                return Err(TypeError {
+                    message: format!(
+                        "tuple struct {} has {} field(s), empty pattern not allowed",
+                        struct_name, total_fields
+                    ),
+                });
+            }
+            Ok((
+                TypedPattern::StructTupleExact {
+                    path,
+                    patterns: vec![],
+                    total_fields: 0,
+                },
+                HashMap::new(),
+            ))
+        }
+
+        TuplePattern::Exact(patterns) => {
+            if patterns.len() != total_fields {
+                return Err(TypeError {
+                    message: format!(
+                        "tuple struct {} has {} field(s) but pattern has {}",
+                        struct_name,
+                        total_fields,
+                        patterns.len()
+                    ),
+                });
+            }
+            let (typed_patterns, bindings) =
+                check_patterns_against_types(patterns, expected_types, current_module, env, ctx)?;
+            Ok((
+                TypedPattern::StructTupleExact {
+                    path,
+                    patterns: typed_patterns,
+                    total_fields,
+                },
+                bindings,
+            ))
+        }
+
+        TuplePattern::Prefix {
+            patterns,
+            rest_binding,
+        } => {
+            if patterns.len() > total_fields {
+                return Err(TypeError {
+                    message: format!(
+                        "tuple struct {} has {} field(s) but prefix pattern has {}",
+                        struct_name,
+                        total_fields,
+                        patterns.len()
+                    ),
+                });
+            }
+            let (typed_patterns, mut bindings) =
+                check_patterns_against_types(patterns, expected_types, current_module, env, ctx)?;
+
+            let rest_binding_with_type = if let Some(name) = rest_binding {
+                if !is_snake_case(name) {
+                    return Err(TypeError {
+                        message: format!(
+                            "variable '{}' should be snake_case (e.g., '{}')",
+                            name,
+                            to_snake_case(name)
+                        ),
+                    });
+                }
+                let rest_types: Vec<Type> = expected_types[patterns.len()..].to_vec();
+                let rest_ty = Type::Tuple(rest_types);
+                bindings.insert(name.clone(), rest_ty.clone());
+                Some((name.clone(), rest_ty))
+            } else {
+                None
+            };
+
+            Ok((
+                TypedPattern::StructTuplePrefix {
+                    path,
+                    patterns: typed_patterns,
+                    rest_binding: rest_binding_with_type,
+                    total_fields,
+                },
+                bindings,
+            ))
+        }
+
+        TuplePattern::Suffix {
+            patterns,
+            rest_binding,
+        } => {
+            if patterns.len() > total_fields {
+                return Err(TypeError {
+                    message: format!(
+                        "tuple struct {} has {} field(s) but suffix pattern has {}",
+                        struct_name,
+                        total_fields,
+                        patterns.len()
+                    ),
+                });
+            }
+            let start_idx = total_fields - patterns.len();
+            let (typed_patterns, mut bindings) = check_patterns_against_types(
+                patterns,
+                &expected_types[start_idx..],
+                current_module,
+                env,
+                ctx,
+            )?;
+
+            let rest_binding_with_type = if let Some(name) = rest_binding {
+                if !is_snake_case(name) {
+                    return Err(TypeError {
+                        message: format!(
+                            "variable '{}' should be snake_case (e.g., '{}')",
+                            name,
+                            to_snake_case(name)
+                        ),
+                    });
+                }
+                let rest_types: Vec<Type> = expected_types[..start_idx].to_vec();
+                let rest_ty = Type::Tuple(rest_types);
+                bindings.insert(name.clone(), rest_ty.clone());
+                Some((name.clone(), rest_ty))
+            } else {
+                None
+            };
+
+            Ok((
+                TypedPattern::StructTupleSuffix {
+                    path,
+                    patterns: typed_patterns,
+                    rest_binding: rest_binding_with_type,
+                    total_fields,
+                },
+                bindings,
+            ))
+        }
+
+        TuplePattern::PrefixSuffix {
+            prefix,
+            suffix,
+            rest_binding,
+        } => {
+            let total_patterns = prefix.len() + suffix.len();
+            if total_patterns > total_fields {
+                return Err(TypeError {
+                    message: format!(
+                        "tuple struct {} has {} field(s) but pattern has {}",
+                        struct_name, total_fields, total_patterns
+                    ),
+                });
+            }
+            let (prefix_typed, mut bindings) =
+                check_patterns_against_types(prefix, expected_types, current_module, env, ctx)?;
+            let suffix_start = total_fields - suffix.len();
+            let (suffix_typed, suffix_bindings) = check_patterns_against_types(
+                suffix,
+                &expected_types[suffix_start..],
+                current_module,
+                env,
+                ctx,
+            )?;
+            bindings.extend(suffix_bindings);
+
+            let rest_binding_with_type = if let Some(name) = rest_binding {
+                if !is_snake_case(name) {
+                    return Err(TypeError {
+                        message: format!(
+                            "variable '{}' should be snake_case (e.g., '{}')",
+                            name,
+                            to_snake_case(name)
+                        ),
+                    });
+                }
+                let rest_types: Vec<Type> = expected_types[prefix.len()..suffix_start].to_vec();
+                let rest_ty = Type::Tuple(rest_types);
+                bindings.insert(name.clone(), rest_ty.clone());
+                Some((name.clone(), rest_ty))
+            } else {
+                None
+            };
+
+            Ok((
+                TypedPattern::StructTuplePrefixSuffix {
+                    path,
                     prefix: prefix_typed,
                     suffix: suffix_typed,
                     rest_binding: rest_binding_with_type,
@@ -2384,6 +2657,7 @@ mod tests {
                 name: "Point".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
+                kind: StructTypeKind::Named,
                 fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
             }),
         );
@@ -2400,6 +2674,7 @@ mod tests {
                 name: "Empty".to_string(),
                 type_params: vec![],
                 type_var_ids: vec![],
+                kind: StructTypeKind::Unit,
                 fields: vec![],
             }),
         );

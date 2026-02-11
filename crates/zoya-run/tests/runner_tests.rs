@@ -1548,6 +1548,154 @@ fn test_run_struct_inequality() {
     assert_eq!(result, Value::Bool(true));
 }
 
+// Tuple struct tests
+
+#[test]
+fn test_run_tuple_struct_construct() {
+    let source = r#"
+        struct Wrapper(Int)
+        pub fn main() -> Int {
+            let w = Wrapper(42);
+            match w {
+                Wrapper(n) => n,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_run_tuple_struct_two_fields() {
+    let source = r#"
+        struct Pair(String, Int)
+        pub fn main() -> Int {
+            let p = Pair("hello", 5);
+            match p {
+                Pair(_, n) => n,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(5));
+}
+
+#[test]
+fn test_run_tuple_struct_generic() {
+    let source = r#"
+        struct Box<T>(T)
+        pub fn main() -> String {
+            let b = Box("hello");
+            match b {
+                Box(s) => s,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("hello".to_string()));
+}
+
+#[test]
+fn test_run_tuple_struct_match_prefix() {
+    let source = r#"
+        struct Triple(Int, Int, Int)
+        pub fn main() -> Int {
+            let t = Triple(1, 2, 3);
+            match t {
+                Triple(a, ..) => a,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(1));
+}
+
+#[test]
+fn test_run_tuple_struct_match_suffix() {
+    let source = r#"
+        struct Triple(Int, Int, Int)
+        pub fn main() -> Int {
+            let t = Triple(1, 2, 3);
+            match t {
+                Triple(.., c) => c,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(3));
+}
+
+#[test]
+fn test_run_tuple_struct_match_prefix_suffix() {
+    let source = r#"
+        struct Triple(Int, Int, Int)
+        pub fn main() -> Int {
+            let t = Triple(1, 2, 3);
+            match t {
+                Triple(a, .., c) => a + c,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(4));
+}
+
+#[test]
+fn test_run_tuple_struct_match_destructure() {
+    let source = r#"
+        struct Pair(Int, String)
+        pub fn main() -> Int {
+            let p = Pair(42, "hello");
+            match p {
+                Pair(n, _) => n,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_run_tuple_struct_display() {
+    let source = r#"
+        struct Wrapper(Int)
+        pub fn main() -> Wrapper {
+            Wrapper(42)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Wrapper(42)");
+}
+
+#[test]
+fn test_run_tuple_struct_equality() {
+    let source = r#"
+        struct Pair(Int, Int)
+        pub fn main() -> Bool {
+            Pair(1, 2) == Pair(1, 2)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_run_tuple_struct_as_function_arg() {
+    let source = r#"
+        struct Wrapper(Int)
+        fn unwrap(w: Wrapper) -> Int {
+            match w {
+                Wrapper(n) => n,
+            }
+        }
+        pub fn main() -> Int {
+            unwrap(Wrapper(99))
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(99));
+}
+
 // Enum tests
 
 #[test]

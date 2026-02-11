@@ -100,6 +100,17 @@ impl Item {
     }
 }
 
+/// The kind of a struct definition
+#[derive(Debug, Clone, PartialEq)]
+pub enum StructKind {
+    /// Unit struct: `struct Empty`
+    Unit,
+    /// Tuple struct: `struct Pair(Int, String)`
+    Tuple(Vec<TypeAnnotation>),
+    /// Named-field struct: `struct Point { x: Int, y: Int }`
+    Named(Vec<StructFieldDef>),
+}
+
 /// Struct definition: `[pub] struct Name<T, U> { field: Type, ... }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructDef {
@@ -107,7 +118,7 @@ pub struct StructDef {
     pub visibility: Visibility,
     pub name: String,
     pub type_params: Vec<String>,
-    pub fields: Vec<StructFieldDef>,
+    pub kind: StructKind,
 }
 
 /// A field in a struct definition

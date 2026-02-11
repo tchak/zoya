@@ -1,5 +1,5 @@
 use zoya_ast::{Expr, Path, Visibility};
-use zoya_ir::{Definition, QualifiedPath, StructType, Type};
+use zoya_ir::{Definition, QualifiedPath, StructType, StructTypeKind, Type};
 
 use crate::check::{TypeEnv, check_expr};
 use crate::unify::UnifyCtx;
@@ -18,6 +18,7 @@ fn env_with_point_struct() -> TypeEnv {
             name: "Point".to_string(),
             type_params: vec![],
             type_var_ids: vec![],
+            kind: StructTypeKind::Named,
             fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
         }),
     );
@@ -118,6 +119,7 @@ fn env_with_empty_struct() -> TypeEnv {
             name: "Empty".to_string(),
             type_params: vec![],
             type_var_ids: vec![],
+            kind: StructTypeKind::Unit,
             fields: vec![],
         }),
     );
@@ -148,4 +150,94 @@ fn test_non_unit_struct_bare_path_error() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.message.contains("cannot be used as a value"));
+}
+
+// Tuple struct tests
+
+fn env_with_tuple_struct() -> TypeEnv {
+    let mut env = TypeEnv::default();
+    env.register(
+        qpath("root::Pair"),
+        Definition::Struct(StructType {
+            visibility: Visibility::Public,
+            module: QualifiedPath::root(),
+            name: "Pair".to_string(),
+            type_params: vec![],
+            type_var_ids: vec![],
+            kind: StructTypeKind::Tuple,
+            fields: vec![
+                ("$0".to_string(), Type::Int),
+                ("$1".to_string(), Type::String),
+            ],
+        }),
+    );
+    env
+}
+
+#[test]
+fn test_tuple_struct_construct() {
+    let env = env_with_tuple_struct();
+    let mut ctx = UnifyCtx::new();
+    let expr = Expr::Call {
+        path: Path::simple("Pair".to_string()),
+        args: vec![Expr::Int(1), Expr::String("hello".to_string())],
+    };
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx).unwrap();
+    match result.ty() {
+        Type::Struct { name, fields, .. } => {
+            assert_eq!(name, "Pair");
+            assert_eq!(fields.len(), 2);
+            assert_eq!(fields[0].0, "$0");
+            assert_eq!(fields[1].0, "$1");
+        }
+        _ => panic!("Expected struct type"),
+    }
+}
+
+#[test]
+fn test_tuple_struct_wrong_arity() {
+    let env = env_with_tuple_struct();
+    let mut ctx = UnifyCtx::new();
+    let expr = Expr::Call {
+        path: Path::simple("Pair".to_string()),
+        args: vec![Expr::Int(1)],
+    };
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_tuple_struct_wrong_type() {
+    let env = env_with_tuple_struct();
+    let mut ctx = UnifyCtx::new();
+    let expr = Expr::Call {
+        path: Path::simple("Pair".to_string()),
+        args: vec![Expr::String("wrong".to_string()), Expr::Int(1)],
+    };
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_tuple_struct_brace_syntax_error() {
+    let env = env_with_tuple_struct();
+    let mut ctx = UnifyCtx::new();
+    let expr = Expr::Struct {
+        path: Path::simple("Pair".to_string()),
+        fields: vec![
+            ("$0".to_string(), Expr::Int(1)),
+            ("$1".to_string(), Expr::String("hello".to_string())),
+        ],
+    };
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_tuple_struct_bare_path_error() {
+    let env = env_with_tuple_struct();
+    let mut ctx = UnifyCtx::new();
+    let expr = Expr::Path(Path::simple("Pair".to_string()));
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
+    assert!(result.is_err());
 }

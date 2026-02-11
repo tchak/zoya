@@ -2031,9 +2031,12 @@ mod tests {
         };
         assert_eq!(s.name, "Point");
         assert_eq!(s.type_params, Vec::<String>::new());
-        assert_eq!(s.fields.len(), 2);
-        assert_eq!(s.fields[0].name, "x");
-        assert_eq!(s.fields[1].name, "y");
+        let zoya_ast::StructKind::Named(fields) = &s.kind else {
+            panic!("expected named struct")
+        };
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0].name, "x");
+        assert_eq!(fields[1].name, "y");
     }
 
     #[test]
@@ -2043,7 +2046,10 @@ mod tests {
             panic!("expected struct")
         };
         assert_eq!(s.name, "Empty");
-        assert_eq!(s.fields.len(), 0);
+        let zoya_ast::StructKind::Named(fields) = &s.kind else {
+            panic!("expected named struct")
+        };
+        assert_eq!(fields.len(), 0);
     }
 
     #[test]
@@ -2054,7 +2060,7 @@ mod tests {
         };
         assert_eq!(s.name, "Empty");
         assert_eq!(s.type_params, Vec::<String>::new());
-        assert_eq!(s.fields.len(), 0);
+        assert!(matches!(s.kind, zoya_ast::StructKind::Unit));
     }
 
     #[test]
@@ -2065,7 +2071,63 @@ mod tests {
         };
         assert_eq!(s.name, "Pair");
         assert_eq!(s.type_params, vec!["T", "U"]);
-        assert_eq!(s.fields.len(), 2);
+        let zoya_ast::StructKind::Named(fields) = &s.kind else {
+            panic!("expected named struct")
+        };
+        assert_eq!(fields.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_tuple_struct() {
+        let item = parse_item_str("struct Wrapper(Int)").unwrap();
+        let Item::Struct(s) = item else {
+            panic!("expected struct")
+        };
+        assert_eq!(s.name, "Wrapper");
+        let zoya_ast::StructKind::Tuple(types) = &s.kind else {
+            panic!("expected tuple struct")
+        };
+        assert_eq!(types.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_tuple_struct_multiple_fields() {
+        let item = parse_item_str("struct Pair(String, Int)").unwrap();
+        let Item::Struct(s) = item else {
+            panic!("expected struct")
+        };
+        assert_eq!(s.name, "Pair");
+        let zoya_ast::StructKind::Tuple(types) = &s.kind else {
+            panic!("expected tuple struct")
+        };
+        assert_eq!(types.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_tuple_struct_generic() {
+        let item = parse_item_str("struct Box<T>(T)").unwrap();
+        let Item::Struct(s) = item else {
+            panic!("expected struct")
+        };
+        assert_eq!(s.name, "Box");
+        assert_eq!(s.type_params, vec!["T"]);
+        let zoya_ast::StructKind::Tuple(types) = &s.kind else {
+            panic!("expected tuple struct")
+        };
+        assert_eq!(types.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_tuple_struct_trailing_comma() {
+        let item = parse_item_str("struct Pair(Int, String,)").unwrap();
+        let Item::Struct(s) = item else {
+            panic!("expected struct")
+        };
+        assert_eq!(s.name, "Pair");
+        let zoya_ast::StructKind::Tuple(types) = &s.kind else {
+            panic!("expected tuple struct")
+        };
+        assert_eq!(types.len(), 2);
     }
 
     #[test]

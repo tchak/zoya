@@ -280,6 +280,22 @@ fn tuple_rest_binding(
     ));
 }
 
+/// Generate a rest binding for object-field-based patterns (tuple structs).
+/// Similar to tuple_rest_binding but accesses `$0`, `$1` fields instead of array indices.
+fn obj_field_rest_binding(
+    name: &str,
+    access_path: &str,
+    range: std::ops::Range<usize>,
+    bindings: &mut Vec<String>,
+) {
+    let rest_fields: Vec<String> = range.map(|i| format!("{}.${}", access_path, i)).collect();
+    bindings.push(format!(
+        "const {} = [{}];",
+        format_name(name),
+        rest_fields.join(", ")
+    ));
+}
+
 /// Generate a JS condition checking an array's length.
 fn array_length_condition(access_path: &str, op: &str, len: usize) -> String {
     format!(
@@ -593,6 +609,100 @@ fn codegen_pattern_at_path(
                 bindings.extend(child_binds);
             }
         }
+
+        // Tuple struct patterns
+        TypedPattern::StructTupleExact { patterns, .. } => {
+            conditions.push(format!("{}({})", IS_OBJ_FN, access_path));
+            codegen_indexed_patterns(
+                patterns,
+                access_path,
+                0,
+                enum_field,
+                &mut conditions,
+                &mut bindings,
+            );
+        }
+
+        TypedPattern::StructTuplePrefix {
+            patterns,
+            rest_binding,
+            total_fields,
+            ..
+        } => {
+            conditions.push(format!("{}({})", IS_OBJ_FN, access_path));
+            codegen_indexed_patterns(
+                patterns,
+                access_path,
+                0,
+                enum_field,
+                &mut conditions,
+                &mut bindings,
+            );
+            if let Some((name, _)) = rest_binding {
+                obj_field_rest_binding(
+                    name,
+                    access_path,
+                    patterns.len()..*total_fields,
+                    &mut bindings,
+                );
+            }
+        }
+
+        TypedPattern::StructTupleSuffix {
+            patterns,
+            rest_binding,
+            total_fields,
+            ..
+        } => {
+            conditions.push(format!("{}({})", IS_OBJ_FN, access_path));
+            let start_idx = total_fields - patterns.len();
+            codegen_indexed_patterns(
+                patterns,
+                access_path,
+                start_idx,
+                enum_field,
+                &mut conditions,
+                &mut bindings,
+            );
+            if let Some((name, _)) = rest_binding {
+                obj_field_rest_binding(name, access_path, 0..start_idx, &mut bindings);
+            }
+        }
+
+        TypedPattern::StructTuplePrefixSuffix {
+            prefix,
+            suffix,
+            rest_binding,
+            total_fields,
+            ..
+        } => {
+            conditions.push(format!("{}({})", IS_OBJ_FN, access_path));
+            codegen_indexed_patterns(
+                prefix,
+                access_path,
+                0,
+                enum_field,
+                &mut conditions,
+                &mut bindings,
+            );
+            let suffix_start = total_fields - suffix.len();
+            codegen_indexed_patterns(
+                suffix,
+                access_path,
+                suffix_start,
+                enum_field,
+                &mut conditions,
+                &mut bindings,
+            );
+            if let Some((name, _)) = rest_binding {
+                obj_field_rest_binding(
+                    name,
+                    access_path,
+                    prefix.len()..suffix_start,
+                    &mut bindings,
+                );
+            }
+        }
     }
 
     (conditions, bindings)
@@ -781,6 +891,18 @@ fn codegen_expr(expr: &TypedExpr) -> String {
                 let field_strs: Vec<String> = fields
                     .iter()
                     .map(|(name, expr)| format!("{}: {}", name, codegen_expr(expr)))
+                    .collect();
+                format!("({{ {} }})", field_strs.join(", "))
+            }
+        }
+        TypedExpr::StructTupleConstruct { args, .. } => {
+            if args.is_empty() {
+                "({})".to_string()
+            } else {
+                let field_strs: Vec<String> = args
+                    .iter()
+                    .enumerate()
+                    .map(|(i, e)| format!("${}: {}", i, codegen_expr(e)))
                     .collect();
                 format!("({{ {} }})", field_strs.join(", "))
             }

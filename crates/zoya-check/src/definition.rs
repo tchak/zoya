@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
-use zoya_ast::{EnumDef, FunctionDef, StructDef, TypeAliasDef};
+use zoya_ast::{EnumDef, FunctionDef, StructDef, StructKind, TypeAliasDef};
 use zoya_ir::{
-    EnumType, EnumVariantType, FunctionType, StructType, Type, TypeAliasType, TypeError,
+    EnumType, EnumVariantType, FunctionType, StructType, StructTypeKind, Type, TypeAliasType,
+    TypeError,
 };
 use zoya_package::QualifiedPath;
 
@@ -72,7 +73,7 @@ pub fn struct_type_from_def(
     }
 
     // Unit structs cannot have type parameters
-    if def.fields.is_empty() && !def.type_params.is_empty() {
+    if matches!(def.kind, StructKind::Unit) && !def.type_params.is_empty() {
         return Err(TypeError {
             message: format!("unit struct '{}' cannot have type parameters", def.name),
         });
@@ -99,12 +100,26 @@ pub fn struct_type_from_def(
         }
     }
 
-    // Resolve field types
-    let mut fields = Vec::new();
-    for field in &def.fields {
-        let ty = resolve_type_annotation(&field.typ, &type_param_map, current_module, env)?;
-        fields.push((field.name.clone(), ty));
-    }
+    // Resolve fields based on struct kind
+    let (kind, fields) = match &def.kind {
+        StructKind::Unit => (StructTypeKind::Unit, vec![]),
+        StructKind::Tuple(types) => {
+            let mut fields = Vec::new();
+            for (i, typ) in types.iter().enumerate() {
+                let ty = resolve_type_annotation(typ, &type_param_map, current_module, env)?;
+                fields.push((format!("${}", i), ty));
+            }
+            (StructTypeKind::Tuple, fields)
+        }
+        StructKind::Named(field_defs) => {
+            let mut fields = Vec::new();
+            for field in field_defs {
+                let ty = resolve_type_annotation(&field.typ, &type_param_map, current_module, env)?;
+                fields.push((field.name.clone(), ty));
+            }
+            (StructTypeKind::Named, fields)
+        }
+    };
 
     Ok(StructType {
         visibility: def.visibility,
@@ -112,6 +127,7 @@ pub fn struct_type_from_def(
         name: def.name.clone(),
         type_params: def.type_params.clone(),
         type_var_ids,
+        kind,
         fields,
     })
 }
@@ -258,7 +274,7 @@ pub fn type_alias_from_def(
 mod tests {
     use super::*;
     use zoya_ast::{
-        EnumVariant, EnumVariantKind, Path, StructFieldDef, TypeAnnotation, Visibility,
+        EnumVariant, EnumVariantKind, Path, StructFieldDef, StructKind, TypeAnnotation, Visibility,
     };
 
     fn root() -> QualifiedPath {
@@ -276,10 +292,10 @@ mod tests {
             visibility: Visibility::Public,
             name: "Point".to_string(),
             type_params: vec![],
-            fields: vec![StructFieldDef {
+            kind: StructKind::Named(vec![StructFieldDef {
                 name: "x".to_string(),
                 typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
-            }],
+            }]),
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
@@ -295,7 +311,7 @@ mod tests {
             visibility: Visibility::Public,
             name: "point".to_string(),
             type_params: vec![],
-            fields: vec![],
+            kind: StructKind::Unit,
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
@@ -313,7 +329,7 @@ mod tests {
             visibility: Visibility::Public,
             name: "my_point".to_string(),
             type_params: vec![],
-            fields: vec![],
+            kind: StructKind::Unit,
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
@@ -331,10 +347,10 @@ mod tests {
             visibility: Visibility::Public,
             name: "Container".to_string(),
             type_params: vec!["t".to_string()],
-            fields: vec![StructFieldDef {
+            kind: StructKind::Named(vec![StructFieldDef {
                 name: "value".to_string(),
                 typ: TypeAnnotation::Named(Path::simple("t".to_string())),
-            }],
+            }]),
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
@@ -352,10 +368,10 @@ mod tests {
             visibility: Visibility::Public,
             name: "Container".to_string(),
             type_params: vec!["my_type".to_string()],
-            fields: vec![StructFieldDef {
+            kind: StructKind::Named(vec![StructFieldDef {
                 name: "value".to_string(),
                 typ: TypeAnnotation::Named(Path::simple("my_type".to_string())),
-            }],
+            }]),
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
@@ -373,10 +389,10 @@ mod tests {
             visibility: Visibility::Public,
             name: "Container".to_string(),
             type_params: vec!["T".to_string(), "U".to_string()],
-            fields: vec![StructFieldDef {
+            kind: StructKind::Named(vec![StructFieldDef {
                 name: "value".to_string(),
                 typ: TypeAnnotation::Named(Path::simple("T".to_string())),
-            }],
+            }]),
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
@@ -394,7 +410,7 @@ mod tests {
             visibility: Visibility::Public,
             name: "Phantom".to_string(),
             type_params: vec!["T".to_string()],
-            fields: vec![],
+            kind: StructKind::Unit,
         };
         let env = TypeEnv::default();
         let mut ctx = UnifyCtx::new();
