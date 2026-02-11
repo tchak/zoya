@@ -4820,3 +4820,141 @@ fn test_json_object() {
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(1));
 }
+
+// ==================== Recursive Type Tests ====================
+
+#[test]
+fn test_recursive_enum_exhaustive_match_inner() {
+    // Matching on an inner recursive enum value should check all variants
+    let source = r#"
+        pub enum Tree { Leaf(Int), Branch(List<Tree>) }
+
+        fn get_value(t: Tree) -> Int {
+            match t {
+                Tree::Leaf(n) => n,
+                Tree::Branch(_) => -1,
+            }
+        }
+
+        fn first_child(children: List<Tree>) -> Tree {
+            match children {
+                [h, ..] => h,
+                [] => Tree::Leaf(0),
+            }
+        }
+
+        pub fn main() -> Int {
+            let t = Tree::Branch([Tree::Leaf(1), Tree::Leaf(2)]);
+            match t {
+                Tree::Branch(children) => get_value(first_child(children)),
+                Tree::Leaf(n) => n,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(1));
+}
+
+#[test]
+fn test_recursive_enum_non_exhaustive_inner() {
+    // Matching on inner recursive enum with missing variant should fail
+    expect_check_error(
+        vec![(
+            "root",
+            r#"
+                    pub enum Tree { Leaf(Int), Branch(List<Tree>) }
+
+                    fn check_tree(t: Tree) -> Int {
+                        match t {
+                            Tree::Leaf(n) => n,
+                        }
+                    }
+
+                    pub fn main() -> Int { check_tree(Tree::Leaf(1)) }
+                "#,
+        )],
+        "non-exhaustive",
+    );
+}
+
+#[test]
+fn test_recursive_struct_field_access() {
+    // Field access on inner recursive struct values should work
+    let source = r#"
+        pub struct Node { value: Int, children: List<Node> }
+
+        pub fn main() -> Int {
+            let child = Node { value: 10, children: [] };
+            let parent = Node { value: 1, children: [child] };
+            match parent.children {
+                [first, ..] => first.value,
+                [] => 0,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(10));
+}
+
+#[test]
+fn test_json_exhaustive_match_inner() {
+    // Exhaustive match on inner JSON value extracted from Array
+    let source = r#"
+        use std::json::JSON
+
+        fn json_tag(j: JSON) -> Int {
+            match j {
+                JSON::Null => 1,
+                JSON::Bool(_) => 2,
+                JSON::Number(_) => 3,
+                JSON::String(_) => 4,
+                JSON::Array(_) => 5,
+                JSON::Object(_) => 6,
+            }
+        }
+
+        fn first_or_null(items: List<JSON>) -> JSON {
+            match items {
+                [h, ..] => h,
+                [] => JSON::Null,
+            }
+        }
+
+        pub fn main() -> Int {
+            let arr = JSON::Array([JSON::Null, JSON::Bool(true)]);
+            match arr {
+                JSON::Array(items) => json_tag(first_or_null(items)),
+                _ => 0,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(1));
+}
+
+#[test]
+fn test_recursive_enum_non_exhaustive_inner_multi_variant() {
+    // Non-exhaustive match on recursive enum with many variants should fail
+    expect_check_error(
+        vec![(
+            "root",
+            r#"
+                    pub enum Value {
+                        Null,
+                        Num(Int),
+                        Arr(List<Value>),
+                    }
+
+                    fn partial_check(v: Value) -> Int {
+                        match v {
+                            Value::Null => 0,
+                            Value::Num(_) => 1,
+                        }
+                    }
+
+                    pub fn main() -> Int { partial_check(Value::Null) }
+                "#,
+        )],
+        "non-exhaustive",
+    );
+}

@@ -2,11 +2,125 @@
 //!
 //! Based on "Warnings for pattern matching" (Luc Maranget, JFP 2007).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use zoya_ir::{
-    EnumVariantType, QualifiedPath, Type, TypeError, TypedExpr, TypedMatchArm, TypedPattern,
+    Definition, EnumVariantType, QualifiedPath, Type, TypeError, TypeVarId, TypedExpr,
+    TypedMatchArm, TypedPattern,
 };
+
+use crate::check::{substitute_type_vars, substitute_variant_type_vars};
+
+/// Lookup table for resolving recursive type stubs.
+///
+/// During two-phase type registration, inner references to recursive types
+/// carry empty variants/fields. This table maps type names to their real
+/// definitions so `TypeCtors::from_type` and `Pat::from_typed` can inflate
+/// these stubs at any nesting depth.
+type EnumInfo = (Vec<TypeVarId>, Vec<(String, EnumVariantType)>);
+type StructInfo = (Vec<TypeVarId>, Vec<(String, Type)>);
+
+pub struct DefinitionLookup {
+    enums: HashMap<String, EnumInfo>,
+    structs: HashMap<String, StructInfo>,
+}
+
+impl DefinitionLookup {
+    /// Build lookup from the global definitions table.
+    pub fn from_definitions(definitions: &HashMap<QualifiedPath, Definition>) -> Self {
+        let mut enums = HashMap::new();
+        let mut structs = HashMap::new();
+
+        for def in definitions.values() {
+            match def {
+                Definition::Enum(enum_type) if !enum_type.variants.is_empty() => {
+                    enums.insert(
+                        enum_type.name.clone(),
+                        (enum_type.type_var_ids.clone(), enum_type.variants.clone()),
+                    );
+                }
+                Definition::Struct(struct_type) if !struct_type.fields.is_empty() => {
+                    structs.insert(
+                        struct_type.name.clone(),
+                        (struct_type.type_var_ids.clone(), struct_type.fields.clone()),
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        DefinitionLookup { enums, structs }
+    }
+
+    /// Create an empty lookup (for tests that don't need recursive type resolution).
+    #[cfg(test)]
+    pub fn empty() -> Self {
+        DefinitionLookup {
+            enums: HashMap::new(),
+            structs: HashMap::new(),
+        }
+    }
+
+    /// Resolve an enum type: if it has empty variants but the lookup has real ones,
+    /// return the inflated type.
+    fn resolve_enum(
+        &self,
+        name: &str,
+        variants: &[(String, EnumVariantType)],
+        type_args: &[Type],
+    ) -> Vec<(String, EnumVariantType)> {
+        if !variants.is_empty() {
+            return variants.to_vec();
+        }
+        if let Some((type_var_ids, real_variants)) = self.enums.get(name) {
+            if type_args.is_empty() || type_var_ids.is_empty() {
+                return real_variants.clone();
+            }
+            // Build substitution: type_var_ids -> type_args
+            let mapping: HashMap<TypeVarId, Type> = type_var_ids
+                .iter()
+                .zip(type_args.iter())
+                .map(|(id, ty)| (*id, ty.clone()))
+                .collect();
+            real_variants
+                .iter()
+                .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, &mapping)))
+                .collect()
+        } else {
+            variants.to_vec()
+        }
+    }
+
+    /// Resolve a struct type: if it has empty fields but the lookup has real ones,
+    /// return the inflated fields.
+    fn resolve_struct(
+        &self,
+        name: &str,
+        fields: &[(String, Type)],
+        type_args: &[Type],
+    ) -> Vec<(String, Type)> {
+        if !fields.is_empty() {
+            return fields.to_vec();
+        }
+        if let Some((type_var_ids, real_fields)) = self.structs.get(name) {
+            if type_args.is_empty() || type_var_ids.is_empty() {
+                return real_fields.clone();
+            }
+            // Build substitution: type_var_ids -> type_args
+            let mapping: HashMap<TypeVarId, Type> = type_var_ids
+                .iter()
+                .zip(type_args.iter())
+                .map(|(id, ty)| (*id, ty.clone()))
+                .collect();
+            real_fields
+                .iter()
+                .map(|(n, t)| (n.clone(), substitute_type_vars(t, &mapping)))
+                .collect()
+        } else {
+            fields.to_vec()
+        }
+    }
+}
 
 /// A constructor represents a way to build a value of a given type.
 #[derive(Debug, Clone)]
@@ -277,7 +391,7 @@ pub enum TypeCtors {
 
 impl TypeCtors {
     /// Get the type signature for a given type
-    pub fn from_type(ty: &Type) -> Self {
+    pub fn from_type(ty: &Type, lookup: &DefinitionLookup) -> Self {
         match ty {
             Type::Bool => TypeCtors::Finite(vec![Constructor::True, Constructor::False]),
             Type::List(_) => TypeCtors::Structured {
@@ -286,9 +400,15 @@ impl TypeCtors {
             Type::Tuple(elems) => TypeCtors::Finite(vec![Constructor::Tuple(elems.len())]),
             Type::Int | Type::BigInt | Type::Float | Type::String => TypeCtors::Infinite,
             Type::Var(_) | Type::Function { .. } => TypeCtors::Infinite, // Conservative
-            Type::Struct { name, fields, .. } => {
-                // Structs have exactly one constructor
-                let (field_names, field_types): (Vec<_>, Vec<_>) = fields.iter().cloned().unzip();
+            Type::Struct {
+                name,
+                fields,
+                type_args,
+            } => {
+                // Resolve potentially empty fields via lookup
+                let resolved_fields = lookup.resolve_struct(name, fields, type_args);
+                let (field_names, field_types): (Vec<_>, Vec<_>) =
+                    resolved_fields.into_iter().unzip();
                 TypeCtors::Finite(vec![Constructor::Struct {
                     name: name.clone(),
                     field_names,
@@ -298,10 +418,11 @@ impl TypeCtors {
             Type::Enum {
                 name: enum_name,
                 variants,
-                ..
+                type_args,
             } => {
-                // Enums have one constructor per variant
-                let ctors: Vec<Constructor> = variants
+                // Resolve potentially empty variants via lookup
+                let resolved_variants = lookup.resolve_enum(enum_name, variants, type_args);
+                let ctors: Vec<Constructor> = resolved_variants
                     .iter()
                     .map(|(variant_name, variant_type)| {
                         let kind = match variant_type {
@@ -373,12 +494,12 @@ pub enum Pat {
 
 impl Pat {
     /// Convert from TypedPattern to Pat
-    pub fn from_typed(pattern: &TypedPattern, ty: &Type) -> Self {
+    pub fn from_typed(pattern: &TypedPattern, ty: &Type, lookup: &DefinitionLookup) -> Self {
         match pattern {
             TypedPattern::Wildcard | TypedPattern::Var { .. } => Pat::Wild,
 
             // As pattern: for exhaustiveness, behaves like the inner pattern
-            TypedPattern::As { pattern, .. } => Pat::from_typed(pattern, ty),
+            TypedPattern::As { pattern, .. } => Pat::from_typed(pattern, ty, lookup),
 
             TypedPattern::Literal(lit) => {
                 let ctor = match lit {
@@ -397,12 +518,12 @@ impl Pat {
 
             TypedPattern::ListExact { patterns, .. } => {
                 // [a, b, c] = Cons(a, Cons(b, Cons(c, Nil)))
-                Self::list_exact_to_cons(patterns, ty)
+                Self::list_exact_to_cons(patterns, ty, lookup)
             }
 
             TypedPattern::ListPrefix { patterns, .. } => {
                 // [a, b, ..] = Cons(a, Cons(b, _))
-                Self::list_prefix_to_cons(patterns, ty)
+                Self::list_prefix_to_cons(patterns, ty, lookup)
             }
 
             TypedPattern::ListSuffix {
@@ -450,7 +571,7 @@ impl Pat {
                 let sub_pats: Vec<Pat> = patterns
                     .iter()
                     .zip(elem_types.iter())
-                    .map(|(p, t)| Pat::from_typed(p, t))
+                    .map(|(p, t)| Pat::from_typed(p, t, lookup))
                     .collect();
                 Pat::Ctor(Constructor::Tuple(*len), sub_pats)
             }
@@ -461,7 +582,7 @@ impl Pat {
                 ..
             } => {
                 // (a, b, ..) in a tuple of total_len elements
-                Self::expand_tuple_pattern_prefix(patterns, *total_len, ty)
+                Self::expand_tuple_pattern_prefix(patterns, *total_len, ty, lookup)
             }
 
             TypedPattern::TupleSuffix {
@@ -470,7 +591,7 @@ impl Pat {
                 ..
             } => {
                 // (.., y, z) in a tuple of total_len elements
-                Self::expand_tuple_pattern_suffix(patterns, *total_len, ty)
+                Self::expand_tuple_pattern_suffix(patterns, *total_len, ty, lookup)
             }
 
             TypedPattern::TuplePrefixSuffix {
@@ -480,31 +601,19 @@ impl Pat {
                 ..
             } => {
                 // (a, .., z) in a tuple of total_len elements
-                Self::expand_tuple_pattern_both(prefix, suffix, *total_len, ty)
+                Self::expand_tuple_pattern_both(prefix, suffix, *total_len, ty, lookup)
             }
 
             TypedPattern::StructExact { path, fields } => {
-                // Get field info from the type
-                let (field_names, field_types) = match ty {
-                    Type::Struct {
-                        fields: struct_fields,
-                        ..
-                    } => {
-                        let names: Vec<String> =
-                            struct_fields.iter().map(|(n, _)| n.clone()).collect();
-                        let types: Vec<Type> =
-                            struct_fields.iter().map(|(_, t)| t.clone()).collect();
-                        (names, types)
-                    }
-                    _ => (vec![], vec![]),
-                };
+                // Get field info from the type, resolving stubs via lookup
+                let (field_names, field_types) = Self::get_struct_field_info(ty, lookup);
 
                 // Build sub-patterns in field order
                 let mut sub_pats = Vec::with_capacity(field_names.len());
                 for (field_name, field_ty) in field_names.iter().zip(field_types.iter()) {
                     // Find the pattern for this field
                     if let Some((_, sub_pattern)) = fields.iter().find(|(n, _)| n == field_name) {
-                        sub_pats.push(Pat::from_typed(sub_pattern, field_ty));
+                        sub_pats.push(Pat::from_typed(sub_pattern, field_ty, lookup));
                     } else {
                         sub_pats.push(Pat::Wild);
                     }
@@ -521,27 +630,15 @@ impl Pat {
             }
 
             TypedPattern::StructPartial { path, fields } => {
-                // Get field info from the type
-                let (field_names, field_types) = match ty {
-                    Type::Struct {
-                        fields: struct_fields,
-                        ..
-                    } => {
-                        let names: Vec<String> =
-                            struct_fields.iter().map(|(n, _)| n.clone()).collect();
-                        let types: Vec<Type> =
-                            struct_fields.iter().map(|(_, t)| t.clone()).collect();
-                        (names, types)
-                    }
-                    _ => (vec![], vec![]),
-                };
+                // Get field info from the type, resolving stubs via lookup
+                let (field_names, field_types) = Self::get_struct_field_info(ty, lookup);
 
                 // Build sub-patterns in field order
                 // For partial patterns, unmentioned fields become wildcards
                 let mut sub_pats = Vec::with_capacity(field_names.len());
                 for (field_name, field_ty) in field_names.iter().zip(field_types.iter()) {
                     if let Some((_, sub_pattern)) = fields.iter().find(|(n, _)| n == field_name) {
-                        sub_pats.push(Pat::from_typed(sub_pattern, field_ty));
+                        sub_pats.push(Pat::from_typed(sub_pattern, field_ty, lookup));
                     } else {
                         sub_pats.push(Pat::Wild);
                     }
@@ -568,12 +665,12 @@ impl Pat {
 
             TypedPattern::EnumTupleExact { path, patterns, .. }
             | TypedPattern::EnumTuplePrefix { path, patterns, .. } => {
-                // Get field types from the type
-                let field_types = Self::get_enum_tuple_variant_types(ty, path.last());
+                // Get field types from the type, resolving stubs via lookup
+                let field_types = Self::get_enum_tuple_variant_types(ty, path.last(), lookup);
                 let sub_pats: Vec<Pat> = patterns
                     .iter()
                     .zip(field_types.iter())
-                    .map(|(p, t)| Pat::from_typed(p, t))
+                    .map(|(p, t)| Pat::from_typed(p, t, lookup))
                     .collect();
                 // Pad with wildcards if prefix pattern
                 let mut all_pats = sub_pats;
@@ -598,11 +695,11 @@ impl Pat {
                 total_fields,
                 ..
             } => {
-                let field_types = Self::get_enum_tuple_variant_types(ty, path.last());
+                let field_types = Self::get_enum_tuple_variant_types(ty, path.last(), lookup);
                 let start_idx = total_fields - patterns.len();
                 let mut sub_pats = vec![Pat::Wild; start_idx];
                 for (p, t) in patterns.iter().zip(field_types.iter().skip(start_idx)) {
-                    sub_pats.push(Pat::from_typed(p, t));
+                    sub_pats.push(Pat::from_typed(p, t, lookup));
                 }
                 Pat::Ctor(
                     Constructor::EnumVariant {
@@ -623,11 +720,11 @@ impl Pat {
                 total_fields,
                 ..
             } => {
-                let field_types = Self::get_enum_tuple_variant_types(ty, path.last());
+                let field_types = Self::get_enum_tuple_variant_types(ty, path.last(), lookup);
                 let mut sub_pats = Vec::with_capacity(*total_fields);
                 // Add prefix patterns
                 for (p, t) in prefix.iter().zip(field_types.iter()) {
-                    sub_pats.push(Pat::from_typed(p, t));
+                    sub_pats.push(Pat::from_typed(p, t, lookup));
                 }
                 // Add wildcards for middle
                 let middle_count = total_fields - prefix.len() - suffix.len();
@@ -637,7 +734,7 @@ impl Pat {
                 // Add suffix patterns
                 let suffix_start = total_fields - suffix.len();
                 for (p, t) in suffix.iter().zip(field_types.iter().skip(suffix_start)) {
-                    sub_pats.push(Pat::from_typed(p, t));
+                    sub_pats.push(Pat::from_typed(p, t, lookup));
                 }
                 Pat::Ctor(
                     Constructor::EnumVariant {
@@ -653,15 +750,15 @@ impl Pat {
 
             TypedPattern::EnumStructExact { path, fields }
             | TypedPattern::EnumStructPartial { path, fields } => {
-                // Get field info from the type
+                // Get field info from the type, resolving stubs via lookup
                 let (field_names, field_types) =
-                    Self::get_enum_struct_variant_info(ty, path.last());
+                    Self::get_enum_struct_variant_info(ty, path.last(), lookup);
 
                 // Build sub-patterns in field order
                 let mut sub_pats = Vec::with_capacity(field_names.len());
                 for (field_name, field_ty) in field_names.iter().zip(field_types.iter()) {
                     if let Some((_, sub_pattern)) = fields.iter().find(|(n, _)| n == field_name) {
-                        sub_pats.push(Pat::from_typed(sub_pattern, field_ty));
+                        sub_pats.push(Pat::from_typed(sub_pattern, field_ty, lookup));
                     } else {
                         sub_pats.push(Pat::Wild);
                     }
@@ -681,11 +778,20 @@ impl Pat {
         }
     }
 
-    /// Get tuple variant field types from an enum type
-    fn get_enum_tuple_variant_types(ty: &Type, variant_name: &str) -> Vec<Type> {
+    /// Get tuple variant field types from an enum type, resolving stubs via lookup
+    fn get_enum_tuple_variant_types(
+        ty: &Type,
+        variant_name: &str,
+        lookup: &DefinitionLookup,
+    ) -> Vec<Type> {
         match ty {
-            Type::Enum { variants, .. } => {
-                for (vname, vtype) in variants {
+            Type::Enum {
+                name,
+                variants,
+                type_args,
+            } => {
+                let resolved = lookup.resolve_enum(name, variants, type_args);
+                for (vname, vtype) in &resolved {
                     if vname == variant_name
                         && let EnumVariantType::Tuple(types) = vtype
                     {
@@ -698,11 +804,20 @@ impl Pat {
         }
     }
 
-    /// Get struct variant field info from an enum type
-    fn get_enum_struct_variant_info(ty: &Type, variant_name: &str) -> (Vec<String>, Vec<Type>) {
+    /// Get struct variant field info from an enum type, resolving stubs via lookup
+    fn get_enum_struct_variant_info(
+        ty: &Type,
+        variant_name: &str,
+        lookup: &DefinitionLookup,
+    ) -> (Vec<String>, Vec<Type>) {
         match ty {
-            Type::Enum { variants, .. } => {
-                for (vname, vtype) in variants {
+            Type::Enum {
+                name,
+                variants,
+                type_args,
+            } => {
+                let resolved = lookup.resolve_enum(name, variants, type_args);
+                for (vname, vtype) in &resolved {
                     if vname == variant_name
                         && let EnumVariantType::Struct(fields) = vtype
                     {
@@ -717,6 +832,23 @@ impl Pat {
         }
     }
 
+    /// Get struct field info from a struct type, resolving stubs via lookup
+    fn get_struct_field_info(ty: &Type, lookup: &DefinitionLookup) -> (Vec<String>, Vec<Type>) {
+        match ty {
+            Type::Struct {
+                name,
+                fields,
+                type_args,
+            } => {
+                let resolved = lookup.resolve_struct(name, fields, type_args);
+                let names: Vec<String> = resolved.iter().map(|(n, _)| n.clone()).collect();
+                let types: Vec<Type> = resolved.iter().map(|(_, t)| t.clone()).collect();
+                (names, types)
+            }
+            _ => (vec![], vec![]),
+        }
+    }
+
     /// Check if any pattern in a list contains specific literals (not wildcards/variables)
     fn contains_specific_pattern(patterns: &[TypedPattern]) -> bool {
         patterns
@@ -725,7 +857,7 @@ impl Pat {
     }
 
     /// Convert [a, b, c] to nested Cons: Cons(a, Cons(b, Cons(c, Nil)))
-    fn list_exact_to_cons(patterns: &[TypedPattern], ty: &Type) -> Pat {
+    fn list_exact_to_cons(patterns: &[TypedPattern], ty: &Type, lookup: &DefinitionLookup) -> Pat {
         let elem_ty = match ty {
             Type::List(e) => (**e).clone(),
             _ => Type::Int, // Fallback
@@ -733,14 +865,14 @@ impl Pat {
 
         let mut result = Pat::Ctor(Constructor::ListNil, vec![]);
         for pat in patterns.iter().rev() {
-            let head = Pat::from_typed(pat, &elem_ty);
+            let head = Pat::from_typed(pat, &elem_ty, lookup);
             result = Pat::Ctor(Constructor::ListCons, vec![head, result]);
         }
         result
     }
 
     /// Convert [a, b, ..] to Cons(a, Cons(b, _))
-    fn list_prefix_to_cons(patterns: &[TypedPattern], ty: &Type) -> Pat {
+    fn list_prefix_to_cons(patterns: &[TypedPattern], ty: &Type, lookup: &DefinitionLookup) -> Pat {
         let elem_ty = match ty {
             Type::List(e) => (**e).clone(),
             _ => Type::Int,
@@ -748,7 +880,7 @@ impl Pat {
 
         let mut result = Pat::Wild; // Tail is wildcard
         for pat in patterns.iter().rev() {
-            let head = Pat::from_typed(pat, &elem_ty);
+            let head = Pat::from_typed(pat, &elem_ty, lookup);
             result = Pat::Ctor(Constructor::ListCons, vec![head, result]);
         }
         result
@@ -765,7 +897,12 @@ impl Pat {
     }
 
     /// Expand (a, b, ..) to (a, b, _, _, ...) for a tuple of total_len
-    fn expand_tuple_pattern_prefix(patterns: &[TypedPattern], total_len: usize, ty: &Type) -> Pat {
+    fn expand_tuple_pattern_prefix(
+        patterns: &[TypedPattern],
+        total_len: usize,
+        ty: &Type,
+        lookup: &DefinitionLookup,
+    ) -> Pat {
         let elem_types = match ty {
             Type::Tuple(ts) => ts.clone(),
             _ => vec![Type::Int; total_len],
@@ -774,7 +911,7 @@ impl Pat {
         let mut sub_pats = Vec::with_capacity(total_len);
         for (i, elem_ty) in elem_types.iter().enumerate() {
             if i < patterns.len() {
-                sub_pats.push(Pat::from_typed(&patterns[i], elem_ty));
+                sub_pats.push(Pat::from_typed(&patterns[i], elem_ty, lookup));
             } else {
                 sub_pats.push(Pat::Wild);
             }
@@ -783,7 +920,12 @@ impl Pat {
     }
 
     /// Expand (.., y, z) to (_, _, ..., y, z) for a tuple of total_len
-    fn expand_tuple_pattern_suffix(patterns: &[TypedPattern], total_len: usize, ty: &Type) -> Pat {
+    fn expand_tuple_pattern_suffix(
+        patterns: &[TypedPattern],
+        total_len: usize,
+        ty: &Type,
+        lookup: &DefinitionLookup,
+    ) -> Pat {
         let elem_types = match ty {
             Type::Tuple(ts) => ts.clone(),
             _ => vec![Type::Int; total_len],
@@ -796,7 +938,11 @@ impl Pat {
             if i < prefix_wilds {
                 sub_pats.push(Pat::Wild);
             } else {
-                sub_pats.push(Pat::from_typed(&patterns[i - prefix_wilds], elem_ty));
+                sub_pats.push(Pat::from_typed(
+                    &patterns[i - prefix_wilds],
+                    elem_ty,
+                    lookup,
+                ));
             }
         }
         Pat::Ctor(Constructor::Tuple(total_len), sub_pats)
@@ -808,6 +954,7 @@ impl Pat {
         suffix: &[TypedPattern],
         total_len: usize,
         ty: &Type,
+        lookup: &DefinitionLookup,
     ) -> Pat {
         let elem_types = match ty {
             Type::Tuple(ts) => ts.clone(),
@@ -819,12 +966,12 @@ impl Pat {
 
         for (i, elem_ty) in elem_types.iter().enumerate() {
             if i < prefix.len() {
-                sub_pats.push(Pat::from_typed(&prefix[i], elem_ty));
+                sub_pats.push(Pat::from_typed(&prefix[i], elem_ty, lookup));
             } else if i < prefix.len() + middle_wilds {
                 sub_pats.push(Pat::Wild);
             } else {
                 let suffix_idx = i - prefix.len() - middle_wilds;
-                sub_pats.push(Pat::from_typed(&suffix[suffix_idx], elem_ty));
+                sub_pats.push(Pat::from_typed(&suffix[suffix_idx], elem_ty, lookup));
             }
         }
         Pat::Ctor(Constructor::Tuple(total_len), sub_pats)
@@ -887,12 +1034,16 @@ pub struct PatternMatrix {
 
 impl PatternMatrix {
     /// Create from a list of match arms
-    pub fn from_arms(arms: &[TypedMatchArm], scrutinee_ty: &Type) -> Self {
+    pub fn from_arms(
+        arms: &[TypedMatchArm],
+        scrutinee_ty: &Type,
+        lookup: &DefinitionLookup,
+    ) -> Self {
         let rows: Vec<_> = arms
             .iter()
             .enumerate()
             .map(|(idx, arm)| {
-                let pat = Pat::from_typed(&arm.pattern, scrutinee_ty);
+                let pat = Pat::from_typed(&arm.pattern, scrutinee_ty, lookup);
                 (vec![pat], idx)
             })
             .collect();
@@ -961,7 +1112,7 @@ pub enum Exhaustiveness {
 /// - Look at first column
 /// - If q starts with constructor c: specialize P and q by c, recurse
 /// - If q starts with wildcard: check if default matrix is complete
-fn useful(matrix: &PatternMatrix, q: &[Pat]) -> Usefulness {
+fn useful(matrix: &PatternMatrix, q: &[Pat], lookup: &DefinitionLookup) -> Usefulness {
     // Base case: zero columns
     if matrix.has_no_columns() {
         return if matrix.is_empty() {
@@ -984,12 +1135,12 @@ fn useful(matrix: &PatternMatrix, q: &[Pat]) -> Usefulness {
             // Specialize by constructor c
             let specialized = specialize_matrix(matrix, c, ty);
             let specialized_q = specialize_row(q, c, args, ty);
-            useful(&specialized, &specialized_q)
+            useful(&specialized, &specialized_q, lookup)
         }
         Pat::Wild => {
             // Collect all constructors appearing in first column
             let seen_ctors = collect_head_ctors(matrix);
-            let type_ctors = TypeCtors::from_type(ty);
+            let type_ctors = TypeCtors::from_type(ty, lookup);
 
             if type_ctors.is_complete(&seen_ctors) {
                 // Complete: must check each constructor
@@ -1002,7 +1153,7 @@ fn useful(matrix: &PatternMatrix, q: &[Pat]) -> Usefulness {
                         .chain(q[1..].iter().cloned())
                         .collect();
 
-                    if useful(&specialized, &specialized_q) == Usefulness::Useful {
+                    if useful(&specialized, &specialized_q, lookup) == Usefulness::Useful {
                         return Usefulness::Useful;
                     }
                 }
@@ -1011,7 +1162,7 @@ fn useful(matrix: &PatternMatrix, q: &[Pat]) -> Usefulness {
                 // Not complete: use default matrix
                 let default = default_matrix(matrix);
                 let default_q: Vec<Pat> = q[1..].to_vec();
-                useful(&default, &default_q)
+                useful(&default, &default_q, lookup)
             }
         }
     }
@@ -1101,7 +1252,7 @@ fn collect_head_ctors(matrix: &PatternMatrix) -> HashSet<Constructor> {
 
 /// Compute witness patterns (missing cases).
 /// Similar to `useful`, but returns example patterns instead of just bool.
-fn compute_witnesses(matrix: &PatternMatrix, q: &[Pat]) -> Vec<Witness> {
+fn compute_witnesses(matrix: &PatternMatrix, q: &[Pat], lookup: &DefinitionLookup) -> Vec<Witness> {
     if matrix.has_no_columns() {
         return if matrix.is_empty() {
             vec![Witness(vec![])]
@@ -1121,7 +1272,7 @@ fn compute_witnesses(matrix: &PatternMatrix, q: &[Pat]) -> Vec<Witness> {
         Pat::Ctor(c, args) => {
             let specialized = specialize_matrix(matrix, c, ty);
             let specialized_q = specialize_row(q, c, args, ty);
-            let sub_witnesses = compute_witnesses(&specialized, &specialized_q);
+            let sub_witnesses = compute_witnesses(&specialized, &specialized_q, lookup);
 
             // Reconstruct witnesses with constructor c
             sub_witnesses
@@ -1131,7 +1282,7 @@ fn compute_witnesses(matrix: &PatternMatrix, q: &[Pat]) -> Vec<Witness> {
         }
         Pat::Wild => {
             let seen_ctors = collect_head_ctors(matrix);
-            let type_ctors = TypeCtors::from_type(ty);
+            let type_ctors = TypeCtors::from_type(ty, lookup);
 
             if type_ctors.is_complete(&seen_ctors) {
                 // Check each constructor
@@ -1145,7 +1296,7 @@ fn compute_witnesses(matrix: &PatternMatrix, q: &[Pat]) -> Vec<Witness> {
                         .chain(q[1..].iter().cloned())
                         .collect();
 
-                    let sub_witnesses = compute_witnesses(&specialized, &specialized_q);
+                    let sub_witnesses = compute_witnesses(&specialized, &specialized_q, lookup);
                     for w in sub_witnesses {
                         all_witnesses.push(reconstruct_witness(w, &c, ty));
                     }
@@ -1159,7 +1310,7 @@ fn compute_witnesses(matrix: &PatternMatrix, q: &[Pat]) -> Vec<Witness> {
                     // Should use default matrix
                     let default = default_matrix(matrix);
                     let default_q: Vec<Pat> = q[1..].to_vec();
-                    let sub_witnesses = compute_witnesses(&default, &default_q);
+                    let sub_witnesses = compute_witnesses(&default, &default_q, lookup);
 
                     // Prefix with wildcard
                     sub_witnesses
@@ -1183,7 +1334,7 @@ fn compute_witnesses(matrix: &PatternMatrix, q: &[Pat]) -> Vec<Witness> {
                         .chain(q[1..].iter().cloned())
                         .collect();
 
-                    let sub_witnesses = compute_witnesses(&specialized, &specialized_q);
+                    let sub_witnesses = compute_witnesses(&specialized, &specialized_q, lookup);
                     sub_witnesses
                         .into_iter()
                         .map(|w| reconstruct_witness(w, c, ty))
@@ -1217,13 +1368,17 @@ fn reconstruct_witness(Witness(sub_pats): Witness, c: &Constructor, ty: &Type) -
 
 /// Check if a match expression is exhaustive.
 /// Returns missing patterns if not.
-pub fn check_exhaustiveness(arms: &[TypedMatchArm], scrutinee_ty: &Type) -> Exhaustiveness {
-    let matrix = PatternMatrix::from_arms(arms, scrutinee_ty);
+pub fn check_exhaustiveness(
+    arms: &[TypedMatchArm],
+    scrutinee_ty: &Type,
+    lookup: &DefinitionLookup,
+) -> Exhaustiveness {
+    let matrix = PatternMatrix::from_arms(arms, scrutinee_ty, lookup);
 
     // Check if wildcard vector is useful (i.e., can any value slip through?)
     let wild_vec = vec![Pat::Wild];
 
-    let witnesses = compute_witnesses(&matrix, &wild_vec);
+    let witnesses = compute_witnesses(&matrix, &wild_vec, lookup);
     if witnesses.is_empty() {
         Exhaustiveness::Exhaustive
     } else {
@@ -1233,7 +1388,11 @@ pub fn check_exhaustiveness(arms: &[TypedMatchArm], scrutinee_ty: &Type) -> Exha
 
 /// Check each arm for usefulness (reachability).
 /// Returns indices of unreachable arms.
-pub fn check_usefulness(arms: &[TypedMatchArm], scrutinee_ty: &Type) -> Vec<usize> {
+pub fn check_usefulness(
+    arms: &[TypedMatchArm],
+    scrutinee_ty: &Type,
+    lookup: &DefinitionLookup,
+) -> Vec<usize> {
     let mut matrix = PatternMatrix {
         rows: vec![],
         types: vec![scrutinee_ty.clone()],
@@ -1242,10 +1401,10 @@ pub fn check_usefulness(arms: &[TypedMatchArm], scrutinee_ty: &Type) -> Vec<usiz
     let mut unreachable = vec![];
 
     for (idx, arm) in arms.iter().enumerate() {
-        let pat = Pat::from_typed(&arm.pattern, scrutinee_ty);
+        let pat = Pat::from_typed(&arm.pattern, scrutinee_ty, lookup);
         let q = vec![pat.clone()];
 
-        if useful(&matrix, &q) == Usefulness::NotUseful {
+        if useful(&matrix, &q, lookup) == Usefulness::NotUseful {
             unreachable.push(idx);
         }
 
@@ -1257,9 +1416,13 @@ pub fn check_usefulness(arms: &[TypedMatchArm], scrutinee_ty: &Type) -> Vec<usiz
 }
 
 /// Combined check: returns error if patterns are non-exhaustive or have unreachable arms
-pub fn check_patterns(arms: &[TypedMatchArm], scrutinee_ty: &Type) -> Result<(), TypeError> {
+pub fn check_patterns(
+    arms: &[TypedMatchArm],
+    scrutinee_ty: &Type,
+    lookup: &DefinitionLookup,
+) -> Result<(), TypeError> {
     // Check for unreachable patterns first
-    let unreachable_arms = check_usefulness(arms, scrutinee_ty);
+    let unreachable_arms = check_usefulness(arms, scrutinee_ty, lookup);
     if !unreachable_arms.is_empty() {
         let arm_numbers: Vec<String> = unreachable_arms
             .iter()
@@ -1271,7 +1434,7 @@ pub fn check_patterns(arms: &[TypedMatchArm], scrutinee_ty: &Type) -> Result<(),
     }
 
     // Check exhaustiveness
-    match check_exhaustiveness(arms, scrutinee_ty) {
+    match check_exhaustiveness(arms, scrutinee_ty, lookup) {
         Exhaustiveness::Exhaustive => Ok(()),
         Exhaustiveness::NonExhaustive(witnesses) => {
             let missing_patterns: Vec<String> = witnesses
@@ -1354,21 +1517,21 @@ mod tests {
     #[test]
     fn test_bool_exhaustive_both() {
         let arms = vec![make_bool_arm(true), make_bool_arm(false)];
-        let result = check_exhaustiveness(&arms, &Type::Bool);
+        let result = check_exhaustiveness(&arms, &Type::Bool, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
     #[test]
     fn test_bool_exhaustive_wildcard() {
         let arms = vec![make_wildcard_arm()];
-        let result = check_exhaustiveness(&arms, &Type::Bool);
+        let result = check_exhaustiveness(&arms, &Type::Bool, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
     #[test]
     fn test_bool_missing_false() {
         let arms = vec![make_bool_arm(true)];
-        let result = check_exhaustiveness(&arms, &Type::Bool);
+        let result = check_exhaustiveness(&arms, &Type::Bool, &DefinitionLookup::empty());
         match result {
             Exhaustiveness::NonExhaustive(witnesses) => {
                 assert!(!witnesses.is_empty());
@@ -1382,7 +1545,7 @@ mod tests {
     #[test]
     fn test_bool_missing_true() {
         let arms = vec![make_bool_arm(false)];
-        let result = check_exhaustiveness(&arms, &Type::Bool);
+        let result = check_exhaustiveness(&arms, &Type::Bool, &DefinitionLookup::empty());
         match result {
             Exhaustiveness::NonExhaustive(witnesses) => {
                 assert!(!witnesses.is_empty());
@@ -1397,21 +1560,33 @@ mod tests {
     #[test]
     fn test_list_exhaustive_empty_and_nonempty() {
         let arms = vec![make_list_empty_arm(), make_list_prefix_arm(1)];
-        let result = check_exhaustiveness(&arms, &Type::List(Box::new(Type::Int)));
+        let result = check_exhaustiveness(
+            &arms,
+            &Type::List(Box::new(Type::Int)),
+            &DefinitionLookup::empty(),
+        );
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
     #[test]
     fn test_list_exhaustive_wildcard() {
         let arms = vec![make_var_arm("xs", Type::List(Box::new(Type::Int)))];
-        let result = check_exhaustiveness(&arms, &Type::List(Box::new(Type::Int)));
+        let result = check_exhaustiveness(
+            &arms,
+            &Type::List(Box::new(Type::Int)),
+            &DefinitionLookup::empty(),
+        );
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
     #[test]
     fn test_list_missing_empty() {
         let arms = vec![make_list_prefix_arm(1)];
-        let result = check_exhaustiveness(&arms, &Type::List(Box::new(Type::Int)));
+        let result = check_exhaustiveness(
+            &arms,
+            &Type::List(Box::new(Type::Int)),
+            &DefinitionLookup::empty(),
+        );
         match result {
             Exhaustiveness::NonExhaustive(witnesses) => {
                 assert!(!witnesses.is_empty());
@@ -1425,7 +1600,11 @@ mod tests {
     #[test]
     fn test_list_missing_nonempty() {
         let arms = vec![make_list_empty_arm()];
-        let result = check_exhaustiveness(&arms, &Type::List(Box::new(Type::Int)));
+        let result = check_exhaustiveness(
+            &arms,
+            &Type::List(Box::new(Type::Int)),
+            &DefinitionLookup::empty(),
+        );
         match result {
             Exhaustiveness::NonExhaustive(witnesses) => {
                 assert!(!witnesses.is_empty());
@@ -1440,7 +1619,7 @@ mod tests {
     #[test]
     fn test_unreachable_after_wildcard() {
         let arms = vec![make_wildcard_arm(), make_bool_arm(true)];
-        let unreachable = check_usefulness(&arms, &Type::Bool);
+        let unreachable = check_usefulness(&arms, &Type::Bool, &DefinitionLookup::empty());
         assert_eq!(unreachable, vec![1]);
     }
 
@@ -1451,14 +1630,14 @@ mod tests {
             make_bool_arm(true), // duplicate
             make_bool_arm(false),
         ];
-        let unreachable = check_usefulness(&arms, &Type::Bool);
+        let unreachable = check_usefulness(&arms, &Type::Bool, &DefinitionLookup::empty());
         assert_eq!(unreachable, vec![1]);
     }
 
     #[test]
     fn test_no_unreachable_all_distinct() {
         let arms = vec![make_bool_arm(true), make_bool_arm(false)];
-        let unreachable = check_usefulness(&arms, &Type::Bool);
+        let unreachable = check_usefulness(&arms, &Type::Bool, &DefinitionLookup::empty());
         assert!(unreachable.is_empty());
     }
 
@@ -1469,7 +1648,7 @@ mod tests {
             pattern: TypedPattern::Literal(TypedExpr::Int(0)),
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &Type::Int);
+        let result = check_exhaustiveness(&arms, &Type::Int, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::NonExhaustive(_)));
     }
 
@@ -1482,7 +1661,7 @@ mod tests {
             },
             make_wildcard_arm(),
         ];
-        let result = check_exhaustiveness(&arms, &Type::Int);
+        let result = check_exhaustiveness(&arms, &Type::Int, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -1497,7 +1676,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &tuple_ty);
+        let result = check_exhaustiveness(&arms, &tuple_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -1514,7 +1693,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &tuple_ty);
+        let result = check_exhaustiveness(&arms, &tuple_ty, &DefinitionLookup::empty());
         match result {
             Exhaustiveness::NonExhaustive(witnesses) => {
                 assert!(!witnesses.is_empty());
@@ -1568,7 +1747,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &struct_ty);
+        let result = check_exhaustiveness(&arms, &struct_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -1582,7 +1761,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &struct_ty);
+        let result = check_exhaustiveness(&arms, &struct_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -1599,7 +1778,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &struct_ty);
+        let result = check_exhaustiveness(&arms, &struct_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::NonExhaustive(_)));
     }
 
@@ -1630,7 +1809,7 @@ mod tests {
                 result: TypedExpr::Int(1),
             },
         ];
-        let result = check_exhaustiveness(&arms, &option_ty);
+        let result = check_exhaustiveness(&arms, &option_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -1649,7 +1828,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &option_ty);
+        let result = check_exhaustiveness(&arms, &option_ty, &DefinitionLookup::empty());
         match result {
             Exhaustiveness::NonExhaustive(witnesses) => {
                 assert!(!witnesses.is_empty());
@@ -1690,7 +1869,7 @@ mod tests {
                 result: TypedExpr::Int(2),
             },
         ];
-        let result = check_exhaustiveness(&arms, &color_ty);
+        let result = check_exhaustiveness(&arms, &color_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -1718,7 +1897,7 @@ mod tests {
                 result: TypedExpr::Int(1),
             },
         ];
-        let result = check_exhaustiveness(&arms, &color_ty);
+        let result = check_exhaustiveness(&arms, &color_ty, &DefinitionLookup::empty());
         match result {
             Exhaustiveness::NonExhaustive(witnesses) => {
                 assert!(!witnesses.is_empty());
@@ -1762,7 +1941,7 @@ mod tests {
                 result: TypedExpr::Int(1),
             },
         ];
-        let result = check_exhaustiveness(&arms, &msg_ty);
+        let result = check_exhaustiveness(&arms, &msg_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -1785,7 +1964,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &msg_ty);
+        let result = check_exhaustiveness(&arms, &msg_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -1799,7 +1978,7 @@ mod tests {
             ],
         );
         let arms = vec![make_wildcard_arm()];
-        let result = check_exhaustiveness(&arms, &option_ty);
+        let result = check_exhaustiveness(&arms, &option_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -1819,7 +1998,7 @@ mod tests {
             },
             make_wildcard_arm(),
         ];
-        let result = check_exhaustiveness(&arms, &list_ty);
+        let result = check_exhaustiveness(&arms, &list_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -1833,7 +2012,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &list_ty);
+        let result = check_exhaustiveness(&arms, &list_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::NonExhaustive(_)));
     }
 
@@ -1852,7 +2031,7 @@ mod tests {
                 result: TypedExpr::Int(1),
             },
         ];
-        let result = check_exhaustiveness(&arms, &list_ty);
+        let result = check_exhaustiveness(&arms, &list_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -1879,7 +2058,7 @@ mod tests {
                 result: TypedExpr::Int(2),
             },
         ];
-        let result = check_exhaustiveness(&arms, &list_ty);
+        let result = check_exhaustiveness(&arms, &list_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -1892,7 +2071,7 @@ mod tests {
             pattern: TypedPattern::TupleEmpty,
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &tuple_ty);
+        let result = check_exhaustiveness(&arms, &tuple_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -1907,7 +2086,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &tuple_ty);
+        let result = check_exhaustiveness(&arms, &tuple_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -1922,7 +2101,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &tuple_ty);
+        let result = check_exhaustiveness(&arms, &tuple_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -1938,7 +2117,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &tuple_ty);
+        let result = check_exhaustiveness(&arms, &tuple_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -1953,7 +2132,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &tuple_ty);
+        let result = check_exhaustiveness(&arms, &tuple_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::NonExhaustive(_)));
     }
 
@@ -1972,7 +2151,7 @@ mod tests {
             },
             make_wildcard_arm(),
         ];
-        let result = check_exhaustiveness(&arms, &Type::Float);
+        let result = check_exhaustiveness(&arms, &Type::Float, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -1982,7 +2161,7 @@ mod tests {
             pattern: TypedPattern::Literal(TypedExpr::Float(1.0)),
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &Type::Float);
+        let result = check_exhaustiveness(&arms, &Type::Float, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::NonExhaustive(_)));
     }
 
@@ -1995,7 +2174,7 @@ mod tests {
             },
             make_wildcard_arm(),
         ];
-        let result = check_exhaustiveness(&arms, &Type::String);
+        let result = check_exhaustiveness(&arms, &Type::String, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -2005,7 +2184,7 @@ mod tests {
             pattern: TypedPattern::Literal(TypedExpr::String("hello".to_string())),
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &Type::String);
+        let result = check_exhaustiveness(&arms, &Type::String, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::NonExhaustive(_)));
     }
 
@@ -2018,7 +2197,7 @@ mod tests {
             },
             make_wildcard_arm(),
         ];
-        let result = check_exhaustiveness(&arms, &Type::BigInt);
+        let result = check_exhaustiveness(&arms, &Type::BigInt, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -2028,7 +2207,7 @@ mod tests {
             pattern: TypedPattern::Literal(TypedExpr::BigInt(0)),
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &Type::BigInt);
+        let result = check_exhaustiveness(&arms, &Type::BigInt, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::NonExhaustive(_)));
     }
 
@@ -2044,7 +2223,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &Type::Int);
+        let result = check_exhaustiveness(&arms, &Type::Int, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -2058,7 +2237,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &Type::Bool);
+        let result = check_exhaustiveness(&arms, &Type::Bool, &DefinitionLookup::empty());
         // Only matches true, not false
         assert!(matches!(result, Exhaustiveness::NonExhaustive(_)));
     }
@@ -2081,7 +2260,7 @@ mod tests {
                 result: TypedExpr::Int(1),
             },
         ];
-        let result = check_exhaustiveness(&arms, &list_ty);
+        let result = check_exhaustiveness(&arms, &list_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -2105,7 +2284,7 @@ mod tests {
                 result: TypedExpr::Int(1),
             },
         ];
-        let result = check_exhaustiveness(&arms, &list_ty);
+        let result = check_exhaustiveness(&arms, &list_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -2120,7 +2299,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &tuple_ty);
+        let result = check_exhaustiveness(&arms, &tuple_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -2162,7 +2341,7 @@ mod tests {
                 result: TypedExpr::Int(1),
             },
         ];
-        let result = check_exhaustiveness(&arms, &tuple_ty);
+        let result = check_exhaustiveness(&arms, &tuple_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -2175,7 +2354,7 @@ mod tests {
             make_bool_arm(true),
             make_bool_arm(false),
         ];
-        let unreachable = check_usefulness(&arms, &Type::Bool);
+        let unreachable = check_usefulness(&arms, &Type::Bool, &DefinitionLookup::empty());
         assert_eq!(unreachable, vec![1, 2]);
     }
 
@@ -2197,7 +2376,7 @@ mod tests {
                 result: TypedExpr::Int(1),
             },
         ];
-        let unreachable = check_usefulness(&arms, &option_ty);
+        let unreachable = check_usefulness(&arms, &option_ty, &DefinitionLookup::empty());
         assert_eq!(unreachable, vec![1]);
     }
 
@@ -2230,7 +2409,7 @@ mod tests {
                 result: TypedExpr::Int(2),
             },
         ];
-        let unreachable = check_usefulness(&arms, &color_ty);
+        let unreachable = check_usefulness(&arms, &color_ty, &DefinitionLookup::empty());
         assert_eq!(unreachable, vec![1]);
     }
 
@@ -2253,7 +2432,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &option_ty);
+        let result = check_exhaustiveness(&arms, &option_ty, &DefinitionLookup::empty());
         match result {
             Exhaustiveness::NonExhaustive(witnesses) => {
                 assert!(!witnesses.is_empty());
@@ -2289,7 +2468,7 @@ mod tests {
                 result: TypedExpr::Int(1),
             },
         ];
-        let result = check_exhaustiveness(&arms, &tuple_ty);
+        let result = check_exhaustiveness(&arms, &tuple_ty, &DefinitionLookup::empty());
         match result {
             Exhaustiveness::NonExhaustive(witnesses) => {
                 assert!(!witnesses.is_empty());
@@ -2307,14 +2486,14 @@ mod tests {
     fn test_single_wildcard_covers_struct() {
         let struct_ty = make_struct_type("Point", vec![("x", Type::Int), ("y", Type::Int)]);
         let arms = vec![make_wildcard_arm()];
-        let result = check_exhaustiveness(&arms, &struct_ty);
+        let result = check_exhaustiveness(&arms, &struct_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
     #[test]
     fn test_var_pattern_covers_all() {
         let arms = vec![make_var_arm("x", Type::Int)];
-        let result = check_exhaustiveness(&arms, &Type::Int);
+        let result = check_exhaustiveness(&arms, &Type::Int, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -2348,7 +2527,7 @@ mod tests {
                 result: TypedExpr::Int(1),
             },
         ];
-        let result = check_exhaustiveness(&arms, &result_ty);
+        let result = check_exhaustiveness(&arms, &result_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -2371,7 +2550,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &triple_ty);
+        let result = check_exhaustiveness(&arms, &triple_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -2390,7 +2569,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &pair_ty);
+        let result = check_exhaustiveness(&arms, &pair_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -2409,7 +2588,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &struct_ty);
+        let result = check_exhaustiveness(&arms, &struct_ty, &DefinitionLookup::empty());
         match result {
             Exhaustiveness::NonExhaustive(witnesses) => {
                 let missing = witnesses[0].to_string(std::slice::from_ref(&struct_ty));
@@ -2435,7 +2614,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &option_ty);
+        let result = check_exhaustiveness(&arms, &option_ty, &DefinitionLookup::empty());
         match result {
             Exhaustiveness::NonExhaustive(witnesses) => {
                 let missing = witnesses[0].to_string(std::slice::from_ref(&option_ty));
@@ -2466,7 +2645,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &msg_ty);
+        let result = check_exhaustiveness(&arms, &msg_ty, &DefinitionLookup::empty());
         match result {
             Exhaustiveness::NonExhaustive(witnesses) => {
                 let missing = witnesses[0].to_string(std::slice::from_ref(&msg_ty));
@@ -2488,7 +2667,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &tuple_ty);
+        let result = check_exhaustiveness(&arms, &tuple_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -2502,7 +2681,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &tuple_ty);
+        let result = check_exhaustiveness(&arms, &tuple_ty, &DefinitionLookup::empty());
         match result {
             Exhaustiveness::NonExhaustive(witnesses) => {
                 let missing = witnesses[0].to_string(std::slice::from_ref(&tuple_ty));
@@ -2529,7 +2708,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &struct_ty);
+        let result = check_exhaustiveness(&arms, &struct_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -2543,7 +2722,7 @@ mod tests {
             },
             result: TypedExpr::Int(0),
         }];
-        let result = check_exhaustiveness(&arms, &msg_ty);
+        let result = check_exhaustiveness(&arms, &msg_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -2564,7 +2743,7 @@ mod tests {
             },
             make_wildcard_arm(),
         ];
-        let result = check_exhaustiveness(&arms, &list_ty);
+        let result = check_exhaustiveness(&arms, &list_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -2578,7 +2757,7 @@ mod tests {
             ret: Box::new(Type::Bool),
         };
         let arms = vec![make_wildcard_arm()];
-        let result = check_exhaustiveness(&arms, &func_ty);
+        let result = check_exhaustiveness(&arms, &func_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -2587,7 +2766,7 @@ mod tests {
         // Type variables are treated as Infinite (conservative)
         let var_ty = Type::Var(TypeVarId(0));
         let arms = vec![make_wildcard_arm()];
-        let result = check_exhaustiveness(&arms, &var_ty);
+        let result = check_exhaustiveness(&arms, &var_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -2628,7 +2807,7 @@ mod tests {
                 result: TypedExpr::Int(1),
             },
         ];
-        let result = check_exhaustiveness(&arms, &shape_ty);
+        let result = check_exhaustiveness(&arms, &shape_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -2668,7 +2847,7 @@ mod tests {
                 result: TypedExpr::Int(1),
             },
         ];
-        let result = check_exhaustiveness(&arms, &outer_option);
+        let result = check_exhaustiveness(&arms, &outer_option, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -2696,7 +2875,7 @@ mod tests {
                 result: TypedExpr::Int(2),
             },
         ];
-        let result = check_exhaustiveness(&arms, &list_ty);
+        let result = check_exhaustiveness(&arms, &list_ty, &DefinitionLookup::empty());
         assert!(matches!(result, Exhaustiveness::Exhaustive));
     }
 
@@ -2715,7 +2894,7 @@ mod tests {
             },
             make_wildcard_arm(),
         ];
-        let unreachable = check_usefulness(&arms, &Type::Float);
+        let unreachable = check_usefulness(&arms, &Type::Float, &DefinitionLookup::empty());
         assert_eq!(unreachable, vec![1]);
     }
 
@@ -2732,7 +2911,7 @@ mod tests {
             },
             make_wildcard_arm(),
         ];
-        let unreachable = check_usefulness(&arms, &Type::Float);
+        let unreachable = check_usefulness(&arms, &Type::Float, &DefinitionLookup::empty());
         assert!(unreachable.is_empty());
     }
 
@@ -2751,7 +2930,7 @@ mod tests {
             },
             make_wildcard_arm(),
         ];
-        let unreachable = check_usefulness(&arms, &Type::String);
+        let unreachable = check_usefulness(&arms, &Type::String, &DefinitionLookup::empty());
         assert_eq!(unreachable, vec![1]);
     }
 
@@ -2760,14 +2939,14 @@ mod tests {
     #[test]
     fn test_check_patterns_exhaustive_no_unreachable() {
         let arms = vec![make_bool_arm(true), make_bool_arm(false)];
-        let result = check_patterns(&arms, &Type::Bool);
+        let result = check_patterns(&arms, &Type::Bool, &DefinitionLookup::empty());
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_check_patterns_non_exhaustive_error() {
         let arms = vec![make_bool_arm(true)];
-        let result = check_patterns(&arms, &Type::Bool);
+        let result = check_patterns(&arms, &Type::Bool, &DefinitionLookup::empty());
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("non-exhaustive"));
@@ -2777,7 +2956,7 @@ mod tests {
     #[test]
     fn test_check_patterns_unreachable_error() {
         let arms = vec![make_wildcard_arm(), make_bool_arm(true)];
-        let result = check_patterns(&arms, &Type::Bool);
+        let result = check_patterns(&arms, &Type::Bool, &DefinitionLookup::empty());
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("unreachable"));
@@ -2790,11 +2969,159 @@ mod tests {
             make_bool_arm(true),
             make_bool_arm(false),
         ];
-        let result = check_patterns(&arms, &Type::Bool);
+        let result = check_patterns(&arms, &Type::Bool, &DefinitionLookup::empty());
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("unreachable"));
         // Should mention both patterns 2 and 3
         assert!(err.message.contains("2") && err.message.contains("3"));
+    }
+
+    // ==================== DefinitionLookup Tests ====================
+
+    #[test]
+    fn test_lookup_resolves_empty_enum_variants() {
+        // Simulate a recursive type stub: enum with empty variants
+        let stub_ty = Type::Enum {
+            name: "Option".to_string(),
+            type_args: vec![],
+            variants: vec![], // empty stub
+        };
+
+        // Build a lookup with the real definition
+        let mut lookup = DefinitionLookup::empty();
+        lookup.enums.insert(
+            "Option".to_string(),
+            (
+                vec![],
+                vec![
+                    ("None".to_string(), EnumVariantType::Unit),
+                    ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Int])),
+                ],
+            ),
+        );
+
+        // from_type should return the real constructors
+        let ctors = TypeCtors::from_type(&stub_ty, &lookup);
+        match ctors {
+            TypeCtors::Finite(cs) => {
+                assert_eq!(cs.len(), 2);
+            }
+            _ => panic!("expected Finite"),
+        }
+    }
+
+    #[test]
+    fn test_lookup_resolves_empty_struct_fields() {
+        // Simulate a recursive type stub: struct with empty fields
+        let stub_ty = Type::Struct {
+            name: "Node".to_string(),
+            type_args: vec![],
+            fields: vec![], // empty stub
+        };
+
+        // Build a lookup with the real definition
+        let mut lookup = DefinitionLookup::empty();
+        lookup.structs.insert(
+            "Node".to_string(),
+            (
+                vec![],
+                vec![
+                    ("value".to_string(), Type::Int),
+                    (
+                        "children".to_string(),
+                        Type::List(Box::new(stub_ty.clone())),
+                    ),
+                ],
+            ),
+        );
+
+        // from_type should return the real constructor with correct arity
+        let ctors = TypeCtors::from_type(&stub_ty, &lookup);
+        match ctors {
+            TypeCtors::Finite(cs) => {
+                assert_eq!(cs.len(), 1);
+                assert_eq!(cs[0].arity(&stub_ty), 2);
+            }
+            _ => panic!("expected Finite"),
+        }
+    }
+
+    #[test]
+    fn test_lookup_skips_non_empty_variants() {
+        // Enum already has variants — lookup should NOT override them
+        let full_ty = make_enum_type(
+            "Color",
+            vec![
+                ("Red", EnumVariantType::Unit),
+                ("Green", EnumVariantType::Unit),
+            ],
+        );
+
+        let mut lookup = DefinitionLookup::empty();
+        lookup.enums.insert(
+            "Color".to_string(),
+            (
+                vec![],
+                vec![
+                    ("Red".to_string(), EnumVariantType::Unit),
+                    ("Green".to_string(), EnumVariantType::Unit),
+                    ("Blue".to_string(), EnumVariantType::Unit),
+                ],
+            ),
+        );
+
+        let ctors = TypeCtors::from_type(&full_ty, &lookup);
+        match ctors {
+            TypeCtors::Finite(cs) => {
+                // Should use the 2-variant type, not the 3-variant lookup
+                assert_eq!(cs.len(), 2);
+            }
+            _ => panic!("expected Finite"),
+        }
+    }
+
+    #[test]
+    fn test_lookup_resolves_generic_enum() {
+        // Generic enum stub with type args
+        let stub_ty = Type::Enum {
+            name: "Option".to_string(),
+            type_args: vec![Type::String],
+            variants: vec![], // empty stub
+        };
+
+        let type_var = TypeVarId(99);
+        let mut lookup = DefinitionLookup::empty();
+        lookup.enums.insert(
+            "Option".to_string(),
+            (
+                vec![type_var],
+                vec![
+                    ("None".to_string(), EnumVariantType::Unit),
+                    (
+                        "Some".to_string(),
+                        EnumVariantType::Tuple(vec![Type::Var(type_var)]),
+                    ),
+                ],
+            ),
+        );
+
+        let ctors = TypeCtors::from_type(&stub_ty, &lookup);
+        match ctors {
+            TypeCtors::Finite(cs) => {
+                assert_eq!(cs.len(), 2);
+                // The Some variant should have String field type (substituted)
+                if let Constructor::EnumVariant {
+                    kind: EnumVariantConstructorKind::Tuple { field_types, .. },
+                    ..
+                } = &cs[1]
+                {
+                    assert_eq!(field_types, &[Type::String]);
+                } else {
+                    panic!("expected Some to be a Tuple variant");
+                }
+            }
+            _ => panic!("expected Finite"),
+        }
     }
 }

@@ -895,7 +895,8 @@ fn check_match_expr(
 
     // Check exhaustiveness and usefulness for all types
     let resolved_scrutinee_ty = ctx.resolve(&scrutinee_ty);
-    usefulness::check_patterns(&typed_arms, &resolved_scrutinee_ty)?;
+    let def_lookup = usefulness::DefinitionLookup::from_definitions(&env.definitions);
+    usefulness::check_patterns(&typed_arms, &resolved_scrutinee_ty, &def_lookup)?;
 
     Ok(TypedExpr::Match {
         scrutinee: Box::new(typed_scrutinee),
@@ -1421,11 +1422,19 @@ fn check_field_access(
         Type::Struct {
             name,
             fields: struct_fields,
+            type_args,
             ..
         } => {
-            // Find the field directly in the resolved type
+            // If fields are empty (recursive type stub), look up real fields from definitions
+            let actual_fields: Vec<(String, Type)> = if struct_fields.is_empty() {
+                lookup_struct_fields(name, type_args, &env.definitions)
+                    .unwrap_or_else(|| struct_fields.clone())
+            } else {
+                struct_fields.clone()
+            };
+
             let (_, field_type) =
-                struct_fields
+                actual_fields
                     .iter()
                     .find(|(n, _)| n == field)
                     .ok_or_else(|| TypeError {
@@ -1606,6 +1615,39 @@ pub(crate) fn substitute_variant_type_vars(
                 .collect(),
         ),
     }
+}
+
+/// Look up struct fields from definitions when the type carries empty fields (recursive type stub).
+fn lookup_struct_fields(
+    name: &str,
+    type_args: &[Type],
+    definitions: &HashMap<QualifiedPath, Definition>,
+) -> Option<Vec<(String, Type)>> {
+    for def in definitions.values() {
+        if let Definition::Struct(struct_type) = def
+            && struct_type.name == name
+            && !struct_type.fields.is_empty()
+        {
+            if type_args.is_empty() || struct_type.type_var_ids.is_empty() {
+                return Some(struct_type.fields.clone());
+            }
+            // Build substitution: type_var_ids -> type_args
+            let mapping: HashMap<TypeVarId, Type> = struct_type
+                .type_var_ids
+                .iter()
+                .zip(type_args.iter())
+                .map(|(id, ty)| (*id, ty.clone()))
+                .collect();
+            return Some(
+                struct_type
+                    .fields
+                    .iter()
+                    .map(|(n, t)| (n.clone(), substitute_type_vars(t, &mapping)))
+                    .collect(),
+            );
+        }
+    }
+    None
 }
 
 /// Check if an expression is a syntactic value (safe to generalize under value restriction)
