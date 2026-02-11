@@ -184,6 +184,32 @@ mod tests {
     }
 
     #[test]
+    fn test_std_has_panic_function() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("panic");
+        let def = pkg.definitions.get(&path).expect("panic definition");
+        assert!(matches!(def, Definition::Function(_)));
+    }
+
+    #[test]
+    fn test_std_has_panic_in_items() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("panic");
+        let func = pkg.items.get(&path).expect("panic in items");
+        assert!(func.is_builtin);
+    }
+
+    #[test]
+    fn test_std_prelude_has_panic() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("prelude").child("panic");
+        assert!(
+            pkg.definitions.contains_key(&path),
+            "panic should be re-exported in prelude module"
+        );
+    }
+
+    #[test]
     fn test_std_is_cached() {
         let a = std();
         let b = std();

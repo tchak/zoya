@@ -1,2 +1,3 @@
 pub use root::option::*
 pub use root::result::*
+pub use root::panic

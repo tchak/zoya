@@ -1105,6 +1105,9 @@ fn codegen_builtin_function(func: &TypedFunction, path: &QualifiedPath) -> Strin
     let (param_names, _) = codegen_params(&func.params);
     let path_key = path.segments().join("::");
     let body = match path_key.as_str() {
+        "root::panic" => {
+            "throw new Error(\"$$panic:\" + $message);".to_string()
+        }
         "root::json::parse" => {
             "try { return { $tag: \"Ok\", $0: $$json_to_zoya(JSON.parse($value)) }; } catch(_) { return { $tag: \"Err\", $0: { $tag: \"ParseError\" } }; }".to_string()
         }

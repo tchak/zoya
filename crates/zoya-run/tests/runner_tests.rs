@@ -5780,3 +5780,76 @@ fn test_run_tuple_index_in_expression() {
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(30));
 }
+
+// ===== Panic Tests =====
+
+#[test]
+fn test_run_panic_produces_error() {
+    let source = r#"
+        pub fn main() -> Int {
+            panic("something went wrong")
+        }
+    "#;
+    let result = run_source(source);
+    assert!(matches!(
+        result,
+        Err(EvalError::Panic(msg)) if msg == "something went wrong"
+    ));
+}
+
+#[test]
+fn test_run_panic_with_string_return_type() {
+    let source = r#"
+        pub fn main() -> String {
+            panic("not implemented")
+        }
+    "#;
+    let result = run_source(source);
+    assert!(matches!(result, Err(EvalError::Panic(_))));
+}
+
+#[test]
+fn test_run_panic_with_bool_return_type() {
+    let source = r#"
+        pub fn main() -> Bool {
+            panic("unreachable")
+        }
+    "#;
+    let result = run_source(source);
+    assert!(matches!(result, Err(EvalError::Panic(_))));
+}
+
+#[test]
+fn test_run_panic_in_match_arm() {
+    let source = r#"
+        pub fn main() -> Int {
+            let x = 5;
+            match x {
+                0 => 0,
+                _ => panic("unexpected value"),
+            }
+        }
+    "#;
+    let result = run_source(source);
+    assert!(matches!(
+        result,
+        Err(EvalError::Panic(msg)) if msg == "unexpected value"
+    ));
+}
+
+#[test]
+fn test_run_panic_in_called_function() {
+    let source = r#"
+        fn todo(message: String) -> Int {
+            panic(message)
+        }
+        pub fn main() -> Int {
+            todo("not yet")
+        }
+    "#;
+    let result = run_source(source);
+    assert!(matches!(
+        result,
+        Err(EvalError::Panic(msg)) if msg == "not yet"
+    ));
+}

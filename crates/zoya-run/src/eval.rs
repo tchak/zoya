@@ -232,7 +232,12 @@ pub(crate) fn create_module_runtime(
 
 fn map_js_error(e: rquickjs::CaughtError<'_>) -> EvalError {
     let msg = e.to_string();
-    if msg.contains("division by zero") {
+    if let Some(idx) = msg.find("$$panic:") {
+        let start = idx + "$$panic:".len();
+        let rest = &msg[start..];
+        let panic_msg = rest.lines().next().unwrap_or(rest);
+        EvalError::Panic(panic_msg.to_string())
+    } else if msg.contains("division by zero") {
         EvalError::DivisionByZero
     } else {
         EvalError::RuntimeError(msg)
@@ -411,6 +416,8 @@ impl fmt::Display for Value {
 pub enum EvalError {
     #[error("division by zero")]
     DivisionByZero,
+    #[error("panic: {0}")]
+    Panic(String),
     #[error("runtime error: {0}")]
     RuntimeError(String),
 }

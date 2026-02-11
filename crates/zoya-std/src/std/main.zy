@@ -2,3 +2,6 @@ pub mod json
 pub mod option
 pub mod prelude
 pub mod result
+
+#[builtin]
+pub fn panic<T>(message: String) -> T ()
