@@ -7,14 +7,17 @@ use rquickjs::{BigInt, CatchResultExt, Context, Ctx, Module, Result as QjsResult
 
 use zoya_ir::{EnumVariantType, Type, TypeVarId};
 
+type EnumLookup = HashMap<String, (Vec<TypeVarId>, Vec<(String, EnumVariantType)>)>;
+type StructLookup = HashMap<String, (Vec<TypeVarId>, Vec<(String, Type)>)>;
+
 /// Lookup table for resolving recursive type stubs.
 ///
 /// Recursive types (e.g., `enum JSON { Array(List<JSON>), ... }`) are represented
 /// with empty variants/fields at inner recursive references. This lookup resolves
 /// those stubs to the real type information during JS→Zoya value deserialization.
 pub(crate) struct TypeLookup {
-    pub(crate) enums: HashMap<String, (Vec<TypeVarId>, Vec<(String, EnumVariantType)>)>,
-    pub(crate) structs: HashMap<String, (Vec<TypeVarId>, Vec<(String, Type)>)>,
+    pub(crate) enums: EnumLookup,
+    pub(crate) structs: StructLookup,
 }
 
 impl TypeLookup {
