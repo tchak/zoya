@@ -10,6 +10,7 @@ pub struct TypedFunction {
     pub params: Vec<(TypedPattern, Type)>,
     pub body: TypedExpr,
     pub return_type: Type,
+    pub is_builtin: bool,
 }
 
 /// Typed let binding

@@ -1,5 +1,6 @@
 use zoya_ast::{
-    BinOp, Expr, FunctionDef, Item, MatchArm, Param, Path, Pattern, TypeAnnotation, Visibility,
+    Attribute, BinOp, Expr, FunctionDef, Item, MatchArm, Param, Path, Pattern, TypeAnnotation,
+    Visibility,
 };
 use zoya_ir::{Definition, FunctionType, QualifiedPath, Type};
 
@@ -172,7 +173,7 @@ fn test_check_function_def() {
         },
     };
 
-    let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx).unwrap();
+    let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx, "test").unwrap();
     assert_eq!(result.name, "double");
     assert_eq!(result.return_type, Type::Int);
 }
@@ -194,7 +195,7 @@ fn test_check_function_def_return_type_mismatch() {
         body: Expr::Path(Path::simple("x".to_string())), // Returns Int, not Float
     };
 
-    let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx);
+    let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx, "test");
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("declares return type"));
 }
@@ -234,7 +235,7 @@ fn test_check_function_def_with_call() {
         },
     };
 
-    let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx).unwrap();
+    let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx, "test").unwrap();
     assert_eq!(result.return_type, Type::Int);
 }
 
@@ -599,7 +600,7 @@ fn test_function_def_invalid_name_pascal_case() {
         return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
         body: Expr::Int(42),
     };
-    let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx);
+    let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx, "test");
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.message.contains("should be snake_case"));
@@ -621,7 +622,7 @@ fn test_function_def_invalid_type_param() {
         return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
         body: Expr::Path(Path::simple("x".to_string())),
     };
-    let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx);
+    let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx, "test");
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.message.contains("type parameter") && err.message.contains("should be PascalCase"));
@@ -643,11 +644,99 @@ fn test_function_def_refutable_param_pattern() {
         return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
         body: Expr::Int(0),
     };
-    let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx);
+    let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx, "test");
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(
         err.message
             .contains("refutable pattern in function parameter")
     );
+}
+
+#[test]
+fn test_builtin_not_allowed_outside_std() {
+    let env = TypeEnv::default();
+    let mut ctx = UnifyCtx::new();
+    let func = FunctionDef {
+        attributes: vec![Attribute {
+            name: "builtin".to_string(),
+        }],
+        visibility: Visibility::Public,
+        name: "my_builtin".to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+        body: Expr::Tuple(vec![]),
+    };
+    let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx, "test");
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        err.message
+            .contains("can only be used in the standard library")
+    );
+}
+
+#[test]
+fn test_builtin_requires_explicit_return_type() {
+    let env = TypeEnv::default();
+    let mut ctx = UnifyCtx::new();
+    let func = FunctionDef {
+        attributes: vec![Attribute {
+            name: "builtin".to_string(),
+        }],
+        visibility: Visibility::Public,
+        name: "my_builtin".to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: None,
+        body: Expr::Tuple(vec![]),
+    };
+    let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx, "std");
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.message.contains("must have an explicit return type"));
+}
+
+#[test]
+fn test_builtin_requires_unit_body() {
+    let env = TypeEnv::default();
+    let mut ctx = UnifyCtx::new();
+    let func = FunctionDef {
+        attributes: vec![Attribute {
+            name: "builtin".to_string(),
+        }],
+        visibility: Visibility::Public,
+        name: "my_builtin".to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+        body: Expr::Int(42),
+    };
+    let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx, "std");
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.message.contains("must have a unit body"));
+}
+
+#[test]
+fn test_builtin_valid_in_std() {
+    let env = TypeEnv::default();
+    let mut ctx = UnifyCtx::new();
+    let func = FunctionDef {
+        attributes: vec![Attribute {
+            name: "builtin".to_string(),
+        }],
+        visibility: Visibility::Public,
+        name: "my_builtin".to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+        body: Expr::Tuple(vec![]),
+    };
+    let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx, "std");
+    assert!(result.is_ok());
+    let typed = result.unwrap();
+    assert!(typed.is_builtin);
+    assert_eq!(typed.return_type, Type::Int);
 }

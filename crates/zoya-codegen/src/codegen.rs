@@ -67,6 +67,16 @@ function $$eq(a, b) {
 function $$list_idx(arr, i) {
   const idx = i < 0 ? arr.length + i : i;
   return idx >= 0 && idx < arr.length ? { $tag: "Some", $0: arr[idx] } : { $tag: "None" };
+}
+function $$json_to_zoya(v) {
+  if (v === null) return { $tag: "Null" };
+  if (typeof v === "boolean") return { $tag: "Bool", $0: v };
+  if (typeof v === "number") return Number.isInteger(v)
+    ? { $tag: "Number", $0: { $tag: "Int", $0: v } }
+    : { $tag: "Number", $0: { $tag: "Float", $0: v } };
+  if (typeof v === "string") return { $tag: "String", $0: v };
+  if (Array.isArray(v)) return { $tag: "Array", $0: v.map($$json_to_zoya) };
+  return { $tag: "Object", $0: Object.entries(v).map(([k, val]) => [k, $$json_to_zoya(val)]) };
 }"#
 }
 
@@ -889,6 +899,10 @@ fn codegen_params(params: &[(TypedPattern, Type)]) -> (Vec<String>, Vec<String>)
 }
 
 fn codegen_function(func: &TypedFunction, path: &QualifiedPath) -> String {
+    if func.is_builtin {
+        return codegen_builtin_function(func, path);
+    }
+
     let (param_names, prologue) = codegen_params(&func.params);
     let body = codegen_expr(&func.body);
 
@@ -908,6 +922,27 @@ fn codegen_function(func: &TypedFunction, path: &QualifiedPath) -> String {
             body
         )
     }
+}
+
+/// Generate JS code for a builtin function by looking up its implementation.
+fn codegen_builtin_function(func: &TypedFunction, path: &QualifiedPath) -> String {
+    let (param_names, _) = codegen_params(&func.params);
+    let path_key = path.segments().join("::");
+    let body = match path_key.as_str() {
+        "root::json::parse" => {
+            "try { return { $tag: \"Ok\", $0: $$json_to_zoya(JSON.parse($value)) }; } catch(_) { return { $tag: \"Err\", $0: { $tag: \"ParseError\" } }; }".to_string()
+        }
+        _ => panic!(
+            "no builtin JS implementation for '{}' — every #[builtin] function must have a codegen entry",
+            path_key
+        ),
+    };
+    format!(
+        "function {}({}) {{ {} }}",
+        format_path(path),
+        param_names.join(", "),
+        body
+    )
 }
 
 fn format_float(n: f64) -> String {
@@ -1194,6 +1229,7 @@ mod tests {
                 ty: Type::Int,
             },
             return_type: Type::Int,
+            is_builtin: false,
         };
         assert_eq!(
             codegen_function(&func, &QualifiedPath::root().child(&func.name)),
@@ -1234,6 +1270,7 @@ mod tests {
                 ty: Type::Int,
             },
             return_type: Type::Int,
+            is_builtin: false,
         };
         assert_eq!(
             codegen_function(&func, &QualifiedPath::root().child(&func.name)),
@@ -1248,6 +1285,7 @@ mod tests {
             params: vec![],
             body: TypedExpr::Int(42),
             return_type: Type::Int,
+            is_builtin: false,
         };
         assert_eq!(
             codegen_function(&func, &QualifiedPath::root().child(&func.name)),
@@ -1276,6 +1314,7 @@ mod tests {
                 ty: Type::BigInt,
             },
             return_type: Type::BigInt,
+            is_builtin: false,
         };
         assert_eq!(
             codegen_function(&func, &QualifiedPath::root().child(&func.name)),

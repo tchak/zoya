@@ -126,7 +126,8 @@ fn helper() -> Internal {        // OK: private function returning private type
 ## Function Definitions
 
 ```
-function_def ::= visibility 'fn' identifier type_params? '(' params? ')' ('->' type)? body
+function_def ::= attribute* visibility 'fn' identifier type_params? '(' params? ')' ('->' type)? body
+attribute    ::= '#[' identifier ']'
 type_params  ::= '<' identifier (',' identifier)* '>'
 params       ::= param (',' param)* ','?
 param        ::= pattern ':' type
@@ -183,6 +184,24 @@ fn negate(x: Int) -> Int -x
 pub fn add(x: Int, y: Int) -> Int x + y
 fn curry_add(x: Int) -> Int -> Int |y| x + y
 ```
+
+### Builtin Functions
+
+The `#[builtin]` attribute declares a function whose implementation is provided by the compiler rather than written in Zoya. The function signature is type-checked normally, but the body must be the unit expression `()` and the return type must be explicitly annotated.
+
+```
+builtin_function_def ::= '#[builtin]' visibility 'fn' identifier type_params? '(' params? ')' '->' type '()'
+```
+
+Builtin functions are restricted to the standard library. Attempting to use `#[builtin]` outside the `std` package is an error.
+
+```zoya
+// In std::json
+#[builtin]
+pub fn parse(value: String) -> Result<JSON, ParseError> ()
+```
+
+The compiler substitutes a JavaScript implementation at code generation time. Every `#[builtin]` function must have a corresponding implementation registered in the code generator.
 
 ## Struct Definitions
 

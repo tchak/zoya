@@ -160,6 +160,30 @@ mod tests {
     }
 
     #[test]
+    fn test_std_has_json_parse_error_enum() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("json").child("ParseError");
+        let def = pkg.definitions.get(&path).expect("ParseError definition");
+        assert!(matches!(def, Definition::Enum(_)));
+    }
+
+    #[test]
+    fn test_std_has_json_parse_function() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("json").child("parse");
+        let def = pkg.definitions.get(&path).expect("parse definition");
+        assert!(matches!(def, Definition::Function(_)));
+    }
+
+    #[test]
+    fn test_std_has_json_parse_in_items() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("json").child("parse");
+        let func = pkg.items.get(&path).expect("parse in items");
+        assert!(func.is_builtin);
+    }
+
+    #[test]
     fn test_std_is_cached() {
         let a = std();
         let b = std();

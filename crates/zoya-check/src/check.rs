@@ -77,6 +77,7 @@ fn check_function(
     current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
+    package_name: &str,
 ) -> Result<TypedFunction, TypeError> {
     // Check function name is snake_case
     if !is_snake_case(&func.name) {
@@ -132,6 +133,50 @@ fn check_function(
         typed_params.push((typed_pattern, ctx.resolve(&ty)));
     }
 
+    // Check for #[builtin] attribute
+    let is_builtin = func.attributes.iter().any(|a| a.name == "builtin");
+
+    if is_builtin {
+        // Validate: only allowed in std package
+        if package_name != "std" {
+            return Err(TypeError {
+                message: "the #[builtin] attribute can only be used in the standard library"
+                    .to_string(),
+            });
+        }
+        // Validate: must have explicit return type
+        if func.return_type.is_none() {
+            return Err(TypeError {
+                message: "#[builtin] functions must have an explicit return type".to_string(),
+            });
+        }
+        // Validate: body must be unit `()`
+        if func.body != Expr::Tuple(vec![]) {
+            return Err(TypeError {
+                message: "#[builtin] functions must have a unit body ()".to_string(),
+            });
+        }
+
+        let declared_return = resolve_type_annotation(
+            func.return_type.as_ref().unwrap(),
+            &type_param_map,
+            current_module,
+            env,
+        )?;
+
+        // Create environment with locals for checking body (still needed for typed_body)
+        let body_env = env.with_locals(locals);
+        let typed_body = check_expr(&func.body, current_module, &body_env, ctx)?;
+
+        return Ok(TypedFunction {
+            name: func.name.clone(),
+            params: typed_params,
+            body: typed_body,
+            return_type: ctx.resolve(&declared_return),
+            is_builtin: true,
+        });
+    }
+
     // Create environment with locals for checking body
     let body_env = env.with_locals(locals);
 
@@ -165,6 +210,7 @@ fn check_function(
         params: typed_params,
         body: typed_body,
         return_type: ctx.resolve(&return_type),
+        is_builtin: false,
     })
 }
 
@@ -2072,7 +2118,8 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
     let mut checked_items = HashMap::new();
     for path in &module_paths {
         if let Some(module) = pkg.modules.get(path) {
-            let functions = check_module_bodies(&module.items, path, &mut env, &mut ctx)?;
+            let functions =
+                check_module_bodies(&module.items, path, &mut env, &mut ctx, &pkg.name)?;
             for func in functions {
                 let func_path = path.child(&func.name);
                 checked_items.insert(func_path, func);
@@ -2215,8 +2262,47 @@ fn register_module_declarations(
     for item in items {
         if let Item::Function(func) = item {
             let qualified_path = current_module.child(&func.name);
-            let func_type = function_type_from_def(func, current_module, env, ctx)?;
-            env.register(qualified_path, Definition::Function(func_type));
+            let is_builtin = func.attributes.iter().any(|a| a.name == "builtin");
+            if is_builtin {
+                // Builtin functions may reference types from other modules that aren't
+                // registered yet. Use a placeholder return type; Phase 2 (check_function)
+                // will resolve the actual return type.
+                let mut type_var_ids = Vec::new();
+                for _ in &func.type_params {
+                    let var = ctx.fresh_var();
+                    if let Type::Var(id) = var {
+                        type_var_ids.push(id);
+                    }
+                }
+                let mut param_types = Vec::new();
+                // Resolve parameter types that are likely local (simple types)
+                // For builtins, params typically use types already in scope
+                let type_param_map: HashMap<String, _> = func
+                    .type_params
+                    .iter()
+                    .zip(type_var_ids.iter())
+                    .map(|(name, id)| (name.clone(), *id))
+                    .collect();
+                for param in &func.params {
+                    let ty =
+                        resolve_type_annotation(&param.typ, &type_param_map, current_module, env)?;
+                    param_types.push(ty);
+                }
+                env.register(
+                    qualified_path,
+                    Definition::Function(FunctionType {
+                        visibility: func.visibility,
+                        module: current_module.clone(),
+                        type_params: func.type_params.clone(),
+                        type_var_ids,
+                        params: param_types,
+                        return_type: ctx.fresh_var(),
+                    }),
+                );
+            } else {
+                let func_type = function_type_from_def(func, current_module, env, ctx)?;
+                env.register(qualified_path, Definition::Function(func_type));
+            }
         }
     }
 
@@ -2231,12 +2317,13 @@ fn check_module_bodies(
     current_module: &QualifiedPath,
     env: &mut TypeEnv,
     ctx: &mut UnifyCtx,
+    package_name: &str,
 ) -> Result<Vec<TypedFunction>, TypeError> {
     let mut checked_items = Vec::new();
 
     for item in items {
         if let Item::Function(func) = item {
-            let typed = check_function_in_module(func, current_module, env, ctx)?;
+            let typed = check_function_in_module(func, current_module, env, ctx, package_name)?;
             // Update the definition's return type immediately so subsequent
             // functions that call this one see the resolved concrete type
             // instead of the Phase 1 unresolved Type::Var.
@@ -2257,8 +2344,9 @@ fn check_function_in_module(
     current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
+    package_name: &str,
 ) -> Result<TypedFunction, TypeError> {
-    check_function(func, current_module, env, ctx)
+    check_function(func, current_module, env, ctx, package_name)
 }
 
 #[cfg(test)]

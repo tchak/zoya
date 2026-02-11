@@ -4958,3 +4958,127 @@ fn test_recursive_enum_non_exhaustive_inner_multi_variant() {
         "non-exhaustive",
     );
 }
+
+// ── builtin function tests ─────────────────────────────────────────
+
+#[test]
+fn test_json_parse_int() {
+    let source = r#"
+        use std::json::{JSON, parse}
+
+        pub fn main() -> Int {
+            match parse("42") {
+                Ok(JSON::Number(_)) => 1,
+                _ => 0,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(1));
+}
+
+#[test]
+fn test_json_parse_string() {
+    let source = r#"
+        use std::json::{JSON, parse}
+
+        pub fn main() -> Int {
+            match parse("\"hello\"") {
+                Ok(JSON::String(s)) => {
+                    match s == "hello" {
+                        true => 1,
+                        false => 0,
+                    }
+                },
+                _ => 0,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(1));
+}
+
+#[test]
+fn test_json_parse_null() {
+    let source = r#"
+        use std::json::{JSON, parse}
+
+        pub fn main() -> Int {
+            match parse("null") {
+                Ok(JSON::Null) => 1,
+                _ => 0,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(1));
+}
+
+#[test]
+fn test_json_parse_bool() {
+    let source = r#"
+        use std::json::{JSON, parse}
+
+        pub fn main() -> Int {
+            match parse("true") {
+                Ok(JSON::Bool(b)) => {
+                    match b {
+                        true => 1,
+                        false => 0,
+                    }
+                },
+                _ => 0,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(1));
+}
+
+#[test]
+fn test_json_parse_array() {
+    let source = r#"
+        use std::json::{JSON, parse}
+
+        pub fn main() -> Int {
+            match parse("[1, 2, 3]") {
+                Ok(JSON::Array(_)) => 1,
+                _ => 0,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(1));
+}
+
+#[test]
+fn test_json_parse_object() {
+    let source = r#"
+        use std::json::{JSON, parse}
+
+        pub fn main() -> Int {
+            match parse("{\"a\": 1}") {
+                Ok(JSON::Object(_)) => 1,
+                _ => 0,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(1));
+}
+
+#[test]
+fn test_json_parse_invalid() {
+    let source = r#"
+        use std::json::{parse, ParseError}
+
+        pub fn main() -> Int {
+            match parse("not json") {
+                Err(ParseError::ParseError) => 1,
+                _ => 0,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(1));
+}

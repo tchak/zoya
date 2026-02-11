@@ -8,3 +8,8 @@ pub enum JSON {
     Array(List<JSON>),
     Object(List<(String, JSON)>),
 }
+
+pub enum ParseError { ParseError }
+
+#[builtin]
+pub fn parse(value: String) -> root::result::Result<JSON, ParseError> ()
