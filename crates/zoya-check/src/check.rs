@@ -1642,6 +1642,68 @@ fn check_field_access(
     }
 }
 
+/// Check a tuple index expression: `tuple.0`, `pair.1`
+fn check_tuple_index(
+    expr: &Expr,
+    index: u64,
+    current_module: &QualifiedPath,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
+    let typed_expr = check_expr(expr, current_module, env, ctx)?;
+    let expr_ty = ctx.resolve(&typed_expr.ty());
+    let index_usize = index as usize;
+
+    match &expr_ty {
+        Type::Tuple(elements) => {
+            if index_usize >= elements.len() {
+                return Err(TypeError {
+                    message: format!(
+                        "tuple index {} is out of bounds for tuple with {} elements",
+                        index,
+                        elements.len()
+                    ),
+                });
+            }
+            Ok(TypedExpr::TupleIndex {
+                expr: Box::new(typed_expr),
+                index: index_usize,
+                ty: elements[index_usize].clone(),
+            })
+        }
+        Type::Struct {
+            name,
+            fields: struct_fields,
+            type_args,
+            ..
+        } => {
+            let actual_fields: Vec<(String, Type)> = if struct_fields.is_empty() {
+                lookup_struct_fields(name, type_args, &env.definitions)
+                    .unwrap_or_else(|| struct_fields.clone())
+            } else {
+                struct_fields.clone()
+            };
+
+            let field_name = format!("${}", index);
+            let (_, field_type) = actual_fields
+                .iter()
+                .find(|(n, _)| n == &field_name)
+                .ok_or_else(|| TypeError {
+                    message: format!("cannot use tuple index {} on struct {}", index, name),
+                })?;
+
+            Ok(TypedExpr::TupleIndex {
+                expr: Box::new(typed_expr),
+                index: index_usize,
+                ty: field_type.clone(),
+            })
+        }
+        _ => Err(TypeError {
+            message: format!("cannot use tuple index on type {}", expr_ty),
+        }),
+    }
+}
+
 /// Check a list index expression: `list[index]` -> Option<T>
 fn check_list_index(
     expr: &Expr,
@@ -1723,6 +1785,9 @@ pub(crate) fn check_expr(
         Expr::Struct { path, fields } => check_path_struct(path, fields, current_module, env, ctx),
         Expr::FieldAccess { expr, field } => {
             check_field_access(expr, field, current_module, env, ctx)
+        }
+        Expr::TupleIndex { expr, index } => {
+            check_tuple_index(expr, *index, current_module, env, ctx)
         }
         Expr::ListIndex { expr, index } => check_list_index(expr, index, current_module, env, ctx),
     }

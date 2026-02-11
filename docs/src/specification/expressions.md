@@ -127,6 +127,29 @@ pair.first
 nested.inner.value
 ```
 
+## Tuple Index
+
+Dot notation with an integer literal accesses an element of a tuple or tuple struct by position.
+
+```
+tuple_index ::= expr '.' integer_literal
+```
+
+```zoya
+(1, "hello").0          // 1
+(1, "hello").1          // "hello"
+((1, 2), (3, 4)).0.1   // 2 — chained indexing
+```
+
+The index must be a non-negative integer within bounds. For tuple structs, indexing accesses positional fields:
+
+```zoya
+struct Pair(Int, String)
+let p = Pair(42, "hi")
+p.0                     // 42
+p.1                     // "hi"
+```
+
 ## Index Expressions
 
 Bracket notation accesses a list element by index, returning `Option<T>`.
@@ -182,7 +205,7 @@ Method calls and field access can be chained and are evaluated left to right.
 
 ```
 unary_expr   ::= '-' unary_expr | postfix_expr
-postfix_expr ::= atom ('.' identifier ('(' args ')')? | '[' expr ']')*
+postfix_expr ::= atom ('.' integer_literal | '.' identifier ('(' args ')')? | '[' expr ']')*
 ```
 
 Negation works on `Int`, `BigInt`, and `Float`.

@@ -243,6 +243,12 @@ pub enum TypedExpr {
         field: String,
         ty: Type,
     },
+    /// Tuple/tuple struct index access: `tuple.0`, `pair.1`
+    TupleIndex {
+        expr: Box<TypedExpr>,
+        index: usize,
+        ty: Type,
+    },
     /// Enum variant constructor: `Option::Some(42)`, `Option::None`, `Message::Move { x: 1 }`
     EnumConstruct {
         path: QualifiedPath,
@@ -289,6 +295,7 @@ impl TypedExpr {
             TypedExpr::StructConstruct { ty, .. } => ty.clone(),
             TypedExpr::StructTupleConstruct { ty, .. } => ty.clone(),
             TypedExpr::FieldAccess { ty, .. } => ty.clone(),
+            TypedExpr::TupleIndex { ty, .. } => ty.clone(),
             TypedExpr::EnumConstruct { ty, .. } => ty.clone(),
             TypedExpr::ListIndex { ty, .. } => ty.clone(),
         }

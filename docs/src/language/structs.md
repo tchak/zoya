@@ -57,6 +57,19 @@ let w = Wrapper(42)
 let p = Pair("hello", 1)
 ```
 
+### Field Access
+
+Tuple struct fields can be accessed by index using dot notation:
+
+```zoya
+let w = Wrapper(42)
+w.0                     // 42
+
+let p = Pair("hello", 1)
+p.0                     // "hello"
+p.1                     // 1
+```
+
 ### Destructuring
 
 Tuple structs are destructured with parenthesized patterns:

@@ -19,6 +19,7 @@ mod methods;
 mod misc;
 mod primitives;
 mod structs;
+mod tuple_index;
 mod type_aliases;
 mod variables;
 

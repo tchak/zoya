@@ -957,6 +957,10 @@ fn codegen_expr(expr: &TypedExpr) -> String {
         TypedExpr::FieldAccess { expr, field, .. } => {
             format!("({}).{}", codegen_expr(expr), field)
         }
+        TypedExpr::TupleIndex { expr, index, .. } => match &expr.ty() {
+            Type::Tuple(_) => format!("({})[{}]", codegen_expr(expr), index),
+            _ => format!("({}).${}", codegen_expr(expr), index),
+        },
         TypedExpr::ListIndex { expr, index, .. } => {
             format!(
                 "{}({}, {})",

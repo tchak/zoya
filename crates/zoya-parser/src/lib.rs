@@ -3844,4 +3844,36 @@ mod tests {
             msg
         );
     }
+
+    #[test]
+    fn test_parse_tuple_index() {
+        let expr = parse_str("t.0").unwrap();
+        assert_eq!(
+            expr,
+            Expr::TupleIndex {
+                expr: Box::new(Expr::Path(Path::simple("t".to_string()))),
+                index: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_tuple_index_then_field() {
+        let expr = parse_str("t.0.name").unwrap();
+        let Expr::FieldAccess { expr: inner, field } = expr else {
+            panic!("expected field access")
+        };
+        assert_eq!(field, "name");
+        assert!(matches!(*inner, Expr::TupleIndex { index: 0, .. }));
+    }
+
+    #[test]
+    fn test_parse_chained_tuple_index() {
+        let expr = parse_str("t.0.1").unwrap();
+        let Expr::TupleIndex { expr: inner, index } = expr else {
+            panic!("expected tuple index")
+        };
+        assert_eq!(index, 1);
+        assert!(matches!(*inner, Expr::TupleIndex { index: 0, .. }));
+    }
 }

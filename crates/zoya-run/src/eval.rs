@@ -548,8 +548,7 @@ fn js_value_to_value(
                         let field_js: rquickjs::Value = obj
                             .get(format!("${}", i))
                             .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-                        let field_value =
-                            js_value_to_value(field_js, field_type, type_lookup)?;
+                        let field_value = js_value_to_value(field_js, field_type, type_lookup)?;
                         values.push(field_value);
                     }
                     EnumValueFields::Tuple(values)
@@ -560,8 +559,7 @@ fn js_value_to_value(
                         let field_js: rquickjs::Value = obj
                             .get(field_name.as_str())
                             .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-                        let field_value =
-                            js_value_to_value(field_js, field_type, type_lookup)?;
+                        let field_value = js_value_to_value(field_js, field_type, type_lookup)?;
                         field_values.push((field_name.clone(), field_value));
                     }
                     EnumValueFields::Struct(field_values)

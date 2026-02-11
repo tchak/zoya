@@ -284,8 +284,19 @@ pub(crate) fn expr_parser<'a>()
         enum PostfixOp {
             MethodCall(String, Vec<Expr>),
             FieldAccess(String),
+            TupleIndex(u64),
             ListIndex(Expr),
         }
+
+        let tuple_index_suffix = just(Token::Dot)
+            .ignore_then(select! { Token::Int(n) => n })
+            .try_map(|n, span| {
+                if n < 0 {
+                    Err(Rich::custom(span, "tuple index must be non-negative"))
+                } else {
+                    Ok(PostfixOp::TupleIndex(n as u64))
+                }
+            });
 
         let dot_suffix = just(Token::Dot)
             .ignore_then(ident())
@@ -300,7 +311,7 @@ pub(crate) fn expr_parser<'a>()
             .delimited_by(just(Token::LBracket), just(Token::RBracket))
             .map(PostfixOp::ListIndex);
 
-        let postfix_op = dot_suffix.or(index_suffix);
+        let postfix_op = choice((tuple_index_suffix, dot_suffix, index_suffix));
 
         let postfix = atom.foldl(postfix_op.repeated(), |receiver, op| match op {
             PostfixOp::MethodCall(method, args) => Expr::MethodCall {
@@ -311,6 +322,10 @@ pub(crate) fn expr_parser<'a>()
             PostfixOp::FieldAccess(field) => Expr::FieldAccess {
                 expr: Box::new(receiver),
                 field,
+            },
+            PostfixOp::TupleIndex(index) => Expr::TupleIndex {
+                expr: Box::new(receiver),
+                index,
             },
             PostfixOp::ListIndex(index) => Expr::ListIndex {
                 expr: Box::new(receiver),

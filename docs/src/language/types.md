@@ -10,7 +10,7 @@ Zoya has the following built-in types:
 | `Bool` | `true`, `false` |
 | `String` | `"hello"`, `"line\nbreak"` |
 | `List<T>` | `[1, 2, 3]`, `[]` |
-| `(T, U, ...)` | `(1, "hello")`, `()`, `(42,)` |
+| `(T, U, ...)` | `(1, "hello")`, `()`, `(42,)` — access elements with `.0`, `.1` |
 | `T -> U` | `Int -> Bool`, `(Int, Int) -> Int` |
 
 ## Type Inference

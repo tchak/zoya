@@ -441,6 +441,7 @@ pub fn fmt_expr(expr: &Expr) -> RcDoc<'static> {
         } => fmt_lambda(params, return_type.as_ref(), body),
         Expr::Struct { path, fields } => fmt_struct_expr(path, fields),
         Expr::FieldAccess { expr, field } => fmt_field_access(expr, field),
+        Expr::TupleIndex { expr, index } => fmt_tuple_index(expr, *index),
         Expr::ListIndex { expr, index } => fmt_list_index(expr, index),
     }
 }
@@ -706,6 +707,11 @@ fn fmt_list_index(expr: &Expr, index: &Expr) -> RcDoc<'static> {
 fn fmt_field_access(expr: &Expr, field: &str) -> RcDoc<'static> {
     let expr_doc = fmt_expr_needs_parens_for_postfix(expr);
     expr_doc.append(RcDoc::text(format!(".{field}")))
+}
+
+fn fmt_tuple_index(expr: &Expr, index: u64) -> RcDoc<'static> {
+    let expr_doc = fmt_expr_needs_parens_for_postfix(expr);
+    expr_doc.append(RcDoc::text(format!(".{index}")))
 }
 
 /// Wrap expressions that need parentheses when used as receivers for `.method()` or `.field`

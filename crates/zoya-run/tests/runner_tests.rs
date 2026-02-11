@@ -5646,3 +5646,63 @@ fn test_duplicate_binding_list_error() {
         matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("duplicate binding"))
     );
 }
+
+// ===== Tuple Index Tests =====
+
+#[test]
+fn test_run_tuple_index() {
+    let source = r#"
+        pub fn main() -> Int {
+            (1, "hello").0
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(1));
+}
+
+#[test]
+fn test_run_tuple_index_second() {
+    let source = r#"
+        pub fn main() -> String {
+            (1, "hello").1
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("hello".to_string()));
+}
+
+#[test]
+fn test_run_tuple_struct_index() {
+    let source = r#"
+        struct Pair(Int, String)
+        pub fn main() -> Int {
+            let p = Pair(42, "hi");
+            p.0
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_run_tuple_index_chained() {
+    let source = r#"
+        pub fn main() -> Int {
+            ((1, 2), (3, 4)).0.1
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(2));
+}
+
+#[test]
+fn test_run_tuple_index_in_expression() {
+    let source = r#"
+        pub fn main() -> Int {
+            let t = (10, 20);
+            t.0 + t.1
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(30));
+}

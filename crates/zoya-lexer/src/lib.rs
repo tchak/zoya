@@ -216,7 +216,38 @@ pub fn lex(input: &str) -> Result<Vec<Spanned>, LexError> {
         }
     }
 
+    split_dot_float(&mut tokens, input);
+
     Ok(tokens)
+}
+
+/// Rewrite `Dot, Float(...)` sequences into `Dot, Int, Dot, Int`.
+/// This enables chained tuple indexing like `t.0.1` without parentheses.
+/// `t.0.1` lexes as `Ident, Dot, Float(0.1)` → rewrites to `Ident, Dot, Int(0), Dot, Int(1)`
+/// Standalone floats like `3.14` have no preceding `Dot`, so they're untouched.
+fn split_dot_float(tokens: &mut Vec<Spanned>, input: &str) {
+    let mut i = 0;
+    while i + 1 < tokens.len() {
+        if tokens[i].0 == Token::Dot && matches!(tokens[i + 1].0, Token::Float(_)) {
+            let float_span = tokens[i + 1].1.clone();
+            let float_str = &input[float_span.clone()];
+            if let Some(dot_pos) = float_str.find('.') {
+                let int_part: i64 = float_str[..dot_pos].replace('_', "").parse().unwrap();
+                let dec_part: i64 = float_str[dot_pos + 1..].replace('_', "").parse().unwrap();
+                let int1_end = float_span.start + dot_pos;
+                let int2_start = int1_end + 1;
+                tokens.splice(
+                    i + 1..i + 2,
+                    [
+                        (Token::Int(int_part), float_span.start..int1_end),
+                        (Token::Dot, int1_end..int2_start),
+                        (Token::Int(dec_part), int2_start..float_span.end),
+                    ],
+                );
+            }
+        }
+        i += 1;
+    }
 }
 
 #[cfg(test)]
@@ -973,5 +1004,52 @@ mod tests {
                 assert_eq!(span, 4..5);
             }
         }
+    }
+
+    #[test]
+    fn test_tuple_index_single() {
+        let toks = toks("t.0");
+        assert_eq!(
+            toks,
+            vec![Token::Ident("t".to_string()), Token::Dot, Token::Int(0)]
+        );
+    }
+
+    #[test]
+    fn test_tuple_index_chained() {
+        // t.0.1 lexes as Ident, Dot, Float(0.1) → Ident, Dot, Int(0), Dot, Int(1)
+        let toks = toks("t.0.1");
+        assert_eq!(
+            toks,
+            vec![
+                Token::Ident("t".to_string()),
+                Token::Dot,
+                Token::Int(0),
+                Token::Dot,
+                Token::Int(1),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_standalone_float_unaffected() {
+        // Standalone 0.1 has no preceding Dot, so it remains Float
+        let toks = toks("0.1");
+        assert_eq!(toks, vec![Token::Float(0.1)]);
+    }
+
+    #[test]
+    fn test_tuple_index_larger_number() {
+        let toks = toks("t.0.10");
+        assert_eq!(
+            toks,
+            vec![
+                Token::Ident("t".to_string()),
+                Token::Dot,
+                Token::Int(0),
+                Token::Dot,
+                Token::Int(10),
+            ]
+        );
     }
 }

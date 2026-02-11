@@ -411,6 +411,11 @@ pub enum Expr {
         expr: Box<Expr>,
         field: String,
     },
+    /// Tuple index access: `tuple.0`, `pair.1`
+    TupleIndex {
+        expr: Box<Expr>,
+        index: u64,
+    },
     /// List index access: `list[0]`, `list[-1]`
     ListIndex {
         expr: Box<Expr>,
