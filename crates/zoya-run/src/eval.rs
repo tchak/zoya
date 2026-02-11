@@ -272,7 +272,7 @@ pub(crate) fn eval_module(
         .catch(ctx)
         .map_err(|e| EvalError::RuntimeError(format!("failed to get result: {}", e)))?;
 
-    js_value_to_value(ctx, js_val, &result_type, type_lookup)
+    js_value_to_value(js_val, &result_type, type_lookup)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -414,7 +414,6 @@ pub enum EvalError {
 
 /// Convert a JavaScript value to a Zoya Value based on expected type
 fn js_value_to_value(
-    ctx: &rquickjs::Ctx<'_>,
     js_val: rquickjs::Value<'_>,
     expected_type: &Type,
     type_lookup: &TypeLookup,
@@ -468,7 +467,7 @@ fn js_value_to_value(
                 let elem_js: rquickjs::Value = array
                     .get(i)
                     .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-                let elem_value = js_value_to_value(ctx, elem_js, elem_type, type_lookup)?;
+                let elem_value = js_value_to_value(elem_js, elem_type, type_lookup)?;
                 values.push(elem_value);
             }
             Ok(Value::List(values))
@@ -482,7 +481,7 @@ fn js_value_to_value(
                 let elem_js: rquickjs::Value = array
                     .get(i)
                     .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-                let elem_value = js_value_to_value(ctx, elem_js, elem_type, type_lookup)?;
+                let elem_value = js_value_to_value(elem_js, elem_type, type_lookup)?;
                 values.push(elem_value);
             }
             Ok(Value::Tuple(values))
@@ -501,7 +500,7 @@ fn js_value_to_value(
                 let field_js: rquickjs::Value = obj
                     .get(field_name.as_str())
                     .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-                let field_value = js_value_to_value(ctx, field_js, field_type, type_lookup)?;
+                let field_value = js_value_to_value(field_js, field_type, type_lookup)?;
                 field_values.push((field_name.clone(), field_value));
             }
             Ok(Value::Struct {
@@ -547,7 +546,7 @@ fn js_value_to_value(
                             .get(format!("${}", i))
                             .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
                         let field_value =
-                            js_value_to_value(ctx, field_js, field_type, type_lookup)?;
+                            js_value_to_value(field_js, field_type, type_lookup)?;
                         values.push(field_value);
                     }
                     EnumValueFields::Tuple(values)
@@ -559,7 +558,7 @@ fn js_value_to_value(
                             .get(field_name.as_str())
                             .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
                         let field_value =
-                            js_value_to_value(ctx, field_js, field_type, type_lookup)?;
+                            js_value_to_value(field_js, field_type, type_lookup)?;
                         field_values.push((field_name.clone(), field_value));
                     }
                     EnumValueFields::Struct(field_values)
