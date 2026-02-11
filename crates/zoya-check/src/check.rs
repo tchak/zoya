@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
 use zoya_ast::{
-    BinOp, Expr, FunctionDef, Item, LetBinding, MatchArm, Path, StructKind, TypeAnnotation,
-    UnaryOp, UseDecl, UseTarget,
+    BinOp, Expr, FunctionDef, Item, LetBinding, ListElement, MatchArm, Path, StructKind,
+    TupleElement, TypeAnnotation, UnaryOp, UseDecl, UseTarget,
 };
 use zoya_ir::{
     CheckedPackage, Definition, EnumType, EnumVariantType, FunctionType, ModuleType, QualifiedPath,
@@ -1112,12 +1112,25 @@ fn check_method_call(
 
 /// Check a list literal expression
 fn check_list_expr(
-    elements: &[Expr],
+    elements: &[ListElement],
     current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    if elements.is_empty() {
+    if elements.iter().any(|e| matches!(e, ListElement::Spread(_))) {
+        todo!("spread in list expressions")
+    }
+
+    // Extract inner expressions (all are Item at this point)
+    let exprs: Vec<&Expr> = elements
+        .iter()
+        .map(|e| match e {
+            ListElement::Item(expr) => expr,
+            ListElement::Spread(_) => unreachable!(),
+        })
+        .collect();
+
+    if exprs.is_empty() {
         // Empty list: create fresh type variable for element type
         let elem_ty = ctx.fresh_var();
         Ok(TypedExpr::List {
@@ -1126,12 +1139,12 @@ fn check_list_expr(
         })
     } else {
         // Non-empty list: infer element type from first element
-        let first_typed = check_expr(&elements[0], current_module, env, ctx)?;
+        let first_typed = check_expr(exprs[0], current_module, env, ctx)?;
         let elem_ty = first_typed.ty();
         let mut typed_elements = vec![first_typed];
 
         // Check remaining elements unify with first element's type
-        for elem in &elements[1..] {
+        for elem in &exprs[1..] {
             let typed = check_expr(elem, current_module, env, ctx)?;
             ctx.unify(&typed.ty(), &elem_ty).map_err(|e| TypeError {
                 message: format!("list element type mismatch: {}", e.message),
@@ -1148,16 +1161,27 @@ fn check_list_expr(
 
 /// Check a tuple literal expression
 fn check_tuple_expr(
-    elements: &[Expr],
+    elements: &[TupleElement],
     current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
+    if elements
+        .iter()
+        .any(|e| matches!(e, TupleElement::Spread(_)))
+    {
+        todo!("spread in tuple expressions")
+    }
+
     let mut typed_elements = Vec::new();
     let mut element_types = Vec::new();
 
     for elem in elements {
-        let typed = check_expr(elem, current_module, env, ctx)?;
+        let expr = match elem {
+            TupleElement::Item(expr) => expr,
+            TupleElement::Spread(_) => unreachable!(),
+        };
+        let typed = check_expr(expr, current_module, env, ctx)?;
         element_types.push(typed.ty());
         typed_elements.push(typed);
     }
@@ -1246,10 +1270,14 @@ fn check_lambda(
 fn check_path_struct(
     path: &Path,
     fields: &[(String, Expr)],
+    spread: &Option<Box<Expr>>,
     current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
+    if spread.is_some() {
+        todo!("spread in struct expressions")
+    }
     let resolved = resolution::resolve_expr_path(
         path,
         current_module,
@@ -1782,7 +1810,11 @@ pub(crate) fn check_expr(
             return_type,
             body,
         } => check_lambda(params, return_type, body, current_module, env, ctx),
-        Expr::Struct { path, fields } => check_path_struct(path, fields, current_module, env, ctx),
+        Expr::Struct {
+            path,
+            fields,
+            spread,
+        } => check_path_struct(path, fields, spread, current_module, env, ctx),
         Expr::FieldAccess { expr, field } => {
             check_field_access(expr, field, current_module, env, ctx)
         }
@@ -1917,8 +1949,14 @@ fn is_syntactic_value(expr: &Expr) -> bool {
     match expr {
         Expr::Lambda { .. } => true,
         Expr::Int(_) | Expr::BigInt(_) | Expr::Float(_) | Expr::Bool(_) | Expr::String(_) => true,
-        Expr::List(elems) => elems.iter().all(is_syntactic_value),
-        Expr::Tuple(elems) => elems.iter().all(is_syntactic_value),
+        Expr::List(elems) => elems.iter().all(|e| match e {
+            ListElement::Item(expr) => is_syntactic_value(expr),
+            ListElement::Spread(_) => false,
+        }),
+        Expr::Tuple(elems) => elems.iter().all(|e| match e {
+            TupleElement::Item(expr) => is_syntactic_value(expr),
+            TupleElement::Spread(_) => false,
+        }),
         Expr::Path(_) => true,
         _ => false,
     }

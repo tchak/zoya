@@ -22,10 +22,11 @@ true
 
 ### List Literals
 
-Homogeneous sequences delimited by brackets.
+Homogeneous sequences delimited by brackets. Elements can be individual items or spread expressions that expand a list in place.
 
 ```
-list_literal ::= '[' (expr (',' expr)* ','?)? ']'
+list_literal ::= '[' (list_element (',' list_element)* ','?)? ']'
+list_element ::= '..' expr | expr
 ```
 
 ```zoya
@@ -33,16 +34,20 @@ list_literal ::= '[' (expr (',' expr)* ','?)? ']'
 [1, 2, 3]
 ["a", "b", "c"]
 [[1, 2], [3, 4]]
+[1, ..rest, 4]         // Spread: expand rest in place
+[..a, ..b]             // Multiple spreads allowed
 ```
 
-All elements must have the same type.
+All elements (including spread results) must have the same type.
 
 ### Tuple Literals
 
-Fixed-size heterogeneous sequences delimited by parentheses.
+Fixed-size heterogeneous sequences delimited by parentheses. Elements can be individual items or spread expressions.
 
 ```
-tuple_literal ::= '(' ')' | '(' expr ',' (expr (',' expr)*)? ','? ')'
+tuple_literal   ::= '(' ')' | '(' tuple_element ',' (tuple_element (',' tuple_element)*)? ','? ')'
+                   | '(' '..' expr ')'
+tuple_element   ::= '..' expr | expr
 ```
 
 ```zoya
@@ -50,13 +55,15 @@ tuple_literal ::= '(' ')' | '(' expr ',' (expr (',' expr)*)? ','? ')'
 (42,)           // Single-element tuple (trailing comma required)
 (1, "hello")    // Two-element tuple
 (true, 42, 3.14)
+(..a, 4, ..b)   // Spread: expand tuples in place
 ```
 
-A single expression in parentheses without a trailing comma is a parenthesized expression, not a tuple:
+A single expression in parentheses without a trailing comma is a parenthesized expression, not a tuple. However, `(..expr)` is always a tuple (spread is not a standalone expression):
 
 ```zoya
 (42)            // Int, not a tuple
 (42,)           // (Int,) tuple
+(..xs)          // Tuple with spread
 ```
 
 ## Path Expressions
@@ -96,11 +103,12 @@ foo()
 
 ## Struct Construction
 
-A path followed by braced fields constructs a struct or enum struct variant.
+A path followed by braced fields constructs a struct or enum struct variant. An optional spread expression (`..expr`) fills in remaining fields from another value of the same type.
 
 ```
-struct_expr ::= path '{' (field (',' field)* ','?)? '}'
-field       ::= identifier ':' expr | identifier
+struct_expr     ::= path '{' (struct_element (',' struct_element)* ','?)? '}'
+struct_element  ::= field | '..' expr
+field           ::= identifier ':' expr | identifier
 ```
 
 When the field value is a variable with the same name as the field, the shorthand form omits the value:
@@ -111,6 +119,16 @@ let y = 2.0
 Point { x: 1.0, y: 2.0 }  // Explicit
 Point { x, y }             // Shorthand (equivalent)
 Point { x: 1.0, y }        // Mixed
+```
+
+### Struct Update Syntax
+
+The spread operator `..expr` fills in any fields not explicitly provided. It must appear as the last element and only one spread is allowed:
+
+```zoya
+let p = Point { x: 1, y: 2 }
+Point { x: 10, ..p }       // Point { x: 10, y: 2 }
+Point { ..p }               // Copy all fields
 ```
 
 ## Field Access

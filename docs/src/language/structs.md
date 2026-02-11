@@ -31,6 +31,18 @@ let y = 20
 let p = Point { x, y }  // Same as Point { x: x, y: y }
 ```
 
+### Struct Update Syntax
+
+Create a new struct from an existing one, overriding specific fields:
+
+```zoya
+let p = Point { x: 1, y: 2 }
+let q = Point { x: 10, ..p }   // Point { x: 10, y: 2 }
+let r = Point { ..p }          // Copy all fields
+```
+
+The spread (`..expr`) must be the last element. Only one spread is allowed.
+
 ### Destructuring
 
 ```zoya

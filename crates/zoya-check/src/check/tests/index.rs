@@ -1,4 +1,4 @@
-use zoya_ast::Expr;
+use zoya_ast::{Expr, ListElement};
 use zoya_ir::{EnumVariantType, Type};
 
 use super::check_expr_with_env;
@@ -6,7 +6,10 @@ use super::check_expr_with_env;
 #[test]
 fn test_list_index_returns_option() {
     let expr = Expr::ListIndex {
-        expr: Box::new(Expr::List(vec![Expr::Int(1), Expr::Int(2)])),
+        expr: Box::new(Expr::List(vec![
+            ListElement::Item(Expr::Int(1)),
+            ListElement::Item(Expr::Int(2)),
+        ])),
         index: Box::new(Expr::Int(0)),
     };
     let result = check_expr_with_env(&expr).unwrap();
@@ -43,7 +46,7 @@ fn test_list_index_non_list_error() {
 #[test]
 fn test_list_index_non_int_index_error() {
     let expr = Expr::ListIndex {
-        expr: Box::new(Expr::List(vec![Expr::Int(1)])),
+        expr: Box::new(Expr::List(vec![ListElement::Item(Expr::Int(1))])),
         index: Box::new(Expr::Float(0.5)),
     };
     let result = check_expr_with_env(&expr);

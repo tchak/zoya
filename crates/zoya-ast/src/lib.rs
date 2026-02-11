@@ -358,6 +358,20 @@ pub struct MatchArm {
     pub result: Expr,
 }
 
+/// An element in a list expression: either a regular item or a spread
+#[derive(Debug, Clone, PartialEq)]
+pub enum ListElement {
+    Item(Expr),
+    Spread(Expr),
+}
+
+/// An element in a tuple expression: either a regular item or a spread
+#[derive(Debug, Clone, PartialEq)]
+pub enum TupleElement {
+    Item(Expr),
+    Spread(Expr),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Int(i64),
@@ -365,8 +379,8 @@ pub enum Expr {
     Float(f64),
     Bool(bool),
     String(String),
-    List(Vec<Expr>),
-    Tuple(Vec<Expr>),
+    List(Vec<ListElement>),
+    Tuple(Vec<TupleElement>),
     /// A path expression: `foo`, `Option::None`, `Mod::Type`
     Path(Path),
     /// Function/constructor call: `foo(1)`, `Option::Some(1)`
@@ -405,6 +419,7 @@ pub enum Expr {
     Struct {
         path: Path,
         fields: Vec<(String, Expr)>,
+        spread: Option<Box<Expr>>,
     },
     /// Field access: `point.x` (distinct from method call)
     FieldAccess {

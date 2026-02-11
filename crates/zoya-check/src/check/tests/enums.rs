@@ -111,6 +111,7 @@ fn test_enum_struct_construct_valid() {
             ("x".to_string(), Expr::Int(10)),
             ("y".to_string(), Expr::Int(20)),
         ],
+        spread: None,
     };
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx).unwrap();
     match result.ty() {
@@ -130,6 +131,7 @@ fn test_enum_struct_construct_unit_variant_error() {
             type_args: None,
         },
         fields: vec![("x".to_string(), Expr::Int(10))],
+        spread: None,
     };
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
@@ -148,6 +150,7 @@ fn test_enum_struct_construct_tuple_variant_error() {
             type_args: None,
         },
         fields: vec![("msg".to_string(), Expr::String("hi".to_string()))],
+        spread: None,
     };
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
@@ -169,6 +172,7 @@ fn test_enum_struct_construct_missing_field() {
             ("x".to_string(), Expr::Int(10)),
             // Missing y
         ],
+        spread: None,
     };
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
@@ -191,6 +195,7 @@ fn test_enum_struct_construct_unknown_field() {
             ("y".to_string(), Expr::Int(20)),
             ("z".to_string(), Expr::Int(30)), // Unknown
         ],
+        spread: None,
     };
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
@@ -212,6 +217,7 @@ fn test_enum_struct_construct_field_type_mismatch() {
             ("x".to_string(), Expr::Int(10)),
             ("y".to_string(), Expr::String("wrong".to_string())), // Wrong type
         ],
+        spread: None,
     };
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());

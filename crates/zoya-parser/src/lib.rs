@@ -1299,6 +1299,8 @@ mod tests {
     }
 
     // List literal tests
+    use zoya_ast::ListElement;
+
     #[test]
     fn test_parse_empty_list() {
         let expr = parse_str("[]").unwrap();
@@ -1308,7 +1310,7 @@ mod tests {
     #[test]
     fn test_parse_list_single_element() {
         let expr = parse_str("[1]").unwrap();
-        assert_eq!(expr, Expr::List(vec![Expr::Int(1)]));
+        assert_eq!(expr, Expr::List(vec![ListElement::Item(Expr::Int(1))]));
     }
 
     #[test]
@@ -1316,7 +1318,11 @@ mod tests {
         let expr = parse_str("[1, 2, 3]").unwrap();
         assert_eq!(
             expr,
-            Expr::List(vec![Expr::Int(1), Expr::Int(2), Expr::Int(3)])
+            Expr::List(vec![
+                ListElement::Item(Expr::Int(1)),
+                ListElement::Item(Expr::Int(2)),
+                ListElement::Item(Expr::Int(3)),
+            ])
         );
     }
 
@@ -1335,7 +1341,68 @@ mod tests {
     #[test]
     fn test_parse_list_trailing_comma() {
         let expr = parse_str("[1, 2,]").unwrap();
-        assert_eq!(expr, Expr::List(vec![Expr::Int(1), Expr::Int(2)]));
+        assert_eq!(
+            expr,
+            Expr::List(vec![
+                ListElement::Item(Expr::Int(1)),
+                ListElement::Item(Expr::Int(2)),
+            ])
+        );
+    }
+
+    // List spread tests
+
+    #[test]
+    fn test_parse_list_spread_single() {
+        let expr = parse_str("[..a]").unwrap();
+        assert_eq!(
+            expr,
+            Expr::List(vec![ListElement::Spread(Expr::Path(Path::simple(
+                "a".to_string()
+            )))])
+        );
+    }
+
+    #[test]
+    fn test_parse_list_spread_mixed() {
+        let expr = parse_str("[1, ..a, 2]").unwrap();
+        assert_eq!(
+            expr,
+            Expr::List(vec![
+                ListElement::Item(Expr::Int(1)),
+                ListElement::Spread(Expr::Path(Path::simple("a".to_string()))),
+                ListElement::Item(Expr::Int(2)),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_parse_list_spread_multiple() {
+        let expr = parse_str("[..a, ..b]").unwrap();
+        assert_eq!(
+            expr,
+            Expr::List(vec![
+                ListElement::Spread(Expr::Path(Path::simple("a".to_string()))),
+                ListElement::Spread(Expr::Path(Path::simple("b".to_string()))),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_parse_list_spread_complex() {
+        let expr = parse_str("[1, ..a, ..b, 4, 5, 6, ..c]").unwrap();
+        assert_eq!(
+            expr,
+            Expr::List(vec![
+                ListElement::Item(Expr::Int(1)),
+                ListElement::Spread(Expr::Path(Path::simple("a".to_string()))),
+                ListElement::Spread(Expr::Path(Path::simple("b".to_string()))),
+                ListElement::Item(Expr::Int(4)),
+                ListElement::Item(Expr::Int(5)),
+                ListElement::Item(Expr::Int(6)),
+                ListElement::Spread(Expr::Path(Path::simple("c".to_string()))),
+            ])
+        );
     }
 
     use zoya_ast::ListPattern;
@@ -1514,6 +1581,8 @@ mod tests {
     }
 
     // Tuple tests
+    use zoya_ast::TupleElement;
+
     #[test]
     fn test_parse_empty_tuple() {
         let expr = parse_str("()").unwrap();
@@ -1523,7 +1592,7 @@ mod tests {
     #[test]
     fn test_parse_single_element_tuple() {
         let expr = parse_str("(42,)").unwrap();
-        assert_eq!(expr, Expr::Tuple(vec![Expr::Int(42)]));
+        assert_eq!(expr, Expr::Tuple(vec![TupleElement::Item(Expr::Int(42))]));
     }
 
     #[test]
@@ -1532,9 +1601,9 @@ mod tests {
         assert_eq!(
             expr,
             Expr::Tuple(vec![
-                Expr::Int(1),
-                Expr::String("hello".to_string()),
-                Expr::Bool(true)
+                TupleElement::Item(Expr::Int(1)),
+                TupleElement::Item(Expr::String("hello".to_string())),
+                TupleElement::Item(Expr::Bool(true)),
             ])
         );
     }
@@ -1544,6 +1613,57 @@ mod tests {
         let expr = parse_str("(1 + 2)").unwrap();
         // Should be a BinOp, not a tuple
         assert!(matches!(expr, Expr::BinOp { .. }));
+    }
+
+    // Tuple spread tests
+
+    #[test]
+    fn test_parse_tuple_spread_single() {
+        // (..a) is always a tuple, not parenthesized expr
+        let expr = parse_str("(..a)").unwrap();
+        assert_eq!(
+            expr,
+            Expr::Tuple(vec![TupleElement::Spread(Expr::Path(Path::simple(
+                "a".to_string()
+            )))])
+        );
+    }
+
+    #[test]
+    fn test_parse_tuple_spread_with_trailing_comma() {
+        let expr = parse_str("(..a,)").unwrap();
+        assert_eq!(
+            expr,
+            Expr::Tuple(vec![TupleElement::Spread(Expr::Path(Path::simple(
+                "a".to_string()
+            )))])
+        );
+    }
+
+    #[test]
+    fn test_parse_tuple_spread_mixed() {
+        let expr = parse_str("(1, ..a)").unwrap();
+        assert_eq!(
+            expr,
+            Expr::Tuple(vec![
+                TupleElement::Item(Expr::Int(1)),
+                TupleElement::Spread(Expr::Path(Path::simple("a".to_string()))),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_parse_tuple_spread_complex() {
+        let expr = parse_str(r#"(..a, 4, "hello", ..b)"#).unwrap();
+        assert_eq!(
+            expr,
+            Expr::Tuple(vec![
+                TupleElement::Spread(Expr::Path(Path::simple("a".to_string()))),
+                TupleElement::Item(Expr::Int(4)),
+                TupleElement::Item(Expr::String("hello".to_string())),
+                TupleElement::Spread(Expr::Path(Path::simple("b".to_string()))),
+            ])
+        );
     }
 
     #[test]
@@ -2135,19 +2255,25 @@ mod tests {
         let expr = parse_str("Point { x: 1, y: 2 }").unwrap();
         assert!(matches!(
             expr,
-            Expr::Struct { path, fields }
-            if path.as_simple() == Some("Point") && fields.len() == 2
+            Expr::Struct { path, fields, spread }
+            if path.as_simple() == Some("Point") && fields.len() == 2 && spread.is_none()
         ));
     }
 
     #[test]
     fn test_parse_struct_construct_shorthand() {
         let expr = parse_str("Point { x, y }").unwrap();
-        let Expr::Struct { path, fields } = expr else {
+        let Expr::Struct {
+            path,
+            fields,
+            spread,
+        } = expr
+        else {
             panic!("expected struct construct")
         };
         assert_eq!(path.as_simple(), Some("Point"));
         assert_eq!(fields.len(), 2);
+        assert!(spread.is_none());
         // Shorthand: x means x: x
         assert_eq!(fields[0].0, "x");
         assert!(matches!(&fields[0].1, Expr::Path(p) if p.as_simple() == Some("x")));
@@ -2158,9 +2284,61 @@ mod tests {
         let expr = parse_str("Empty {}").unwrap();
         assert!(matches!(
             expr,
-            Expr::Struct { path, fields }
-            if path.as_simple() == Some("Empty") && fields.is_empty()
+            Expr::Struct { path, fields, spread }
+            if path.as_simple() == Some("Empty") && fields.is_empty() && spread.is_none()
         ));
+    }
+
+    // Struct spread tests
+
+    #[test]
+    fn test_parse_struct_spread() {
+        let expr = parse_str("Point { x: 1, ..other }").unwrap();
+        let Expr::Struct {
+            path,
+            fields,
+            spread,
+        } = expr
+        else {
+            panic!("expected struct construct")
+        };
+        assert_eq!(path.as_simple(), Some("Point"));
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].0, "x");
+        assert!(matches!(
+            spread.as_deref(),
+            Some(Expr::Path(p)) if p.as_simple() == Some("other")
+        ));
+    }
+
+    #[test]
+    fn test_parse_struct_spread_only() {
+        let expr = parse_str("Point { ..other }").unwrap();
+        let Expr::Struct {
+            path,
+            fields,
+            spread,
+        } = expr
+        else {
+            panic!("expected struct construct")
+        };
+        assert_eq!(path.as_simple(), Some("Point"));
+        assert!(fields.is_empty());
+        assert!(spread.is_some());
+    }
+
+    #[test]
+    fn test_parse_struct_spread_not_last_error() {
+        // Spread must be the last element
+        let result = parse_str("Point { ..a, x: 1 }");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_struct_spread_multiple_error() {
+        // Only one spread allowed
+        let result = parse_str("Point { ..a, ..b }");
+        assert!(result.is_err());
     }
 
     #[test]
@@ -3564,7 +3742,7 @@ mod tests {
     fn test_parse_struct_expr_root_prefix() {
         let expr = parse_str("root::Point { x: 1, y: 2 }").unwrap();
         match expr {
-            Expr::Struct { path, fields } => {
+            Expr::Struct { path, fields, .. } => {
                 assert_eq!(path.prefix, PathPrefix::Root);
                 assert_eq!(path.segments, vec!["Point"]);
                 assert_eq!(fields.len(), 2);
@@ -3577,7 +3755,7 @@ mod tests {
     fn test_parse_struct_expr_self_prefix() {
         let expr = parse_str("self::Point { x: 1 }").unwrap();
         match expr {
-            Expr::Struct { path, fields } => {
+            Expr::Struct { path, fields, .. } => {
                 assert_eq!(path.prefix, PathPrefix::Self_);
                 assert_eq!(path.segments, vec!["Point"]);
                 assert_eq!(fields.len(), 1);
@@ -3590,7 +3768,7 @@ mod tests {
     fn test_parse_struct_expr_super_prefix() {
         let expr = parse_str("super::Point { x: 1 }").unwrap();
         match expr {
-            Expr::Struct { path, fields } => {
+            Expr::Struct { path, fields, .. } => {
                 assert_eq!(path.prefix, PathPrefix::Super);
                 assert_eq!(path.segments, vec!["Point"]);
                 assert_eq!(fields.len(), 1);
@@ -3603,7 +3781,7 @@ mod tests {
     fn test_parse_struct_expr_qualified() {
         let expr = parse_str("types::shapes::Point { x: 1, y: 2 }").unwrap();
         match expr {
-            Expr::Struct { path, fields } => {
+            Expr::Struct { path, fields, .. } => {
                 assert_eq!(path.prefix, PathPrefix::None);
                 assert_eq!(path.segments, vec!["types", "shapes", "Point"]);
                 assert_eq!(fields.len(), 2);
@@ -3822,7 +4000,11 @@ mod tests {
         assert_eq!(
             expr,
             Expr::ListIndex {
-                expr: Box::new(Expr::List(vec![Expr::Int(1), Expr::Int(2), Expr::Int(3)])),
+                expr: Box::new(Expr::List(vec![
+                    ListElement::Item(Expr::Int(1)),
+                    ListElement::Item(Expr::Int(2)),
+                    ListElement::Item(Expr::Int(3)),
+                ])),
                 index: Box::new(Expr::Int(0)),
             }
         );

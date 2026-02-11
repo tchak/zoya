@@ -35,6 +35,7 @@ fn test_struct_construct_valid() {
             ("x".to_string(), Expr::Int(10)),
             ("y".to_string(), Expr::Int(20)),
         ],
+        spread: None,
     };
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx).unwrap();
     match result.ty() {
@@ -53,6 +54,7 @@ fn test_struct_construct_missing_field() {
             ("x".to_string(), Expr::Int(10)),
             // Missing y field
         ],
+        spread: None,
     };
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
@@ -71,6 +73,7 @@ fn test_struct_construct_extra_field() {
             ("y".to_string(), Expr::Int(20)),
             ("z".to_string(), Expr::Int(30)), // Extra field
         ],
+        spread: None,
     };
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
@@ -88,6 +91,7 @@ fn test_struct_construct_field_type_mismatch() {
             ("x".to_string(), Expr::Int(10)),
             ("y".to_string(), Expr::String("wrong".to_string())), // Wrong type
         ],
+        spread: None,
     };
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
@@ -102,6 +106,7 @@ fn test_struct_construct_unknown_struct() {
     let expr = Expr::Struct {
         path: Path::simple("UnknownStruct".to_string()),
         fields: vec![],
+        spread: None,
     };
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
@@ -228,6 +233,7 @@ fn test_tuple_struct_brace_syntax_error() {
             ("$0".to_string(), Expr::Int(1)),
             ("$1".to_string(), Expr::String("hello".to_string())),
         ],
+        spread: None,
     };
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());

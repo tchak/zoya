@@ -1,6 +1,8 @@
 use chumsky::prelude::*;
 
-use zoya_ast::{BinOp, Expr, LambdaParam, LetBinding, MatchArm, Path, UnaryOp};
+use zoya_ast::{
+    BinOp, Expr, LambdaParam, LetBinding, ListElement, MatchArm, Path, TupleElement, UnaryOp,
+};
 use zoya_lexer::Token;
 
 use crate::helpers::{ident, path_prefix_parser, validate_typed_pattern};
@@ -19,9 +21,14 @@ pub(crate) fn expr_parser<'a>()
             Token::String(s) => Expr::String(s),
         };
 
-        // List literal: [expr, expr, ...]
-        let list_literal = expr
-            .clone()
+        // List literal: [expr, ..expr, ...]
+        let list_element = choice((
+            just(Token::DotDot)
+                .ignore_then(expr.clone())
+                .map(ListElement::Spread),
+            expr.clone().map(ListElement::Item),
+        ));
+        let list_literal = list_element
             .separated_by(just(Token::Comma))
             .allow_trailing()
             .collect::<Vec<_>>()
@@ -103,20 +110,68 @@ pub(crate) fn expr_parser<'a>()
             .collect::<Vec<_>>()
             .delimited_by(just(Token::LParen), just(Token::RParen));
 
-        // Struct constructor field: `x: expr` or `x` (shorthand for x: x)
-        let struct_field = ident()
-            .then(just(Token::Colon).ignore_then(expr.clone()).or_not())
-            .map(|(name, value)| {
-                let value = value.unwrap_or_else(|| Expr::Path(Path::simple(name.clone())));
-                (name, value)
-            });
+        // Struct constructor element: `x: expr`, `x` (shorthand), or `..expr` (spread)
+        #[derive(Clone)]
+        enum StructElement {
+            Field(String, Expr),
+            Spread(Expr),
+        }
 
-        // Struct constructor fields: { x: expr, y: expr }
-        let struct_fields = struct_field
+        let struct_element = choice((
+            just(Token::DotDot)
+                .ignore_then(expr.clone())
+                .map(StructElement::Spread),
+            ident()
+                .then(just(Token::Colon).ignore_then(expr.clone()).or_not())
+                .map(|(name, value)| {
+                    let value = value.unwrap_or_else(|| Expr::Path(Path::simple(name.clone())));
+                    StructElement::Field(name, value)
+                }),
+        ));
+
+        // Struct constructor fields: { x: expr, y: expr, ..other }
+        let struct_fields = struct_element
             .separated_by(just(Token::Comma))
             .allow_trailing()
             .collect::<Vec<_>>()
-            .delimited_by(just(Token::LBrace), just(Token::RBrace));
+            .delimited_by(just(Token::LBrace), just(Token::RBrace))
+            .try_map(|elements: Vec<StructElement>, span| {
+                let mut fields = Vec::new();
+                let mut spread = None;
+                for (i, elem) in elements.iter().enumerate() {
+                    match elem {
+                        StructElement::Field(name, value) => {
+                            if spread.is_some() {
+                                return Err(Rich::custom(
+                                    span,
+                                    "spread (..) must be the last element in struct constructor",
+                                ));
+                            }
+                            fields.push((name.clone(), value.clone()));
+                        }
+                        StructElement::Spread(expr) => {
+                            if spread.is_some() {
+                                return Err(Rich::custom(
+                                    span,
+                                    "only one spread (..) is allowed in struct constructor",
+                                ));
+                            }
+                            if i != elements.len() - 1 {
+                                // Check if any non-trailing-comma elements follow
+                                let has_fields_after = elements[i + 1..].iter().any(|e| matches!(e, StructElement::Field(..)));
+                                if has_fields_after {
+                                    return Err(Rich::custom(
+                                        span,
+                                        "spread (..) must be the last element in struct constructor",
+                                    ));
+                                }
+                            }
+                            spread = Some(Box::new(expr.clone()));
+                        }
+                    }
+                }
+                Ok((fields, spread))
+            });
 
         // Turbofish type arguments: ::<Int, String>
         let turbofish = just(Token::ColonColon).ignore_then(
@@ -146,7 +201,7 @@ pub(crate) fn expr_parser<'a>()
         #[derive(Clone)]
         enum PathSuffix {
             Call(Vec<Expr>),
-            Struct(Vec<(String, Expr)>),
+            Struct(Vec<(String, Expr)>, Option<Box<Expr>>),
         }
 
         // Path expression: variable, function call, struct/enum constructor
@@ -154,13 +209,19 @@ pub(crate) fn expr_parser<'a>()
             .then(
                 choice((
                     args.clone().map(PathSuffix::Call),
-                    struct_fields.clone().map(PathSuffix::Struct),
+                    struct_fields
+                        .clone()
+                        .map(|(fields, spread)| PathSuffix::Struct(fields, spread)),
                 ))
                 .or_not(),
             )
             .map(|(path, suffix)| match suffix {
                 Some(PathSuffix::Call(args)) => Expr::Call { path, args },
-                Some(PathSuffix::Struct(fields)) => Expr::Struct { path, fields },
+                Some(PathSuffix::Struct(fields, spread)) => Expr::Struct {
+                    path,
+                    fields,
+                    spread,
+                },
                 None => Expr::Path(path),
             });
 
@@ -169,29 +230,57 @@ pub(crate) fn expr_parser<'a>()
             .ignore_then(just(Token::RParen))
             .to(Expr::Tuple(vec![]));
 
-        // Tuple or parenthesized expression: (expr) or (expr,) or (expr, expr, ...)
+        // Tuple element: `..expr` (spread) or `expr` (item)
+        let tuple_element = choice((
+            just(Token::DotDot)
+                .ignore_then(expr.clone())
+                .map(TupleElement::Spread),
+            expr.clone().map(TupleElement::Item),
+        ));
+
+        // Tuple or parenthesized expression: (expr) or (expr,) or (expr, expr, ...) or (..expr)
         // - (expr) with no comma is a parenthesized expression
         // - (expr,) with trailing comma is a single-element tuple
         // - (expr, expr, ...) is a multi-element tuple
+        // - (..expr) or (..expr,) is always a tuple (spread is never a standalone expression)
         let paren_or_tuple = just(Token::LParen)
-            .ignore_then(expr.clone())
+            .ignore_then(tuple_element)
             .then(
                 just(Token::Comma)
                     .ignore_then(
-                        expr.clone()
-                            .separated_by(just(Token::Comma))
-                            .allow_trailing()
-                            .collect::<Vec<_>>(),
+                        choice((
+                            just(Token::DotDot)
+                                .ignore_then(expr.clone())
+                                .map(TupleElement::Spread),
+                            expr.clone().map(TupleElement::Item),
+                        ))
+                        .separated_by(just(Token::Comma))
+                        .allow_trailing()
+                        .collect::<Vec<_>>(),
                     )
                     .or_not(),
             )
             .then_ignore(just(Token::RParen))
-            .map(|(first, rest)| match rest {
-                None => first, // (expr) - parenthesized expression
-                Some(more) => {
-                    // (expr,) or (expr, expr, ...) - tuple
-                    Expr::Tuple(std::iter::once(first).chain(more).collect())
+            .map(|(first, rest)| match first {
+                TupleElement::Spread(_) => {
+                    // (..expr) or (..expr, ...) - always a tuple
+                    let mut elems = vec![first];
+                    if let Some(more) = rest {
+                        elems.extend(more);
+                    }
+                    Expr::Tuple(elems)
                 }
+                TupleElement::Item(inner) => match rest {
+                    None => inner, // (expr) - parenthesized expression
+                    Some(more) => {
+                        // (expr,) or (expr, expr, ...) - tuple
+                        Expr::Tuple(
+                            std::iter::once(TupleElement::Item(inner))
+                                .chain(more)
+                                .collect(),
+                        )
+                    }
+                },
             });
 
         // Lambda parameter: name or name: Type

@@ -507,6 +507,7 @@ fn test_imported_enum_variant_in_struct_pattern() {
                     ("x".to_string(), Expr::Int(1)),
                     ("y".to_string(), Expr::Int(2)),
                 ],
+                spread: None,
             }),
             arms: vec![
                 MatchArm {
@@ -1341,6 +1342,7 @@ fn test_cross_module_function_returns_sibling_struct() {
                 ("x".to_string(), Expr::Int(1)),
                 ("y".to_string(), Expr::Int(2)),
             ],
+            spread: None,
         },
     })];
 
@@ -1479,8 +1481,10 @@ fn test_cross_module_struct_field_references_sibling_type() {
                                     ("x".to_string(), Expr::Int(10)),
                                     ("y".to_string(), Expr::Int(20)),
                                 ],
+                                spread: None,
                             },
                         )],
+                        spread: None,
                     }),
                     field: "inner".to_string(),
                 }),

@@ -1,4 +1,4 @@
-use zoya_ast::Expr;
+use zoya_ast::{Expr, ListElement};
 use zoya_ir::Type;
 
 use super::check_expr_with_env;
@@ -133,7 +133,10 @@ fn test_check_chained_method_calls() {
 #[test]
 fn test_check_list_len() {
     let expr = Expr::MethodCall {
-        receiver: Box::new(Expr::List(vec![Expr::Int(1), Expr::Int(2)])),
+        receiver: Box::new(Expr::List(vec![
+            ListElement::Item(Expr::Int(1)),
+            ListElement::Item(Expr::Int(2)),
+        ])),
         method: "len".to_string(),
         args: vec![],
     };
@@ -155,7 +158,10 @@ fn test_check_list_is_empty() {
 #[test]
 fn test_check_list_reverse() {
     let expr = Expr::MethodCall {
-        receiver: Box::new(Expr::List(vec![Expr::Int(1), Expr::Int(2)])),
+        receiver: Box::new(Expr::List(vec![
+            ListElement::Item(Expr::Int(1)),
+            ListElement::Item(Expr::Int(2)),
+        ])),
         method: "reverse".to_string(),
         args: vec![],
     };
@@ -166,7 +172,10 @@ fn test_check_list_reverse() {
 #[test]
 fn test_check_list_push() {
     let expr = Expr::MethodCall {
-        receiver: Box::new(Expr::List(vec![Expr::Int(1), Expr::Int(2)])),
+        receiver: Box::new(Expr::List(vec![
+            ListElement::Item(Expr::Int(1)),
+            ListElement::Item(Expr::Int(2)),
+        ])),
         method: "push".to_string(),
         args: vec![Expr::Int(3)],
     };
@@ -177,7 +186,10 @@ fn test_check_list_push() {
 #[test]
 fn test_check_list_push_type_mismatch() {
     let expr = Expr::MethodCall {
-        receiver: Box::new(Expr::List(vec![Expr::Int(1), Expr::Int(2)])),
+        receiver: Box::new(Expr::List(vec![
+            ListElement::Item(Expr::Int(1)),
+            ListElement::Item(Expr::Int(2)),
+        ])),
         method: "push".to_string(),
         args: vec![Expr::String("hello".to_string())],
     };
@@ -189,9 +201,15 @@ fn test_check_list_push_type_mismatch() {
 #[test]
 fn test_check_list_concat() {
     let expr = Expr::MethodCall {
-        receiver: Box::new(Expr::List(vec![Expr::Int(1), Expr::Int(2)])),
+        receiver: Box::new(Expr::List(vec![
+            ListElement::Item(Expr::Int(1)),
+            ListElement::Item(Expr::Int(2)),
+        ])),
         method: "concat".to_string(),
-        args: vec![Expr::List(vec![Expr::Int(3), Expr::Int(4)])],
+        args: vec![Expr::List(vec![
+            ListElement::Item(Expr::Int(3)),
+            ListElement::Item(Expr::Int(4)),
+        ])],
     };
     let result = check_expr_with_env(&expr).unwrap();
     assert_eq!(result.ty(), Type::List(Box::new(Type::Int)));
@@ -200,9 +218,14 @@ fn test_check_list_concat() {
 #[test]
 fn test_check_list_concat_type_mismatch() {
     let expr = Expr::MethodCall {
-        receiver: Box::new(Expr::List(vec![Expr::Int(1), Expr::Int(2)])),
+        receiver: Box::new(Expr::List(vec![
+            ListElement::Item(Expr::Int(1)),
+            ListElement::Item(Expr::Int(2)),
+        ])),
         method: "concat".to_string(),
-        args: vec![Expr::List(vec![Expr::String("hello".to_string())])],
+        args: vec![Expr::List(vec![ListElement::Item(Expr::String(
+            "hello".to_string(),
+        ))])],
     };
     let result = check_expr_with_env(&expr);
     assert!(result.is_err());
@@ -214,7 +237,10 @@ fn test_check_list_chained_methods() {
     // [1, 2].push(3).reverse()
     let expr = Expr::MethodCall {
         receiver: Box::new(Expr::MethodCall {
-            receiver: Box::new(Expr::List(vec![Expr::Int(1), Expr::Int(2)])),
+            receiver: Box::new(Expr::List(vec![
+                ListElement::Item(Expr::Int(1)),
+                ListElement::Item(Expr::Int(2)),
+            ])),
             method: "push".to_string(),
             args: vec![Expr::Int(3)],
         }),

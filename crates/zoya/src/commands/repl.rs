@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
-use zoya_ast::{Expr, FunctionDef, Item, LetBinding, Stmt, Visibility};
+use zoya_ast::{Expr, FunctionDef, Item, LetBinding, Stmt, TupleElement, Visibility};
 use zoya_check::check;
 use zoya_ir::{CheckedPackage, Type, TypedExpr, TypedPattern};
 use zoya_package::{Module, Package, QualifiedPath};
@@ -219,11 +219,13 @@ impl State {
 
         // Create combined run function that calls all run_N and returns tuple
         if !run_function_names.is_empty() {
-            let call_exprs: Vec<Expr> = run_function_names
+            let call_exprs: Vec<TupleElement> = run_function_names
                 .iter()
-                .map(|name| Expr::Call {
-                    path: zoya_ast::Path::simple(name.clone()),
-                    args: vec![],
+                .map(|name| {
+                    TupleElement::Item(Expr::Call {
+                        path: zoya_ast::Path::simple(name.clone()),
+                        args: vec![],
+                    })
                 })
                 .collect();
 

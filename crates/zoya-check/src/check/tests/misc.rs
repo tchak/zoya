@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use zoya_ast::{
-    Expr, LetBinding, ListPattern, Path, PathPrefix, Pattern, TuplePattern, TypeAnnotation,
+    Expr, LetBinding, ListElement, ListPattern, Path, PathPrefix, Pattern, TupleElement,
+    TuplePattern, TypeAnnotation,
 };
 use zoya_ir::{Definition, FunctionType, QualifiedPath, Type, TypeScheme, Visibility};
 
@@ -119,7 +120,7 @@ fn test_let_list_pattern_rejected() {
                 "x".to_string(),
             ))])),
             type_annotation: None,
-            value: Box::new(Expr::List(vec![Expr::Int(1)])),
+            value: Box::new(Expr::List(vec![ListElement::Item(Expr::Int(1))])),
         }],
         result: Box::new(Expr::Tuple(vec![])),
     };
@@ -162,7 +163,10 @@ fn test_let_tuple_pattern_irrefutable() {
                 Pattern::Path(Path::simple("b".to_string())),
             ])),
             type_annotation: None,
-            value: Box::new(Expr::Tuple(vec![Expr::Int(1), Expr::Int(2)])),
+            value: Box::new(Expr::Tuple(vec![
+                TupleElement::Item(Expr::Int(1)),
+                TupleElement::Item(Expr::Int(2)),
+            ])),
         }],
         result: Box::new(Expr::Tuple(vec![])),
     };

@@ -1,9 +1,9 @@
 use pretty::RcDoc;
 use zoya_ast::{
     Attribute, BinOp, EnumDef, EnumVariant, EnumVariantKind, Expr, FunctionDef, Item, LambdaParam,
-    LetBinding, ListPattern, MatchArm, ModDecl, Param, Path, PathPrefix, Pattern, StructDef,
-    StructFieldDef, StructFieldPattern, StructKind, TuplePattern, TypeAliasDef, TypeAnnotation,
-    UnaryOp, UseDecl, UsePath, UseTarget, Visibility,
+    LetBinding, ListElement, ListPattern, MatchArm, ModDecl, Param, Path, PathPrefix, Pattern,
+    StructDef, StructFieldDef, StructFieldPattern, StructKind, TupleElement, TuplePattern,
+    TypeAliasDef, TypeAnnotation, UnaryOp, UseDecl, UsePath, UseTarget, Visibility,
 };
 
 const INDENT: isize = 2;
@@ -439,7 +439,11 @@ pub fn fmt_expr(expr: &Expr) -> RcDoc<'static> {
             return_type,
             body,
         } => fmt_lambda(params, return_type.as_ref(), body),
-        Expr::Struct { path, fields } => fmt_struct_expr(path, fields),
+        Expr::Struct {
+            path,
+            fields,
+            spread,
+        } => fmt_struct_expr(path, fields, spread.as_deref()),
         Expr::FieldAccess { expr, field } => fmt_field_access(expr, field),
         Expr::TupleIndex { expr, index } => fmt_tuple_index(expr, *index),
         Expr::ListIndex { expr, index } => fmt_list_index(expr, index),
@@ -472,25 +476,38 @@ fn fmt_string(s: &str) -> RcDoc<'static> {
     RcDoc::text(escaped)
 }
 
-fn fmt_list_expr(elems: &[Expr]) -> RcDoc<'static> {
+fn fmt_list_expr(elems: &[ListElement]) -> RcDoc<'static> {
     if elems.is_empty() {
         return RcDoc::text("[]");
     }
-    let entries: Vec<RcDoc<'static>> = elems.iter().map(fmt_expr).collect();
+    let entries: Vec<RcDoc<'static>> = elems
+        .iter()
+        .map(|e| match e {
+            ListElement::Item(expr) => fmt_expr(expr),
+            ListElement::Spread(expr) => RcDoc::text("..").append(fmt_expr(expr)),
+        })
+        .collect();
     bracketed_list(entries, RcDoc::text(","))
 }
 
-fn fmt_tuple_expr(elems: &[Expr]) -> RcDoc<'static> {
+fn fmt_tuple_element(e: &TupleElement) -> RcDoc<'static> {
+    match e {
+        TupleElement::Item(expr) => fmt_expr(expr),
+        TupleElement::Spread(expr) => RcDoc::text("..").append(fmt_expr(expr)),
+    }
+}
+
+fn fmt_tuple_expr(elems: &[TupleElement]) -> RcDoc<'static> {
     if elems.is_empty() {
         return RcDoc::text("()");
     }
-    // Single-element tuple needs trailing comma
-    if elems.len() == 1 {
+    // Single-element tuple needs trailing comma (only for non-spread items)
+    if elems.len() == 1 && matches!(&elems[0], TupleElement::Item(_)) {
         return RcDoc::text("(")
-            .append(fmt_expr(&elems[0]))
+            .append(fmt_tuple_element(&elems[0]))
             .append(RcDoc::text(",)"));
     }
-    let entries: Vec<RcDoc<'static>> = elems.iter().map(fmt_expr).collect();
+    let entries: Vec<RcDoc<'static>> = elems.iter().map(fmt_tuple_element).collect();
     paren_list(entries, RcDoc::text(","))
 }
 
@@ -671,12 +688,16 @@ fn fmt_lambda(
     params_doc.append(ret_doc).append(body_doc)
 }
 
-fn fmt_struct_expr(path: &Path, fields: &[(String, Expr)]) -> RcDoc<'static> {
+fn fmt_struct_expr(
+    path: &Path,
+    fields: &[(String, Expr)],
+    spread: Option<&Expr>,
+) -> RcDoc<'static> {
     let name_doc = fmt_path(path).append(RcDoc::text(" "));
-    if fields.is_empty() {
+    if fields.is_empty() && spread.is_none() {
         return name_doc.append(RcDoc::text("{}"));
     }
-    let entries: Vec<RcDoc<'static>> = fields
+    let mut entries: Vec<RcDoc<'static>> = fields
         .iter()
         .map(|(name, value)| {
             // Check for shorthand: `x` is shorthand for `x: x`
@@ -689,6 +710,9 @@ fn fmt_struct_expr(path: &Path, fields: &[(String, Expr)]) -> RcDoc<'static> {
             }
         })
         .collect();
+    if let Some(spread_expr) = spread {
+        entries.push(RcDoc::text("..").append(fmt_expr(spread_expr)));
+    }
     name_doc.append(braced_list(entries, RcDoc::text(",")))
 }
 

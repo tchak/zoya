@@ -1,4 +1,4 @@
-use zoya_ast::{Expr, Item, Path, StructDef, StructKind, TypeAnnotation, Visibility};
+use zoya_ast::{Expr, Item, Path, StructDef, StructKind, TupleElement, TypeAnnotation, Visibility};
 use zoya_ir::{QualifiedPath, Type};
 
 use crate::check::check;
@@ -9,8 +9,8 @@ use super::{build_test_package_with_expr, check_expr_with_env, find_test_functio
 fn test_tuple_index_basic() {
     let expr = Expr::TupleIndex {
         expr: Box::new(Expr::Tuple(vec![
-            Expr::Int(1),
-            Expr::String("hello".into()),
+            TupleElement::Item(Expr::Int(1)),
+            TupleElement::Item(Expr::String("hello".into())),
         ])),
         index: 0,
     };
@@ -22,8 +22,8 @@ fn test_tuple_index_basic() {
 fn test_tuple_index_second() {
     let expr = Expr::TupleIndex {
         expr: Box::new(Expr::Tuple(vec![
-            Expr::Int(1),
-            Expr::String("hello".into()),
+            TupleElement::Item(Expr::Int(1)),
+            TupleElement::Item(Expr::String("hello".into())),
         ])),
         index: 1,
     };
@@ -34,7 +34,7 @@ fn test_tuple_index_second() {
 #[test]
 fn test_tuple_index_out_of_bounds() {
     let expr = Expr::TupleIndex {
-        expr: Box::new(Expr::Tuple(vec![Expr::Int(1)])),
+        expr: Box::new(Expr::Tuple(vec![TupleElement::Item(Expr::Int(1))])),
         index: 2,
     };
     let result = check_expr_with_env(&expr);

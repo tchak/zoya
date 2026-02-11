@@ -1,4 +1,6 @@
-use zoya_ast::{Expr, FunctionDef, Item, Path, TypeAliasDef, TypeAnnotation, Visibility};
+use zoya_ast::{
+    Expr, FunctionDef, Item, Path, TupleElement, TypeAliasDef, TypeAnnotation, Visibility,
+};
 
 use crate::check::check;
 
@@ -59,7 +61,10 @@ fn test_type_alias_generic() {
                     TypeAnnotation::Named(Path::simple("Bool".to_string())),
                 ],
             )),
-            body: Expr::Tuple(vec![Expr::Int(1), Expr::Bool(true)]),
+            body: Expr::Tuple(vec![
+                TupleElement::Item(Expr::Int(1)),
+                TupleElement::Item(Expr::Bool(true)),
+            ]),
         }),
     ];
     let tree = build_test_package(items);
@@ -108,7 +113,10 @@ fn test_type_alias_wrong_arity_error() {
                 Path::simple("Pair".to_string()),
                 vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
             )),
-            body: Expr::Tuple(vec![Expr::Int(1), Expr::Int(2)]),
+            body: Expr::Tuple(vec![
+                TupleElement::Item(Expr::Int(1)),
+                TupleElement::Item(Expr::Int(2)),
+            ]),
         }),
     ];
     let tree = build_test_package(items);
