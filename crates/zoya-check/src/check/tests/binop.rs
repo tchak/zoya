@@ -246,3 +246,71 @@ fn test_check_comparison_type_mismatch() {
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("type mismatch"));
 }
+
+#[test]
+fn test_check_string_addition_error() {
+    let expr = Expr::BinOp {
+        op: BinOp::Add,
+        left: Box::new(Expr::String("a".to_string())),
+        right: Box::new(Expr::String("b".to_string())),
+    };
+    let result = check_expr_with_env(&expr);
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .message
+            .contains("arithmetic operators only work on numeric types")
+    );
+}
+
+#[test]
+fn test_check_string_subtraction_error() {
+    let expr = Expr::BinOp {
+        op: BinOp::Sub,
+        left: Box::new(Expr::String("a".to_string())),
+        right: Box::new(Expr::String("b".to_string())),
+    };
+    let result = check_expr_with_env(&expr);
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .message
+            .contains("arithmetic operators only work on numeric types")
+    );
+}
+
+#[test]
+fn test_check_bool_addition_error() {
+    let expr = Expr::BinOp {
+        op: BinOp::Add,
+        left: Box::new(Expr::Bool(true)),
+        right: Box::new(Expr::Bool(false)),
+    };
+    let result = check_expr_with_env(&expr);
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .message
+            .contains("arithmetic operators only work on numeric types")
+    );
+}
+
+#[test]
+fn test_check_string_multiplication_error() {
+    let expr = Expr::BinOp {
+        op: BinOp::Mul,
+        left: Box::new(Expr::String("a".to_string())),
+        right: Box::new(Expr::String("b".to_string())),
+    };
+    let result = check_expr_with_env(&expr);
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .message
+            .contains("arithmetic operators only work on numeric types")
+    );
+}

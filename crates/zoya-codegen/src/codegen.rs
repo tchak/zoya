@@ -22,6 +22,9 @@ const IS_OBJ_FN: &str = "$$is_obj";
 /// Division by zero check function name used in generated JS
 const DIV_CHECK_FN: &str = "$$div";
 
+/// BigInt division by zero check function name used in generated JS
+const DIV_BIGINT_CHECK_FN: &str = "$$div_bigint";
+
 /// BigInt absolute value function name used in generated JS
 const ABS_BIGINT_FN: &str = "$$abs_bigint";
 
@@ -42,6 +45,10 @@ fn prelude() -> &'static str {
 function $$div(a, b) {
   if (b === 0) throw new Error("division by zero");
   return Math.trunc(a / b);
+}
+function $$div_bigint(a, b) {
+  if (b === 0n) throw new Error("division by zero");
+  return a / b;
 }
 function $$abs_bigint(x) { return x < 0n ? -x : x; }
 function $$min_bigint(a, b) { return a < b ? a : b; }
@@ -787,6 +794,11 @@ fn codegen_expr(expr: &TypedExpr) -> String {
             // Handle Int division with truncation and division by zero check
             if *op == BinOp::Div && *ty == Type::Int {
                 return format!("{}({}, {})", DIV_CHECK_FN, l, r);
+            }
+
+            // Handle BigInt division with division by zero check
+            if *op == BinOp::Div && *ty == Type::BigInt {
+                return format!("{}({}, {})", DIV_BIGINT_CHECK_FN, l, r);
             }
 
             let l = if is_safe_operand(left) {

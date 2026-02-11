@@ -941,8 +941,19 @@ fn check_bin_op(
 
     // Determine result type based on operator
     let result_ty = match op {
-        // Arithmetic operators: result has same type as operands
-        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => resolved_ty,
+        // Arithmetic operators: only work on numeric types, result has same type as operands
+        // Type variables are allowed through (they may resolve to numeric types later)
+        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => {
+            if !is_numeric_type(&resolved_ty) && !matches!(resolved_ty, Type::Var(_)) {
+                return Err(TypeError {
+                    message: format!(
+                        "arithmetic operators only work on numeric types, not {}",
+                        resolved_ty
+                    ),
+                });
+            }
+            resolved_ty
+        }
 
         // Equality operators: work on any type, result is Bool
         BinOp::Eq | BinOp::Ne => Type::Bool,
