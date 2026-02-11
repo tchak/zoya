@@ -1,5 +1,5 @@
 use zoya_ast::{Expr, Path, Visibility};
-use zoya_ir::{Definition, QualifiedPath, StructType, StructTypeKind, Type};
+use zoya_ir::{Definition, QualifiedPath, StructType, StructTypeKind, Type, TypeScheme};
 
 use crate::check::{TypeEnv, check_expr};
 use crate::unify::UnifyCtx;
@@ -246,4 +246,102 @@ fn test_tuple_struct_bare_path_error() {
     let expr = Expr::Path(Path::simple("Pair".to_string()));
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
+}
+
+// Spread tests
+
+fn env_with_point_and_binding() -> TypeEnv {
+    let mut env = env_with_point_struct();
+    env.locals.insert(
+        "p".to_string(),
+        TypeScheme::mono(Type::Struct {
+            name: "Point".to_string(),
+            type_args: vec![],
+            fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
+        }),
+    );
+    env
+}
+
+#[test]
+fn test_struct_spread_override_one_field() {
+    let env = env_with_point_and_binding();
+    let mut ctx = UnifyCtx::new();
+    let expr = Expr::Struct {
+        path: Path::simple("Point".to_string()),
+        fields: vec![("x".to_string(), Expr::Int(10))],
+        spread: Some(Box::new(Expr::Path(Path::simple("p".to_string())))),
+    };
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx).unwrap();
+    match result.ty() {
+        Type::Struct { name, .. } => assert_eq!(name, "Point"),
+        _ => panic!("Expected struct type"),
+    }
+}
+
+#[test]
+fn test_struct_spread_no_explicit_fields() {
+    let env = env_with_point_and_binding();
+    let mut ctx = UnifyCtx::new();
+    let expr = Expr::Struct {
+        path: Path::simple("Point".to_string()),
+        fields: vec![],
+        spread: Some(Box::new(Expr::Path(Path::simple("p".to_string())))),
+    };
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx).unwrap();
+    match result.ty() {
+        Type::Struct { name, .. } => assert_eq!(name, "Point"),
+        _ => panic!("Expected struct type"),
+    }
+}
+
+#[test]
+fn test_struct_spread_type_mismatch() {
+    let mut env = env_with_point_struct();
+    env.locals
+        .insert("s".to_string(), TypeScheme::mono(Type::String));
+    let mut ctx = UnifyCtx::new();
+    let expr = Expr::Struct {
+        path: Path::simple("Point".to_string()),
+        fields: vec![("x".to_string(), Expr::Int(10))],
+        spread: Some(Box::new(Expr::Path(Path::simple("s".to_string())))),
+    };
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.message.contains("spread"));
+}
+
+#[test]
+fn test_struct_spread_unknown_explicit_field() {
+    let env = env_with_point_and_binding();
+    let mut ctx = UnifyCtx::new();
+    let expr = Expr::Struct {
+        path: Path::simple("Point".to_string()),
+        fields: vec![("z".to_string(), Expr::Int(10))],
+        spread: Some(Box::new(Expr::Path(Path::simple("p".to_string())))),
+    };
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.message.contains("unknown field 'z'"));
+}
+
+#[test]
+fn test_struct_spread_all_fields_explicit() {
+    let env = env_with_point_and_binding();
+    let mut ctx = UnifyCtx::new();
+    let expr = Expr::Struct {
+        path: Path::simple("Point".to_string()),
+        fields: vec![
+            ("x".to_string(), Expr::Int(1)),
+            ("y".to_string(), Expr::Int(2)),
+        ],
+        spread: Some(Box::new(Expr::Path(Path::simple("p".to_string())))),
+    };
+    let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx).unwrap();
+    match result.ty() {
+        Type::Struct { name, .. } => assert_eq!(name, "Point"),
+        _ => panic!("Expected struct type"),
+    }
 }

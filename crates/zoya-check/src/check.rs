@@ -325,6 +325,7 @@ fn check_path_expr(
             Ok(TypedExpr::StructConstruct {
                 path: qualified_path.clone(),
                 fields: vec![],
+                spread: None,
                 ty: Type::Struct {
                     name: struct_type.name.clone(),
                     type_args: vec![],
@@ -1275,9 +1276,6 @@ fn check_path_struct(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    if spread.is_some() {
-        todo!("spread in struct expressions")
-    }
     let resolved = resolution::resolve_expr_path(
         path,
         current_module,
@@ -1305,6 +1303,7 @@ fn check_path_struct(
             struct_type,
             &path.type_args,
             fields,
+            spread,
             current_module,
             env,
             ctx,
@@ -1313,16 +1312,23 @@ fn check_path_struct(
             def: Definition::EnumVariant(def, variant),
             qualified_path,
         } => match variant {
-            EnumVariantType::Struct(_) => check_enum_struct_construct_resolved(
-                def,
-                variant,
-                qualified_path.last(),
-                &path.type_args,
-                fields,
-                current_module,
-                env,
-                ctx,
-            ),
+            EnumVariantType::Struct(_) => {
+                if spread.is_some() {
+                    return Err(TypeError {
+                        message: "spread is not supported for enum struct variants".to_string(),
+                    });
+                }
+                check_enum_struct_construct_resolved(
+                    def,
+                    variant,
+                    qualified_path.last(),
+                    &path.type_args,
+                    fields,
+                    current_module,
+                    env,
+                    ctx,
+                )
+            }
             EnumVariantType::Unit => Err(TypeError {
                 message: format!(
                     "enum variant {} is a unit variant, doesn't take fields",
@@ -1361,6 +1367,7 @@ fn check_struct_construct_resolved(
     struct_type: &StructType,
     explicit_type_args: &Option<Vec<TypeAnnotation>>,
     fields: &[(String, Expr)],
+    spread: &Option<Box<Expr>>,
     current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
@@ -1401,16 +1408,18 @@ fn check_struct_construct_resolved(
         struct_type.fields.iter().map(|(n, _)| n.as_str()).collect();
     let provided_field_names: HashSet<&str> = fields.iter().map(|(n, _)| n.as_str()).collect();
 
-    // Check for missing fields
-    for expected in &expected_field_names {
-        if !provided_field_names.contains(expected) {
-            return Err(TypeError {
-                message: format!("missing field '{}' in struct {}", expected, name),
-            });
+    // Check for missing fields (skip if spread is present — spread fills remaining fields)
+    if spread.is_none() {
+        for expected in &expected_field_names {
+            if !provided_field_names.contains(expected) {
+                return Err(TypeError {
+                    message: format!("missing field '{}' in struct {}", expected, name),
+                });
+            }
         }
     }
 
-    // Check for extra fields
+    // Check for extra/unknown fields (always check, even with spread)
     for provided in &provided_field_names {
         if !expected_field_names.contains(provided) {
             return Err(TypeError {
@@ -1454,6 +1463,44 @@ fn check_struct_construct_resolved(
         typed_fields.push((field_name.clone(), typed_expr));
     }
 
+    // Type-check spread expression if present
+    let typed_spread = if let Some(spread_expr) = spread {
+        let typed_spread_expr = check_expr(spread_expr, current_module, env, ctx)?;
+        let spread_type = typed_spread_expr.ty();
+
+        // Build the expected struct type for unification
+        let expected_struct_type = Type::Struct {
+            name: name.to_string(),
+            type_args: struct_type
+                .type_var_ids
+                .iter()
+                .map(|id| instantiation[id].clone())
+                .collect(),
+            fields: struct_type
+                .fields
+                .iter()
+                .map(|(field_name, ty)| {
+                    (field_name.clone(), substitute_type_vars(ty, &instantiation))
+                })
+                .collect(),
+        };
+
+        ctx.unify(&spread_type, &expected_struct_type)
+            .map_err(|e| TypeError {
+                message: format!(
+                    "spread expression in struct {} has type {} but expected {}: {}",
+                    name,
+                    ctx.resolve(&spread_type),
+                    ctx.resolve(&expected_struct_type),
+                    e.message
+                ),
+            })?;
+
+        Some(Box::new(typed_spread_expr))
+    } else {
+        None
+    };
+
     // Build the struct type with resolved type arguments
     let type_args: Vec<Type> = struct_type
         .type_var_ids
@@ -1476,6 +1523,7 @@ fn check_struct_construct_resolved(
     Ok(TypedExpr::StructConstruct {
         path: qualified_path.clone(),
         fields: typed_fields,
+        spread: typed_spread,
         ty: Type::Struct {
             name: name.to_string(),
             type_args,

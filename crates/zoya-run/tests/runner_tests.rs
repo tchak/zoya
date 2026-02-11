@@ -1548,6 +1548,80 @@ fn test_run_struct_inequality() {
     assert_eq!(result, Value::Bool(true));
 }
 
+// Struct spread tests
+
+#[test]
+fn test_run_struct_spread_override_field() {
+    let source = r#"
+        struct Point { x: Int, y: Int }
+        pub fn main() -> Int {
+            let p = Point { x: 1, y: 2 };
+            let q = Point { x: 10, ..p };
+            q.x + q.y
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(12));
+}
+
+#[test]
+fn test_run_struct_spread_copy_all() {
+    let source = r#"
+        struct Point { x: Int, y: Int }
+        pub fn main() -> Int {
+            let p = Point { x: 1, y: 2 };
+            let q = Point { ..p };
+            q.x + q.y
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(3));
+}
+
+#[test]
+fn test_run_struct_spread_generic() {
+    let source = r#"
+        struct Pair<T> { first: T, second: T }
+        pub fn main() -> Int {
+            let p = Pair { first: 10, second: 20 };
+            let q = Pair { first: 99, ..p };
+            q.first + q.second
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(119));
+}
+
+#[test]
+fn test_run_struct_spread_from_function() {
+    let source = r#"
+        struct Point { x: Int, y: Int }
+        fn origin() -> Point {
+            Point { x: 0, y: 0 }
+        }
+        pub fn main() -> Int {
+            let p = Point { x: 5, ..origin() };
+            p.x + p.y
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(5));
+}
+
+#[test]
+fn test_run_struct_spread_all_fields_overridden() {
+    let source = r#"
+        struct Point { x: Int, y: Int }
+        pub fn main() -> Int {
+            let p = Point { x: 1, y: 2 };
+            let q = Point { x: 10, y: 20, ..p };
+            q.x + q.y
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(30));
+}
+
 // Tuple struct tests
 
 #[test]

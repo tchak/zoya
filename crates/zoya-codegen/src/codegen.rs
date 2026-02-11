@@ -930,16 +930,19 @@ fn codegen_expr(expr: &TypedExpr) -> String {
                 )
             }
         }
-        TypedExpr::StructConstruct { fields, .. } => {
-            // Generate a plain JS object
-            if fields.is_empty() {
+        TypedExpr::StructConstruct { fields, spread, .. } => {
+            // Generate a plain JS object, with optional spread
+            let mut parts: Vec<String> = Vec::new();
+            if let Some(spread_expr) = spread {
+                parts.push(format!("...{}", codegen_expr(spread_expr)));
+            }
+            for (name, expr) in fields {
+                parts.push(format!("{}: {}", name, codegen_expr(expr)));
+            }
+            if parts.is_empty() {
                 "({})".to_string()
             } else {
-                let field_strs: Vec<String> = fields
-                    .iter()
-                    .map(|(name, expr)| format!("{}: {}", name, codegen_expr(expr)))
-                    .collect();
-                format!("({{ {} }})", field_strs.join(", "))
+                format!("({{ {} }})", parts.join(", "))
             }
         }
         TypedExpr::StructTupleConstruct { args, .. } => {

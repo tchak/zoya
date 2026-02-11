@@ -225,10 +225,11 @@ pub enum TypedExpr {
         body: Box<TypedExpr>,
         ty: Type,
     },
-    /// Struct constructor: `Point { x: 1, y: 2 }`
+    /// Struct constructor: `Point { x: 1, y: 2 }` or with spread `Point { x: 1, ..p }`
     StructConstruct {
         path: QualifiedPath,
         fields: Vec<(String, TypedExpr)>, // field name -> typed value
+        spread: Option<Box<TypedExpr>>,   // optional spread: `..expr`
         ty: Type,
     },
     /// Tuple struct constructor: `Pair(1, "hello")`
