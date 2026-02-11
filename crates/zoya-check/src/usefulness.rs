@@ -3,6 +3,7 @@
 //! Based on "Warnings for pattern matching" (Luc Maranget, JFP 2007).
 
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 
 use zoya_ir::{
     Definition, EnumVariantType, QualifiedPath, Type, TypeError, TypeVarId, TypedExpr,
@@ -136,7 +137,7 @@ pub enum Constructor {
     // Special constructor for suffix/prefix-suffix patterns with literals
     // This represents "some specific non-empty lists" that don't overlap
     // with regular ListCons patterns for usefulness checking
-    ListSpecific(usize), // unique id to make each pattern distinct
+    ListSpecific(u64), // deterministic hash of pattern structure
 
     // Tuple constructor (single constructor, arity = tuple length)
     Tuple(usize),
@@ -534,8 +535,8 @@ impl Pat {
                 // to avoid incorrectly claiming coverage of all non-empty lists
                 if Self::contains_specific_pattern(patterns) {
                     // Pattern like [.., 0] only matches lists ending with 0
-                    // Use a unique ID based on pattern address to make it distinct
-                    let id = patterns.as_ptr() as usize;
+                    // Use a deterministic hash so identical patterns share the same constructor
+                    let id = Self::pattern_hash(patterns);
                     Pat::Ctor(Constructor::ListSpecific(id), vec![])
                 } else {
                     // Pattern like [.., x] or [.., _] covers all non-empty lists
@@ -554,7 +555,11 @@ impl Pat {
                 if Self::contains_specific_pattern(prefix)
                     || Self::contains_specific_pattern(suffix)
                 {
-                    let id = prefix.as_ptr() as usize;
+                    // Hash both prefix and suffix for a deterministic ID
+                    let mut hasher = std::hash::DefaultHasher::new();
+                    format!("{:?}", prefix).hash(&mut hasher);
+                    format!("{:?}", suffix).hash(&mut hasher);
+                    let id = hasher.finish();
                     Pat::Ctor(Constructor::ListSpecific(id), vec![])
                 } else {
                     Self::list_min_length_pattern(*min_len, ty)
@@ -933,6 +938,14 @@ impl Pat {
         patterns
             .iter()
             .any(|p| matches!(p, TypedPattern::Literal(_)))
+    }
+
+    /// Compute a deterministic ID for a list of typed patterns by hashing their Debug representation.
+    /// Structurally identical patterns produce the same ID.
+    fn pattern_hash(patterns: &[TypedPattern]) -> u64 {
+        let mut hasher = std::hash::DefaultHasher::new();
+        format!("{:?}", patterns).hash(&mut hasher);
+        hasher.finish()
     }
 
     /// Convert [a, b, c] to nested Cons: Cons(a, Cons(b, Cons(c, Nil)))

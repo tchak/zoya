@@ -2,7 +2,7 @@
 //!
 //! Resolves `use` statements into qualified paths that can be looked up during type checking.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use zoya_ast::{PathPrefix, UseDecl, UseTarget};
 use zoya_ir::{Definition, QualifiedPath, TypeError, Visibility};
@@ -249,17 +249,24 @@ fn resolve_target_module(
     target: &QualifiedPath,
     definitions: &HashMap<QualifiedPath, Definition>,
     reexports: &HashMap<QualifiedPath, QualifiedPath>,
-) -> Option<QualifiedPath> {
+) -> Result<Option<QualifiedPath>, TypeError> {
     // Check if the target is a module (directly or through re-exports)
     if let Some(Definition::Module(_)) = definitions.get(target) {
         // Follow re-export chain to the canonical module path
         let mut current = target.clone();
+        let mut visited = HashSet::new();
+        visited.insert(current.clone());
         while let Some(real) = reexports.get(&current) {
+            if !visited.insert(real.clone()) {
+                return Err(TypeError {
+                    message: format!("circular re-export detected: {}", real),
+                });
+            }
             current = real.clone();
         }
-        return Some(current);
+        return Ok(Some(current));
     }
-    None
+    Ok(None)
 }
 
 /// The kind of container a glob/group path can resolve to.
@@ -277,19 +284,26 @@ fn resolve_target_container(
     target: &QualifiedPath,
     definitions: &HashMap<QualifiedPath, Definition>,
     reexports: &HashMap<QualifiedPath, QualifiedPath>,
-) -> Option<ContainerKind> {
+) -> Result<Option<ContainerKind>, TypeError> {
     if let Some(def) = definitions.get(target) {
         let mut resolved = target.clone();
+        let mut visited = HashSet::new();
+        visited.insert(resolved.clone());
         while let Some(real) = reexports.get(&resolved) {
+            if !visited.insert(real.clone()) {
+                return Err(TypeError {
+                    message: format!("circular re-export detected: {}", real),
+                });
+            }
             resolved = real.clone();
         }
         match def {
-            Definition::Module(_) => return Some(ContainerKind::Module(resolved)),
-            Definition::Enum(_) => return Some(ContainerKind::Enum(resolved)),
+            Definition::Module(_) => return Ok(Some(ContainerKind::Module(resolved))),
+            Definition::Enum(_) => return Ok(Some(ContainerKind::Enum(resolved))),
             _ => {}
         }
     }
-    None
+    Ok(None)
 }
 
 /// Resolve all imports for a module and return a unified import table.
@@ -336,7 +350,7 @@ pub fn resolve_module_imports(
                     for prefix_len in (2..segments.len()).rev() {
                         let candidate = QualifiedPath::new(segments[..prefix_len].to_vec());
                         if let Some(real_module) =
-                            resolve_target_module(&candidate, definitions, reexports)
+                            resolve_target_module(&candidate, definitions, reexports)?
                         {
                             // Rewrite the qualified path through the real module
                             let mut new_segments = real_module.segments().to_vec();
@@ -374,7 +388,7 @@ pub fn resolve_module_imports(
                 let target_path = resolve_use_module_path(use_decl, current_module)?;
 
                 // Resolve target as module or enum
-                let container = resolve_target_container(&target_path, definitions, reexports)
+                let container = resolve_target_container(&target_path, definitions, reexports)?
                     .ok_or_else(|| TypeError {
                         message: format!("cannot find module or enum '{}'", target_path),
                     })?;
@@ -449,7 +463,7 @@ pub fn resolve_module_imports(
                 let target_path = resolve_use_module_path(use_decl, current_module)?;
 
                 // Resolve target as module or enum
-                let container = resolve_target_container(&target_path, definitions, reexports)
+                let container = resolve_target_container(&target_path, definitions, reexports)?
                     .ok_or_else(|| TypeError {
                         message: format!("cannot find module or enum '{}'", target_path),
                     })?;

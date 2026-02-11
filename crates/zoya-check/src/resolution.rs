@@ -3,7 +3,7 @@
 //! Path resolution is purely structural - no TypeEnv lookup needed.
 //! The actual lookup happens after resolution.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use zoya_ast::{Path, PathPrefix};
 use zoya_ir::{Definition, QualifiedPath, TypeError, TypeScheme, Visibility};
@@ -250,7 +250,7 @@ pub fn resolve_expr_path<'a>(
             && let Some(def) = definitions.get(qualified)
         {
             // Follow re-export chain to the original definition
-            let canonical = follow_reexports(qualified, reexports);
+            let canonical = follow_reexports(qualified, reexports)?;
             let canonical_def = definitions.get(&canonical).unwrap_or(def);
             return Ok(ResolvedPath::Definition {
                 qualified_path: canonical,
@@ -267,7 +267,7 @@ pub fn resolve_expr_path<'a>(
         if let Some(item_imports) = imports.get(current_module)
             && let Some(imported_path) = item_imports.get(first)
         {
-            let canonical_base = follow_reexports(imported_path, reexports);
+            let canonical_base = follow_reexports(imported_path, reexports)?;
             let mut segments = canonical_base.segments().to_vec();
             segments.extend(path.segments[1..].iter().cloned());
             let qualified_path = QualifiedPath::new(segments);
@@ -275,7 +275,7 @@ pub fn resolve_expr_path<'a>(
             if let Some(def) = definitions.get(&qualified_path) {
                 check_module_path_visible(&qualified_path, current_module, definitions)?;
                 check_item_visibility(def, qualified_path.last(), current_module)?;
-                let canonical = follow_reexports(&qualified_path, reexports);
+                let canonical = follow_reexports(&qualified_path, reexports)?;
                 let canonical_def = definitions.get(&canonical).unwrap_or(def);
                 return Ok(ResolvedPath::Definition {
                     qualified_path: canonical,
@@ -293,7 +293,7 @@ pub fn resolve_expr_path<'a>(
         check_module_path_visible(&qualified_path, current_module, definitions)?;
         check_item_visibility(def, qualified_path.last(), current_module)?;
         // Follow re-export chain to the original definition
-        let canonical = follow_reexports(&qualified_path, reexports);
+        let canonical = follow_reexports(&qualified_path, reexports)?;
         let canonical_def = definitions.get(&canonical).unwrap_or(def);
         return Ok(ResolvedPath::Definition {
             qualified_path: canonical,
@@ -308,7 +308,7 @@ pub fn resolve_expr_path<'a>(
         if let Some(def) = definitions.get(&package_path) {
             check_module_path_visible(&package_path, current_module, definitions)?;
             check_item_visibility(def, package_path.last(), current_module)?;
-            let canonical = follow_reexports(&package_path, reexports);
+            let canonical = follow_reexports(&package_path, reexports)?;
             let canonical_def = definitions.get(&canonical).unwrap_or(def);
             return Ok(ResolvedPath::Definition {
                 qualified_path: canonical,
@@ -333,13 +333,20 @@ pub fn resolve_expr_path<'a>(
 fn follow_reexports(
     path: &QualifiedPath,
     reexports: &HashMap<QualifiedPath, QualifiedPath>,
-) -> QualifiedPath {
+) -> Result<QualifiedPath, TypeError> {
     let mut current = path.clone();
+    let mut visited = HashSet::new();
+    visited.insert(current.clone());
     // Follow re-export chain (supports transitive re-exports)
     while let Some(original) = reexports.get(&current) {
+        if !visited.insert(original.clone()) {
+            return Err(TypeError {
+                message: format!("circular re-export detected: {}", original),
+            });
+        }
         current = original.clone();
     }
-    current
+    Ok(current)
 }
 
 /// Resolve a path in pattern context (no locals, only imports and definitions).
@@ -363,7 +370,7 @@ pub fn resolve_pattern_path<'a>(
             && let Some(def) = definitions.get(qualified)
         {
             // Follow re-export chain to the original definition
-            let canonical = follow_reexports(qualified, reexports);
+            let canonical = follow_reexports(qualified, reexports)?;
             let canonical_def = definitions.get(&canonical).unwrap_or(def);
             return Ok(ResolvedPath::Definition {
                 qualified_path: canonical,
@@ -380,7 +387,7 @@ pub fn resolve_pattern_path<'a>(
         if let Some(item_imports) = imports.get(current_module)
             && let Some(imported_path) = item_imports.get(first)
         {
-            let canonical_base = follow_reexports(imported_path, reexports);
+            let canonical_base = follow_reexports(imported_path, reexports)?;
             let mut segments = canonical_base.segments().to_vec();
             segments.extend(path.segments[1..].iter().cloned());
             let qualified_path = QualifiedPath::new(segments);
@@ -388,7 +395,7 @@ pub fn resolve_pattern_path<'a>(
             if let Some(def) = definitions.get(&qualified_path) {
                 check_module_path_visible(&qualified_path, current_module, definitions)?;
                 check_item_visibility(def, qualified_path.last(), current_module)?;
-                let canonical = follow_reexports(&qualified_path, reexports);
+                let canonical = follow_reexports(&qualified_path, reexports)?;
                 let canonical_def = definitions.get(&canonical).unwrap_or(def);
                 return Ok(ResolvedPath::Definition {
                     qualified_path: canonical,
@@ -406,7 +413,7 @@ pub fn resolve_pattern_path<'a>(
         check_module_path_visible(&qualified_path, current_module, definitions)?;
         check_item_visibility(def, qualified_path.last(), current_module)?;
         // Follow re-export chain to the original definition
-        let canonical = follow_reexports(&qualified_path, reexports);
+        let canonical = follow_reexports(&qualified_path, reexports)?;
         let canonical_def = definitions.get(&canonical).unwrap_or(def);
         return Ok(ResolvedPath::Definition {
             qualified_path: canonical,
@@ -421,7 +428,7 @@ pub fn resolve_pattern_path<'a>(
         if let Some(def) = definitions.get(&package_path) {
             check_module_path_visible(&package_path, current_module, definitions)?;
             check_item_visibility(def, package_path.last(), current_module)?;
-            let canonical = follow_reexports(&package_path, reexports);
+            let canonical = follow_reexports(&package_path, reexports)?;
             let canonical_def = definitions.get(&canonical).unwrap_or(def);
             return Ok(ResolvedPath::Definition {
                 qualified_path: canonical,

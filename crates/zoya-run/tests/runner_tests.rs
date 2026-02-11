@@ -5456,3 +5456,193 @@ fn test_tuple_rest_binding_prefix_suffix() {
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(50));
 }
+
+// =============================================================================
+// Audit fixes: correctness tests
+// =============================================================================
+
+// Issue 1: Arithmetic on non-numeric types rejected
+#[test]
+fn test_arithmetic_on_string_error() {
+    let source = r#"
+        pub fn main() -> String {
+            "hello" + "world"
+        }
+    "#;
+    let result = run_source(source);
+    assert!(
+        matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("arithmetic operators only work on numeric types"))
+    );
+}
+
+#[test]
+fn test_ordering_on_string_error() {
+    let source = r#"
+        pub fn main() -> Bool {
+            "hello" < "world"
+        }
+    "#;
+    let result = run_source(source);
+    assert!(
+        matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("ordering operators only work on numeric types"))
+    );
+}
+
+#[test]
+fn test_ordering_on_bool_error() {
+    let source = r#"
+        pub fn main() -> Bool {
+            true < false
+        }
+    "#;
+    let result = run_source(source);
+    assert!(
+        matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("ordering operators only work on numeric types"))
+    );
+}
+
+// Issue 1: Numeric operators consistent with type variables (lambda inference)
+#[test]
+fn test_arithmetic_lambda_inference() {
+    let source = r#"
+        pub fn main() -> Int {
+            let add = |x, y| x + y;
+            add(10, 32)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_ordering_lambda_inference() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let lt = |x, y| x < y;
+            lt(1, 2)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_negation_lambda_inference() {
+    let source = r#"
+        pub fn main() -> Int {
+            let neg = |x| -x;
+            neg(42)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(-42));
+}
+
+// Issue 2: Turbofish on named-field struct construction
+#[test]
+fn test_turbofish_named_struct_wrong_type_error() {
+    let source = r#"
+        pub struct Pair<A, B> { first: A, second: B }
+        pub fn main() -> Int {
+            let p = Pair::<Int, Int> { first: "hello", second: 2 };
+            p.second
+        }
+    "#;
+    let result = run_source(source);
+    assert!(matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("type mismatch")));
+}
+
+#[test]
+fn test_turbofish_named_struct_wrong_arity_error() {
+    let source = r#"
+        pub struct Pair<A, B> { first: A, second: B }
+        pub fn main() -> Int {
+            let p = Pair::<Int> { first: 1, second: 2 };
+            p.first
+        }
+    "#;
+    let result = run_source(source);
+    assert!(matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("type argument")));
+}
+
+#[test]
+fn test_turbofish_named_struct_correct() {
+    let source = r#"
+        pub struct Pair<A, B> { first: A, second: B }
+        pub fn main() -> Int {
+            let p = Pair::<Int, String> { first: 42, second: "hello" };
+            p.first
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+// Issue 2: Turbofish on named-field enum struct variant construction
+#[test]
+fn test_turbofish_enum_struct_variant_wrong_type_error() {
+    let source = r#"
+        pub enum Container<T> {
+            Named { value: T },
+        }
+        pub fn main() -> Int {
+            let c = Container::Named::<Int> { value: "hello" };
+            match c {
+                Container::Named { value } => value,
+            }
+        }
+    "#;
+    let result = run_source(source);
+    assert!(matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("type mismatch")));
+}
+
+#[test]
+fn test_turbofish_enum_struct_variant_correct() {
+    let source = r#"
+        pub enum Container<T> {
+            Named { value: T },
+        }
+        pub fn main() -> Int {
+            let c = Container::Named::<Int> { value: 42 };
+            match c {
+                Container::Named { value } => value,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+// Issue 5: Duplicate pattern binding detection
+#[test]
+fn test_duplicate_binding_tuple_error() {
+    let source = r#"
+        pub fn main() -> Int {
+            let t = (1, 2);
+            match t {
+                (x, x) => x,
+            }
+        }
+    "#;
+    let result = run_source(source);
+    assert!(
+        matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("duplicate binding"))
+    );
+}
+
+#[test]
+fn test_duplicate_binding_list_error() {
+    let source = r#"
+        pub fn main() -> Int {
+            let xs = [1, 2];
+            match xs {
+                [x, x] => x,
+                _ => 0,
+            }
+        }
+    "#;
+    let result = run_source(source);
+    assert!(
+        matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("duplicate binding"))
+    );
+}

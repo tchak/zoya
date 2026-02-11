@@ -12,6 +12,22 @@ use crate::type_resolver::resolve_type_annotation;
 use crate::unify::UnifyCtx;
 use zoya_naming::{is_snake_case, to_snake_case};
 
+/// Merge pattern bindings, rejecting duplicate variable names within a single pattern.
+fn merge_bindings(
+    target: &mut HashMap<String, Type>,
+    source: HashMap<String, Type>,
+) -> Result<(), TypeError> {
+    for (name, ty) in source {
+        if target.contains_key(&name) {
+            return Err(TypeError {
+                message: format!("duplicate binding '{}' in pattern", name),
+            });
+        }
+        target.insert(name, ty);
+    }
+    Ok(())
+}
+
 /// Check a list of patterns against a single element type (for list patterns)
 pub fn check_patterns_against_elem(
     patterns: &[Pattern],
@@ -25,7 +41,7 @@ pub fn check_patterns_against_elem(
     for pat in patterns {
         let (typed_pat, bindings) = check_pattern(pat, elem_ty, current_module, env, ctx)?;
         typed_patterns.push(typed_pat);
-        all_bindings.extend(bindings);
+        merge_bindings(&mut all_bindings, bindings)?;
     }
     Ok((typed_patterns, all_bindings))
 }
@@ -43,7 +59,7 @@ pub fn check_patterns_against_types(
     for (pat, ty) in patterns.iter().zip(types.iter()) {
         let (typed_pat, bindings) = check_pattern(pat, ty, current_module, env, ctx)?;
         typed_patterns.push(typed_pat);
-        all_bindings.extend(bindings);
+        merge_bindings(&mut all_bindings, bindings)?;
     }
     Ok((typed_patterns, all_bindings))
 }
@@ -207,7 +223,7 @@ pub fn check_pattern(
                         env,
                         ctx,
                     )?;
-                    bindings.extend(suffix_bindings);
+                    merge_bindings(&mut bindings, suffix_bindings)?;
 
                     // Handle rest binding
                     let rest_binding_with_type = if let Some(name) = rest_binding {
@@ -471,7 +487,7 @@ pub fn check_pattern(
                         env,
                         ctx,
                     )?;
-                    bindings.extend(suffix_bindings);
+                    merge_bindings(&mut bindings, suffix_bindings)?;
 
                     // Handle rest binding: rest @ .. binds to tuple of middle elements
                     let rest_binding_with_type = if let Some(name) = rest_binding {
@@ -1090,7 +1106,7 @@ fn check_struct_type_pattern(
             env,
             ctx,
         )?;
-        all_bindings.extend(sub_bindings);
+        merge_bindings(&mut all_bindings, sub_bindings)?;
         typed_fields.push((field_pattern.field_name.clone(), typed_sub_pattern));
     }
 
@@ -1383,7 +1399,7 @@ fn check_enum_tuple_pattern(
                 env,
                 ctx,
             )?;
-            bindings.extend(suffix_bindings);
+            merge_bindings(&mut bindings, suffix_bindings)?;
 
             // Handle rest binding: rest @ .. binds to tuple of middle elements
             let rest_binding_with_type = if let Some(name) = rest_binding {
@@ -1595,7 +1611,7 @@ fn check_struct_tuple_pattern(
                 env,
                 ctx,
             )?;
-            bindings.extend(suffix_bindings);
+            merge_bindings(&mut bindings, suffix_bindings)?;
 
             let rest_binding_with_type = if let Some(name) = rest_binding {
                 if !is_snake_case(name) {
@@ -1681,7 +1697,7 @@ fn check_enum_struct_pattern(
         // Recursively check the field pattern
         let (typed_sub_pattern, sub_bindings) =
             check_pattern(&field_pattern.pattern, field_type, current_module, env, ctx)?;
-        all_bindings.extend(sub_bindings);
+        merge_bindings(&mut all_bindings, sub_bindings)?;
         typed_fields.push((field_pattern.field_name.clone(), typed_sub_pattern));
     }
 

@@ -902,9 +902,10 @@ fn check_unary_op(
     match op {
         UnaryOp::Neg => {
             // Negation only works on numeric types
+            // Type variables are allowed through (they may resolve to numeric types later)
             let resolved = ctx.resolve(&ty);
             match resolved {
-                Type::Int | Type::BigInt | Type::Float => Ok(TypedExpr::UnaryOp {
+                Type::Int | Type::BigInt | Type::Float | Type::Var(_) => Ok(TypedExpr::UnaryOp {
                     op,
                     expr: Box::new(typed_expr),
                     ty,
@@ -942,7 +943,7 @@ fn check_bin_op(
     // Determine result type based on operator
     let result_ty = match op {
         // Arithmetic operators: only work on numeric types, result has same type as operands
-        // Type variables are allowed through (they may resolve to numeric types later)
+        // Type variables are allowed through (they may resolve to numeric types later via unification)
         BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => {
             if !is_numeric_type(&resolved_ty) && !matches!(resolved_ty, Type::Var(_)) {
                 return Err(TypeError {
@@ -959,8 +960,9 @@ fn check_bin_op(
         BinOp::Eq | BinOp::Ne => Type::Bool,
 
         // Ordering operators: only work on numeric types, result is Bool
+        // Type variables are allowed through (they may resolve to numeric types later via unification)
         BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
-            if !is_numeric_type(&resolved_ty) {
+            if !is_numeric_type(&resolved_ty) && !matches!(resolved_ty, Type::Var(_)) {
                 return Err(TypeError {
                     message: format!(
                         "ordering operators only work on numeric types, not {}",
@@ -1301,6 +1303,7 @@ fn check_path_struct(
         } => check_struct_construct_resolved(
             &qualified_path,
             struct_type,
+            &path.type_args,
             fields,
             current_module,
             env,
@@ -1314,6 +1317,7 @@ fn check_path_struct(
                 def,
                 variant,
                 qualified_path.last(),
+                &path.type_args,
                 fields,
                 current_module,
                 env,
@@ -1351,20 +1355,46 @@ fn check_path_struct(
 }
 
 /// Check a struct construction expression with resolved struct type
+#[allow(clippy::too_many_arguments)]
 fn check_struct_construct_resolved(
     qualified_path: &QualifiedPath,
     struct_type: &StructType,
+    explicit_type_args: &Option<Vec<TypeAnnotation>>,
     fields: &[(String, Expr)],
     current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
     let name = &struct_type.name;
-    // Create fresh type variables for generic parameters
-    let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
-    for &old_id in &struct_type.type_var_ids {
-        instantiation.insert(old_id, ctx.fresh_var());
-    }
+    // Handle explicit type arguments (turbofish) or create fresh type variables
+    let instantiation: HashMap<TypeVarId, Type> = if let Some(type_args) = explicit_type_args {
+        if type_args.len() != struct_type.type_params.len() {
+            return Err(TypeError {
+                message: format!(
+                    "struct {} expects {} type argument(s), got {}",
+                    name,
+                    struct_type.type_params.len(),
+                    type_args.len()
+                ),
+            });
+        }
+        let resolved: Vec<Type> = type_args
+            .iter()
+            .map(|ann| resolve_type_annotation(ann, &HashMap::new(), current_module, env))
+            .collect::<Result<_, _>>()?;
+        struct_type
+            .type_var_ids
+            .iter()
+            .zip(resolved)
+            .map(|(&id, ty)| (id, ty))
+            .collect()
+    } else {
+        struct_type
+            .type_var_ids
+            .iter()
+            .map(|&id| (id, ctx.fresh_var()))
+            .collect()
+    };
 
     // Check that all required fields are present and no extra fields
     let expected_field_names: HashSet<&str> =
@@ -1460,6 +1490,7 @@ fn check_enum_struct_construct_resolved(
     enum_type: &EnumType,
     variant_type: &EnumVariantType,
     variant_name: &str,
+    explicit_type_args: &Option<Vec<TypeAnnotation>>,
     provided_fields: &[(String, Expr)],
     current_module: &QualifiedPath,
     env: &TypeEnv,
@@ -1489,11 +1520,35 @@ fn check_enum_struct_construct_resolved(
         }
     };
 
-    // Create fresh type variables for generic parameters
-    let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
-    for &old_id in &enum_type.type_var_ids {
-        instantiation.insert(old_id, ctx.fresh_var());
-    }
+    // Handle explicit type arguments (turbofish) or create fresh type variables
+    let instantiation: HashMap<TypeVarId, Type> = if let Some(type_args) = explicit_type_args {
+        if type_args.len() != enum_type.type_params.len() {
+            return Err(TypeError {
+                message: format!(
+                    "enum {} expects {} type argument(s), got {}",
+                    enum_path,
+                    enum_type.type_params.len(),
+                    type_args.len()
+                ),
+            });
+        }
+        let resolved: Vec<Type> = type_args
+            .iter()
+            .map(|ann| resolve_type_annotation(ann, &HashMap::new(), current_module, env))
+            .collect::<Result<_, _>>()?;
+        enum_type
+            .type_var_ids
+            .iter()
+            .zip(resolved)
+            .map(|(&id, ty)| (id, ty))
+            .collect()
+    } else {
+        enum_type
+            .type_var_ids
+            .iter()
+            .map(|&id| (id, ctx.fresh_var()))
+            .collect()
+    };
 
     // Check for missing and extra fields
     let expected_names: HashSet<&str> = expected_fields.iter().map(|(n, _)| n.as_str()).collect();

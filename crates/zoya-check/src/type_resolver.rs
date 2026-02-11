@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use zoya_ast::TypeAnnotation;
 use zoya_ir::{Definition, Type, TypeError, TypeVarId};
@@ -16,6 +16,22 @@ pub fn resolve_type_annotation(
     type_param_map: &HashMap<String, TypeVarId>,
     current_module: &QualifiedPath,
     env: &TypeEnv,
+) -> Result<Type, TypeError> {
+    resolve_type_annotation_inner(
+        annotation,
+        type_param_map,
+        current_module,
+        env,
+        &mut HashSet::new(),
+    )
+}
+
+fn resolve_type_annotation_inner(
+    annotation: &TypeAnnotation,
+    type_param_map: &HashMap<String, TypeVarId>,
+    current_module: &QualifiedPath,
+    env: &TypeEnv,
+    expanding_aliases: &mut HashSet<QualifiedPath>,
 ) -> Result<Type, TypeError> {
     match annotation {
         TypeAnnotation::Named(path) => {
@@ -105,8 +121,18 @@ pub fn resolve_type_annotation(
                                     ),
                                 });
                             }
-                            // Non-generic alias: return the underlying type as-is
-                            Ok(alias_def.typ.clone())
+                            // Cycle detection
+                            if !expanding_aliases.insert(qualified_path.clone()) {
+                                return Err(TypeError {
+                                    message: format!(
+                                        "circular type alias detected: {}",
+                                        qualified_path
+                                    ),
+                                });
+                            }
+                            let result = Ok(alias_def.typ.clone());
+                            expanding_aliases.remove(&qualified_path);
+                            result
                         }
                         Definition::Function(_) => Err(TypeError {
                             message: format!(
@@ -139,8 +165,13 @@ pub fn resolve_type_annotation(
                         message: "List requires exactly one type parameter".to_string(),
                     });
                 }
-                let elem_type =
-                    resolve_type_annotation(&params[0], type_param_map, current_module, env)?;
+                let elem_type = resolve_type_annotation_inner(
+                    &params[0],
+                    type_param_map,
+                    current_module,
+                    env,
+                    expanding_aliases,
+                )?;
                 return Ok(Type::List(Box::new(elem_type)));
             }
 
@@ -181,7 +212,13 @@ pub fn resolve_type_annotation(
                             let type_args = params
                                 .iter()
                                 .map(|p| {
-                                    resolve_type_annotation(p, type_param_map, current_module, env)
+                                    resolve_type_annotation_inner(
+                                        p,
+                                        type_param_map,
+                                        current_module,
+                                        env,
+                                        expanding_aliases,
+                                    )
                                 })
                                 .collect::<Result<Vec<_>, _>>()?;
                             // Substitute type args into field types
@@ -215,7 +252,13 @@ pub fn resolve_type_annotation(
                             let type_args = params
                                 .iter()
                                 .map(|p| {
-                                    resolve_type_annotation(p, type_param_map, current_module, env)
+                                    resolve_type_annotation_inner(
+                                        p,
+                                        type_param_map,
+                                        current_module,
+                                        env,
+                                        expanding_aliases,
+                                    )
                                 })
                                 .collect::<Result<Vec<_>, _>>()?;
                             // Substitute type args into variant types
@@ -248,10 +291,25 @@ pub fn resolve_type_annotation(
                                     ),
                                 });
                             }
+                            // Cycle detection
+                            if !expanding_aliases.insert(qualified_path.clone()) {
+                                return Err(TypeError {
+                                    message: format!(
+                                        "circular type alias detected: {}",
+                                        qualified_path
+                                    ),
+                                });
+                            }
                             let type_args = params
                                 .iter()
                                 .map(|p| {
-                                    resolve_type_annotation(p, type_param_map, current_module, env)
+                                    resolve_type_annotation_inner(
+                                        p,
+                                        type_param_map,
+                                        current_module,
+                                        env,
+                                        expanding_aliases,
+                                    )
                                 })
                                 .collect::<Result<Vec<_>, _>>()?;
                             // Substitute type args into the underlying type
@@ -259,6 +317,7 @@ pub fn resolve_type_annotation(
                             for (id, arg) in alias_def.type_var_ids.iter().zip(type_args.iter()) {
                                 subst.insert(*id, arg.clone());
                             }
+                            expanding_aliases.remove(&qualified_path);
                             Ok(substitute_type_vars(&alias_def.typ, &subst))
                         }
                         Definition::Function(_) => Err(TypeError {
@@ -285,11 +344,12 @@ pub fn resolve_type_annotation(
         TypeAnnotation::Tuple(params) => {
             let mut types = Vec::new();
             for param in params {
-                types.push(resolve_type_annotation(
+                types.push(resolve_type_annotation_inner(
                     param,
                     type_param_map,
                     current_module,
                     env,
+                    expanding_aliases,
                 )?);
             }
             Ok(Type::Tuple(types))
@@ -297,14 +357,21 @@ pub fn resolve_type_annotation(
         TypeAnnotation::Function(params, ret) => {
             let mut param_types = Vec::new();
             for param in params {
-                param_types.push(resolve_type_annotation(
+                param_types.push(resolve_type_annotation_inner(
                     param,
                     type_param_map,
                     current_module,
                     env,
+                    expanding_aliases,
                 )?);
             }
-            let ret_type = resolve_type_annotation(ret, type_param_map, current_module, env)?;
+            let ret_type = resolve_type_annotation_inner(
+                ret,
+                type_param_map,
+                current_module,
+                env,
+                expanding_aliases,
+            )?;
             Ok(Type::Function {
                 params: param_types,
                 ret: Box::new(ret_type),
