@@ -2056,7 +2056,34 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
         }
     }
 
-    // Pass 3: Register function signatures (all types now available)
+    // Early import pass: resolve internal imports that target types.
+    // This runs before function signatures are registered (Pass 3) so that
+    // `use super::result::Result` etc. are available in type annotations.
+    // Each use is resolved individually; imports that fail (e.g., targeting
+    // not-yet-registered functions) are silently skipped — they will be
+    // resolved in the full import pass after Pass 3.
+    for path in &module_paths {
+        if let Some(module) = pkg.modules.get(path) {
+            for item in &module.items {
+                if let Item::Use(u) = item
+                    && !matches!(u.path.prefix, zoya_ast::PathPrefix::Package(_))
+                    && let Ok(item_imports) = resolve_module_imports(
+                        std::slice::from_ref(u),
+                        path,
+                        &env.definitions,
+                        &env.reexports,
+                    )
+                {
+                    env.imports
+                        .entry(path.clone())
+                        .or_default()
+                        .extend(item_imports);
+                }
+            }
+        }
+    }
+
+    // Pass 3: Register function signatures (all types and imports now available)
     for path in &module_paths {
         if let Some(module) = pkg.modules.get(path) {
             register_function_signatures(&module.items, path, &mut env, &mut ctx)?;
@@ -2090,7 +2117,7 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
         }
     }
 
-    // Phase 1.5a: Register re-exports from pub use declarations (fixpoint)
+    // Register re-exports from pub use declarations (fixpoint)
     // Re-exports may depend on other re-exports at the same module depth (e.g., prelude
     // re-exports from option's re-exports). Since module_paths order within the same depth
     // is non-deterministic (HashMap iteration), we iterate until no new definitions are
@@ -2103,8 +2130,9 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
         }
     }
 
-    // Phase 1.5b: Resolve imports for all modules
-    // Skip package-prefix imports (already resolved in Phase 0.5)
+    // Full import pass: resolve all internal imports (root::, super::, self::)
+    // now that functions, modules, and re-exports are all registered.
+    // Skip package-prefix imports (already resolved in Phase 0.5).
     for path in &module_paths {
         if let Some(module) = pkg.modules.get(path) {
             let uses: Vec<UseDecl> = module

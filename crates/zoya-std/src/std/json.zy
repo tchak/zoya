@@ -1,3 +1,5 @@
+use super::result::Result
+
 pub enum Number { Int(Int), Float(Float) }
 
 pub enum JSON {
@@ -12,4 +14,4 @@ pub enum JSON {
 pub enum ParseError { ParseError }
 
 #[builtin]
-pub fn parse(value: String) -> root::result::Result<JSON, ParseError> ()
+pub fn parse(value: String) -> Result<JSON, ParseError> ()
