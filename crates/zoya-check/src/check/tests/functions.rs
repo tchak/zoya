@@ -156,6 +156,7 @@ fn test_check_function_def() {
     let env = TypeEnv::default();
     let mut ctx = UnifyCtx::new();
     let func = FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "double".to_string(),
         type_params: vec![],
@@ -181,6 +182,7 @@ fn test_check_function_def_return_type_mismatch() {
     let env = TypeEnv::default();
     let mut ctx = UnifyCtx::new();
     let func = FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "wrong".to_string(),
         type_params: vec![],
@@ -214,6 +216,7 @@ fn test_check_function_def_with_call() {
 
     let mut ctx = UnifyCtx::new();
     let func = FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "double".to_string(),
         type_params: vec![],
@@ -239,6 +242,7 @@ fn test_check_function_def_with_call() {
 fn test_function_type_from_def() {
     let mut ctx = UnifyCtx::new();
     let func = FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "add".to_string(),
         type_params: vec![],
@@ -266,6 +270,7 @@ fn test_function_type_from_def() {
 fn test_function_type_from_def_generic() {
     let mut ctx = UnifyCtx::new();
     let func = FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "identity".to_string(),
         type_params: vec!["T".to_string()],
@@ -289,6 +294,7 @@ fn test_function_type_from_def_generic() {
 #[test]
 fn test_check_function_definition() {
     let items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "foo".to_string(),
         type_params: vec![],
@@ -304,6 +310,7 @@ fn test_check_function_definition() {
 #[test]
 fn test_check_function_call_in_module() {
     let items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "double".to_string(),
         type_params: vec![],
@@ -338,6 +345,7 @@ fn test_check_forward_reference() {
     // Should succeed - caller can reference callee defined later
     let items = vec![
         Item::Function(FunctionDef {
+            attributes: vec![],
             visibility: Visibility::Public,
             name: "caller".to_string(),
             type_params: vec![],
@@ -349,6 +357,7 @@ fn test_check_forward_reference() {
             },
         }),
         Item::Function(FunctionDef {
+            attributes: vec![],
             visibility: Visibility::Public,
             name: "callee".to_string(),
             type_params: vec![],
@@ -375,6 +384,7 @@ fn test_check_mutual_recursion() {
     // Should succeed - both see each other
     let items = vec![
         Item::Function(FunctionDef {
+            attributes: vec![],
             visibility: Visibility::Public,
             name: "is_even".to_string(),
             type_params: vec![],
@@ -405,6 +415,7 @@ fn test_check_mutual_recursion() {
             },
         }),
         Item::Function(FunctionDef {
+            attributes: vec![],
             visibility: Visibility::Public,
             name: "is_odd".to_string(),
             type_params: vec![],
@@ -451,6 +462,7 @@ fn test_check_module_with_test_expr() {
     // Items are processed before test expr; forward refs work
     let items = vec![
         Item::Function(FunctionDef {
+            attributes: vec![],
             visibility: Visibility::Public,
             name: "f2".to_string(),
             type_params: vec![],
@@ -462,6 +474,7 @@ fn test_check_module_with_test_expr() {
             },
         }),
         Item::Function(FunctionDef {
+            attributes: vec![],
             visibility: Visibility::Public,
             name: "f1".to_string(),
             type_params: vec![],
@@ -502,6 +515,7 @@ fn test_check_undefined_variable_error() {
     // fn bad() -> Int x
     // Should fail: "unknown identifier 'x'" (x is not defined anywhere)
     let items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "bad".to_string(),
         type_params: vec![],
@@ -529,6 +543,7 @@ fn test_check_self_recursion() {
     // fn factorial(n) -> Int { match n { 0 => 1, _ => n * factorial(n-1) } }
     // Should succeed
     let items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "factorial".to_string(),
         type_params: vec![],
@@ -576,6 +591,7 @@ fn test_function_def_invalid_name_pascal_case() {
     let env = TypeEnv::default();
     let mut ctx = UnifyCtx::new();
     let func = FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "MyFunction".to_string(), // Should be snake_case
         type_params: vec![],
@@ -594,6 +610,7 @@ fn test_function_def_invalid_type_param() {
     let env = TypeEnv::default();
     let mut ctx = UnifyCtx::new();
     let func = FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "identity".to_string(),
         type_params: vec!["bad_type".to_string()], // Should be PascalCase
@@ -615,6 +632,7 @@ fn test_function_def_refutable_param_pattern() {
     let env = TypeEnv::default();
     let mut ctx = UnifyCtx::new();
     let func = FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "bad".to_string(),
         type_params: vec![],

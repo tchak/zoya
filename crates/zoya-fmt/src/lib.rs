@@ -155,6 +155,54 @@ mod tests {
         assert_eq!(result, "use root::foo::{add, divide}\n");
     }
 
+    // --- Annotations ---
+
+    #[test]
+    fn test_annotation_on_function() {
+        let result = format_source("#[test] fn foo() 42");
+        assert_eq!(result, "#[test]\nfn foo() 42\n");
+    }
+
+    #[test]
+    fn test_multiple_annotations() {
+        let result = format_source("#[test] #[inline] pub fn foo() 42");
+        assert_eq!(result, "#[test]\n#[inline]\npub fn foo() 42\n");
+    }
+
+    #[test]
+    fn test_annotation_on_struct() {
+        let result = format_source("#[derive] pub struct Point { x: Int }");
+        assert_eq!(result, "#[derive]\npub struct Point { x: Int }\n");
+    }
+
+    #[test]
+    fn test_annotation_on_enum() {
+        let result = format_source("#[derive] enum Color { Red, Blue }");
+        assert_eq!(result, "#[derive]\nenum Color { Red, Blue }\n");
+    }
+
+    #[test]
+    fn test_annotation_on_type_alias() {
+        let result = format_source("#[deprecated] type UserId = Int");
+        assert_eq!(result, "#[deprecated]\ntype UserId = Int\n");
+    }
+
+    #[test]
+    fn test_annotation_on_use() {
+        let result = format_source("#[allow] use root::foo::bar");
+        assert_eq!(result, "#[allow]\nuse root::foo::bar\n");
+    }
+
+    #[test]
+    fn test_annotation_idempotent() {
+        let source = "#[test]\n#[inline]\npub fn foo() 42";
+        let result = format_source(source);
+        assert_eq!(result, "#[test]\n#[inline]\npub fn foo() 42\n");
+        // Idempotency: formatting again yields the same output
+        let result2 = format_source(&result);
+        assert_eq!(result, result2);
+    }
+
     // --- Ordering ---
 
     #[test]

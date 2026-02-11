@@ -103,6 +103,7 @@ impl Item {
 /// Struct definition: `[pub] struct Name<T, U> { field: Type, ... }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructDef {
+    pub attributes: Vec<Attribute>,
     pub visibility: Visibility,
     pub name: String,
     pub type_params: Vec<String>,
@@ -119,6 +120,7 @@ pub struct StructFieldDef {
 /// Enum definition: `[pub] enum Option<T> { None, Some(T), Move { x: Int, y: Int } }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumDef {
+    pub attributes: Vec<Attribute>,
     pub visibility: Visibility,
     pub name: String,
     pub type_params: Vec<String>,
@@ -146,10 +148,17 @@ pub enum EnumVariantKind {
 /// Type alias definition: `[pub] type Name<T, U> = TypeAnnotation`
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeAliasDef {
+    pub attributes: Vec<Attribute>,
     pub visibility: Visibility,
     pub name: String,
     pub type_params: Vec<String>,
     pub typ: TypeAnnotation,
+}
+
+/// An annotation: `#[name]`
+#[derive(Debug, Clone, PartialEq)]
+pub struct Attribute {
+    pub name: String,
 }
 
 /// Visibility of an item
@@ -165,6 +174,7 @@ pub enum Visibility {
 /// Function definition
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionDef {
+    pub attributes: Vec<Attribute>,
     pub visibility: Visibility,
     pub name: String,
     pub type_params: Vec<String>,
@@ -434,6 +444,7 @@ pub struct ModDecl {
 /// Use declaration: `[pub] use root::foo::bar`
 #[derive(Debug, Clone, PartialEq)]
 pub struct UseDecl {
+    pub attributes: Vec<Attribute>,
     pub visibility: Visibility,
     pub path: UsePath,
 }

@@ -11,7 +11,7 @@ mod statements;
 mod types;
 
 use helpers::{mod_decl_parser, use_decl_parser};
-use items::item_parser;
+use items::{attribute_parser, item_parser};
 use statements::stmt_parser;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -160,9 +160,16 @@ pub fn parse_module(
 ) -> Result<(Vec<ModDecl>, Vec<Item>), ParseError> {
     let (toks, byte_spans) = split_tokens(tokens);
 
+    let attributes = attribute_parser().repeated().collect::<Vec<_>>();
+
+    let use_with_attrs = attributes.then(use_decl_parser()).map(|(attrs, mut u)| {
+        u.attributes = attrs;
+        ModuleElement::Item(Box::new(Item::Use(u)))
+    });
+
     let element = choice((
         mod_decl_parser().map(ModuleElement::Mod),
-        use_decl_parser().map(|u| ModuleElement::Item(Box::new(Item::Use(u)))),
+        use_with_attrs,
         item_parser().map(|i| ModuleElement::Item(Box::new(i))),
     ));
 
@@ -563,6 +570,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                attributes: vec![],
                 visibility: Visibility::Private,
                 name: "foo".to_string(),
                 type_params: vec![],
@@ -579,6 +587,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                attributes: vec![],
                 visibility: Visibility::Private,
                 name: "foo".to_string(),
                 type_params: vec![],
@@ -595,6 +604,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                attributes: vec![],
                 visibility: Visibility::Private,
                 name: "add".to_string(),
                 type_params: vec![],
@@ -624,6 +634,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                attributes: vec![],
                 visibility: Visibility::Private,
                 name: "identity".to_string(),
                 type_params: vec!["T".to_string()],
@@ -643,6 +654,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                attributes: vec![],
                 visibility: Visibility::Private,
                 name: "pair".to_string(),
                 type_params: vec!["A".to_string(), "B".to_string()],
@@ -668,6 +680,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                attributes: vec![],
                 visibility: Visibility::Private,
                 name: "double".to_string(),
                 type_params: vec![],
@@ -994,6 +1007,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                attributes: vec![],
                 visibility: Visibility::Private,
                 name: "foo".to_string(),
                 type_params: vec![],
@@ -1011,6 +1025,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                attributes: vec![],
                 visibility: Visibility::Private,
                 name: "add".to_string(),
                 type_params: vec![],
@@ -1050,6 +1065,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                attributes: vec![],
                 visibility: Visibility::Public,
                 name: "foo".to_string(),
                 type_params: vec![],
@@ -2182,6 +2198,7 @@ mod tests {
                 name,
                 type_params,
                 typ: TypeAnnotation::Named(_),
+                ..
             }) if name == "UserId" && type_params.is_empty()
         ));
     }
@@ -2195,6 +2212,7 @@ mod tests {
             name,
             type_params,
             typ: TypeAnnotation::Tuple(elems),
+            ..
         }) = item
         else {
             panic!("expected generic type alias with tuple")
@@ -2215,6 +2233,7 @@ mod tests {
                 name,
                 type_params,
                 typ: TypeAnnotation::Parameterized(_, _),
+                ..
             }) if name == "StringList" && type_params.is_empty()
         ));
     }
@@ -2230,6 +2249,7 @@ mod tests {
                 name,
                 type_params,
                 typ: TypeAnnotation::Function(_, _),
+                ..
             }) if name == "Callback" && type_params.is_empty()
         ));
     }
@@ -2306,6 +2326,80 @@ mod tests {
                 ..
             }) if name == "UserId"
         ));
+    }
+
+    // ===== annotation tests =====
+
+    #[test]
+    fn test_parse_annotation_on_function() {
+        let item = parse_item_str("#[test] fn foo() 42").unwrap();
+        let Item::Function(f) = item else {
+            panic!("expected function")
+        };
+        assert_eq!(f.attributes.len(), 1);
+        assert_eq!(f.attributes[0].name, "test");
+        assert_eq!(f.name, "foo");
+    }
+
+    #[test]
+    fn test_parse_multiple_annotations() {
+        let item = parse_item_str("#[test] #[inline] pub fn foo() 42").unwrap();
+        let Item::Function(f) = item else {
+            panic!("expected function")
+        };
+        assert_eq!(f.attributes.len(), 2);
+        assert_eq!(f.attributes[0].name, "test");
+        assert_eq!(f.attributes[1].name, "inline");
+        assert_eq!(f.visibility, Visibility::Public);
+    }
+
+    #[test]
+    fn test_parse_annotation_on_struct() {
+        let item = parse_item_str("#[derive] struct Point { x: Int }").unwrap();
+        let Item::Struct(s) = item else {
+            panic!("expected struct")
+        };
+        assert_eq!(s.attributes.len(), 1);
+        assert_eq!(s.attributes[0].name, "derive");
+    }
+
+    #[test]
+    fn test_parse_annotation_on_enum() {
+        let item = parse_item_str("#[derive] enum Color { Red, Blue }").unwrap();
+        let Item::Enum(e) = item else {
+            panic!("expected enum")
+        };
+        assert_eq!(e.attributes.len(), 1);
+        assert_eq!(e.attributes[0].name, "derive");
+    }
+
+    #[test]
+    fn test_parse_annotation_on_type_alias() {
+        let item = parse_item_str("#[deprecated] type UserId = Int").unwrap();
+        let Item::TypeAlias(t) = item else {
+            panic!("expected type alias")
+        };
+        assert_eq!(t.attributes.len(), 1);
+        assert_eq!(t.attributes[0].name, "deprecated");
+    }
+
+    #[test]
+    fn test_parse_no_annotations() {
+        let item = parse_item_str("fn foo() 42").unwrap();
+        let Item::Function(f) = item else {
+            panic!("expected function")
+        };
+        assert!(f.attributes.is_empty());
+    }
+
+    #[test]
+    fn test_parse_annotation_on_use() {
+        let (_, items) = parse_module_str("#[allow] use root::foo").unwrap();
+        let Item::Use(u) = &items[0] else {
+            panic!("expected use")
+        };
+        assert_eq!(u.attributes.len(), 1);
+        assert_eq!(u.attributes[0].name, "allow");
     }
 
     // ===== parse_file() tests =====

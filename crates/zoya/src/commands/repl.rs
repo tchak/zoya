@@ -211,6 +211,7 @@ impl State {
                 .collect();
 
             let combined_fn = Item::Function(FunctionDef {
+                attributes: vec![],
                 visibility: Visibility::Public,
                 name: "main".to_string(),
                 type_params: vec![],
@@ -363,6 +364,7 @@ fn create_run_function(name: &str, block: &EvalBlock) -> Item {
     };
 
     Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: name.to_string(),
         type_params: vec![],

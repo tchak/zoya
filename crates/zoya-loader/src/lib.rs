@@ -439,7 +439,7 @@ mod integration_tests {
     #[test]
     fn test_error_lex_error() {
         let dir = TempDir::new().unwrap();
-        create_file(dir.path(), "main.zy", "fn foo() # invalid");
+        create_file(dir.path(), "main.zy", "fn foo() $ invalid");
 
         let result = load_package(&dir.path().join("main.zy"));
 

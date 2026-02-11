@@ -1,7 +1,7 @@
 use chumsky::prelude::*;
 
 use zoya_ast::{
-    EnumDef, EnumVariant, EnumVariantKind, Expr, FunctionDef, Item, Param, StructDef,
+    Attribute, EnumDef, EnumVariant, EnumVariantKind, Expr, FunctionDef, Item, Param, StructDef,
     StructFieldDef, TypeAliasDef, Visibility,
 };
 use zoya_lexer::Token;
@@ -11,6 +11,13 @@ use crate::helpers::ident;
 use crate::patterns::pattern_parser;
 use crate::statements::let_binding_parser;
 use crate::types::type_annotation;
+
+pub(crate) fn attribute_parser<'a>()
+-> impl Parser<'a, &'a [Token], Attribute, extra::Err<Rich<'a, Token>>> + Clone {
+    just(Token::Hash)
+        .ignore_then(ident().delimited_by(just(Token::LBracket), just(Token::RBracket)))
+        .map(|name| Attribute { name })
+}
 
 pub(crate) fn item_parser<'a>()
 -> impl Parser<'a, &'a [Token], Item, extra::Err<Rich<'a, Token>>> + Clone {
@@ -76,6 +83,7 @@ pub(crate) fn item_parser<'a>()
         .map(
             |(((((is_pub, name), type_params), params), return_type), body)| {
                 Item::Function(FunctionDef {
+                    attributes: vec![],
                     visibility: if is_pub.is_some() {
                         Visibility::Public
                     } else {
@@ -113,6 +121,7 @@ pub(crate) fn item_parser<'a>()
         .then(struct_fields.clone().or_not())
         .map(|(((is_pub, name), type_params), fields)| {
             Item::Struct(StructDef {
+                attributes: vec![],
                 visibility: if is_pub.is_some() {
                     Visibility::Public
                 } else {
@@ -169,6 +178,7 @@ pub(crate) fn item_parser<'a>()
         .then(enum_variants)
         .map(|(((is_pub, name), type_params), variants)| {
             Item::Enum(EnumDef {
+                attributes: vec![],
                 visibility: if is_pub.is_some() {
                     Visibility::Public
                 } else {
@@ -190,6 +200,7 @@ pub(crate) fn item_parser<'a>()
         .then(type_annotation())
         .map(|(((is_pub, name), type_params), typ)| {
             Item::TypeAlias(TypeAliasDef {
+                attributes: vec![],
                 visibility: if is_pub.is_some() {
                     Visibility::Public
                 } else {
@@ -201,5 +212,35 @@ pub(crate) fn item_parser<'a>()
             })
         });
 
-    choice((function_def, struct_def, enum_def, type_alias_def))
+    let attributes = attribute_parser().repeated().collect::<Vec<_>>();
+
+    attributes
+        .then(choice((function_def, struct_def, enum_def, type_alias_def)))
+        .map(|(attrs, item)| {
+            if attrs.is_empty() {
+                return item;
+            }
+            match item {
+                Item::Function(mut f) => {
+                    f.attributes = attrs;
+                    Item::Function(f)
+                }
+                Item::Struct(mut s) => {
+                    s.attributes = attrs;
+                    Item::Struct(s)
+                }
+                Item::Enum(mut e) => {
+                    e.attributes = attrs;
+                    Item::Enum(e)
+                }
+                Item::TypeAlias(mut t) => {
+                    t.attributes = attrs;
+                    Item::TypeAlias(t)
+                }
+                Item::Use(mut u) => {
+                    u.attributes = attrs;
+                    Item::Use(u)
+                }
+            }
+        })
 }

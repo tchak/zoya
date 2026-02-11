@@ -54,6 +54,7 @@ fn build_multi_module_package(modules_data: Vec<(QualifiedPath, Vec<Item>)>) -> 
 
 fn make_use(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
     UseDecl {
+        attributes: vec![],
         visibility: Visibility::Private,
         path: UsePath {
             prefix,
@@ -70,6 +71,7 @@ fn test_import_function_from_submodule() {
     // root module uses root::utils::helper
     // utils module has pub fn helper() -> Int
     let utils_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "helper".to_string(),
         type_params: vec![],
@@ -80,6 +82,7 @@ fn test_import_function_from_submodule() {
 
     // Test function calls helper (imported)
     let root_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "test_fn".to_string(),
         type_params: vec![],
@@ -109,6 +112,7 @@ fn test_import_function_from_submodule() {
 fn test_import_private_function_fails() {
     // utils module has private fn secret() -> Int
     let utils_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Private,
         name: "secret".to_string(),
         type_params: vec![],
@@ -133,6 +137,7 @@ fn test_import_private_function_fails() {
 fn test_import_private_struct_fails() {
     // utils module has private struct Secret
     let utils_items = vec![Item::Struct(zoya_ast::StructDef {
+        attributes: vec![],
         visibility: Visibility::Private,
         name: "Secret".to_string(),
         type_params: vec![],
@@ -169,6 +174,7 @@ fn test_import_not_found_fails() {
 fn test_duplicate_import_fails() {
     // Two different functions, but same local name
     let utils_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "helper".to_string(),
         type_params: vec![],
@@ -178,6 +184,7 @@ fn test_duplicate_import_fails() {
     })];
 
     let other_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "helper".to_string(),
         type_params: vec![],
@@ -246,6 +253,7 @@ fn test_duplicate_import_fails() {
 fn test_local_shadows_import() {
     // Local variable should shadow imported function
     let utils_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "x".to_string(),
         type_params: vec![],
@@ -256,6 +264,7 @@ fn test_local_shadows_import() {
 
     // Test function has local `x` that shadows the import
     let root_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "test_fn".to_string(),
         type_params: vec![],
@@ -289,6 +298,7 @@ fn test_local_shadows_import() {
 fn test_import_shadows_module_level_definition() {
     // Import should take priority over a function in the current module
     let utils_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "foo".to_string(),
         type_params: vec![],
@@ -301,6 +311,7 @@ fn test_import_shadows_module_level_definition() {
     // But also imports `foo` from utils
     let root_items = vec![
         Item::Function(FunctionDef {
+            attributes: vec![],
             visibility: Visibility::Public,
             name: "foo".to_string(),
             type_params: vec![],
@@ -309,6 +320,7 @@ fn test_import_shadows_module_level_definition() {
             body: Expr::Bool(true), // Returns Bool
         }),
         Item::Function(FunctionDef {
+            attributes: vec![],
             visibility: Visibility::Public,
             name: "test_fn".to_string(),
             type_params: vec![],
@@ -341,6 +353,7 @@ fn test_import_shadows_module_level_definition() {
 fn test_import_with_super_prefix() {
     // Child module imports from parent using super::
     let root_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "parent_fn".to_string(),
         type_params: vec![],
@@ -350,6 +363,7 @@ fn test_import_with_super_prefix() {
     })];
 
     let child_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "test_fn".to_string(),
         type_params: vec![],
@@ -380,6 +394,7 @@ fn test_import_with_super_prefix() {
 fn test_imported_enum_variant_in_match_pattern() {
     // types module has enum Option<T> { None, Some(T) }
     let types_items = vec![Item::Enum(EnumDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "Option".to_string(),
         type_params: vec!["T".to_string()],
@@ -401,6 +416,7 @@ fn test_imported_enum_variant_in_match_pattern() {
     // fn test_fn() -> Int
     //     match Some(42) { Some(x) => x, None => 0 }
     let root_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "test_fn".to_string(),
         type_params: vec![],
@@ -449,6 +465,7 @@ fn test_imported_enum_variant_in_match_pattern() {
 fn test_imported_enum_variant_in_struct_pattern() {
     // types module has enum Message { Move { x: Int, y: Int }, Quit }
     let types_items = vec![Item::Enum(EnumDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "Message".to_string(),
         type_params: vec![],
@@ -477,6 +494,7 @@ fn test_imported_enum_variant_in_struct_pattern() {
     // fn test_fn() -> Int
     //     match Move { x: 1, y: 2 } { Move { x, y } => x + y, Quit => 0 }
     let root_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "test_fn".to_string(),
         type_params: vec![],
@@ -540,6 +558,7 @@ fn test_imported_enum_variant_in_struct_pattern() {
 
 fn make_pub_use(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
     UseDecl {
+        attributes: vec![],
         visibility: Visibility::Public,
         path: UsePath {
             prefix,
@@ -555,6 +574,7 @@ fn test_pub_use_reexport_function() {
     // Module B does pub use root::a::helper
     // Root module uses root::b::helper (the re-exported path)
     let a_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "helper".to_string(),
         type_params: vec![],
@@ -568,6 +588,7 @@ fn test_pub_use_reexport_function() {
     let root_items = vec![
         Item::Use(make_use(PathPrefix::Root, &["b", "helper"])),
         Item::Function(FunctionDef {
+            attributes: vec![],
             visibility: Visibility::Public,
             name: "test_fn".to_string(),
             type_params: vec![],
@@ -597,6 +618,7 @@ fn test_pub_use_reexport_enum() {
     // Module reexporter does pub use root::types::Color
     // Root module uses root::reexporter::Color::Red
     let types_items = vec![Item::Enum(EnumDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "Color".to_string(),
         type_params: vec![],
@@ -620,6 +642,7 @@ fn test_pub_use_reexport_enum() {
     let root_items = vec![
         Item::Use(make_use(PathPrefix::Root, &["reexporter", "Color", "Red"])),
         Item::Function(FunctionDef {
+            attributes: vec![],
             visibility: Visibility::Public,
             name: "test_fn".to_string(),
             type_params: vec![],
@@ -645,6 +668,7 @@ fn test_pub_use_cannot_reexport_private() {
     // Module a has fn secret() -> Int (private)
     // Module b tries pub use root::a::secret — should fail
     let a_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Private,
         name: "secret".to_string(),
         type_params: vec![],
@@ -677,6 +701,7 @@ fn test_private_use_does_not_reexport() {
     // Module b has private use root::a::helper (no pub)
     // Root tries to use root::b::helper — should fail because it's not re-exported
     let a_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "helper".to_string(),
         type_params: vec![],
@@ -690,6 +715,7 @@ fn test_private_use_does_not_reexport() {
     let root_items = vec![
         Item::Use(make_use(PathPrefix::Root, &["b", "helper"])),
         Item::Function(FunctionDef {
+            attributes: vec![],
             visibility: Visibility::Public,
             name: "test_fn".to_string(),
             type_params: vec![],
@@ -722,6 +748,7 @@ fn test_pub_use_reexport_module() {
     // Module B does pub use root::a (re-exports the module)
     // Root does use root::b::a and calls a::helper()
     let a_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "helper".to_string(),
         type_params: vec![],
@@ -735,6 +762,7 @@ fn test_pub_use_reexport_module() {
     let root_items = vec![
         Item::Use(make_use(PathPrefix::Root, &["b", "a"])),
         Item::Function(FunctionDef {
+            attributes: vec![],
             visibility: Visibility::Public,
             name: "test_fn".to_string(),
             type_params: vec![],
@@ -768,6 +796,7 @@ fn test_pub_use_reexport_module_item_import() {
     // Module B does pub use root::a (re-exports the module)
     // Root does use root::b::a::helper (imports item through re-exported module)
     let a_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "helper".to_string(),
         type_params: vec![],
@@ -781,6 +810,7 @@ fn test_pub_use_reexport_module_item_import() {
     let root_items = vec![
         Item::Use(make_use(PathPrefix::Root, &["b", "a", "helper"])),
         Item::Function(FunctionDef {
+            attributes: vec![],
             visibility: Visibility::Public,
             name: "test_fn".to_string(),
             type_params: vec![],
@@ -846,6 +876,7 @@ fn build_package_with_visibility(
 #[test]
 fn test_external_visibility_pub_items_in_pub_modules() {
     let utils_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "helper".to_string(),
         type_params: vec![],
@@ -870,6 +901,7 @@ fn test_external_visibility_pub_items_in_pub_modules() {
 #[test]
 fn test_external_visibility_private_items_excluded() {
     let utils_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Private,
         name: "secret".to_string(),
         type_params: vec![],
@@ -894,6 +926,7 @@ fn test_external_visibility_private_items_excluded() {
 #[test]
 fn test_external_visibility_pub_item_in_private_module_excluded() {
     let internal_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "helper".to_string(),
         type_params: vec![],
@@ -922,6 +955,7 @@ fn test_external_visibility_pub_item_in_private_module_excluded() {
 #[test]
 fn test_external_visibility_pub_enum_variants_retained() {
     let utils_items = vec![Item::Enum(EnumDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "Color".to_string(),
         type_params: vec![],
@@ -964,6 +998,7 @@ fn test_external_visibility_pub_enum_variants_retained() {
 #[test]
 fn test_external_visibility_deeply_nested_pub_items() {
     let deep_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "deep_fn".to_string(),
         type_params: vec![],
@@ -997,6 +1032,7 @@ fn test_external_visibility_deeply_nested_pub_items() {
 #[test]
 fn test_external_visibility_private_module_blocks_deeply_nested() {
     let deep_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "deep_fn".to_string(),
         type_params: vec![],
@@ -1035,6 +1071,7 @@ fn test_external_visibility_private_module_blocks_deeply_nested() {
 #[test]
 fn test_external_visibility_root_level_pub_item() {
     let root_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Public,
         name: "main".to_string(),
         type_params: vec![],
@@ -1056,6 +1093,7 @@ fn test_external_visibility_root_level_pub_item() {
 #[test]
 fn test_external_visibility_root_level_private_item_excluded() {
     let root_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
         visibility: Visibility::Private,
         name: "internal".to_string(),
         type_params: vec![],
@@ -1108,6 +1146,7 @@ fn test_external_visibility_modules_themselves() {
 
 fn make_use_glob(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
     UseDecl {
+        attributes: vec![],
         visibility: Visibility::Private,
         path: UsePath {
             prefix,
@@ -1119,6 +1158,7 @@ fn make_use_glob(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
 
 fn make_pub_use_glob(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
     UseDecl {
+        attributes: vec![],
         visibility: Visibility::Public,
         path: UsePath {
             prefix,
@@ -1134,6 +1174,7 @@ fn test_glob_import_includes_reexported_variants() {
     // Root does use root::types::* and uses Red directly
     let types_items = vec![
         Item::Enum(EnumDef {
+            attributes: vec![],
             visibility: Visibility::Public,
             name: "Color".to_string(),
             type_params: vec![],
@@ -1154,6 +1195,7 @@ fn test_glob_import_includes_reexported_variants() {
     let root_items = vec![
         Item::Use(make_use_glob(PathPrefix::Root, &["types"])),
         Item::Function(FunctionDef {
+            attributes: vec![],
             visibility: Visibility::Public,
             name: "test_fn".to_string(),
             type_params: vec![],
@@ -1194,6 +1236,7 @@ fn test_cascading_glob_reexport_across_same_depth_modules() {
     // in Phase 1.5a (they are at the same depth).
     let types_items = vec![
         Item::Enum(EnumDef {
+            attributes: vec![],
             visibility: Visibility::Public,
             name: "Color".to_string(),
             type_params: vec![],
@@ -1216,6 +1259,7 @@ fn test_cascading_glob_reexport_across_same_depth_modules() {
     let root_items = vec![
         Item::Use(make_use_glob(PathPrefix::Root, &["reexporter"])),
         Item::Function(FunctionDef {
+            attributes: vec![],
             visibility: Visibility::Public,
             name: "test_fn".to_string(),
             type_params: vec![],

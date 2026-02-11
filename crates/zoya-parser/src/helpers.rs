@@ -111,6 +111,7 @@ pub(crate) fn use_decl_parser<'a>()
                 (prefix, segments)
             };
             Ok(UseDecl {
+                attributes: vec![],
                 visibility: if is_pub.is_some() {
                     Visibility::Public
                 } else {

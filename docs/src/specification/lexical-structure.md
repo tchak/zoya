@@ -137,3 +137,4 @@ Boolean literals are the keywords `true` and `false`.
 | `..` | Rest |
 | `\|` | Pipe |
 | `@` | At |
+| `#` | Hash |

@@ -515,6 +515,7 @@ mod tests {
 
     fn make_use(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
         UseDecl {
+            attributes: vec![],
             visibility: Visibility::Private,
             path: UsePath {
                 prefix,
@@ -705,6 +706,7 @@ mod tests {
 
     fn make_pub_use(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
         UseDecl {
+            attributes: vec![],
             visibility: Visibility::Public,
             path: UsePath {
                 prefix,
@@ -784,6 +786,7 @@ mod tests {
         );
 
         let uses = vec![UseDecl {
+            attributes: vec![],
             visibility: Visibility::Private,
             path: UsePath {
                 prefix: PathPrefix::Package("serde".to_string()),

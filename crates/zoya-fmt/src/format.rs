@@ -1,14 +1,25 @@
 use pretty::RcDoc;
 use zoya_ast::{
-    BinOp, EnumDef, EnumVariant, EnumVariantKind, Expr, FunctionDef, Item, LambdaParam, LetBinding,
-    ListPattern, MatchArm, ModDecl, Param, Path, PathPrefix, Pattern, StructDef, StructFieldDef,
-    StructFieldPattern, TuplePattern, TypeAliasDef, TypeAnnotation, UnaryOp, UseDecl, UsePath,
-    UseTarget, Visibility,
+    Attribute, BinOp, EnumDef, EnumVariant, EnumVariantKind, Expr, FunctionDef, Item, LambdaParam,
+    LetBinding, ListPattern, MatchArm, ModDecl, Param, Path, PathPrefix, Pattern, StructDef,
+    StructFieldDef, StructFieldPattern, TuplePattern, TypeAliasDef, TypeAnnotation, UnaryOp,
+    UseDecl, UsePath, UseTarget, Visibility,
 };
 
 const INDENT: isize = 2;
 
 // --- Primitives ---
+
+pub fn fmt_attributes(attrs: &[Attribute]) -> RcDoc<'static> {
+    if attrs.is_empty() {
+        return RcDoc::nil();
+    }
+    let docs: Vec<RcDoc<'static>> = attrs
+        .iter()
+        .map(|a| RcDoc::text(format!("#[{}]", a.name)))
+        .collect();
+    RcDoc::intersperse(docs, RcDoc::hardline()).append(RcDoc::hardline())
+}
 
 pub fn fmt_vis(vis: Visibility) -> RcDoc<'static> {
     match vis {
@@ -102,7 +113,8 @@ pub fn fmt_mod_decl(m: &ModDecl) -> RcDoc<'static> {
 }
 
 pub fn fmt_use_decl(u: &UseDecl) -> RcDoc<'static> {
-    fmt_vis(u.visibility)
+    fmt_attributes(&u.attributes)
+        .append(fmt_vis(u.visibility))
         .append(RcDoc::text("use "))
         .append(fmt_use_path(&u.path))
 }
@@ -154,7 +166,8 @@ fn fmt_use_target(target: &UseTarget, has_segments: bool) -> RcDoc<'static> {
 // --- Type alias ---
 
 pub fn fmt_type_alias(ta: &TypeAliasDef) -> RcDoc<'static> {
-    fmt_vis(ta.visibility)
+    fmt_attributes(&ta.attributes)
+        .append(fmt_vis(ta.visibility))
         .append(RcDoc::text("type "))
         .append(RcDoc::text(ta.name.clone()))
         .append(fmt_type_params(&ta.type_params))
@@ -165,7 +178,8 @@ pub fn fmt_type_alias(ta: &TypeAliasDef) -> RcDoc<'static> {
 // --- Struct ---
 
 pub fn fmt_struct(s: &StructDef) -> RcDoc<'static> {
-    let doc = fmt_vis(s.visibility)
+    let doc = fmt_attributes(&s.attributes)
+        .append(fmt_vis(s.visibility))
         .append(RcDoc::text("struct "))
         .append(RcDoc::text(s.name.clone()))
         .append(fmt_type_params(&s.type_params));
@@ -195,7 +209,8 @@ fn fmt_struct_fields(fields: &[StructFieldDef]) -> RcDoc<'static> {
 // --- Enum ---
 
 pub fn fmt_enum(e: &EnumDef) -> RcDoc<'static> {
-    fmt_vis(e.visibility)
+    fmt_attributes(&e.attributes)
+        .append(fmt_vis(e.visibility))
         .append(RcDoc::text("enum "))
         .append(RcDoc::text(e.name.clone()))
         .append(fmt_type_params(&e.type_params))
@@ -701,7 +716,8 @@ fn fmt_expr_needs_parens_for_postfix(expr: &Expr) -> RcDoc<'static> {
 // --- Function ---
 
 pub fn fmt_function(f: &FunctionDef) -> RcDoc<'static> {
-    let sig = fmt_vis(f.visibility)
+    let sig = fmt_attributes(&f.attributes)
+        .append(fmt_vis(f.visibility))
         .append(RcDoc::text("fn "))
         .append(RcDoc::text(f.name.clone()))
         .append(fmt_type_params(&f.type_params))

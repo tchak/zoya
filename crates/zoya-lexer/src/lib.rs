@@ -189,6 +189,9 @@ pub enum Token {
 
     #[token("@")]
     At,
+
+    #[token("#")]
+    Hash,
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -287,10 +290,30 @@ mod tests {
 
     #[test]
     fn test_invalid_character() {
-        let result = lex("2 + #");
+        let result = lex("2 + $");
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.to_string().contains("#"));
+        assert!(err.to_string().contains("$"));
+    }
+
+    #[test]
+    fn test_hash_token() {
+        let toks = toks("#");
+        assert_eq!(toks, vec![Token::Hash]);
+    }
+
+    #[test]
+    fn test_annotation_tokens() {
+        let toks = toks("#[test]");
+        assert_eq!(
+            toks,
+            vec![
+                Token::Hash,
+                Token::LBracket,
+                Token::Ident("test".to_string()),
+                Token::RBracket,
+            ]
+        );
     }
 
     #[test]
@@ -943,10 +966,10 @@ mod tests {
 
     #[test]
     fn test_lex_error_span() {
-        let err = lex("2 + #").unwrap_err();
+        let err = lex("2 + $").unwrap_err();
         match err {
             LexError::UnexpectedCharacter { slice, span } => {
-                assert_eq!(slice, "#");
+                assert_eq!(slice, "$");
                 assert_eq!(span, 4..5);
             }
         }
