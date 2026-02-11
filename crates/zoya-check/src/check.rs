@@ -2038,10 +2038,28 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
     }
 
     // Phase 1: Register ALL declarations from ALL modules
-    // Process modules in dependency order (parents before children)
+    // Split into 3 global passes so all type names exist before any function
+    // signature is resolved. This ensures cross-module references between
+    // same-depth sibling modules work regardless of iteration order.
+
+    // Pass 1: Register all struct/enum names with placeholder types
     for path in &module_paths {
         if let Some(module) = pkg.modules.get(path) {
-            register_module_declarations(&module.items, path, &mut env, &mut ctx)?;
+            register_type_names(&module.items, path, &mut env, &mut ctx)?;
+        }
+    }
+
+    // Pass 2: Resolve struct fields, enum variants, type aliases
+    for path in &module_paths {
+        if let Some(module) = pkg.modules.get(path) {
+            resolve_type_definitions(&module.items, path, &mut env, &mut ctx)?;
+        }
+    }
+
+    // Pass 3: Register function signatures (all types now available)
+    for path in &module_paths {
+        if let Some(module) = pkg.modules.get(path) {
+            register_function_signatures(&module.items, path, &mut env, &mut ctx)?;
         }
     }
 
@@ -2170,15 +2188,14 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
     })
 }
 
-/// Register declarations from a single module into the type environment.
-/// Uses fully qualified paths (e.g., root::utils::foo).
-fn register_module_declarations(
+/// Pass 1: Register all struct/enum names with placeholder types.
+/// This ensures type names are available for cross-module references.
+fn register_type_names(
     items: &[Item],
     current_module: &QualifiedPath,
     env: &mut TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(), TypeError> {
-    // Phase 1a: Register all struct names with placeholder types
     for item in items {
         if let Item::Struct(def) = item {
             let qualified_path = current_module.child(&def.name);
@@ -2223,8 +2240,18 @@ fn register_module_declarations(
             );
         }
     }
+    Ok(())
+}
 
-    // Phase 1b: Resolve all struct field types
+/// Pass 2: Resolve struct fields, enum variants, and type aliases.
+/// All type names are registered from Pass 1, so cross-module references work.
+fn resolve_type_definitions(
+    items: &[Item],
+    current_module: &QualifiedPath,
+    env: &mut TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<(), TypeError> {
+    // Resolve struct field types
     for item in items {
         if let Item::Struct(def) = item {
             let qualified_path = current_module.child(&def.name);
@@ -2233,7 +2260,7 @@ fn register_module_declarations(
         }
     }
 
-    // Phase 1c: Resolve all enum variant types
+    // Resolve enum variant types
     for item in items {
         if let Item::Enum(def) = item {
             let qualified_path = current_module.child(&def.name);
@@ -2249,7 +2276,7 @@ fn register_module_declarations(
         }
     }
 
-    // Phase 1d: Register all type aliases
+    // Register type aliases
     for item in items {
         if let Item::TypeAlias(def) = item {
             let qualified_path = current_module.child(&def.name);
@@ -2258,54 +2285,25 @@ fn register_module_declarations(
         }
     }
 
-    // Phase 2: Register all function signatures
+    Ok(())
+}
+
+/// Pass 3: Register all function signatures.
+/// All types (structs, enums, aliases) are fully resolved, so function
+/// signatures can reference types from any module.
+fn register_function_signatures(
+    items: &[Item],
+    current_module: &QualifiedPath,
+    env: &mut TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<(), TypeError> {
     for item in items {
         if let Item::Function(func) = item {
             let qualified_path = current_module.child(&func.name);
-            let is_builtin = func.attributes.iter().any(|a| a.name == "builtin");
-            if is_builtin {
-                // Builtin functions may reference types from other modules that aren't
-                // registered yet. Use a placeholder return type; Phase 2 (check_function)
-                // will resolve the actual return type.
-                let mut type_var_ids = Vec::new();
-                for _ in &func.type_params {
-                    let var = ctx.fresh_var();
-                    if let Type::Var(id) = var {
-                        type_var_ids.push(id);
-                    }
-                }
-                let mut param_types = Vec::new();
-                // Resolve parameter types that are likely local (simple types)
-                // For builtins, params typically use types already in scope
-                let type_param_map: HashMap<String, _> = func
-                    .type_params
-                    .iter()
-                    .zip(type_var_ids.iter())
-                    .map(|(name, id)| (name.clone(), *id))
-                    .collect();
-                for param in &func.params {
-                    let ty =
-                        resolve_type_annotation(&param.typ, &type_param_map, current_module, env)?;
-                    param_types.push(ty);
-                }
-                env.register(
-                    qualified_path,
-                    Definition::Function(FunctionType {
-                        visibility: func.visibility,
-                        module: current_module.clone(),
-                        type_params: func.type_params.clone(),
-                        type_var_ids,
-                        params: param_types,
-                        return_type: ctx.fresh_var(),
-                    }),
-                );
-            } else {
-                let func_type = function_type_from_def(func, current_module, env, ctx)?;
-                env.register(qualified_path, Definition::Function(func_type));
-            }
+            let func_type = function_type_from_def(func, current_module, env, ctx)?;
+            env.register(qualified_path, Definition::Function(func_type));
         }
     }
-
     Ok(())
 }
 

@@ -1291,3 +1291,211 @@ fn test_cascading_glob_reexport_across_same_depth_modules() {
     let test_fn = find_test_function_in(&result, &QualifiedPath::root()).unwrap();
     assert_eq!(test_fn.return_type, Type::Int);
 }
+
+// ===== Cross-Module Type Resolution Tests =====
+// These tests verify that same-depth sibling modules can reference each other's
+// types regardless of iteration order (the 3-pass registration fix).
+
+#[test]
+fn test_cross_module_function_returns_sibling_struct() {
+    // Module "a" has: pub fn make_point() -> root::b::Point { ... }
+    // Module "b" has: pub struct Point { x: Int, y: Int }
+    // This tests that function signatures in module "a" can reference
+    // types from sibling module "b" regardless of processing order.
+
+    let mod_b_items = vec![Item::Struct(zoya_ast::StructDef {
+        attributes: vec![],
+        visibility: Visibility::Public,
+        name: "Point".to_string(),
+        type_params: vec![],
+        fields: vec![
+            zoya_ast::StructFieldDef {
+                name: "x".to_string(),
+                typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
+            },
+            zoya_ast::StructFieldDef {
+                name: "y".to_string(),
+                typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
+            },
+        ],
+    })];
+
+    let mod_a_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
+        visibility: Visibility::Public,
+        name: "make_point".to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: Some(TypeAnnotation::Named(Path {
+            prefix: PathPrefix::Root,
+            segments: vec!["b".to_string(), "Point".to_string()],
+            type_args: None,
+        })),
+        body: Expr::Struct {
+            path: Path {
+                prefix: PathPrefix::Root,
+                segments: vec!["b".to_string(), "Point".to_string()],
+                type_args: None,
+            },
+            fields: vec![
+                ("x".to_string(), Expr::Int(1)),
+                ("y".to_string(), Expr::Int(2)),
+            ],
+        },
+    })];
+
+    let tree = build_multi_module_package(vec![
+        (QualifiedPath::root(), vec![]),
+        (QualifiedPath::root().child("a"), mod_a_items),
+        (QualifiedPath::root().child("b"), mod_b_items),
+    ]);
+
+    let result = check(&tree, &[]).unwrap();
+    let make_point = result
+        .items
+        .get(&QualifiedPath::root().child("a").child("make_point"))
+        .expect("make_point function should be checked");
+    assert!(
+        matches!(&make_point.return_type, Type::Struct { name, .. } if name == "Point"),
+        "expected Point struct return type, got {:?}",
+        make_point.return_type
+    );
+}
+
+#[test]
+fn test_cross_module_function_param_uses_sibling_type() {
+    // Module "a" has: pub fn use_point(p: root::b::Point) -> Int { ... }
+    // Module "b" has: pub struct Point { x: Int, y: Int }
+
+    let mod_b_items = vec![Item::Struct(zoya_ast::StructDef {
+        attributes: vec![],
+        visibility: Visibility::Public,
+        name: "Point".to_string(),
+        type_params: vec![],
+        fields: vec![
+            zoya_ast::StructFieldDef {
+                name: "x".to_string(),
+                typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
+            },
+            zoya_ast::StructFieldDef {
+                name: "y".to_string(),
+                typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
+            },
+        ],
+    })];
+
+    let mod_a_items = vec![Item::Function(FunctionDef {
+        attributes: vec![],
+        visibility: Visibility::Public,
+        name: "use_point".to_string(),
+        type_params: vec![],
+        params: vec![zoya_ast::Param {
+            pattern: Pattern::Path(Path::simple("p".to_string())),
+            typ: TypeAnnotation::Named(Path {
+                prefix: PathPrefix::Root,
+                segments: vec!["b".to_string(), "Point".to_string()],
+                type_args: None,
+            }),
+        }],
+        return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
+        body: Expr::FieldAccess {
+            expr: Box::new(Expr::Path(Path::simple("p".to_string()))),
+            field: "x".to_string(),
+        },
+    })];
+
+    let tree = build_multi_module_package(vec![
+        (QualifiedPath::root(), vec![]),
+        (QualifiedPath::root().child("a"), mod_a_items),
+        (QualifiedPath::root().child("b"), mod_b_items),
+    ]);
+
+    let result = check(&tree, &[]).unwrap();
+    let use_point = result
+        .items
+        .get(&QualifiedPath::root().child("a").child("use_point"))
+        .expect("use_point function should be checked");
+    assert_eq!(use_point.return_type, Type::Int);
+}
+
+#[test]
+fn test_cross_module_struct_field_references_sibling_type() {
+    // Module "a" has: pub struct Wrapper { inner: root::b::Point }
+    // Module "b" has: pub struct Point { x: Int, y: Int }
+    // This tests that struct field type resolution works across sibling modules.
+
+    let mod_b_items = vec![Item::Struct(zoya_ast::StructDef {
+        attributes: vec![],
+        visibility: Visibility::Public,
+        name: "Point".to_string(),
+        type_params: vec![],
+        fields: vec![
+            zoya_ast::StructFieldDef {
+                name: "x".to_string(),
+                typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
+            },
+            zoya_ast::StructFieldDef {
+                name: "y".to_string(),
+                typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
+            },
+        ],
+    })];
+
+    let mod_a_items = vec![
+        Item::Struct(zoya_ast::StructDef {
+            attributes: vec![],
+            visibility: Visibility::Public,
+            name: "Wrapper".to_string(),
+            type_params: vec![],
+            fields: vec![zoya_ast::StructFieldDef {
+                name: "inner".to_string(),
+                typ: TypeAnnotation::Named(Path {
+                    prefix: PathPrefix::Root,
+                    segments: vec!["b".to_string(), "Point".to_string()],
+                    type_args: None,
+                }),
+            }],
+        }),
+        Item::Function(FunctionDef {
+            attributes: vec![],
+            visibility: Visibility::Public,
+            name: "test_fn".to_string(),
+            type_params: vec![],
+            params: vec![],
+            return_type: None,
+            body: Expr::FieldAccess {
+                expr: Box::new(Expr::FieldAccess {
+                    expr: Box::new(Expr::Struct {
+                        path: Path::simple("Wrapper".to_string()),
+                        fields: vec![(
+                            "inner".to_string(),
+                            Expr::Struct {
+                                path: Path {
+                                    prefix: PathPrefix::Root,
+                                    segments: vec!["b".to_string(), "Point".to_string()],
+                                    type_args: None,
+                                },
+                                fields: vec![
+                                    ("x".to_string(), Expr::Int(10)),
+                                    ("y".to_string(), Expr::Int(20)),
+                                ],
+                            },
+                        )],
+                    }),
+                    field: "inner".to_string(),
+                }),
+                field: "x".to_string(),
+            },
+        }),
+    ];
+
+    let tree = build_multi_module_package(vec![
+        (QualifiedPath::root(), vec![]),
+        (QualifiedPath::root().child("a"), mod_a_items),
+        (QualifiedPath::root().child("b"), mod_b_items),
+    ]);
+
+    let result = check(&tree, &[]).unwrap();
+    let test_fn = find_test_function_in(&result, &QualifiedPath::root().child("a")).unwrap();
+    assert_eq!(test_fn.return_type, Type::Int);
+}
