@@ -248,7 +248,7 @@ impl std::hash::Hash for OrderedFloat {
 
 impl Constructor {
     /// Returns the arity (number of sub-patterns) for this constructor
-    fn arity(&self, _ty: &Type) -> usize {
+    fn arity(&self) -> usize {
         match self {
             Constructor::True | Constructor::False => 0,
             Constructor::ListNil => 0,
@@ -536,7 +536,7 @@ impl Pat {
                 if Self::contains_specific_pattern(patterns) {
                     // Pattern like [.., 0] only matches lists ending with 0
                     // Use a deterministic hash so identical patterns share the same constructor
-                    let id = Self::pattern_hash(patterns);
+                    let id = Self::pattern_hash(patterns, &[]);
                     Pat::Ctor(Constructor::ListSpecific(id), vec![])
                 } else {
                     // Pattern like [.., x] or [.., _] covers all non-empty lists
@@ -555,11 +555,7 @@ impl Pat {
                 if Self::contains_specific_pattern(prefix)
                     || Self::contains_specific_pattern(suffix)
                 {
-                    // Hash both prefix and suffix for a deterministic ID
-                    let mut hasher = std::hash::DefaultHasher::new();
-                    format!("{:?}", prefix).hash(&mut hasher);
-                    format!("{:?}", suffix).hash(&mut hasher);
-                    let id = hasher.finish();
+                    let id = Self::pattern_hash(prefix, suffix);
                     Pat::Ctor(Constructor::ListSpecific(id), vec![])
                 } else {
                     Self::list_min_length_pattern(*min_len, ty)
@@ -569,16 +565,11 @@ impl Pat {
             TypedPattern::TupleEmpty => Pat::Ctor(Constructor::Tuple(0), vec![]),
 
             TypedPattern::TupleExact { patterns, len } => {
-                let elem_types = match ty {
-                    Type::Tuple(ts) => ts.clone(),
-                    _ => vec![Type::Int; *len], // fallback
-                };
-                let sub_pats: Vec<Pat> = patterns
-                    .iter()
-                    .zip(elem_types.iter())
-                    .map(|(p, t)| Pat::from_typed(p, t, lookup))
-                    .collect();
-                Pat::Ctor(Constructor::Tuple(*len), sub_pats)
+                let elem_types = Self::tuple_field_types(ty, *len);
+                Pat::Ctor(
+                    Constructor::Tuple(*len),
+                    Self::expand_fixed_patterns(patterns, &[], &elem_types, lookup),
+                )
             }
 
             TypedPattern::TuplePrefix {
@@ -586,8 +577,11 @@ impl Pat {
                 total_len,
                 ..
             } => {
-                // (a, b, ..) in a tuple of total_len elements
-                Self::expand_tuple_pattern_prefix(patterns, *total_len, ty, lookup)
+                let elem_types = Self::tuple_field_types(ty, *total_len);
+                Pat::Ctor(
+                    Constructor::Tuple(*total_len),
+                    Self::expand_fixed_patterns(patterns, &[], &elem_types, lookup),
+                )
             }
 
             TypedPattern::TupleSuffix {
@@ -595,8 +589,11 @@ impl Pat {
                 total_len,
                 ..
             } => {
-                // (.., y, z) in a tuple of total_len elements
-                Self::expand_tuple_pattern_suffix(patterns, *total_len, ty, lookup)
+                let elem_types = Self::tuple_field_types(ty, *total_len);
+                Pat::Ctor(
+                    Constructor::Tuple(*total_len),
+                    Self::expand_fixed_patterns(&[], patterns, &elem_types, lookup),
+                )
             }
 
             TypedPattern::TuplePrefixSuffix {
@@ -605,41 +602,19 @@ impl Pat {
                 total_len,
                 ..
             } => {
-                // (a, .., z) in a tuple of total_len elements
-                Self::expand_tuple_pattern_both(prefix, suffix, *total_len, ty, lookup)
-            }
-
-            TypedPattern::StructExact { path, fields } => {
-                // Get field info from the type, resolving stubs via lookup
-                let (field_names, field_types) = Self::get_struct_field_info(ty, lookup);
-
-                // Build sub-patterns in field order
-                let mut sub_pats = Vec::with_capacity(field_names.len());
-                for (field_name, field_ty) in field_names.iter().zip(field_types.iter()) {
-                    // Find the pattern for this field
-                    if let Some((_, sub_pattern)) = fields.iter().find(|(n, _)| n == field_name) {
-                        sub_pats.push(Pat::from_typed(sub_pattern, field_ty, lookup));
-                    } else {
-                        sub_pats.push(Pat::Wild);
-                    }
-                }
-
+                let elem_types = Self::tuple_field_types(ty, *total_len);
                 Pat::Ctor(
-                    Constructor::Struct {
-                        name: path.last().to_string(),
-                        field_names,
-                        field_types,
-                    },
-                    sub_pats,
+                    Constructor::Tuple(*total_len),
+                    Self::expand_fixed_patterns(prefix, suffix, &elem_types, lookup),
                 )
             }
 
-            TypedPattern::StructPartial { path, fields } => {
+            TypedPattern::StructExact { path, fields }
+            | TypedPattern::StructPartial { path, fields } => {
                 // Get field info from the type, resolving stubs via lookup
                 let (field_names, field_types) = Self::get_struct_field_info(ty, lookup);
 
-                // Build sub-patterns in field order
-                // For partial patterns, unmentioned fields become wildcards
+                // Build sub-patterns in field order; unmentioned fields become wildcards
                 let mut sub_pats = Vec::with_capacity(field_names.len());
                 for (field_name, field_ty) in field_names.iter().zip(field_types.iter()) {
                     if let Some((_, sub_pattern)) = fields.iter().find(|(n, _)| n == field_name) {
@@ -663,45 +638,25 @@ impl Pat {
             TypedPattern::StructTupleExact { path, patterns, .. }
             | TypedPattern::StructTuplePrefix { path, patterns, .. } => {
                 let (field_names, field_types) = Self::get_struct_field_info(ty, lookup);
-                let sub_pats: Vec<Pat> = patterns
-                    .iter()
-                    .zip(field_types.iter())
-                    .map(|(p, t)| Pat::from_typed(p, t, lookup))
-                    .collect();
-                // Pad with wildcards if prefix pattern
-                let mut all_pats = sub_pats;
-                while all_pats.len() < field_types.len() {
-                    all_pats.push(Pat::Wild);
-                }
                 Pat::Ctor(
                     Constructor::Struct {
                         name: path.last().to_string(),
                         field_names,
-                        field_types,
+                        field_types: field_types.clone(),
                     },
-                    all_pats,
+                    Self::expand_fixed_patterns(patterns, &[], &field_types, lookup),
                 )
             }
 
-            TypedPattern::StructTupleSuffix {
-                path,
-                patterns,
-                total_fields,
-                ..
-            } => {
+            TypedPattern::StructTupleSuffix { path, patterns, .. } => {
                 let (field_names, field_types) = Self::get_struct_field_info(ty, lookup);
-                let start_idx = total_fields - patterns.len();
-                let mut sub_pats = vec![Pat::Wild; start_idx];
-                for (p, t) in patterns.iter().zip(field_types.iter().skip(start_idx)) {
-                    sub_pats.push(Pat::from_typed(p, t, lookup));
-                }
                 Pat::Ctor(
                     Constructor::Struct {
                         name: path.last().to_string(),
                         field_names,
-                        field_types,
+                        field_types: field_types.clone(),
                     },
-                    sub_pats,
+                    Self::expand_fixed_patterns(&[], patterns, &field_types, lookup),
                 )
             }
 
@@ -709,32 +664,16 @@ impl Pat {
                 path,
                 prefix,
                 suffix,
-                total_fields,
                 ..
             } => {
                 let (field_names, field_types) = Self::get_struct_field_info(ty, lookup);
-                let mut sub_pats = Vec::with_capacity(*total_fields);
-                // Add prefix patterns
-                for (p, t) in prefix.iter().zip(field_types.iter()) {
-                    sub_pats.push(Pat::from_typed(p, t, lookup));
-                }
-                // Add wildcards for middle
-                let middle_count = total_fields - prefix.len() - suffix.len();
-                for _ in 0..middle_count {
-                    sub_pats.push(Pat::Wild);
-                }
-                // Add suffix patterns
-                let suffix_start = total_fields - suffix.len();
-                for (p, t) in suffix.iter().zip(field_types.iter().skip(suffix_start)) {
-                    sub_pats.push(Pat::from_typed(p, t, lookup));
-                }
                 Pat::Ctor(
                     Constructor::Struct {
                         name: path.last().to_string(),
                         field_names,
-                        field_types,
+                        field_types: field_types.clone(),
                     },
-                    sub_pats,
+                    Self::expand_fixed_patterns(prefix, suffix, &field_types, lookup),
                 )
             }
 
@@ -749,51 +688,36 @@ impl Pat {
 
             TypedPattern::EnumTupleExact { path, patterns, .. }
             | TypedPattern::EnumTuplePrefix { path, patterns, .. } => {
-                // Get field types from the type, resolving stubs via lookup
-                let field_types = Self::get_enum_tuple_variant_types(ty, path.last(), lookup);
-                let sub_pats: Vec<Pat> = patterns
-                    .iter()
-                    .zip(field_types.iter())
-                    .map(|(p, t)| Pat::from_typed(p, t, lookup))
-                    .collect();
-                // Pad with wildcards if prefix pattern
-                let mut all_pats = sub_pats;
-                while all_pats.len() < field_types.len() {
-                    all_pats.push(Pat::Wild);
-                }
+                let field_types = match Self::resolve_enum_variant(ty, path.last(), lookup) {
+                    Some(EnumVariantType::Tuple(types)) => types,
+                    _ => vec![],
+                };
                 Pat::Ctor(
                     Constructor::EnumVariant {
                         path: path.clone(),
                         kind: EnumVariantConstructorKind::Tuple {
                             arity: field_types.len(),
-                            field_types,
+                            field_types: field_types.clone(),
                         },
                     },
-                    all_pats,
+                    Self::expand_fixed_patterns(patterns, &[], &field_types, lookup),
                 )
             }
 
-            TypedPattern::EnumTupleSuffix {
-                path,
-                patterns,
-                total_fields,
-                ..
-            } => {
-                let field_types = Self::get_enum_tuple_variant_types(ty, path.last(), lookup);
-                let start_idx = total_fields - patterns.len();
-                let mut sub_pats = vec![Pat::Wild; start_idx];
-                for (p, t) in patterns.iter().zip(field_types.iter().skip(start_idx)) {
-                    sub_pats.push(Pat::from_typed(p, t, lookup));
-                }
+            TypedPattern::EnumTupleSuffix { path, patterns, .. } => {
+                let field_types = match Self::resolve_enum_variant(ty, path.last(), lookup) {
+                    Some(EnumVariantType::Tuple(types)) => types,
+                    _ => vec![],
+                };
                 Pat::Ctor(
                     Constructor::EnumVariant {
                         path: path.clone(),
                         kind: EnumVariantConstructorKind::Tuple {
-                            arity: *total_fields,
-                            field_types,
+                            arity: field_types.len(),
+                            field_types: field_types.clone(),
                         },
                     },
-                    sub_pats,
+                    Self::expand_fixed_patterns(&[], patterns, &field_types, lookup),
                 )
             }
 
@@ -801,34 +725,21 @@ impl Pat {
                 path,
                 prefix,
                 suffix,
-                total_fields,
                 ..
             } => {
-                let field_types = Self::get_enum_tuple_variant_types(ty, path.last(), lookup);
-                let mut sub_pats = Vec::with_capacity(*total_fields);
-                // Add prefix patterns
-                for (p, t) in prefix.iter().zip(field_types.iter()) {
-                    sub_pats.push(Pat::from_typed(p, t, lookup));
-                }
-                // Add wildcards for middle
-                let middle_count = total_fields - prefix.len() - suffix.len();
-                for _ in 0..middle_count {
-                    sub_pats.push(Pat::Wild);
-                }
-                // Add suffix patterns
-                let suffix_start = total_fields - suffix.len();
-                for (p, t) in suffix.iter().zip(field_types.iter().skip(suffix_start)) {
-                    sub_pats.push(Pat::from_typed(p, t, lookup));
-                }
+                let field_types = match Self::resolve_enum_variant(ty, path.last(), lookup) {
+                    Some(EnumVariantType::Tuple(types)) => types,
+                    _ => vec![],
+                };
                 Pat::Ctor(
                     Constructor::EnumVariant {
                         path: path.clone(),
                         kind: EnumVariantConstructorKind::Tuple {
-                            arity: *total_fields,
-                            field_types,
+                            arity: field_types.len(),
+                            field_types: field_types.clone(),
                         },
                     },
-                    sub_pats,
+                    Self::expand_fixed_patterns(prefix, suffix, &field_types, lookup),
                 )
             }
 
@@ -836,7 +747,10 @@ impl Pat {
             | TypedPattern::EnumStructPartial { path, fields } => {
                 // Get field info from the type, resolving stubs via lookup
                 let (field_names, field_types) =
-                    Self::get_enum_struct_variant_info(ty, path.last(), lookup);
+                    match Self::resolve_enum_variant(ty, path.last(), lookup) {
+                        Some(EnumVariantType::Struct(fields)) => fields.into_iter().unzip(),
+                        _ => (vec![], vec![]),
+                    };
 
                 // Build sub-patterns in field order
                 let mut sub_pats = Vec::with_capacity(field_names.len());
@@ -862,12 +776,12 @@ impl Pat {
         }
     }
 
-    /// Get tuple variant field types from an enum type, resolving stubs via lookup
-    fn get_enum_tuple_variant_types(
+    /// Resolve an enum variant by name, returning its EnumVariantType.
+    fn resolve_enum_variant(
         ty: &Type,
         variant_name: &str,
         lookup: &DefinitionLookup,
-    ) -> Vec<Type> {
+    ) -> Option<EnumVariantType> {
         match ty {
             Type::Enum {
                 name,
@@ -875,44 +789,12 @@ impl Pat {
                 type_args,
             } => {
                 let resolved = lookup.resolve_enum(name, variants, type_args);
-                for (vname, vtype) in &resolved {
-                    if vname == variant_name
-                        && let EnumVariantType::Tuple(types) = vtype
-                    {
-                        return types.clone();
-                    }
-                }
-                vec![]
+                resolved
+                    .into_iter()
+                    .find(|(vname, _)| vname == variant_name)
+                    .map(|(_, vtype)| vtype)
             }
-            _ => vec![],
-        }
-    }
-
-    /// Get struct variant field info from an enum type, resolving stubs via lookup
-    fn get_enum_struct_variant_info(
-        ty: &Type,
-        variant_name: &str,
-        lookup: &DefinitionLookup,
-    ) -> (Vec<String>, Vec<Type>) {
-        match ty {
-            Type::Enum {
-                name,
-                variants,
-                type_args,
-            } => {
-                let resolved = lookup.resolve_enum(name, variants, type_args);
-                for (vname, vtype) in &resolved {
-                    if vname == variant_name
-                        && let EnumVariantType::Struct(fields) = vtype
-                    {
-                        let names: Vec<String> = fields.iter().map(|(n, _)| n.clone()).collect();
-                        let types: Vec<Type> = fields.iter().map(|(_, t)| t.clone()).collect();
-                        return (names, types);
-                    }
-                }
-                (vec![], vec![])
-            }
-            _ => (vec![], vec![]),
+            _ => None,
         }
     }
 
@@ -933,6 +815,14 @@ impl Pat {
         }
     }
 
+    /// Extract element types from a tuple type, with fallback.
+    fn tuple_field_types(ty: &Type, total_len: usize) -> Vec<Type> {
+        match ty {
+            Type::Tuple(ts) => ts.clone(),
+            _ => vec![Type::Int; total_len],
+        }
+    }
+
     /// Check if any pattern in a list contains specific literals (not wildcards/variables)
     fn contains_specific_pattern(patterns: &[TypedPattern]) -> bool {
         patterns
@@ -940,11 +830,12 @@ impl Pat {
             .any(|p| matches!(p, TypedPattern::Literal(_)))
     }
 
-    /// Compute a deterministic ID for a list of typed patterns by hashing their Debug representation.
+    /// Compute a deterministic ID for typed pattern slices by hashing their Debug representation.
     /// Structurally identical patterns produce the same ID.
-    fn pattern_hash(patterns: &[TypedPattern]) -> u64 {
+    fn pattern_hash(a: &[TypedPattern], b: &[TypedPattern]) -> u64 {
         let mut hasher = std::hash::DefaultHasher::new();
-        format!("{:?}", patterns).hash(&mut hasher);
+        format!("{:?}", a).hash(&mut hasher);
+        format!("{:?}", b).hash(&mut hasher);
         hasher.finish()
     }
 
@@ -988,85 +879,29 @@ impl Pat {
         result
     }
 
-    /// Expand (a, b, ..) to (a, b, _, _, ...) for a tuple of total_len
-    fn expand_tuple_pattern_prefix(
-        patterns: &[TypedPattern],
-        total_len: usize,
-        ty: &Type,
-        lookup: &DefinitionLookup,
-    ) -> Pat {
-        let elem_types = match ty {
-            Type::Tuple(ts) => ts.clone(),
-            _ => vec![Type::Int; total_len],
-        };
-
-        let mut sub_pats = Vec::with_capacity(total_len);
-        for (i, elem_ty) in elem_types.iter().enumerate() {
-            if i < patterns.len() {
-                sub_pats.push(Pat::from_typed(&patterns[i], elem_ty, lookup));
-            } else {
-                sub_pats.push(Pat::Wild);
-            }
-        }
-        Pat::Ctor(Constructor::Tuple(total_len), sub_pats)
-    }
-
-    /// Expand (.., y, z) to (_, _, ..., y, z) for a tuple of total_len
-    fn expand_tuple_pattern_suffix(
-        patterns: &[TypedPattern],
-        total_len: usize,
-        ty: &Type,
-        lookup: &DefinitionLookup,
-    ) -> Pat {
-        let elem_types = match ty {
-            Type::Tuple(ts) => ts.clone(),
-            _ => vec![Type::Int; total_len],
-        };
-
-        let prefix_wilds = total_len - patterns.len();
-        let mut sub_pats = Vec::with_capacity(total_len);
-
-        for (i, elem_ty) in elem_types.iter().enumerate() {
-            if i < prefix_wilds {
-                sub_pats.push(Pat::Wild);
-            } else {
-                sub_pats.push(Pat::from_typed(
-                    &patterns[i - prefix_wilds],
-                    elem_ty,
-                    lookup,
-                ));
-            }
-        }
-        Pat::Ctor(Constructor::Tuple(total_len), sub_pats)
-    }
-
-    /// Expand (a, .., z) to (a, _, ..., _, z) for a tuple of total_len
-    fn expand_tuple_pattern_both(
+    /// Expand prefix/suffix patterns into a full-length `Vec<Pat>`, filling gaps with wildcards.
+    ///
+    /// Given prefix patterns, suffix patterns, and per-position types (total length),
+    /// produces `[prefix..., Wild..., suffix...]`.
+    fn expand_fixed_patterns(
         prefix: &[TypedPattern],
         suffix: &[TypedPattern],
-        total_len: usize,
-        ty: &Type,
+        field_types: &[Type],
         lookup: &DefinitionLookup,
-    ) -> Pat {
-        let elem_types = match ty {
-            Type::Tuple(ts) => ts.clone(),
-            _ => vec![Type::Int; total_len],
-        };
-
-        let middle_wilds = total_len - prefix.len() - suffix.len();
-        let mut sub_pats = Vec::with_capacity(total_len);
-
-        for (i, elem_ty) in elem_types.iter().enumerate() {
+    ) -> Vec<Pat> {
+        let total = field_types.len();
+        let suffix_start = total - suffix.len();
+        let mut sub_pats = Vec::with_capacity(total);
+        for (i, ty) in field_types.iter().enumerate() {
             if i < prefix.len() {
-                sub_pats.push(Pat::from_typed(&prefix[i], elem_ty, lookup));
-            } else if i < prefix.len() + middle_wilds {
-                sub_pats.push(Pat::Wild);
+                sub_pats.push(Pat::from_typed(&prefix[i], ty, lookup));
+            } else if i >= suffix_start {
+                sub_pats.push(Pat::from_typed(&suffix[i - suffix_start], ty, lookup));
             } else {
-                let suffix_idx = i - prefix.len() - middle_wilds;
-                sub_pats.push(Pat::from_typed(&suffix[suffix_idx], elem_ty, lookup));
+                sub_pats.push(Pat::Wild);
             }
         }
-        Pat::Ctor(Constructor::Tuple(total_len), sub_pats)
+        sub_pats
     }
 
     /// Pretty-print pattern for error messages
@@ -1176,15 +1011,6 @@ impl Witness {
     }
 }
 
-/// Result of usefulness check
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Usefulness {
-    /// Pattern is useful - can match values not covered by earlier patterns
-    Useful,
-    /// Pattern is not useful (unreachable)
-    NotUseful,
-}
-
 /// Result of exhaustiveness check
 #[derive(Debug, Clone)]
 pub enum Exhaustiveness {
@@ -1194,79 +1020,13 @@ pub enum Exhaustiveness {
     NonExhaustive(Vec<Witness>),
 }
 
-/// Check if pattern vector q is useful with respect to matrix P.
-///
-/// Base cases:
-/// - If P has no columns: useful iff P has no rows
-/// - If P has no rows: always useful
-///
-/// Inductive case:
-/// - Look at first column
-/// - If q starts with constructor c: specialize P and q by c, recurse
-/// - If q starts with wildcard: check if default matrix is complete
-fn useful(matrix: &PatternMatrix, q: &[Pat], lookup: &DefinitionLookup) -> Usefulness {
-    // Base case: zero columns
-    if matrix.has_no_columns() {
-        return if matrix.is_empty() {
-            Usefulness::Useful
-        } else {
-            Usefulness::NotUseful
-        };
-    }
-
-    // Base case: empty matrix (no rows)
-    if matrix.is_empty() {
-        return Usefulness::Useful;
-    }
-
-    let ty = matrix.first_type().unwrap();
-    let first_pat = &q[0];
-
-    match first_pat {
-        Pat::Ctor(c, args) => {
-            // Specialize by constructor c
-            let specialized = specialize_matrix(matrix, c, ty);
-            let specialized_q = specialize_row(q, c, args, ty);
-            useful(&specialized, &specialized_q, lookup)
-        }
-        Pat::Wild => {
-            // Collect all constructors appearing in first column
-            let seen_ctors = collect_head_ctors(matrix);
-            let type_ctors = TypeCtors::from_type(ty, lookup);
-
-            if type_ctors.is_complete(&seen_ctors) {
-                // Complete: must check each constructor
-                for c in type_ctors.all_ctors() {
-                    let specialized = specialize_matrix(matrix, &c, ty);
-                    let arity = c.arity(ty);
-                    let wild_args: Vec<Pat> = (0..arity).map(|_| Pat::Wild).collect();
-                    let specialized_q: Vec<Pat> = wild_args
-                        .into_iter()
-                        .chain(q[1..].iter().cloned())
-                        .collect();
-
-                    if useful(&specialized, &specialized_q, lookup) == Usefulness::Useful {
-                        return Usefulness::Useful;
-                    }
-                }
-                Usefulness::NotUseful
-            } else {
-                // Not complete: use default matrix
-                let default = default_matrix(matrix);
-                let default_q: Vec<Pat> = q[1..].to_vec();
-                useful(&default, &default_q, lookup)
-            }
-        }
-    }
-}
-
 /// Specialize matrix by constructor c.
 /// For each row:
 /// - If head is c(p1,...,pn): replace with [p1,...,pn, rest...]
 /// - If head is wildcard: replace with [_,...,_, rest...] (arity copies)
 /// - Otherwise: drop row
 fn specialize_matrix(matrix: &PatternMatrix, c: &Constructor, ty: &Type) -> PatternMatrix {
-    let arity = c.arity(ty);
+    let arity = c.arity();
     let arg_types = c.arg_types(ty);
 
     let new_types: Vec<Type> = arg_types
@@ -1303,12 +1063,6 @@ fn specialize_matrix(matrix: &PatternMatrix, c: &Constructor, ty: &Type) -> Patt
         rows: new_rows,
         types: new_types,
     }
-}
-
-/// Specialize a single row by constructor
-fn specialize_row(q: &[Pat], c: &Constructor, args: &[Pat], ty: &Type) -> Vec<Pat> {
-    let _ = c.arity(ty); // validate
-    args.iter().cloned().chain(q[1..].iter().cloned()).collect()
 }
 
 /// Default matrix: rows whose head is a wildcard, with head removed.
@@ -1363,13 +1117,14 @@ fn compute_witnesses(matrix: &PatternMatrix, q: &[Pat], lookup: &DefinitionLooku
     match first_pat {
         Pat::Ctor(c, args) => {
             let specialized = specialize_matrix(matrix, c, ty);
-            let specialized_q = specialize_row(q, c, args, ty);
+            let specialized_q: Vec<Pat> =
+                args.iter().cloned().chain(q[1..].iter().cloned()).collect();
             let sub_witnesses = compute_witnesses(&specialized, &specialized_q, lookup);
 
             // Reconstruct witnesses with constructor c
             sub_witnesses
                 .into_iter()
-                .map(|w| reconstruct_witness(w, c, ty))
+                .map(|w| reconstruct_witness(w, c))
                 .collect()
         }
         Pat::Wild => {
@@ -1381,7 +1136,7 @@ fn compute_witnesses(matrix: &PatternMatrix, q: &[Pat], lookup: &DefinitionLooku
                 let mut all_witnesses = vec![];
                 for c in type_ctors.all_ctors() {
                     let specialized = specialize_matrix(matrix, &c, ty);
-                    let arity = c.arity(ty);
+                    let arity = c.arity();
                     let wild_args: Vec<Pat> = (0..arity).map(|_| Pat::Wild).collect();
                     let specialized_q: Vec<Pat> = wild_args
                         .into_iter()
@@ -1390,7 +1145,7 @@ fn compute_witnesses(matrix: &PatternMatrix, q: &[Pat], lookup: &DefinitionLooku
 
                     let sub_witnesses = compute_witnesses(&specialized, &specialized_q, lookup);
                     for w in sub_witnesses {
-                        all_witnesses.push(reconstruct_witness(w, &c, ty));
+                        all_witnesses.push(reconstruct_witness(w, &c));
                     }
                 }
                 all_witnesses
@@ -1416,7 +1171,7 @@ fn compute_witnesses(matrix: &PatternMatrix, q: &[Pat], lookup: &DefinitionLooku
                 } else {
                     // Use first missing constructor
                     let c = &missing[0];
-                    let arity = c.arity(ty);
+                    let arity = c.arity();
 
                     // Recurse with this constructor
                     let specialized = specialize_matrix(matrix, c, ty);
@@ -1429,7 +1184,7 @@ fn compute_witnesses(matrix: &PatternMatrix, q: &[Pat], lookup: &DefinitionLooku
                     let sub_witnesses = compute_witnesses(&specialized, &specialized_q, lookup);
                     sub_witnesses
                         .into_iter()
-                        .map(|w| reconstruct_witness(w, c, ty))
+                        .map(|w| reconstruct_witness(w, c))
                         .collect()
                 }
             }
@@ -1438,8 +1193,8 @@ fn compute_witnesses(matrix: &PatternMatrix, q: &[Pat], lookup: &DefinitionLooku
 }
 
 /// Reconstruct a witness by wrapping sub-patterns in constructor c
-fn reconstruct_witness(Witness(sub_pats): Witness, c: &Constructor, ty: &Type) -> Witness {
-    let arity = c.arity(ty);
+fn reconstruct_witness(Witness(sub_pats): Witness, c: &Constructor) -> Witness {
+    let arity = c.arity();
     let (ctor_args, rest) = if sub_pats.len() >= arity {
         sub_pats.split_at(arity)
     } else {
@@ -1496,7 +1251,7 @@ pub fn check_usefulness(
         let pat = Pat::from_typed(&arm.pattern, scrutinee_ty, lookup);
         let q = vec![pat.clone()];
 
-        if useful(&matrix, &q, lookup) == Usefulness::NotUseful {
+        if compute_witnesses(&matrix, &q, lookup).is_empty() {
             unreachable.push(idx);
         }
 
@@ -3133,7 +2888,7 @@ mod tests {
         match ctors {
             TypeCtors::Finite(cs) => {
                 assert_eq!(cs.len(), 1);
-                assert_eq!(cs[0].arity(&stub_ty), 2);
+                assert_eq!(cs[0].arity(), 2);
             }
             _ => panic!("expected Finite"),
         }
@@ -3215,5 +2970,225 @@ mod tests {
             }
             _ => panic!("expected Finite"),
         }
+    }
+
+    // ==================== Tuple Struct Pattern Tests ====================
+
+    #[test]
+    fn test_struct_tuple_exact_exhaustive() {
+        let struct_ty = make_struct_type("Pair", vec![("0", Type::Int), ("1", Type::Int)]);
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::StructTupleExact {
+                path: make_qualified_path(vec!["Pair"]),
+                patterns: vec![TypedPattern::Wildcard, TypedPattern::Wildcard],
+                total_fields: 2,
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &struct_ty, &DefinitionLookup::empty());
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_struct_tuple_prefix_exhaustive() {
+        let struct_ty = make_struct_type(
+            "Triple",
+            vec![("0", Type::Int), ("1", Type::Int), ("2", Type::Int)],
+        );
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::StructTuplePrefix {
+                path: make_qualified_path(vec!["Triple"]),
+                patterns: vec![TypedPattern::Wildcard],
+                rest_binding: None,
+                total_fields: 3,
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &struct_ty, &DefinitionLookup::empty());
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_struct_tuple_suffix_exhaustive() {
+        let struct_ty = make_struct_type(
+            "Triple",
+            vec![("0", Type::Int), ("1", Type::Int), ("2", Type::Int)],
+        );
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::StructTupleSuffix {
+                path: make_qualified_path(vec!["Triple"]),
+                patterns: vec![TypedPattern::Wildcard],
+                rest_binding: None,
+                total_fields: 3,
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &struct_ty, &DefinitionLookup::empty());
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_struct_tuple_prefix_suffix_exhaustive() {
+        let struct_ty = make_struct_type(
+            "Quad",
+            vec![
+                ("0", Type::Int),
+                ("1", Type::Int),
+                ("2", Type::Int),
+                ("3", Type::Int),
+            ],
+        );
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::StructTuplePrefixSuffix {
+                path: make_qualified_path(vec!["Quad"]),
+                prefix: vec![TypedPattern::Wildcard],
+                suffix: vec![TypedPattern::Wildcard],
+                rest_binding: None,
+                total_fields: 4,
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &struct_ty, &DefinitionLookup::empty());
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_struct_tuple_with_literal_not_exhaustive() {
+        let struct_ty = make_struct_type("Pair", vec![("0", Type::Bool), ("1", Type::Int)]);
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::StructTupleExact {
+                path: make_qualified_path(vec!["Pair"]),
+                patterns: vec![
+                    TypedPattern::Literal(TypedExpr::Bool(true)),
+                    TypedPattern::Wildcard,
+                ],
+                total_fields: 2,
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &struct_ty, &DefinitionLookup::empty());
+        assert!(matches!(result, Exhaustiveness::NonExhaustive(_)));
+    }
+
+    // ==================== List Suffix/PrefixSuffix with Literals (ListSpecific) ====================
+
+    #[test]
+    fn test_list_suffix_with_literal_not_exhaustive() {
+        // [.., 0] alone does not cover all lists
+        let list_ty = Type::List(Box::new(Type::Int));
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::ListSuffix {
+                patterns: vec![TypedPattern::Literal(TypedExpr::Int(0))],
+                rest_binding: None,
+                min_len: 1,
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &list_ty, &DefinitionLookup::empty());
+        assert!(matches!(result, Exhaustiveness::NonExhaustive(_)));
+    }
+
+    #[test]
+    fn test_list_suffix_literal_with_wildcard_exhaustive() {
+        // [] + [.., 0] + _ is exhaustive
+        let list_ty = Type::List(Box::new(Type::Int));
+        let arms = vec![
+            make_list_empty_arm(),
+            TypedMatchArm {
+                pattern: TypedPattern::ListSuffix {
+                    patterns: vec![TypedPattern::Literal(TypedExpr::Int(0))],
+                    rest_binding: None,
+                    min_len: 1,
+                },
+                result: TypedExpr::Int(1),
+            },
+            make_wildcard_arm(),
+        ];
+        let result = check_exhaustiveness(&arms, &list_ty, &DefinitionLookup::empty());
+        assert!(matches!(result, Exhaustiveness::Exhaustive));
+    }
+
+    #[test]
+    fn test_list_suffix_identical_literals_unreachable() {
+        // Duplicate [.., 0] is unreachable
+        let list_ty = Type::List(Box::new(Type::Int));
+        let arms = vec![
+            make_list_empty_arm(),
+            TypedMatchArm {
+                pattern: TypedPattern::ListSuffix {
+                    patterns: vec![TypedPattern::Literal(TypedExpr::Int(0))],
+                    rest_binding: None,
+                    min_len: 1,
+                },
+                result: TypedExpr::Int(1),
+            },
+            TypedMatchArm {
+                pattern: TypedPattern::ListSuffix {
+                    patterns: vec![TypedPattern::Literal(TypedExpr::Int(0))],
+                    rest_binding: None,
+                    min_len: 1,
+                },
+                result: TypedExpr::Int(2),
+            },
+            make_wildcard_arm(),
+        ];
+        let unreachable = check_usefulness(&arms, &list_ty, &DefinitionLookup::empty());
+        assert_eq!(unreachable, vec![2]);
+    }
+
+    #[test]
+    fn test_list_prefix_suffix_with_literal_not_exhaustive() {
+        // [0, .., 0] alone is not exhaustive
+        let list_ty = Type::List(Box::new(Type::Int));
+        let arms = vec![TypedMatchArm {
+            pattern: TypedPattern::ListPrefixSuffix {
+                prefix: vec![TypedPattern::Literal(TypedExpr::Int(0))],
+                suffix: vec![TypedPattern::Literal(TypedExpr::Int(0))],
+                rest_binding: None,
+                min_len: 2,
+            },
+            result: TypedExpr::Int(0),
+        }];
+        let result = check_exhaustiveness(&arms, &list_ty, &DefinitionLookup::empty());
+        assert!(matches!(result, Exhaustiveness::NonExhaustive(_)));
+    }
+
+    // ==================== Many Missing Witnesses ====================
+
+    #[test]
+    fn test_check_patterns_many_missing_witnesses() {
+        // Match on (Direction, Direction) covering only the diagonal → 4 witnesses
+        let dir_ty = make_enum_type(
+            "Dir",
+            vec![
+                ("N", EnumVariantType::Unit),
+                ("S", EnumVariantType::Unit),
+                ("E", EnumVariantType::Unit),
+                ("W", EnumVariantType::Unit),
+            ],
+        );
+        let tuple_ty = Type::Tuple(vec![dir_ty.clone(), dir_ty.clone()]);
+        let arms: Vec<TypedMatchArm> = ["N", "S", "E", "W"]
+            .iter()
+            .map(|v| TypedMatchArm {
+                pattern: TypedPattern::TupleExact {
+                    patterns: vec![
+                        TypedPattern::EnumUnit {
+                            path: make_qualified_path(vec!["Dir", v]),
+                        },
+                        TypedPattern::EnumUnit {
+                            path: make_qualified_path(vec!["Dir", v]),
+                        },
+                    ],
+                    len: 2,
+                },
+                result: TypedExpr::Int(0),
+            })
+            .collect();
+        let result = check_patterns(&arms, &tuple_ty, &DefinitionLookup::empty());
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("non-exhaustive"));
+        assert!(err.message.contains("and 1 more"));
     }
 }
