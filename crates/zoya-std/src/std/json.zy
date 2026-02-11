@@ -1,0 +1,10 @@
+pub enum Number { Int(Int), Float(Float) }
+
+pub enum JSON {
+    Null,
+    Bool(Bool),
+    Number(Number),
+    String(String),
+    Array(List<JSON>),
+    Object(List<(String, JSON)>),
+}

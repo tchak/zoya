@@ -4697,3 +4697,126 @@ fn test_list_index_first_element() {
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(1));
 }
+
+// === JSON module tests ===
+
+#[test]
+fn test_json_null() {
+    let source = r#"
+        use std::json::JSON
+
+        pub fn main() -> Int {
+            let j = JSON::Null;
+            match j {
+                JSON::Null => 1,
+                _ => 0,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(1));
+}
+
+#[test]
+fn test_json_bool() {
+    let source = r#"
+        use std::json::JSON
+
+        pub fn main() -> Bool {
+            let j = JSON::Bool(true);
+            match j {
+                JSON::Bool(b) => b,
+                _ => false,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_json_number_int() {
+    let source = r#"
+        use std::json::{JSON, Number}
+
+        pub fn main() -> Int {
+            let n = Number::Int(42);
+            let j = JSON::Number(n);
+            match j {
+                JSON::Number(Number::Int(v)) => v,
+                _ => 0,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_json_number_float() {
+    let source = r#"
+        use std::json::{JSON, Number}
+
+        pub fn main() -> Float {
+            let n = Number::Float(3.14);
+            let j = JSON::Number(n);
+            match j {
+                JSON::Number(Number::Float(v)) => v,
+                _ => 0.0,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Float(3.14));
+}
+
+#[test]
+fn test_json_string() {
+    let source = r#"
+        use std::json::JSON
+
+        pub fn main() -> String {
+            let j = JSON::String("hello");
+            match j {
+                JSON::String(s) => s,
+                _ => "fail",
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("hello".to_string()));
+}
+
+#[test]
+fn test_json_array() {
+    let source = r#"
+        use std::json::JSON
+
+        pub fn main() -> Int {
+            let arr = JSON::Array([JSON::Null, JSON::Bool(true)]);
+            match arr {
+                JSON::Array(_) => 1,
+                _ => 0,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(1));
+}
+
+#[test]
+fn test_json_object() {
+    let source = r#"
+        use std::json::JSON
+
+        pub fn main() -> Int {
+            let obj = JSON::Object([("key", JSON::String("value"))]);
+            match obj {
+                JSON::Object(_) => 1,
+                _ => 0,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(1));
+}

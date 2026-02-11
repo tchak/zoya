@@ -15,6 +15,7 @@
 - [Enums](language/enums.md)
 - [Pattern Matching](language/pattern-matching.md)
 - [Methods](language/methods.md)
+- [Standard Library](language/standard-library.md)
 
 # Reference
 
