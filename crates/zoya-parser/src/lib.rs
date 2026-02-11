@@ -28,6 +28,58 @@ pub struct SyntaxError {
     pub label: Option<String>,
 }
 
+fn display_token(t: &Token) -> String {
+    match t {
+        Token::Comma => "','".to_string(),
+        Token::RBrace => "'}'".to_string(),
+        Token::LBrace => "'{'".to_string(),
+        Token::RParen => "')'".to_string(),
+        Token::LParen => "'('".to_string(),
+        Token::RBracket => "']'".to_string(),
+        Token::LBracket => "'['".to_string(),
+        Token::FatArrow => "'=>'".to_string(),
+        Token::Arrow => "'->'".to_string(),
+        Token::Semicolon => "';'".to_string(),
+        Token::Colon => "':'".to_string(),
+        Token::ColonColon => "'::'".to_string(),
+        Token::Dot => "'.'".to_string(),
+        Token::DotDot => "'..'".to_string(),
+        Token::Eq => "'='".to_string(),
+        Token::EqEq => "'=='".to_string(),
+        Token::Ne => "'!='".to_string(),
+        Token::Lt => "'<'".to_string(),
+        Token::Gt => "'>'".to_string(),
+        Token::Le => "'<='".to_string(),
+        Token::Ge => "'>='".to_string(),
+        Token::Plus => "'+'".to_string(),
+        Token::Minus => "'-'".to_string(),
+        Token::Star => "'*'".to_string(),
+        Token::Slash => "'/'".to_string(),
+        Token::Pipe => "'|'".to_string(),
+        Token::At => "'@'".to_string(),
+        Token::Hash => "'#'".to_string(),
+        Token::Ident(s) => format!("'{}'", s),
+        Token::String(s) => format!("\"{}\"", s),
+        Token::Int(n) => format!("{}", n),
+        Token::BigInt(n) => format!("{}n", n),
+        Token::Float(f) => format!("{}", f),
+        Token::Fn => "'fn'".to_string(),
+        Token::Let => "'let'".to_string(),
+        Token::Match => "'match'".to_string(),
+        Token::True => "'true'".to_string(),
+        Token::False => "'false'".to_string(),
+        Token::Struct => "'struct'".to_string(),
+        Token::Enum => "'enum'".to_string(),
+        Token::Type => "'type'".to_string(),
+        Token::Mod => "'mod'".to_string(),
+        Token::Use => "'use'".to_string(),
+        Token::Pub => "'pub'".to_string(),
+        Token::Root => "'root'".to_string(),
+        Token::Self_ => "'self'".to_string(),
+        Token::Super => "'super'".to_string(),
+    }
+}
+
 /// Convert chumsky Rich errors (with token-index spans) to ParseError (with byte-offset spans).
 ///
 /// `byte_spans` maps token indices to byte-offset spans from the lexer.
@@ -54,8 +106,16 @@ fn convert_errors(errs: Vec<Rich<'_, Token>>, byte_spans: &[zoya_lexer::Span]) -
         errs.into_iter()
             .map(|e| SyntaxError {
                 span: map_span(e.span()),
-                found: e.found().map(|t| format!("{:?}", t)),
-                expected: e.expected().map(|pat| format!("{:?}", pat)).collect(),
+                found: e.found().map(display_token),
+                expected: e
+                    .expected()
+                    .map(|pat| match pat {
+                        chumsky::error::RichPattern::Token(t) => display_token(t),
+                        chumsky::error::RichPattern::Label(l) => l.to_string(),
+                        chumsky::error::RichPattern::EndOfInput => "end of input".to_string(),
+                        other => format!("{:?}", other),
+                    })
+                    .collect(),
                 label: match e.reason() {
                     chumsky::error::RichReason::Custom(msg) => Some(msg.to_string()),
                     _ => None,
@@ -63,6 +123,18 @@ fn convert_errors(errs: Vec<Rich<'_, Token>>, byte_spans: &[zoya_lexer::Span]) -
             })
             .collect(),
     )
+}
+
+fn join_expected(expected: &[String]) -> String {
+    match expected.len() {
+        0 => "something else".to_string(),
+        1 => expected[0].clone(),
+        _ => {
+            let last = &expected[expected.len() - 1];
+            let rest = &expected[..expected.len() - 1];
+            format!("{} or {}", rest.join(", "), last)
+        }
+    }
 }
 
 fn format_errors(errors: &[SyntaxError]) -> String {
@@ -73,15 +145,11 @@ fn format_errors(errors: &[SyntaxError]) -> String {
             match (&e.label, e.found.as_ref()) {
                 (Some(label), _) => format!("{} ({})", label, location),
                 (None, Some(found)) => {
-                    let expected = if e.expected.is_empty() {
-                        "something else".to_string()
-                    } else {
-                        e.expected.join(", ")
-                    };
+                    let expected = join_expected(&e.expected);
                     format!("found {} but expected {} ({})", found, expected, location)
                 }
                 (None, None) => {
-                    let expected = e.expected.join(", ");
+                    let expected = join_expected(&e.expected);
                     format!(
                         "unexpected end of input, expected {} ({})",
                         expected, location
@@ -3695,6 +3763,23 @@ mod tests {
                 expr: Box::new(Expr::List(vec![Expr::Int(1), Expr::Int(2), Expr::Int(3)])),
                 index: Box::new(Expr::Int(0)),
             }
+        );
+    }
+
+    #[test]
+    fn test_missing_comma_between_match_arms_error() {
+        let err = parse_str("match x { A => { 1 } B => 2 }").unwrap_err();
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("comma between match arms"),
+            "expected error about comma between match arms, got: {}",
+            msg
+        );
+        // Verify human-readable token display
+        assert!(
+            msg.contains("'B'"),
+            "expected human-readable token 'B', got: {}",
+            msg
         );
     }
 }

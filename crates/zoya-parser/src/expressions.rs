@@ -84,7 +84,7 @@ pub(crate) fn expr_parser<'a>()
             .ignore_then(expr.clone())
             .then(
                 match_arm
-                    .separated_by(just(Token::Comma))
+                    .separated_by(just(Token::Comma).labelled("comma between match arms"))
                     .allow_trailing()
                     .at_least(1)
                     .collect::<Vec<_>>()
