@@ -10,7 +10,7 @@ use zoya_ir::{
     TypedMatchArm, TypedPattern,
 };
 
-use crate::check::{substitute_type_vars, substitute_variant_type_vars};
+use crate::unify::{substitute_type_vars, substitute_variant_type_vars};
 
 /// Lookup table for resolving recursive type stubs.
 ///

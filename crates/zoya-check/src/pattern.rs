@@ -3,13 +3,13 @@ use std::collections::{HashMap, HashSet};
 use zoya_ast::{LetBinding, ListPattern, MatchArm, Path, PathPrefix, Pattern, TuplePattern};
 use zoya_ir::{
     Definition, EnumVariantType, QualifiedPath, StructTypeKind, Type, TypeError, TypeScheme,
-    TypeVarId, TypedLetBinding, TypedMatchArm, TypedPattern,
+    TypedLetBinding, TypedMatchArm, TypedPattern,
 };
 
-use crate::check::{TypeEnv, check_expr, substitute_type_vars, substitute_variant_type_vars};
+use crate::check::{TypeEnv, check_expr, instantiate_enum_type, instantiate_struct_type};
 use crate::resolution::{self, ResolvedPath};
 use crate::type_resolver::resolve_type_annotation;
-use crate::unify::UnifyCtx;
+use crate::unify::{UnifyCtx, substitute_type_vars};
 use zoya_naming::{is_snake_case, to_snake_case};
 
 /// Merge pattern bindings, rejecting duplicate variable names within a single pattern.
@@ -665,28 +665,8 @@ fn check_path_pattern_resolved(
 
             let variant_name = qualified_path.last();
 
-            // Create fresh type variables for generic parameters
-            let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
-            for &old_id in &enum_type.type_var_ids {
-                instantiation.insert(old_id, ctx.fresh_var());
-            }
-
-            // Build the expected enum type and unify with scrutinee
-            let type_args: Vec<Type> = enum_type
-                .type_var_ids
-                .iter()
-                .map(|id| instantiation[id].clone())
-                .collect();
-            let resolved_variants: Vec<(String, EnumVariantType)> = enum_type
-                .variants
-                .iter()
-                .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, &instantiation)))
-                .collect();
-            let expected_enum_ty = Type::Enum {
-                name: enum_type.name.clone(),
-                type_args,
-                variants: resolved_variants,
-            };
+            // Create fresh type variables and build instantiated enum type
+            let (_instantiation, expected_enum_ty) = instantiate_enum_type(enum_type, ctx);
 
             ctx.unify(scrutinee_ty, &expected_enum_ty)
                 .map_err(|e| TypeError {
@@ -800,28 +780,8 @@ fn check_call_pattern(
 
             let variant_name = qualified_path.last();
 
-            // Create fresh type variables for generic parameters
-            let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
-            for &old_id in &enum_type.type_var_ids {
-                instantiation.insert(old_id, ctx.fresh_var());
-            }
-
-            // Build the expected enum type and unify with scrutinee
-            let type_args: Vec<Type> = enum_type
-                .type_var_ids
-                .iter()
-                .map(|id| instantiation[id].clone())
-                .collect();
-            let resolved_variants: Vec<(String, EnumVariantType)> = enum_type
-                .variants
-                .iter()
-                .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, &instantiation)))
-                .collect();
-            let expected_enum_ty = Type::Enum {
-                name: enum_type.name.clone(),
-                type_args,
-                variants: resolved_variants,
-            };
+            // Create fresh type variables and build instantiated enum type
+            let (instantiation, expected_enum_ty) = instantiate_enum_type(enum_type, ctx);
 
             ctx.unify(scrutinee_ty, &expected_enum_ty)
                 .map_err(|e| TypeError {
@@ -853,28 +813,8 @@ fn check_call_pattern(
             def: Definition::Struct(struct_type),
             qualified_path,
         } if struct_type.kind == StructTypeKind::Tuple => {
-            // Create fresh type variables for generic parameters
-            let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
-            for &old_id in &struct_type.type_var_ids {
-                instantiation.insert(old_id, ctx.fresh_var());
-            }
-
-            // Build the expected struct type and unify with scrutinee
-            let type_args: Vec<Type> = struct_type
-                .type_var_ids
-                .iter()
-                .map(|id| instantiation[id].clone())
-                .collect();
-            let resolved_fields: Vec<(String, Type)> = struct_type
-                .fields
-                .iter()
-                .map(|(n, ty)| (n.clone(), substitute_type_vars(ty, &instantiation)))
-                .collect();
-            let expected_struct_ty = Type::Struct {
-                name: struct_type.name.clone(),
-                type_args,
-                fields: resolved_fields,
-            };
+            // Create fresh type variables and build instantiated struct type
+            let (instantiation, expected_struct_ty) = instantiate_struct_type(struct_type, ctx);
 
             ctx.unify(scrutinee_ty, &expected_struct_ty)
                 .map_err(|e| TypeError {
@@ -1023,28 +963,8 @@ fn check_struct_type_pattern(
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
     let struct_name = &struct_type.name;
-    // Create fresh type variables for generic parameters
-    let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
-    for &old_id in &struct_type.type_var_ids {
-        instantiation.insert(old_id, ctx.fresh_var());
-    }
-
-    // Build the expected struct type and unify with scrutinee
-    let type_args: Vec<Type> = struct_type
-        .type_var_ids
-        .iter()
-        .map(|id| instantiation[id].clone())
-        .collect();
-    let resolved_fields: Vec<(String, Type)> = struct_type
-        .fields
-        .iter()
-        .map(|(n, t)| (n.clone(), substitute_type_vars(t, &instantiation)))
-        .collect();
-    let expected_struct_ty = Type::Struct {
-        name: struct_name.to_string(),
-        type_args,
-        fields: resolved_fields,
-    };
+    // Create fresh type variables and build instantiated struct type
+    let (instantiation, expected_struct_ty) = instantiate_struct_type(struct_type, ctx);
 
     ctx.unify(scrutinee_ty, &expected_struct_ty)
         .map_err(|e| TypeError {
@@ -1160,28 +1080,8 @@ fn check_enum_struct_variant_pattern(
         }
     };
 
-    // Create fresh type variables for generic parameters
-    let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
-    for &old_id in &enum_type.type_var_ids {
-        instantiation.insert(old_id, ctx.fresh_var());
-    }
-
-    // Build the expected enum type and unify with scrutinee
-    let type_args: Vec<Type> = enum_type
-        .type_var_ids
-        .iter()
-        .map(|id| instantiation[id].clone())
-        .collect();
-    let resolved_variants: Vec<(String, EnumVariantType)> = enum_type
-        .variants
-        .iter()
-        .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, &instantiation)))
-        .collect();
-    let expected_enum_ty = Type::Enum {
-        name: enum_name.to_string(),
-        type_args,
-        variants: resolved_variants,
-    };
+    // Create fresh type variables and build instantiated enum type
+    let (instantiation, expected_enum_ty) = instantiate_enum_type(enum_type, ctx);
 
     ctx.unify(scrutinee_ty, &expected_enum_ty)
         .map_err(|e| TypeError {
@@ -1850,7 +1750,7 @@ pub fn check_let_binding(
 mod tests {
     use super::*;
     use zoya_ast::{Expr, Path, PathPrefix, StructFieldPattern, Visibility};
-    use zoya_ir::{Definition, EnumType, QualifiedPath, StructType};
+    use zoya_ir::{Definition, EnumType, QualifiedPath, StructType, TypeVarId};
 
     fn qpath(path: &str) -> QualifiedPath {
         QualifiedPath::new(path.split("::").map(|s| s.to_string()).collect())

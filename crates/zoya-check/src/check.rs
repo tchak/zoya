@@ -21,7 +21,7 @@ use crate::imports::{
 use crate::pattern::{check_irrefutable, check_let_binding, check_match_arm, check_pattern};
 use crate::resolution::{self, ResolvedPath};
 use crate::type_resolver::resolve_type_annotation;
-use crate::unify::UnifyCtx;
+use crate::unify::{UnifyCtx, substitute_type_vars, substitute_variant_type_vars};
 use crate::usefulness;
 use zoya_naming::{is_pascal_case, is_snake_case, to_pascal_case, to_snake_case};
 
@@ -305,31 +305,7 @@ fn check_path_expr(
                 .map(|id| ctx.resolve(&instantiation[id]))
                 .collect();
 
-            let resolved_variants: Vec<(String, EnumVariantType)> = enum_type
-                .variants
-                .iter()
-                .map(|(name, vt)| {
-                    (
-                        name.clone(),
-                        substitute_variant_type_vars(vt, &instantiation),
-                    )
-                })
-                .map(|(name, vt)| {
-                    let resolved_vt = match vt {
-                        EnumVariantType::Unit => EnumVariantType::Unit,
-                        EnumVariantType::Tuple(types) => {
-                            EnumVariantType::Tuple(types.iter().map(|t| ctx.resolve(t)).collect())
-                        }
-                        EnumVariantType::Struct(fields) => EnumVariantType::Struct(
-                            fields
-                                .iter()
-                                .map(|(n, t)| (n.clone(), ctx.resolve(t)))
-                                .collect(),
-                        ),
-                    };
-                    (name, resolved_vt)
-                })
-                .collect();
+            let resolved_variants = resolve_enum_variants(&enum_type.variants, &instantiation, ctx);
 
             Ok(TypedExpr::EnumConstruct {
                 path: qualified_variant_path,
@@ -747,31 +723,7 @@ fn check_enum_tuple_construct_resolved(
         .map(|id| ctx.resolve(&instantiation[id]))
         .collect();
 
-    let resolved_variants: Vec<(String, EnumVariantType)> = enum_type
-        .variants
-        .iter()
-        .map(|(name, vt)| {
-            (
-                name.clone(),
-                substitute_variant_type_vars(vt, &instantiation),
-            )
-        })
-        .map(|(name, vt)| {
-            let resolved_vt = match vt {
-                EnumVariantType::Unit => EnumVariantType::Unit,
-                EnumVariantType::Tuple(types) => {
-                    EnumVariantType::Tuple(types.iter().map(|t| ctx.resolve(t)).collect())
-                }
-                EnumVariantType::Struct(fields) => EnumVariantType::Struct(
-                    fields
-                        .iter()
-                        .map(|(n, t)| (n.clone(), ctx.resolve(t)))
-                        .collect(),
-                ),
-            };
-            (name, resolved_vt)
-        })
-        .collect();
+    let resolved_variants = resolve_enum_variants(&enum_type.variants, &instantiation, ctx);
 
     Ok(TypedExpr::EnumConstruct {
         path: qualified_variant_path,
@@ -936,7 +888,27 @@ fn check_bin_op(
     let right_ty = typed_right.ty();
 
     // Unify left and right types
-    ctx.unify(&left_ty, &right_ty)?;
+    let op_symbol = match op {
+        BinOp::Add => "+",
+        BinOp::Sub => "-",
+        BinOp::Mul => "*",
+        BinOp::Div => "/",
+        BinOp::Eq => "==",
+        BinOp::Ne => "!=",
+        BinOp::Lt => "<",
+        BinOp::Gt => ">",
+        BinOp::Le => "<=",
+        BinOp::Ge => ">=",
+    };
+    ctx.unify(&left_ty, &right_ty).map_err(|e| TypeError {
+        message: format!(
+            "binary operator '{}' requires operands of the same type, but got {} and {}: {}",
+            op_symbol,
+            ctx.resolve(&left_ty),
+            ctx.resolve(&right_ty),
+            e.message
+        ),
+    })?;
 
     let resolved_ty = ctx.resolve(&left_ty);
 
@@ -1608,31 +1580,7 @@ fn check_enum_struct_construct_resolved(
         .map(|id| ctx.resolve(&instantiation[id]))
         .collect();
 
-    let resolved_variants: Vec<(String, EnumVariantType)> = enum_type
-        .variants
-        .iter()
-        .map(|(name, vt)| {
-            (
-                name.clone(),
-                substitute_variant_type_vars(vt, &instantiation),
-            )
-        })
-        .map(|(name, vt)| {
-            let resolved_vt = match vt {
-                EnumVariantType::Unit => EnumVariantType::Unit,
-                EnumVariantType::Tuple(types) => {
-                    EnumVariantType::Tuple(types.iter().map(|t| ctx.resolve(t)).collect())
-                }
-                EnumVariantType::Struct(fields) => EnumVariantType::Struct(
-                    fields
-                        .iter()
-                        .map(|(n, t)| (n.clone(), ctx.resolve(t)))
-                        .collect(),
-                ),
-            };
-            (name, resolved_vt)
-        })
-        .collect();
+    let resolved_variants = resolve_enum_variants(&enum_type.variants, &instantiation, ctx);
 
     Ok(TypedExpr::EnumConstruct {
         path: qualified_variant_path,
@@ -1780,79 +1728,90 @@ pub(crate) fn check_expr(
     }
 }
 
-/// Substitute type variables in a type using a mapping (recursive)
-pub(crate) fn substitute_type_vars(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
-    match ty {
-        Type::Var(id) => mapping.get(id).cloned().unwrap_or_else(|| ty.clone()),
-        Type::List(elem) => Type::List(Box::new(substitute_type_vars(elem, mapping))),
-        Type::Tuple(elems) => Type::Tuple(
-            elems
-                .iter()
-                .map(|t| substitute_type_vars(t, mapping))
-                .collect(),
-        ),
-        Type::Function { params, ret } => Type::Function {
-            params: params
-                .iter()
-                .map(|t| substitute_type_vars(t, mapping))
-                .collect(),
-            ret: Box::new(substitute_type_vars(ret, mapping)),
-        },
-        Type::Struct {
-            name,
-            type_args,
-            fields,
-        } => Type::Struct {
-            name: name.clone(),
-            type_args: type_args
-                .iter()
-                .map(|t| substitute_type_vars(t, mapping))
-                .collect(),
-            fields: fields
-                .iter()
-                .map(|(n, t)| (n.clone(), substitute_type_vars(t, mapping)))
-                .collect(),
-        },
-        Type::Enum {
-            name,
-            type_args,
-            variants,
-        } => Type::Enum {
-            name: name.clone(),
-            type_args: type_args
-                .iter()
-                .map(|t| substitute_type_vars(t, mapping))
-                .collect(),
-            variants: variants
-                .iter()
-                .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, mapping)))
-                .collect(),
-        },
-        // Concrete types don't contain type vars
-        Type::Int | Type::BigInt | Type::Float | Type::Bool | Type::String => ty.clone(),
-    }
+/// Substitute and resolve enum variants using an instantiation mapping.
+///
+/// Applies type variable substitution to each variant, then resolves
+/// any remaining type variables through the unification context.
+fn resolve_enum_variants(
+    variants: &[(String, EnumVariantType)],
+    instantiation: &HashMap<TypeVarId, Type>,
+    ctx: &UnifyCtx,
+) -> Vec<(String, EnumVariantType)> {
+    variants
+        .iter()
+        .map(|(name, vt)| {
+            let substituted = substitute_variant_type_vars(vt, instantiation);
+            let resolved = match substituted {
+                EnumVariantType::Unit => EnumVariantType::Unit,
+                EnumVariantType::Tuple(types) => {
+                    EnumVariantType::Tuple(types.iter().map(|t| ctx.resolve(t)).collect())
+                }
+                EnumVariantType::Struct(fields) => EnumVariantType::Struct(
+                    fields
+                        .iter()
+                        .map(|(n, t)| (n.clone(), ctx.resolve(t)))
+                        .collect(),
+                ),
+            };
+            (name.clone(), resolved)
+        })
+        .collect()
 }
 
-/// Substitute type variables in an enum variant type
-pub(crate) fn substitute_variant_type_vars(
-    vt: &EnumVariantType,
-    mapping: &HashMap<TypeVarId, Type>,
-) -> EnumVariantType {
-    match vt {
-        EnumVariantType::Unit => EnumVariantType::Unit,
-        EnumVariantType::Tuple(types) => EnumVariantType::Tuple(
-            types
-                .iter()
-                .map(|t| substitute_type_vars(t, mapping))
-                .collect(),
-        ),
-        EnumVariantType::Struct(fields) => EnumVariantType::Struct(
-            fields
-                .iter()
-                .map(|(n, t)| (n.clone(), substitute_type_vars(t, mapping)))
-                .collect(),
-        ),
+/// Create fresh type variables for an enum type's type parameters and build
+/// the instantiated `Type::Enum`. Returns the instantiation map and the type.
+pub(crate) fn instantiate_enum_type(
+    enum_type: &EnumType,
+    ctx: &mut UnifyCtx,
+) -> (HashMap<TypeVarId, Type>, Type) {
+    let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
+    for &old_id in &enum_type.type_var_ids {
+        instantiation.insert(old_id, ctx.fresh_var());
     }
+    let type_args: Vec<Type> = enum_type
+        .type_var_ids
+        .iter()
+        .map(|id| instantiation[id].clone())
+        .collect();
+    let resolved_variants: Vec<(String, EnumVariantType)> = enum_type
+        .variants
+        .iter()
+        .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, &instantiation)))
+        .collect();
+    let ty = Type::Enum {
+        name: enum_type.name.clone(),
+        type_args,
+        variants: resolved_variants,
+    };
+    (instantiation, ty)
+}
+
+/// Create fresh type variables for a struct type's type parameters and build
+/// the instantiated `Type::Struct`. Returns the instantiation map and the type.
+pub(crate) fn instantiate_struct_type(
+    struct_type: &StructType,
+    ctx: &mut UnifyCtx,
+) -> (HashMap<TypeVarId, Type>, Type) {
+    let mut instantiation: HashMap<TypeVarId, Type> = HashMap::new();
+    for &old_id in &struct_type.type_var_ids {
+        instantiation.insert(old_id, ctx.fresh_var());
+    }
+    let type_args: Vec<Type> = struct_type
+        .type_var_ids
+        .iter()
+        .map(|id| instantiation[id].clone())
+        .collect();
+    let resolved_fields: Vec<(String, Type)> = struct_type
+        .fields
+        .iter()
+        .map(|(n, ty)| (n.clone(), substitute_type_vars(ty, &instantiation)))
+        .collect();
+    let ty = Type::Struct {
+        name: struct_type.name.clone(),
+        type_args,
+        fields: resolved_fields,
+    };
+    (instantiation, ty)
 }
 
 /// Look up struct fields from definitions when the type carries empty fields (recursive type stub).

@@ -9,8 +9,8 @@ fn qpath(path: &str) -> QualifiedPath {
     QualifiedPath::new(path.split("::").map(|s| s.to_string()).collect())
 }
 
-use crate::check::{TypeEnv, check, check_expr, substitute_type_vars};
-use crate::unify::UnifyCtx;
+use crate::check::{TypeEnv, check, check_expr};
+use crate::unify::{UnifyCtx, substitute_type_vars};
 
 use super::build_test_package_with_expr;
 

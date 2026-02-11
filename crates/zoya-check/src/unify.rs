@@ -363,27 +363,27 @@ impl UnifyCtx {
             mapping.insert(var_id, self.fresh_var());
         }
 
-        substitute_in_type(&scheme.ty, &mapping)
+        substitute_type_vars(&scheme.ty, &mapping)
     }
 }
 
-/// Substitute type variables in a type using a mapping.
-fn substitute_in_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
+/// Substitute type variables in a type using a mapping (recursive).
+pub fn substitute_type_vars(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
     match ty {
         Type::Var(id) => mapping.get(id).cloned().unwrap_or_else(|| ty.clone()),
-        Type::List(elem) => Type::List(Box::new(substitute_in_type(elem, mapping))),
+        Type::List(elem) => Type::List(Box::new(substitute_type_vars(elem, mapping))),
         Type::Tuple(elems) => Type::Tuple(
             elems
                 .iter()
-                .map(|e| substitute_in_type(e, mapping))
+                .map(|e| substitute_type_vars(e, mapping))
                 .collect(),
         ),
         Type::Function { params, ret } => Type::Function {
             params: params
                 .iter()
-                .map(|p| substitute_in_type(p, mapping))
+                .map(|p| substitute_type_vars(p, mapping))
                 .collect(),
-            ret: Box::new(substitute_in_type(ret, mapping)),
+            ret: Box::new(substitute_type_vars(ret, mapping)),
         },
         Type::Struct {
             name,
@@ -393,11 +393,11 @@ fn substitute_in_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
             name: name.clone(),
             type_args: type_args
                 .iter()
-                .map(|t| substitute_in_type(t, mapping))
+                .map(|t| substitute_type_vars(t, mapping))
                 .collect(),
             fields: fields
                 .iter()
-                .map(|(n, t)| (n.clone(), substitute_in_type(t, mapping)))
+                .map(|(n, t)| (n.clone(), substitute_type_vars(t, mapping)))
                 .collect(),
         },
         Type::Enum {
@@ -408,19 +408,20 @@ fn substitute_in_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
             name: name.clone(),
             type_args: type_args
                 .iter()
-                .map(|t| substitute_in_type(t, mapping))
+                .map(|t| substitute_type_vars(t, mapping))
                 .collect(),
             variants: variants
                 .iter()
-                .map(|(n, vt)| (n.clone(), substitute_in_variant_type(vt, mapping)))
+                .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, mapping)))
                 .collect(),
         },
-        _ => ty.clone(),
+        // Concrete types don't contain type vars
+        Type::Int | Type::BigInt | Type::Float | Type::Bool | Type::String => ty.clone(),
     }
 }
 
 /// Substitute type variables in an enum variant type.
-fn substitute_in_variant_type(
+pub fn substitute_variant_type_vars(
     vt: &EnumVariantType,
     mapping: &HashMap<TypeVarId, Type>,
 ) -> EnumVariantType {
@@ -429,13 +430,13 @@ fn substitute_in_variant_type(
         EnumVariantType::Tuple(types) => EnumVariantType::Tuple(
             types
                 .iter()
-                .map(|t| substitute_in_type(t, mapping))
+                .map(|t| substitute_type_vars(t, mapping))
                 .collect(),
         ),
         EnumVariantType::Struct(fields) => EnumVariantType::Struct(
             fields
                 .iter()
-                .map(|(n, t)| (n.clone(), substitute_in_type(t, mapping)))
+                .map(|(n, t)| (n.clone(), substitute_type_vars(t, mapping)))
                 .collect(),
         ),
     }

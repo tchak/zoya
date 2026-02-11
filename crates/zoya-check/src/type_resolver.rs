@@ -4,8 +4,9 @@ use zoya_ast::TypeAnnotation;
 use zoya_ir::{Definition, Type, TypeError, TypeVarId};
 use zoya_package::QualifiedPath;
 
-use crate::check::{TypeEnv, substitute_type_vars, substitute_variant_type_vars};
+use crate::check::TypeEnv;
 use crate::resolution::{self, ResolvedPath};
+use crate::unify::{substitute_type_vars, substitute_variant_type_vars};
 
 /// Resolve a type annotation to a concrete Type.
 /// `type_param_map` maps source-level type parameter names (like "T") to TypeVarIds.
