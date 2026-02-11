@@ -541,8 +541,7 @@ fn codegen_pattern_at_path(
             conditions.push(enum_tag_condition(access_path, path));
         }
 
-        TypedPattern::EnumTupleExact { path, patterns, .. }
-        | TypedPattern::EnumTuplePrefix { path, patterns, .. } => {
+        TypedPattern::EnumTupleExact { path, patterns, .. } => {
             conditions.push(enum_tag_condition(access_path, path));
             codegen_indexed_patterns(
                 patterns,
@@ -554,11 +553,36 @@ fn codegen_pattern_at_path(
             );
         }
 
+        TypedPattern::EnumTuplePrefix {
+            path,
+            patterns,
+            rest_binding,
+            total_fields,
+        } => {
+            conditions.push(enum_tag_condition(access_path, path));
+            codegen_indexed_patterns(
+                patterns,
+                access_path,
+                0,
+                enum_field,
+                &mut conditions,
+                &mut bindings,
+            );
+            if let Some((name, _)) = rest_binding {
+                obj_field_rest_binding(
+                    name,
+                    access_path,
+                    patterns.len()..*total_fields,
+                    &mut bindings,
+                );
+            }
+        }
+
         TypedPattern::EnumTupleSuffix {
             path,
             patterns,
+            rest_binding,
             total_fields,
-            ..
         } => {
             conditions.push(enum_tag_condition(access_path, path));
             let start_idx = total_fields - patterns.len();
@@ -570,14 +594,17 @@ fn codegen_pattern_at_path(
                 &mut conditions,
                 &mut bindings,
             );
+            if let Some((name, _)) = rest_binding {
+                obj_field_rest_binding(name, access_path, 0..start_idx, &mut bindings);
+            }
         }
 
         TypedPattern::EnumTuplePrefixSuffix {
             path,
             prefix,
             suffix,
+            rest_binding,
             total_fields,
-            ..
         } => {
             conditions.push(enum_tag_condition(access_path, path));
             codegen_indexed_patterns(
@@ -597,6 +624,14 @@ fn codegen_pattern_at_path(
                 &mut conditions,
                 &mut bindings,
             );
+            if let Some((name, _)) = rest_binding {
+                obj_field_rest_binding(
+                    name,
+                    access_path,
+                    prefix.len()..suffix_start,
+                    &mut bindings,
+                );
+            }
         }
 
         TypedPattern::EnumStructExact { path, fields }

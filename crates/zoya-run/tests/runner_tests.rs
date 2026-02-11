@@ -5324,3 +5324,135 @@ fn test_json_parse_invalid() {
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(1));
 }
+
+// ==================== Rest Binding Tests ====================
+
+#[test]
+fn test_enum_tuple_rest_binding_prefix() {
+    let source = r#"
+        enum Data {
+            Quad(Int, Int, Int, Int),
+        }
+
+        pub fn main() -> Int {
+            let d = Data::Quad(10, 20, 30, 40);
+            match d {
+                Data::Quad(first, rest @ ..) => match rest {
+                    (a, b, c) => a + b + c,
+                },
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(90));
+}
+
+#[test]
+fn test_enum_tuple_rest_binding_suffix() {
+    let source = r#"
+        enum Data {
+            Quad(Int, Int, Int, Int),
+        }
+
+        pub fn main() -> Int {
+            let d = Data::Quad(10, 20, 30, 40);
+            match d {
+                Data::Quad(rest @ .., last) => match rest {
+                    (a, b, c) => a + b + c,
+                },
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(60));
+}
+
+#[test]
+fn test_enum_tuple_rest_binding_prefix_suffix() {
+    let source = r#"
+        enum Data {
+            Quad(Int, Int, Int, Int),
+        }
+
+        pub fn main() -> Int {
+            let d = Data::Quad(10, 20, 30, 40);
+            match d {
+                Data::Quad(first, rest @ .., last) => match rest {
+                    (a, b) => a + b,
+                },
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(50));
+}
+
+#[test]
+fn test_tuple_struct_rest_binding_prefix() {
+    let source = r#"
+        struct Quad(Int, Int, Int, Int)
+
+        pub fn main() -> Int {
+            let q = Quad(10, 20, 30, 40);
+            match q {
+                Quad(first, rest @ ..) => match rest {
+                    (a, b, c) => a + b + c,
+                },
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(90));
+}
+
+#[test]
+fn test_tuple_struct_rest_binding_suffix() {
+    let source = r#"
+        struct Quad(Int, Int, Int, Int)
+
+        pub fn main() -> Int {
+            let q = Quad(10, 20, 30, 40);
+            match q {
+                Quad(rest @ .., last) => match rest {
+                    (a, b, c) => a + b + c,
+                },
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(60));
+}
+
+#[test]
+fn test_tuple_struct_rest_binding_prefix_suffix() {
+    let source = r#"
+        struct Quad(Int, Int, Int, Int)
+
+        pub fn main() -> Int {
+            let q = Quad(10, 20, 30, 40);
+            match q {
+                Quad(first, rest @ .., last) => match rest {
+                    (a, b) => a + b,
+                },
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(50));
+}
+
+#[test]
+fn test_tuple_rest_binding_prefix_suffix() {
+    let source = r#"
+        pub fn main() -> Int {
+            let t = (10, 20, 30, 40);
+            match t {
+                (first, rest @ .., last) => match rest {
+                    (a, b) => a + b,
+                },
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(50));
+}
