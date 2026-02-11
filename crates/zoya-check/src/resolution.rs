@@ -1,12 +1,52 @@
-//! Module path resolution for cross-module function calls.
+//! Path resolution and visibility checking for cross-module references.
 //!
-//! Path resolution is purely structural - no TypeEnv lookup needed.
-//! The actual lookup happens after resolution.
+//! Resolves AST paths to qualified paths and checks visibility rules.
+//! Used by expression checking, pattern matching, type resolution, and imports.
 
 use std::collections::{HashMap, HashSet};
 
 use zoya_ast::{Path, PathPrefix};
 use zoya_ir::{Definition, QualifiedPath, TypeError, TypeScheme, Visibility};
+
+use crate::imports::ImportTable;
+
+/// Resolve a prefixed path (Root, Self_, Super, Package) to a fully qualified path.
+///
+/// Returns `Err` for `PathPrefix::None` — callers must handle relative paths themselves.
+pub(crate) fn resolve_prefix_path(
+    prefix: &PathPrefix,
+    segments: &[String],
+    current_module: &QualifiedPath,
+) -> Result<QualifiedPath, TypeError> {
+    match prefix {
+        PathPrefix::Root => {
+            let mut out = vec!["root".to_string()];
+            out.extend(segments.iter().cloned());
+            Ok(QualifiedPath::new(out))
+        }
+        PathPrefix::Self_ => {
+            let mut out = current_module.segments().to_vec();
+            out.extend(segments.iter().cloned());
+            Ok(QualifiedPath::new(out))
+        }
+        PathPrefix::Super => {
+            let parent = current_module.parent().ok_or_else(|| TypeError {
+                message: "cannot use super:: in root module".to_string(),
+            })?;
+            let mut out = parent.segments().to_vec();
+            out.extend(segments.iter().cloned());
+            Ok(QualifiedPath::new(out))
+        }
+        PathPrefix::Package(name) => {
+            let mut out = vec![name.clone()];
+            out.extend(segments.iter().cloned());
+            Ok(QualifiedPath::new(out))
+        }
+        PathPrefix::None => Err(TypeError {
+            message: "expected a path prefix".to_string(),
+        }),
+    }
+}
 
 /// Resolve an AST path to a fully qualified path.
 ///
@@ -23,68 +63,26 @@ pub fn resolve_path(
     path: &Path,
     current_module: &QualifiedPath,
 ) -> Result<QualifiedPath, TypeError> {
-    match &path.prefix {
-        PathPrefix::Root => {
-            // root::foo::bar → root::foo::bar
-            let mut segments = vec!["root".to_string()];
-            segments.extend(path.segments.iter().cloned());
-            Ok(QualifiedPath::new(segments))
+    if path.prefix == PathPrefix::None {
+        // Relative path: current_module + segments
+        if path.segments.is_empty() {
+            return Err(TypeError {
+                message: "empty path".to_string(),
+            });
         }
-        PathPrefix::Self_ => {
-            // self::foo → current_module::foo
-            let mut segments = current_module
-                .segments()
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>();
-            segments.extend(path.segments.iter().cloned());
-            Ok(QualifiedPath::new(segments))
-        }
-        PathPrefix::Super => {
-            // super::foo → parent_module::foo
-            let parent = current_module.parent().ok_or_else(|| TypeError {
-                message: "cannot use super:: in root module".to_string(),
-            })?;
-            let mut segments = parent
-                .segments()
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>();
-            segments.extend(path.segments.iter().cloned());
-            Ok(QualifiedPath::new(segments))
-        }
-        PathPrefix::Package(name) => {
-            // std::option::Option → std::option::Option
-            let mut segments = vec![name.clone()];
-            segments.extend(path.segments.iter().cloned());
-            Ok(QualifiedPath::new(segments))
-        }
-        PathPrefix::None => {
-            // Relative path: check current module or child module
-            resolve_relative_path(path, current_module)
-        }
+        let mut segments = current_module.segments().to_vec();
+        segments.extend(path.segments.iter().cloned());
+        Ok(QualifiedPath::new(segments))
+    } else {
+        resolve_prefix_path(&path.prefix, &path.segments, current_module)
     }
 }
 
-/// Resolve a relative path (no prefix) to a fully qualified path.
-fn resolve_relative_path(
-    path: &Path,
-    current_module: &QualifiedPath,
-) -> Result<QualifiedPath, TypeError> {
-    if path.segments.is_empty() {
-        return Err(TypeError {
-            message: "empty path".to_string(),
-        });
-    }
-
-    // Build segments from current module + path segments
-    let mut segments = current_module
-        .segments()
-        .iter()
-        .map(|s| s.to_string())
-        .collect::<Vec<_>>();
-    segments.extend(path.segments.iter().cloned());
-    Ok(QualifiedPath::new(segments))
+/// Check if `accessor` is the same module as `target` or a descendant of it.
+pub(crate) fn is_module_ancestor(target: &QualifiedPath, accessor: &QualifiedPath) -> bool {
+    let t = target.segments();
+    let a = accessor.segments();
+    a.len() >= t.len() && a[..t.len()] == t[..]
 }
 
 /// Check if an item is visible from the accessor module.
@@ -92,35 +90,17 @@ fn resolve_relative_path(
 /// Visibility rules:
 /// - Public items are always visible
 /// - Private items are visible if the accessor is in the same module or a descendant
-fn check_item_visibility(
+pub(crate) fn check_item_visibility(
     def: &Definition,
     item_name: &str,
     accessor_module: &QualifiedPath,
 ) -> Result<(), TypeError> {
-    let visibility = def.visibility();
-
-    if visibility == Visibility::Public {
+    if def.visibility() == Visibility::Public {
         return Ok(());
     }
 
     let target_module = def.module();
-    let target_segments: Vec<&str> = target_module
-        .segments()
-        .iter()
-        .map(|s| s.as_str())
-        .collect();
-
-    let accessor: Vec<&str> = accessor_module
-        .segments()
-        .iter()
-        .map(|s| s.as_str())
-        .collect();
-
-    // Private visible if accessor is same module or descendant
-    let is_visible = accessor.len() >= target_segments.len()
-        && accessor[..target_segments.len()] == target_segments[..];
-
-    if is_visible {
+    if is_module_ancestor(target_module, accessor_module) {
         Ok(())
     } else {
         Err(TypeError {
@@ -140,7 +120,7 @@ fn check_item_visibility(
 /// and module `b` (declared in `root::a`) are both visible from the accessor.
 ///
 /// A private module is visible from its declaring (parent) module and all descendants.
-fn check_module_path_visible(
+pub(crate) fn check_module_path_visible(
     qualified: &QualifiedPath,
     accessor_module: &QualifiedPath,
     definitions: &HashMap<QualifiedPath, Definition>,
@@ -148,9 +128,6 @@ fn check_module_path_visible(
     let segments = qualified.segments();
 
     // We need at least 3 segments (root::module::item) to have an intermediate module to check.
-    // For each intermediate module segment (not root, not the final item), check visibility.
-    // Segments: [root, mod1, mod2, ..., item]
-    // We check mod1, mod2, etc. - each is a child of the previous module.
     if segments.len() < 3 {
         return Ok(());
     }
@@ -166,22 +143,7 @@ fn check_module_path_visible(
                 continue;
             }
 
-            // Private module: check if accessor is the declaring module or a descendant
-            let accessor: Vec<&str> = accessor_module
-                .segments()
-                .iter()
-                .map(|s| s.as_str())
-                .collect();
-            let parent_segments: Vec<&str> = parent_module_path
-                .segments()
-                .iter()
-                .map(|s| s.as_str())
-                .collect();
-
-            let is_visible = accessor.len() >= parent_segments.len()
-                && accessor[..parent_segments.len()] == parent_segments[..];
-
-            if !is_visible {
+            if !is_module_ancestor(&parent_module_path, accessor_module) {
                 return Err(TypeError {
                     message: format!(
                         "module '{}' is private to module '{}'",
@@ -210,9 +172,6 @@ pub enum ResolvedPath<'a> {
     },
 }
 
-/// Per-module import table type alias
-pub type ImportTable = HashMap<String, QualifiedPath>;
-
 /// Resolve a path in expression context.
 ///
 /// This handles:
@@ -232,12 +191,66 @@ pub fn resolve_expr_path<'a>(
     definitions: &'a HashMap<QualifiedPath, Definition>,
     reexports: &HashMap<QualifiedPath, QualifiedPath>,
 ) -> Result<ResolvedPath<'a>, TypeError> {
+    resolve_definition_path(
+        path,
+        current_module,
+        Some(locals),
+        imports,
+        definitions,
+        reexports,
+    )
+}
+
+/// Resolve a path in pattern context (no locals, only imports and definitions).
+pub fn resolve_pattern_path<'a>(
+    path: &Path,
+    current_module: &QualifiedPath,
+    imports: &'a HashMap<QualifiedPath, ImportTable>,
+    definitions: &'a HashMap<QualifiedPath, Definition>,
+    reexports: &HashMap<QualifiedPath, QualifiedPath>,
+) -> Result<ResolvedPath<'a>, TypeError> {
+    resolve_definition_path(path, current_module, None, imports, definitions, reexports)
+}
+
+/// Follow re-export chain to the original definition path.
+pub(crate) fn follow_reexports(
+    path: &QualifiedPath,
+    reexports: &HashMap<QualifiedPath, QualifiedPath>,
+) -> Result<QualifiedPath, TypeError> {
+    let mut current = path.clone();
+    let mut visited = HashSet::new();
+    visited.insert(current.clone());
+    while let Some(original) = reexports.get(&current) {
+        if !visited.insert(original.clone()) {
+            return Err(TypeError {
+                message: format!("circular re-export detected: {}", original),
+            });
+        }
+        current = original.clone();
+    }
+    Ok(current)
+}
+
+/// Shared implementation for resolving a path to a definition or local.
+///
+/// When `locals` is `Some`, local variables are checked first (expression context).
+/// When `locals` is `None`, only imports and definitions are checked (pattern/type context).
+fn resolve_definition_path<'a>(
+    path: &Path,
+    current_module: &QualifiedPath,
+    locals: Option<&'a HashMap<String, TypeScheme>>,
+    imports: &'a HashMap<QualifiedPath, ImportTable>,
+    definitions: &'a HashMap<QualifiedPath, Definition>,
+    reexports: &HashMap<QualifiedPath, QualifiedPath>,
+) -> Result<ResolvedPath<'a>, TypeError> {
     // Single-segment path with no prefix: check locals first, then imports
     if path.prefix == PathPrefix::None && path.segments.len() == 1 {
         let name = &path.segments[0];
 
-        // Priority 1: Locals
-        if let Some(scheme) = locals.get(name) {
+        // Priority 1: Locals (only in expression context)
+        if let Some(locals) = locals
+            && let Some(scheme) = locals.get(name)
+        {
             return Ok(ResolvedPath::Local {
                 name: name.clone(),
                 scheme,
@@ -249,7 +262,6 @@ pub fn resolve_expr_path<'a>(
             && let Some(qualified) = item_imports.get(name)
             && let Some(def) = definitions.get(qualified)
         {
-            // Follow re-export chain to the original definition
             let canonical = follow_reexports(qualified, reexports)?;
             let canonical_def = definitions.get(&canonical).unwrap_or(def);
             return Ok(ResolvedPath::Definition {
@@ -259,11 +271,10 @@ pub fn resolve_expr_path<'a>(
         }
     }
 
-    // Multi-segment path with no prefix: try item imports and module imports
+    // Multi-segment path with no prefix: try import-based resolution
     if path.prefix == PathPrefix::None && path.segments.len() > 1 {
         let first = &path.segments[0];
 
-        // Try imports: e.g., `Color::Red` where `Color` is imported, or `bar::add` where `bar` is a module import
         if let Some(item_imports) = imports.get(current_module)
             && let Some(imported_path) = item_imports.get(first)
         {
@@ -288,11 +299,9 @@ pub fn resolve_expr_path<'a>(
     // Priority 3: Resolve the full path in module-level definitions
     let qualified_path = resolve_path(path, current_module)?;
 
-    // Try exact match in definitions
     if let Some(def) = definitions.get(&qualified_path) {
         check_module_path_visible(&qualified_path, current_module, definitions)?;
         check_item_visibility(def, qualified_path.last(), current_module)?;
-        // Follow re-export chain to the original definition
         let canonical = follow_reexports(&qualified_path, reexports)?;
         let canonical_def = definitions.get(&canonical).unwrap_or(def);
         return Ok(ResolvedPath::Definition {
@@ -302,127 +311,6 @@ pub fn resolve_expr_path<'a>(
     }
 
     // Priority 4: Package fallback — treat raw segments as a package-rooted path
-    // e.g., std::option::Some → QualifiedPath(["std", "option", "Some"])
-    if path.prefix == PathPrefix::None && path.segments.len() > 1 {
-        let package_path = QualifiedPath::new(path.segments.clone());
-        if let Some(def) = definitions.get(&package_path) {
-            check_module_path_visible(&package_path, current_module, definitions)?;
-            check_item_visibility(def, package_path.last(), current_module)?;
-            let canonical = follow_reexports(&package_path, reexports)?;
-            let canonical_def = definitions.get(&canonical).unwrap_or(def);
-            return Ok(ResolvedPath::Definition {
-                qualified_path: canonical,
-                def: canonical_def,
-            });
-        }
-    }
-
-    // Nothing found - generate appropriate error
-    if path.segments.len() == 1 {
-        Err(TypeError {
-            message: format!("unknown identifier: {}", path.segments[0]),
-        })
-    } else {
-        Err(TypeError {
-            message: format!("unknown path: {}", path),
-        })
-    }
-}
-
-/// Follow re-export chain to the original definition path.
-fn follow_reexports(
-    path: &QualifiedPath,
-    reexports: &HashMap<QualifiedPath, QualifiedPath>,
-) -> Result<QualifiedPath, TypeError> {
-    let mut current = path.clone();
-    let mut visited = HashSet::new();
-    visited.insert(current.clone());
-    // Follow re-export chain (supports transitive re-exports)
-    while let Some(original) = reexports.get(&current) {
-        if !visited.insert(original.clone()) {
-            return Err(TypeError {
-                message: format!("circular re-export detected: {}", original),
-            });
-        }
-        current = original.clone();
-    }
-    Ok(current)
-}
-
-/// Resolve a path in pattern context (no locals, only imports and definitions).
-///
-/// This is similar to `resolve_expr_path` but doesn't check locals since patterns
-/// don't have access to local variables.
-pub fn resolve_pattern_path<'a>(
-    path: &Path,
-    current_module: &QualifiedPath,
-    imports: &'a HashMap<QualifiedPath, ImportTable>,
-    definitions: &'a HashMap<QualifiedPath, Definition>,
-    reexports: &HashMap<QualifiedPath, QualifiedPath>,
-) -> Result<ResolvedPath<'a>, TypeError> {
-    // For single-segment paths without prefix, check imports first
-    if path.prefix == PathPrefix::None && path.segments.len() == 1 {
-        let name = &path.segments[0];
-
-        // Check imports
-        if let Some(item_imports) = imports.get(current_module)
-            && let Some(qualified) = item_imports.get(name)
-            && let Some(def) = definitions.get(qualified)
-        {
-            // Follow re-export chain to the original definition
-            let canonical = follow_reexports(qualified, reexports)?;
-            let canonical_def = definitions.get(&canonical).unwrap_or(def);
-            return Ok(ResolvedPath::Definition {
-                qualified_path: canonical,
-                def: canonical_def,
-            });
-        }
-    }
-
-    // Multi-segment path with no prefix: try item imports and module imports
-    if path.prefix == PathPrefix::None && path.segments.len() > 1 {
-        let first = &path.segments[0];
-
-        // Try imports: e.g., `Color::Red` where `Color` is imported, or `bar::add` where `bar` is a module import
-        if let Some(item_imports) = imports.get(current_module)
-            && let Some(imported_path) = item_imports.get(first)
-        {
-            let canonical_base = follow_reexports(imported_path, reexports)?;
-            let mut segments = canonical_base.segments().to_vec();
-            segments.extend(path.segments[1..].iter().cloned());
-            let qualified_path = QualifiedPath::new(segments);
-
-            if let Some(def) = definitions.get(&qualified_path) {
-                check_module_path_visible(&qualified_path, current_module, definitions)?;
-                check_item_visibility(def, qualified_path.last(), current_module)?;
-                let canonical = follow_reexports(&qualified_path, reexports)?;
-                let canonical_def = definitions.get(&canonical).unwrap_or(def);
-                return Ok(ResolvedPath::Definition {
-                    qualified_path: canonical,
-                    def: canonical_def,
-                });
-            }
-        }
-    }
-
-    // Resolve the full path
-    let qualified_path = resolve_path(path, current_module)?;
-
-    // Try exact match in definitions
-    if let Some(def) = definitions.get(&qualified_path) {
-        check_module_path_visible(&qualified_path, current_module, definitions)?;
-        check_item_visibility(def, qualified_path.last(), current_module)?;
-        // Follow re-export chain to the original definition
-        let canonical = follow_reexports(&qualified_path, reexports)?;
-        let canonical_def = definitions.get(&canonical).unwrap_or(def);
-        return Ok(ResolvedPath::Definition {
-            qualified_path: canonical,
-            def: canonical_def,
-        });
-    }
-
-    // Priority 4: Package fallback — treat raw segments as a package-rooted path
-    // e.g., std::option::Some → QualifiedPath(["std", "option", "Some"])
     if path.prefix == PathPrefix::None && path.segments.len() > 1 {
         let package_path = QualifiedPath::new(path.segments.clone());
         if let Some(def) = definitions.get(&package_path) {

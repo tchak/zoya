@@ -2,10 +2,14 @@
 //!
 //! Resolves `use` statements into qualified paths that can be looked up during type checking.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use zoya_ast::{PathPrefix, UseDecl, UseTarget};
 use zoya_ir::{Definition, QualifiedPath, TypeError, Visibility};
+
+use crate::resolution::{
+    check_module_path_visible, follow_reexports, is_module_ancestor, resolve_prefix_path,
+};
 
 /// Resolved import entry: maps a local name to a qualified path
 pub type ImportTable = HashMap<String, QualifiedPath>;
@@ -24,50 +28,12 @@ pub(crate) fn resolve_use_path(
     current_module: &QualifiedPath,
 ) -> Result<QualifiedPath, TypeError> {
     let path = &use_decl.path;
-
-    match &path.prefix {
-        PathPrefix::Root => {
-            // root::foo::bar → root::foo::bar
-            let mut segments = vec!["root".to_string()];
-            segments.extend(path.segments.iter().cloned());
-            Ok(QualifiedPath::new(segments))
-        }
-        PathPrefix::Self_ => {
-            // self::foo → current_module::foo
-            let mut segments = current_module
-                .segments()
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>();
-            segments.extend(path.segments.iter().cloned());
-            Ok(QualifiedPath::new(segments))
-        }
-        PathPrefix::Super => {
-            // super::foo → parent_module::foo
-            let parent = current_module.parent().ok_or_else(|| TypeError {
-                message: "cannot use super:: in root module".to_string(),
-            })?;
-            let mut segments = parent
-                .segments()
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>();
-            segments.extend(path.segments.iter().cloned());
-            Ok(QualifiedPath::new(segments))
-        }
-        PathPrefix::Package(name) => {
-            let mut segments = vec![name.clone()];
-            segments.extend(path.segments.iter().cloned());
-            Ok(QualifiedPath::new(segments))
-        }
-        PathPrefix::None => {
-            // This should not happen - parser transforms prefix-free paths to Package
-            Err(TypeError {
-                message: "use declarations require a prefix (root::, self::, or super::)"
-                    .to_string(),
-            })
-        }
+    if path.prefix == PathPrefix::None {
+        return Err(TypeError {
+            message: "use declarations require a prefix (root::, self::, or super::)".to_string(),
+        });
     }
+    resolve_prefix_path(&path.prefix, &path.segments, current_module)
 }
 
 /// Resolve a use path's segments to a QualifiedPath (for Glob/Group targets where
@@ -77,43 +43,12 @@ pub(crate) fn resolve_use_module_path(
     current_module: &QualifiedPath,
 ) -> Result<QualifiedPath, TypeError> {
     let path = &use_decl.path;
-
-    match &path.prefix {
-        PathPrefix::Root => {
-            let mut segments = vec!["root".to_string()];
-            segments.extend(path.segments.iter().cloned());
-            Ok(QualifiedPath::new(segments))
-        }
-        PathPrefix::Self_ => {
-            let mut segments = current_module
-                .segments()
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>();
-            segments.extend(path.segments.iter().cloned());
-            Ok(QualifiedPath::new(segments))
-        }
-        PathPrefix::Super => {
-            let parent = current_module.parent().ok_or_else(|| TypeError {
-                message: "cannot use super:: in root module".to_string(),
-            })?;
-            let mut segments = parent
-                .segments()
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>();
-            segments.extend(path.segments.iter().cloned());
-            Ok(QualifiedPath::new(segments))
-        }
-        PathPrefix::Package(name) => {
-            let mut segments = vec![name.clone()];
-            segments.extend(path.segments.iter().cloned());
-            Ok(QualifiedPath::new(segments))
-        }
-        PathPrefix::None => Err(TypeError {
+    if path.prefix == PathPrefix::None {
+        return Err(TypeError {
             message: "use declarations require a prefix (root::, self::, or super::)".to_string(),
-        }),
+        });
     }
+    resolve_prefix_path(&path.prefix, &path.segments, current_module)
 }
 
 /// Check if an import target is visible from the importing module.
@@ -122,36 +57,16 @@ fn check_import_visible(
     accessor_module: &QualifiedPath,
     definitions: &HashMap<QualifiedPath, Definition>,
 ) -> Result<(), TypeError> {
-    // Look up the definition
     let def = definitions.get(qualified).ok_or_else(|| TypeError {
         message: format!("cannot find '{}' to import", qualified),
     })?;
 
-    // Get visibility
-    let visibility = def.visibility();
-
-    if visibility == Visibility::Public {
+    if def.visibility() == Visibility::Public {
         return Ok(());
     }
 
     let target_module = def.module();
-    let target_segments: Vec<&str> = target_module
-        .segments()
-        .iter()
-        .map(|s| s.as_str())
-        .collect();
-
-    let accessor: Vec<&str> = accessor_module
-        .segments()
-        .iter()
-        .map(|s| s.as_str())
-        .collect();
-
-    // Private visible if accessor is same module or descendant
-    let is_visible = accessor.len() >= target_segments.len()
-        && accessor[..target_segments.len()] == target_segments[..];
-
-    if is_visible {
+    if is_module_ancestor(target_module, accessor_module) {
         Ok(())
     } else {
         Err(TypeError {
@@ -161,56 +76,6 @@ fn check_import_visible(
             ),
         })
     }
-}
-
-/// Check that all intermediate modules in a qualified path are visible from the accessor module.
-fn check_import_module_path_visible(
-    qualified: &QualifiedPath,
-    accessor_module: &QualifiedPath,
-    definitions: &HashMap<QualifiedPath, Definition>,
-) -> Result<(), TypeError> {
-    let segments = qualified.segments();
-
-    if segments.len() < 3 {
-        return Ok(());
-    }
-
-    for i in 1..segments.len() - 1 {
-        let parent_module_path = QualifiedPath::new(segments[0..i].to_vec());
-        let child_name = &segments[i];
-        let child_module_path = parent_module_path.child(child_name);
-
-        if let Some(Definition::Module(m)) = definitions.get(&child_module_path) {
-            if m.visibility == Visibility::Public {
-                continue;
-            }
-
-            let accessor: Vec<&str> = accessor_module
-                .segments()
-                .iter()
-                .map(|s| s.as_str())
-                .collect();
-            let parent_segments: Vec<&str> = parent_module_path
-                .segments()
-                .iter()
-                .map(|s| s.as_str())
-                .collect();
-
-            let is_visible = accessor.len() >= parent_segments.len()
-                && accessor[..parent_segments.len()] == parent_segments[..];
-
-            if !is_visible {
-                return Err(TypeError {
-                    message: format!(
-                        "module '{}' is private to module '{}'",
-                        child_name, parent_module_path
-                    ),
-                });
-            }
-        }
-    }
-
-    Ok(())
 }
 
 /// Insert an import into the table, checking for duplicates.
@@ -250,21 +115,8 @@ fn resolve_target_module(
     definitions: &HashMap<QualifiedPath, Definition>,
     reexports: &HashMap<QualifiedPath, QualifiedPath>,
 ) -> Result<Option<QualifiedPath>, TypeError> {
-    // Check if the target is a module (directly or through re-exports)
     if let Some(Definition::Module(_)) = definitions.get(target) {
-        // Follow re-export chain to the canonical module path
-        let mut current = target.clone();
-        let mut visited = HashSet::new();
-        visited.insert(current.clone());
-        while let Some(real) = reexports.get(&current) {
-            if !visited.insert(real.clone()) {
-                return Err(TypeError {
-                    message: format!("circular re-export detected: {}", real),
-                });
-            }
-            current = real.clone();
-        }
-        return Ok(Some(current));
+        return Ok(Some(follow_reexports(target, reexports)?));
     }
     Ok(None)
 }
@@ -286,17 +138,7 @@ fn resolve_target_container(
     reexports: &HashMap<QualifiedPath, QualifiedPath>,
 ) -> Result<Option<ContainerKind>, TypeError> {
     if let Some(def) = definitions.get(target) {
-        let mut resolved = target.clone();
-        let mut visited = HashSet::new();
-        visited.insert(resolved.clone());
-        while let Some(real) = reexports.get(&resolved) {
-            if !visited.insert(real.clone()) {
-                return Err(TypeError {
-                    message: format!("circular re-export detected: {}", real),
-                });
-            }
-            resolved = real.clone();
-        }
+        let resolved = follow_reexports(target, reexports)?;
         match def {
             Definition::Module(_) => return Ok(Some(ContainerKind::Module(resolved))),
             Definition::Enum(_) => return Ok(Some(ContainerKind::Enum(resolved))),
@@ -324,7 +166,7 @@ pub fn resolve_module_imports(
                 let qualified = resolve_use_path(use_decl, current_module)?;
 
                 // Check intermediate modules are visible
-                check_import_module_path_visible(&qualified, current_module, definitions)?;
+                check_module_path_visible(&qualified, current_module, definitions)?;
 
                 // Try as item or module import (both are in definitions now)
                 if definitions.contains_key(&qualified) {
@@ -397,11 +239,7 @@ pub fn resolve_module_imports(
                     ContainerKind::Module(resolved_module) => {
                         // Check module path visibility
                         let module_qpath = QualifiedPath::new(resolved_module.segments().to_vec());
-                        check_import_module_path_visible(
-                            &module_qpath,
-                            current_module,
-                            definitions,
-                        )?;
+                        check_module_path_visible(&module_qpath, current_module, definitions)?;
 
                         // Find all definitions in the resolved module (exactly one segment deeper)
                         let module_segments = resolved_module.segments();
@@ -472,11 +310,7 @@ pub fn resolve_module_imports(
                     ContainerKind::Module(resolved_module) => {
                         // Check module path visibility
                         let module_qpath = QualifiedPath::new(resolved_module.segments().to_vec());
-                        check_import_module_path_visible(
-                            &module_qpath,
-                            current_module,
-                            definitions,
-                        )?;
+                        check_module_path_visible(&module_qpath, current_module, definitions)?;
 
                         for group_item in items {
                             let qualified = resolved_module.child(&group_item.name);

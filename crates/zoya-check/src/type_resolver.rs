@@ -5,7 +5,7 @@ use zoya_ir::{Definition, Type, TypeError, TypeVarId};
 use zoya_package::QualifiedPath;
 
 use crate::check::TypeEnv;
-use crate::resolution::{self, ResolvedPath};
+use crate::resolution::ResolvedPath;
 use crate::unify::{substitute_type_vars, substitute_variant_type_vars};
 
 /// Resolve a type annotation to a concrete Type.
@@ -53,12 +53,10 @@ fn resolve_type_annotation_inner(
                 }
             }
 
-            // Use resolve_path for qualified paths
-            let empty_locals = HashMap::new();
-            let resolved = resolution::resolve_expr_path(
+            // Use resolve_pattern_path (type annotations never reference locals)
+            let resolved = crate::resolution::resolve_pattern_path(
                 path,
                 current_module,
-                &empty_locals,
                 &env.imports,
                 &env.definitions,
                 &env.reexports,
@@ -176,12 +174,10 @@ fn resolve_type_annotation_inner(
                 return Ok(Type::List(Box::new(elem_type)));
             }
 
-            // Use resolve_path for qualified paths
-            let empty_locals = HashMap::new();
-            let resolved = resolution::resolve_expr_path(
+            // Use resolve_pattern_path (type annotations never reference locals)
+            let resolved = crate::resolution::resolve_pattern_path(
                 path,
                 current_module,
-                &empty_locals,
                 &env.imports,
                 &env.definitions,
                 &env.reexports,
