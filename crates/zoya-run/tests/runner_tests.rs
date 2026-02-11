@@ -4821,6 +4821,100 @@ fn test_json_object() {
     assert_eq!(result, Value::Int(1));
 }
 
+#[test]
+fn test_json_fmt_null() {
+    let source = r#"
+        use std::json::JSON
+
+        pub fn main() -> JSON { JSON::Null }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "JSON::Null");
+}
+
+#[test]
+fn test_json_fmt_bool() {
+    let source = r#"
+        use std::json::JSON
+
+        pub fn main() -> JSON { JSON::Bool(true) }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "JSON::Bool(true)");
+}
+
+#[test]
+fn test_json_fmt_number_int() {
+    let source = r#"
+        use std::json::{JSON, Number}
+
+        pub fn main() -> JSON { JSON::Number(Number::Int(42)) }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "JSON::Number(Number::Int(42))");
+}
+
+#[test]
+fn test_json_fmt_number_float() {
+    let source = r#"
+        use std::json::{JSON, Number}
+
+        pub fn main() -> JSON { JSON::Number(Number::Float(3.14)) }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "JSON::Number(Number::Float(3.14))");
+}
+
+#[test]
+fn test_json_fmt_string() {
+    let source = r#"
+        use std::json::JSON
+
+        pub fn main() -> JSON { JSON::String("hello") }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), r#"JSON::String("hello")"#);
+}
+
+#[test]
+fn test_json_fmt_array() {
+    let source = r#"
+        use std::json::JSON
+
+        pub fn main() -> JSON { JSON::Array([JSON::Null, JSON::Bool(true)]) }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(
+        result.to_string(),
+        "JSON::Array([JSON::Null, JSON::Bool(true)])"
+    );
+}
+
+#[test]
+fn test_json_fmt_object() {
+    let source = r#"
+        use std::json::JSON
+
+        pub fn main() -> JSON { JSON::Object([("key", JSON::String("value"))]) }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(
+        result.to_string(),
+        r#"JSON::Object([("key", JSON::String("value"))])"#
+    );
+}
+
+#[test]
+fn test_json_fmt_parse_error() {
+    let source = r#"
+        use std::json::ParseError
+
+        pub fn main() -> ParseError { ParseError::ParseError }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "ParseError::ParseError");
+}
+
 // ==================== Recursive Type Tests ====================
 
 #[test]

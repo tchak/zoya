@@ -5,7 +5,145 @@ use std::sync::Arc;
 use rquickjs::loader::{BuiltinResolver, Loader, ModuleLoader, Resolver};
 use rquickjs::{BigInt, CatchResultExt, Context, Ctx, Module, Result as QjsResult, Runtime};
 
-use zoya_ir::{EnumVariantType, Type};
+use zoya_ir::{EnumVariantType, Type, TypeVarId};
+
+/// Lookup table for resolving recursive type stubs.
+///
+/// Recursive types (e.g., `enum JSON { Array(List<JSON>), ... }`) are represented
+/// with empty variants/fields at inner recursive references. This lookup resolves
+/// those stubs to the real type information during JS→Zoya value deserialization.
+pub(crate) struct TypeLookup {
+    pub(crate) enums: HashMap<String, (Vec<TypeVarId>, Vec<(String, EnumVariantType)>)>,
+    pub(crate) structs: HashMap<String, (Vec<TypeVarId>, Vec<(String, Type)>)>,
+}
+
+impl TypeLookup {
+    fn resolve_enum_variants<'a>(
+        &'a self,
+        name: &str,
+        variants: &'a [(String, EnumVariantType)],
+        type_args: &[Type],
+    ) -> Vec<(String, EnumVariantType)> {
+        if !variants.is_empty() {
+            return variants.to_vec();
+        }
+        if let Some((type_var_ids, real_variants)) = self.enums.get(name) {
+            if type_args.is_empty() || type_var_ids.is_empty() {
+                return real_variants.clone();
+            }
+            let mapping: HashMap<TypeVarId, Type> = type_var_ids
+                .iter()
+                .zip(type_args.iter())
+                .map(|(id, ty)| (*id, ty.clone()))
+                .collect();
+            real_variants
+                .iter()
+                .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, &mapping)))
+                .collect()
+        } else {
+            variants.to_vec()
+        }
+    }
+
+    fn resolve_struct_fields<'a>(
+        &'a self,
+        name: &str,
+        fields: &'a [(String, Type)],
+        type_args: &[Type],
+    ) -> Vec<(String, Type)> {
+        if !fields.is_empty() {
+            return fields.to_vec();
+        }
+        if let Some((type_var_ids, real_fields)) = self.structs.get(name) {
+            if type_args.is_empty() || type_var_ids.is_empty() {
+                return real_fields.clone();
+            }
+            let mapping: HashMap<TypeVarId, Type> = type_var_ids
+                .iter()
+                .zip(type_args.iter())
+                .map(|(id, ty)| (*id, ty.clone()))
+                .collect();
+            real_fields
+                .iter()
+                .map(|(n, t)| (n.clone(), substitute_type_vars(t, &mapping)))
+                .collect()
+        } else {
+            fields.to_vec()
+        }
+    }
+}
+
+fn substitute_type_vars(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
+    match ty {
+        Type::Var(id) => mapping.get(id).cloned().unwrap_or_else(|| ty.clone()),
+        Type::List(elem) => Type::List(Box::new(substitute_type_vars(elem, mapping))),
+        Type::Tuple(elems) => Type::Tuple(
+            elems
+                .iter()
+                .map(|t| substitute_type_vars(t, mapping))
+                .collect(),
+        ),
+        Type::Function { params, ret } => Type::Function {
+            params: params
+                .iter()
+                .map(|t| substitute_type_vars(t, mapping))
+                .collect(),
+            ret: Box::new(substitute_type_vars(ret, mapping)),
+        },
+        Type::Struct {
+            name,
+            type_args,
+            fields,
+        } => Type::Struct {
+            name: name.clone(),
+            type_args: type_args
+                .iter()
+                .map(|t| substitute_type_vars(t, mapping))
+                .collect(),
+            fields: fields
+                .iter()
+                .map(|(n, t)| (n.clone(), substitute_type_vars(t, mapping)))
+                .collect(),
+        },
+        Type::Enum {
+            name,
+            type_args,
+            variants,
+        } => Type::Enum {
+            name: name.clone(),
+            type_args: type_args
+                .iter()
+                .map(|t| substitute_type_vars(t, mapping))
+                .collect(),
+            variants: variants
+                .iter()
+                .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, mapping)))
+                .collect(),
+        },
+        Type::Int | Type::BigInt | Type::Float | Type::Bool | Type::String => ty.clone(),
+    }
+}
+
+fn substitute_variant_type_vars(
+    vt: &EnumVariantType,
+    mapping: &HashMap<TypeVarId, Type>,
+) -> EnumVariantType {
+    match vt {
+        EnumVariantType::Unit => EnumVariantType::Unit,
+        EnumVariantType::Tuple(types) => EnumVariantType::Tuple(
+            types
+                .iter()
+                .map(|t| substitute_type_vars(t, mapping))
+                .collect(),
+        ),
+        EnumVariantType::Struct(fields) => EnumVariantType::Struct(
+            fields
+                .iter()
+                .map(|(n, t)| (n.clone(), substitute_type_vars(t, mapping)))
+                .collect(),
+        ),
+    }
+}
 
 /// Virtual module storage - maps module names to source code
 #[derive(Clone)]
@@ -108,6 +246,7 @@ pub(crate) fn eval_module(
     module_name: &str,
     entry_func: &str,
     result_type: Type,
+    type_lookup: &TypeLookup,
 ) -> Result<Value, EvalError> {
     // Create entry point script that imports the module and calls the function
     let entry_script = format!(
@@ -133,7 +272,7 @@ pub(crate) fn eval_module(
         .catch(ctx)
         .map_err(|e| EvalError::RuntimeError(format!("failed to get result: {}", e)))?;
 
-    js_value_to_value(ctx, js_val, &result_type)
+    js_value_to_value(ctx, js_val, &result_type, type_lookup)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -269,11 +408,11 @@ pub enum EvalError {
 }
 
 /// Convert a JavaScript value to a Zoya Value based on expected type
-#[allow(clippy::only_used_in_recursion)]
 fn js_value_to_value(
     ctx: &rquickjs::Ctx<'_>,
     js_val: rquickjs::Value<'_>,
     expected_type: &Type,
+    type_lookup: &TypeLookup,
 ) -> Result<Value, EvalError> {
     match expected_type {
         Type::Int => {
@@ -324,7 +463,7 @@ fn js_value_to_value(
                 let elem_js: rquickjs::Value = array
                     .get(i)
                     .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-                let elem_value = js_value_to_value(ctx, elem_js, elem_type)?;
+                let elem_value = js_value_to_value(ctx, elem_js, elem_type, type_lookup)?;
                 values.push(elem_value);
             }
             Ok(Value::List(values))
@@ -338,21 +477,26 @@ fn js_value_to_value(
                 let elem_js: rquickjs::Value = array
                     .get(i)
                     .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-                let elem_value = js_value_to_value(ctx, elem_js, elem_type)?;
+                let elem_value = js_value_to_value(ctx, elem_js, elem_type, type_lookup)?;
                 values.push(elem_value);
             }
             Ok(Value::Tuple(values))
         }
-        Type::Struct { name, fields, .. } => {
+        Type::Struct {
+            name,
+            type_args,
+            fields,
+        } => {
+            let resolved_fields = type_lookup.resolve_struct_fields(name, fields, type_args);
             let obj: rquickjs::Object = js_val
                 .get()
                 .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
             let mut field_values = Vec::new();
-            for (field_name, field_type) in fields {
+            for (field_name, field_type) in &resolved_fields {
                 let field_js: rquickjs::Value = obj
                     .get(field_name.as_str())
                     .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-                let field_value = js_value_to_value(ctx, field_js, field_type)?;
+                let field_value = js_value_to_value(ctx, field_js, field_type, type_lookup)?;
                 field_values.push((field_name.clone(), field_value));
             }
             Ok(Value::Struct {
@@ -370,9 +514,11 @@ fn js_value_to_value(
         }),
         Type::Enum {
             name: enum_name,
+            type_args,
             variants,
-            ..
         } => {
+            let resolved_variants =
+                type_lookup.resolve_enum_variants(enum_name, variants, type_args);
             let obj: rquickjs::Object = js_val
                 .get()
                 .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
@@ -381,7 +527,7 @@ fn js_value_to_value(
                 .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
 
             // Find the variant type
-            let variant_type = variants
+            let variant_type = resolved_variants
                 .iter()
                 .find(|(vname, _)| vname == &tag)
                 .map(|(_, vt)| vt)
@@ -395,7 +541,8 @@ fn js_value_to_value(
                         let field_js: rquickjs::Value = obj
                             .get(format!("${}", i))
                             .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-                        let field_value = js_value_to_value(ctx, field_js, field_type)?;
+                        let field_value =
+                            js_value_to_value(ctx, field_js, field_type, type_lookup)?;
                         values.push(field_value);
                     }
                     EnumValueFields::Tuple(values)
@@ -406,7 +553,8 @@ fn js_value_to_value(
                         let field_js: rquickjs::Value = obj
                             .get(field_name.as_str())
                             .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-                        let field_value = js_value_to_value(ctx, field_js, field_type)?;
+                        let field_value =
+                            js_value_to_value(ctx, field_js, field_type, type_lookup)?;
                         field_values.push((field_name.clone(), field_value));
                     }
                     EnumValueFields::Struct(field_values)
