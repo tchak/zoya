@@ -79,6 +79,11 @@ pub fn is_valid_type_name(name: &str) -> bool {
     is_pascal_case(name)
 }
 
+/// Check if a name is a valid field name (alias for `is_snake_case`).
+pub fn is_valid_field_name(name: &str) -> bool {
+    is_snake_case(name)
+}
+
 /// Convert a name to snake_case for error message suggestions.
 pub fn to_snake_case(name: &str) -> String {
     let mut result = String::new();
@@ -352,6 +357,15 @@ mod tests {
         assert!(!is_valid_type_name("foo"));
         assert!(!is_valid_type_name("Foo_Bar"));
         assert!(!is_valid_type_name(""));
+    }
+
+    #[test]
+    fn test_is_valid_field_name() {
+        assert!(is_valid_field_name("foo"));
+        assert!(is_valid_field_name("foo_bar"));
+        assert!(!is_valid_field_name("Foo"));
+        assert!(!is_valid_field_name("_foo"));
+        assert!(!is_valid_field_name(""));
     }
 
     // ========================================================================

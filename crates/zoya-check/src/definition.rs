@@ -10,7 +10,7 @@ use zoya_package::QualifiedPath;
 use crate::check::TypeEnv;
 use crate::type_resolver::resolve_type_annotation;
 use crate::unify::UnifyCtx;
-use zoya_naming::{is_pascal_case, to_pascal_case};
+use zoya_naming::{is_pascal_case, is_valid_field_name, to_pascal_case, to_snake_case};
 
 /// Extract function type from a function definition (for adding to env).
 /// Uses a separate UnifyCtx to create fresh type variables for the signature.
@@ -114,6 +114,15 @@ pub fn struct_type_from_def(
         StructKind::Named(field_defs) => {
             let mut fields = Vec::new();
             for field in field_defs {
+                if !is_valid_field_name(&field.name) {
+                    return Err(TypeError {
+                        message: format!(
+                            "struct field '{}' should be snake_case (e.g., '{}')",
+                            field.name,
+                            to_snake_case(&field.name)
+                        ),
+                    });
+                }
                 let ty = resolve_type_annotation(&field.typ, &type_param_map, current_module, env)?;
                 fields.push((field.name.clone(), ty));
             }
@@ -197,6 +206,15 @@ pub fn enum_type_from_def(
                 let resolved_fields = fields
                     .iter()
                     .map(|f| {
+                        if !is_valid_field_name(&f.name) {
+                            return Err(TypeError {
+                                message: format!(
+                                    "struct field '{}' should be snake_case (e.g., '{}')",
+                                    f.name,
+                                    to_snake_case(&f.name)
+                                ),
+                            });
+                        }
                         let ty =
                             resolve_type_annotation(&f.typ, &type_param_map, current_module, env)?;
                         Ok((f.name.clone(), ty))
@@ -907,5 +925,54 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("unknown identifier"));
+    }
+
+    // ========================================================================
+    // field name validation tests
+    // ========================================================================
+
+    #[test]
+    fn test_struct_invalid_field_name_pascal_case() {
+        let def = StructDef {
+            attributes: vec![],
+            visibility: Visibility::Public,
+            name: "Point".to_string(),
+            type_params: vec![],
+            kind: StructKind::Named(vec![StructFieldDef {
+                name: "X".to_string(),
+                typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
+            }]),
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = struct_type_from_def(&def, &root(), &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("should be snake_case"));
+        assert!(err.message.contains("struct field 'X'"));
+    }
+
+    #[test]
+    fn test_enum_struct_variant_invalid_field_name() {
+        let def = EnumDef {
+            attributes: vec![],
+            visibility: Visibility::Public,
+            name: "Shape".to_string(),
+            type_params: vec![],
+            variants: vec![EnumVariant {
+                name: "Circle".to_string(),
+                kind: EnumVariantKind::Struct(vec![StructFieldDef {
+                    name: "Radius".to_string(),
+                    typ: TypeAnnotation::Named(Path::simple("Float".to_string())),
+                }]),
+            }],
+        };
+        let env = TypeEnv::default();
+        let mut ctx = UnifyCtx::new();
+        let result = enum_type_from_def(&def, &root(), &env, &mut ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("should be snake_case"));
+        assert!(err.message.contains("struct field 'Radius'"));
     }
 }
