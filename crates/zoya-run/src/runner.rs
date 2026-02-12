@@ -164,10 +164,10 @@ fn run_checked(
     let return_type = main_def.return_type.clone();
 
     // Build type lookup for resolving recursive type stubs
-    let type_lookup = build_type_lookup(&package, deps);
+    let type_lookup = build_type_lookup(package, deps);
 
     // Generate all modules (deps + main package)
-    let outputs = codegen(&package, deps);
+    let outputs = codegen(package, deps);
     let modules_ref: HashMap<&str, &zoya_codegen::CodegenOutput> =
         outputs.iter().map(|(k, v)| (k.as_str(), v)).collect();
 
