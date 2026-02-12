@@ -5857,3 +5857,95 @@ fn test_run_panic_in_called_function() {
         Err(EvalError::Panic(msg)) if msg == "not yet"
     ));
 }
+
+// ===== Assert Tests =====
+
+#[test]
+fn test_run_assert_true_succeeds() {
+    let source = r#"
+        pub fn main() -> Int {
+            let _ = assert(true);
+            42
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_run_assert_false_panics() {
+    let source = r#"
+        pub fn main() -> Int {
+            assert(false)
+        }
+    "#;
+    let result = run_source(source);
+    assert!(matches!(
+        result,
+        Err(EvalError::Panic(msg)) if msg == "assertion failed"
+    ));
+}
+
+#[test]
+fn test_run_assert_eq_same_values_succeeds() {
+    let source = r#"
+        pub fn main() -> Int {
+            let _ = assert_eq(1, 1);
+            42
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_run_assert_eq_different_values_panics() {
+    let source = r#"
+        pub fn main() -> Int {
+            assert_eq(1, 2)
+        }
+    "#;
+    let result = run_source(source);
+    assert!(matches!(
+        result,
+        Err(EvalError::Panic(msg)) if msg == "assertion failed: left != right"
+    ));
+}
+
+#[test]
+fn test_run_assert_ne_different_values_succeeds() {
+    let source = r#"
+        pub fn main() -> Int {
+            let _ = assert_ne(1, 2);
+            42
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_run_assert_ne_same_values_panics() {
+    let source = r#"
+        pub fn main() -> Int {
+            assert_ne(1, 1)
+        }
+    "#;
+    let result = run_source(source);
+    assert!(matches!(
+        result,
+        Err(EvalError::Panic(msg)) if msg == "assertion failed: left == right"
+    ));
+}
+
+#[test]
+fn test_run_assert_eq_deep_equality_lists() {
+    let source = r#"
+        pub fn main() -> Int {
+            let _ = assert_eq([1, 2], [1, 2]);
+            42
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}

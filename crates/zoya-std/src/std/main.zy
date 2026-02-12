@@ -5,3 +5,12 @@ pub mod result
 
 #[builtin]
 pub fn panic<T>(message: String) -> T ()
+
+#[builtin]
+pub fn assert<T>(condition: Bool) -> T ()
+
+#[builtin]
+pub fn assert_eq<T, V>(left: V, right: V) -> T ()
+
+#[builtin]
+pub fn assert_ne<T, V>(left: V, right: V) -> T ()

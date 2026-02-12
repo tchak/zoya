@@ -210,6 +210,84 @@ mod tests {
     }
 
     #[test]
+    fn test_std_has_assert_function() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("assert");
+        let def = pkg.definitions.get(&path).expect("assert definition");
+        assert!(matches!(def, Definition::Function(_)));
+    }
+
+    #[test]
+    fn test_std_has_assert_in_items() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("assert");
+        let func = pkg.items.get(&path).expect("assert in items");
+        assert!(func.is_builtin);
+    }
+
+    #[test]
+    fn test_std_prelude_has_assert() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("prelude").child("assert");
+        assert!(
+            pkg.definitions.contains_key(&path),
+            "assert should be re-exported in prelude module"
+        );
+    }
+
+    #[test]
+    fn test_std_has_assert_eq_function() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("assert_eq");
+        let def = pkg.definitions.get(&path).expect("assert_eq definition");
+        assert!(matches!(def, Definition::Function(_)));
+    }
+
+    #[test]
+    fn test_std_has_assert_eq_in_items() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("assert_eq");
+        let func = pkg.items.get(&path).expect("assert_eq in items");
+        assert!(func.is_builtin);
+    }
+
+    #[test]
+    fn test_std_prelude_has_assert_eq() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("prelude").child("assert_eq");
+        assert!(
+            pkg.definitions.contains_key(&path),
+            "assert_eq should be re-exported in prelude module"
+        );
+    }
+
+    #[test]
+    fn test_std_has_assert_ne_function() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("assert_ne");
+        let def = pkg.definitions.get(&path).expect("assert_ne definition");
+        assert!(matches!(def, Definition::Function(_)));
+    }
+
+    #[test]
+    fn test_std_has_assert_ne_in_items() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("assert_ne");
+        let func = pkg.items.get(&path).expect("assert_ne in items");
+        assert!(func.is_builtin);
+    }
+
+    #[test]
+    fn test_std_prelude_has_assert_ne() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("prelude").child("assert_ne");
+        assert!(
+            pkg.definitions.contains_key(&path),
+            "assert_ne should be re-exported in prelude module"
+        );
+    }
+
+    #[test]
     fn test_std_is_cached() {
         let a = std();
         let b = std();

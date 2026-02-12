@@ -1115,6 +1115,17 @@ fn codegen_builtin_function(func: &TypedFunction, path: &QualifiedPath) -> Strin
         "root::panic" => {
             "$$throw(\"PANIC\", $message);".to_string()
         }
+        "root::assert" => {
+            "if (!$condition) $$throw(\"PANIC\", \"assertion failed\");".to_string()
+        }
+        "root::assert_eq" => {
+            "if (!$$eq($left, $right)) $$throw(\"PANIC\", \"assertion failed: left != right\");"
+                .to_string()
+        }
+        "root::assert_ne" => {
+            "if ($$eq($left, $right)) $$throw(\"PANIC\", \"assertion failed: left == right\");"
+                .to_string()
+        }
         "root::json::parse" => {
             "try { return { $tag: \"Ok\", $0: $$json_to_zoya(JSON.parse($value)) }; } catch(_) { return { $tag: \"Err\", $0: { $tag: \"ParseError\" } }; }".to_string()
         }

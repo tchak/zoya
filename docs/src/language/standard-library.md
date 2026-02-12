@@ -9,6 +9,9 @@ The following types and functions are automatically available in every module wi
 - **`Option<T>`** — Represents an optional value: `Some(T)` or `None`
 - **`Result<T, E>`** — Represents success (`Ok(T)`) or failure (`Err(E)`)
 - **`panic(message: String) -> T`** — Aborts execution with an error message. The generic return type `T` allows `panic` to be used in any type context.
+- **`assert(condition: Bool) -> T`** — Panics with "assertion failed" if the condition is `false`.
+- **`assert_eq(left: V, right: V) -> T`** — Panics with "assertion failed: left != right" if `left` and `right` are not equal (deep equality).
+- **`assert_ne(left: V, right: V) -> T`** — Panics with "assertion failed: left == right" if `left` and `right` are equal (deep equality).
 
 ```zoya
 let x = Some(42)
@@ -29,6 +32,33 @@ fn divide(a: Int, b: Int) -> Int {
         _ => a / b,
     }
 }
+```
+
+### `assert`
+
+`assert` checks that a condition is `true`, and panics if it is `false`:
+
+```zoya
+assert(1 + 1 == 2)
+assert(true)
+```
+
+### `assert_eq`
+
+`assert_eq` checks that two values are equal using deep equality, and panics if they are not:
+
+```zoya
+assert_eq(1 + 1, 2)
+assert_eq([1, 2, 3], [1, 2, 3])
+```
+
+### `assert_ne`
+
+`assert_ne` checks that two values are not equal using deep equality, and panics if they are:
+
+```zoya
+assert_ne(1, 2)
+assert_ne([1, 2], [3, 4])
 ```
 
 ## `std::json`
