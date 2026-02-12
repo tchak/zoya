@@ -171,6 +171,13 @@ pub struct TypedMatchArm {
     pub result: TypedExpr,
 }
 
+/// Element in a typed list expression
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypedListElement {
+    Item(TypedExpr),
+    Spread(TypedExpr),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedExpr {
     Int(i64),
@@ -179,7 +186,7 @@ pub enum TypedExpr {
     Bool(bool),
     String(String),
     List {
-        elements: Vec<TypedExpr>,
+        elements: Vec<TypedListElement>,
         ty: Type,
     },
     Tuple {

@@ -7,7 +7,7 @@ use zoya_ast::{
 use zoya_ir::{
     CheckedPackage, Definition, EnumType, EnumVariantType, FunctionType, ModuleType, QualifiedPath,
     StructType, StructTypeKind, Type, TypeAliasType, TypeError, TypeScheme, TypeVarId,
-    TypedEnumConstructFields, TypedExpr, TypedFunction, Visibility,
+    TypedEnumConstructFields, TypedExpr, TypedFunction, TypedListElement, Visibility,
 };
 use zoya_package::Package;
 
@@ -1153,46 +1153,41 @@ fn check_list_expr(
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<TypedExpr, TypeError> {
-    if elements.iter().any(|e| matches!(e, ListElement::Spread(_))) {
-        todo!("spread in list expressions")
-    }
-
-    // Extract inner expressions (all are Item at this point)
-    let exprs: Vec<&Expr> = elements
-        .iter()
-        .map(|e| match e {
-            ListElement::Item(expr) => expr,
-            ListElement::Spread(_) => unreachable!(),
-        })
-        .collect();
-
-    if exprs.is_empty() {
-        // Empty list: create fresh type variable for element type
+    if elements.is_empty() {
         let elem_ty = ctx.fresh_var();
-        Ok(TypedExpr::List {
+        return Ok(TypedExpr::List {
             elements: vec![],
             ty: Type::List(Box::new(elem_ty)),
-        })
-    } else {
-        // Non-empty list: infer element type from first element
-        let first_typed = check_expr(exprs[0], current_module, env, ctx)?;
-        let elem_ty = first_typed.ty();
-        let mut typed_elements = vec![first_typed];
-
-        // Check remaining elements unify with first element's type
-        for elem in &exprs[1..] {
-            let typed = check_expr(elem, current_module, env, ctx)?;
-            ctx.unify(&typed.ty(), &elem_ty).map_err(|e| TypeError {
-                message: format!("list element type mismatch: {}", e.message),
-            })?;
-            typed_elements.push(typed);
-        }
-
-        Ok(TypedExpr::List {
-            elements: typed_elements,
-            ty: Type::List(Box::new(ctx.resolve(&elem_ty))),
-        })
+        });
     }
+
+    let elem_ty = ctx.fresh_var();
+    let list_ty = Type::List(Box::new(elem_ty.clone()));
+    let mut typed_elements = Vec::with_capacity(elements.len());
+
+    for element in elements {
+        match element {
+            ListElement::Item(expr) => {
+                let typed = check_expr(expr, current_module, env, ctx)?;
+                ctx.unify(&typed.ty(), &elem_ty).map_err(|e| TypeError {
+                    message: format!("list element type mismatch: {}", e.message),
+                })?;
+                typed_elements.push(TypedListElement::Item(typed));
+            }
+            ListElement::Spread(expr) => {
+                let typed = check_expr(expr, current_module, env, ctx)?;
+                ctx.unify(&typed.ty(), &list_ty).map_err(|e| TypeError {
+                    message: format!("spread in list must be a list: {}", e.message),
+                })?;
+                typed_elements.push(TypedListElement::Spread(typed));
+            }
+        }
+    }
+
+    Ok(TypedExpr::List {
+        elements: typed_elements,
+        ty: Type::List(Box::new(ctx.resolve(&elem_ty))),
+    })
 }
 
 /// Check a tuple literal expression

@@ -3,7 +3,7 @@
 pub fn map<A, B>(list: List<A>, f: A -> B) -> List<B> {
     match list {
         [] => [],
-        [head, rest @ ..] => [f(head)].concat(map(rest, f)),
+        [head, rest @ ..] => [f(head), ..map(rest, f)],
     }
 }
 
@@ -11,7 +11,7 @@ pub fn filter<A>(list: List<A>, pred: A -> Bool) -> List<A> {
     match list {
         [] => [],
         [head, rest @ ..] => match pred(head) {
-            true => [head].concat(filter(rest, pred)),
+            true => [head, ..filter(rest, pred)],
             false => filter(rest, pred),
         },
     }
@@ -29,7 +29,7 @@ pub fn take<A>(list: List<A>, n: Int) -> List<A> {
         true => [],
         false => match list {
             [] => [],
-            [head, rest @ ..] => [head].concat(take(rest, n - 1)),
+            [head, rest @ ..] => [head, ..take(rest, n - 1)],
         },
     }
 }
@@ -47,7 +47,7 @@ pub fn drop<A>(list: List<A>, n: Int) -> List<A> {
 pub fn range(start: Int, end: Int) -> List<Int> {
     match start >= end {
         true => [],
-        false => [start].concat(range(start + 1, end)),
+        false => [start, ..range(start + 1, end)],
     }
 }
 
@@ -55,7 +55,7 @@ pub fn zip<A, B>(left: List<A>, right: List<B>) -> List<(A, B)> {
     match (left, right) {
         ([], _) => [],
         (_, []) => [],
-        ([a, rest_a @ ..], [b, rest_b @ ..]) => [(a, b)].concat(zip(rest_a, rest_b)),
+        ([a, rest_a @ ..], [b, rest_b @ ..]) => [(a, b), ..zip(rest_a, rest_b)],
     }
 }
 
@@ -79,8 +79,8 @@ fn merge(left: List<Int>, right: List<Int>) -> List<Int> {
         ([], _) => right,
         (_, []) => left,
         ([l, ls @ ..], [r, rs @ ..]) => match l <= r {
-            true => [l].concat(merge(ls, right)),
-            false => [r].concat(merge(left, rs)),
+            true => [l, ..merge(ls, right)],
+            false => [r, ..merge(left, rs)],
         },
     }
 }

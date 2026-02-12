@@ -15,6 +15,7 @@ mod functions;
 mod imports;
 mod index;
 mod lambdas;
+mod list_spread;
 mod match_expr;
 mod methods;
 mod misc;

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use zoya_ast::{BinOp, UnaryOp};
 use zoya_ir::{
     CheckedPackage, QualifiedPath, Type, TypedEnumConstructFields, TypedExpr, TypedFunction,
-    TypedMatchArm, TypedPattern,
+    TypedListElement, TypedMatchArm, TypedPattern,
 };
 
 /// Output of code generation containing JS code and content hash
@@ -808,7 +808,17 @@ fn codegen_expr(expr: &TypedExpr) -> String {
         TypedExpr::Float(n) => format_float(*n),
         TypedExpr::Bool(b) => b.to_string(),
         TypedExpr::String(s) => escape_js_string(s),
-        TypedExpr::List { elements, .. } | TypedExpr::Tuple { elements, .. } => {
+        TypedExpr::List { elements, .. } => {
+            let strs: Vec<String> = elements
+                .iter()
+                .map(|e| match e {
+                    TypedListElement::Item(expr) => codegen_expr(expr),
+                    TypedListElement::Spread(expr) => format!("...{}", codegen_expr(expr)),
+                })
+                .collect();
+            format!("[{}]", strs.join(", "))
+        }
+        TypedExpr::Tuple { elements, .. } => {
             let strs: Vec<String> = elements.iter().map(codegen_expr).collect();
             format!("[{}]", strs.join(", "))
         }

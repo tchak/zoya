@@ -6221,3 +6221,93 @@ fn test_test_path_result_ok_passes() {
     assert_eq!(report.passed(), 1);
     assert!(report.is_success());
 }
+
+// ===== List Spread Tests =====
+
+#[test]
+fn test_list_spread_copy() {
+    let source = r#"
+        pub fn main() -> List<Int> {
+            let xs = [1, 2, 3];
+            [..xs]
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(
+        result,
+        Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
+    );
+}
+
+#[test]
+fn test_list_spread_with_items() {
+    let source = r#"
+        pub fn main() -> List<Int> {
+            let xs = [2, 3];
+            [1, ..xs, 4]
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(
+        result,
+        Value::List(vec![
+            Value::Int(1),
+            Value::Int(2),
+            Value::Int(3),
+            Value::Int(4)
+        ])
+    );
+}
+
+#[test]
+fn test_list_spread_multiple() {
+    let source = r#"
+        pub fn main() -> List<Int> {
+            let a = [1, 2];
+            let b = [3, 4];
+            [..a, ..b]
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(
+        result,
+        Value::List(vec![
+            Value::Int(1),
+            Value::Int(2),
+            Value::Int(3),
+            Value::Int(4)
+        ])
+    );
+}
+
+#[test]
+fn test_list_spread_empty() {
+    let source = r#"
+        pub fn main() -> List<Int> {
+            let xs: List<Int> = [];
+            [0, ..xs, 99]
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::List(vec![Value::Int(0), Value::Int(99)]));
+}
+
+#[test]
+fn test_list_spread_with_function_call() {
+    let source = r#"
+        fn double(list: List<Int>) -> List<Int> {
+            match list {
+                [] => [],
+                [head, rest @ ..] => [head * 2, ..double(rest)],
+            }
+        }
+        pub fn main() -> List<Int> {
+            double([1, 2, 3])
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(
+        result,
+        Value::List(vec![Value::Int(2), Value::Int(4), Value::Int(6)])
+    );
+}
