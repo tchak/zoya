@@ -72,14 +72,14 @@ mod tests {
         assert!(result.is_ok());
         assert!(output.is_dir());
 
-        // Should contain at least 2 files (std + main package)
+        // Should contain at least 3 files (prelude + std + main package)
         let files: Vec<_> = std::fs::read_dir(&output)
             .unwrap()
             .filter_map(|e| e.ok())
             .collect();
         assert!(
-            files.len() >= 2,
-            "expected at least 2 module files, got {}",
+            files.len() >= 3,
+            "expected at least 3 module files, got {}",
             files.len()
         );
 

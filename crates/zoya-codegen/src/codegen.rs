@@ -51,46 +51,68 @@ const MAX_BIGINT_FN: &str = "$$max_bigint";
 /// List index function name used in generated JS
 const LIST_IDX_FN: &str = "$$list_idx";
 
-/// Prelude containing helper functions for generated JS
-fn prelude() -> &'static str {
-    r#"class $$ZoyaError extends Error {
+/// Module name for the shared prelude containing runtime helper functions
+pub const PRELUDE_MODULE_NAME: &str = "$$prelude";
+
+/// List of all exported names from the prelude module
+const PRELUDE_EXPORTS: &[&str] = &[
+    "$$ZoyaError",
+    "$$throw",
+    "$$is_obj",
+    "$$div",
+    "$$div_bigint",
+    "$$mod",
+    "$$mod_bigint",
+    "$$pow",
+    "$$pow_bigint",
+    "$$abs_bigint",
+    "$$min_bigint",
+    "$$max_bigint",
+    "$$eq",
+    "$$list_idx",
+    "$$json_to_zoya",
+];
+
+/// Prelude module source containing exported helper functions for generated JS
+fn prelude_module_source() -> &'static str {
+    r#"export class $$ZoyaError extends Error {
   constructor(code, detail) {
     super('$$zoya:' + code + (detail !== undefined ? ':' + detail : ''));
     this.name = '$$ZoyaError';
   }
 }
-function $$throw(code, detail) { throw new $$ZoyaError(code, detail); }
-function $$is_obj(x) {
+export function $$throw(code, detail) { throw new $$ZoyaError(code, detail); }
+export function $$is_obj(x) {
   return typeof x === 'object' && x !== null && !Array.isArray(x);
 }
-function $$div(a, b) {
+export function $$div(a, b) {
   if (b === 0) $$throw("PANIC", "division by zero");
   return Math.trunc(a / b);
 }
-function $$div_bigint(a, b) {
+export function $$div_bigint(a, b) {
   if (b === 0n) $$throw("PANIC", "division by zero");
   return a / b;
 }
-function $$mod(a, b) {
+export function $$mod(a, b) {
   if (b === 0) $$throw("PANIC", "modulo by zero");
   return a % b;
 }
-function $$mod_bigint(a, b) {
+export function $$mod_bigint(a, b) {
   if (b === 0n) $$throw("PANIC", "modulo by zero");
   return a % b;
 }
-function $$pow(a, b) {
+export function $$pow(a, b) {
   if (b < 0) $$throw("PANIC", "negative exponent");
   return a ** b;
 }
-function $$pow_bigint(a, b) {
+export function $$pow_bigint(a, b) {
   if (b < 0n) $$throw("PANIC", "negative exponent");
   return a ** b;
 }
-function $$abs_bigint(x) { return x < 0n ? -x : x; }
-function $$min_bigint(a, b) { return a < b ? a : b; }
-function $$max_bigint(a, b) { return a > b ? a : b; }
-function $$eq(a, b) {
+export function $$abs_bigint(x) { return x < 0n ? -x : x; }
+export function $$min_bigint(a, b) { return a < b ? a : b; }
+export function $$max_bigint(a, b) { return a > b ? a : b; }
+export function $$eq(a, b) {
   if (Array.isArray(a) && Array.isArray(b)) {
     if (a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) {
@@ -108,11 +130,11 @@ function $$eq(a, b) {
   }
   return a === b;
 }
-function $$list_idx(arr, i) {
+export function $$list_idx(arr, i) {
   const idx = i < 0 ? arr.length + i : i;
   return idx >= 0 && idx < arr.length ? { $tag: "Some", $0: arr[idx] } : { $tag: "None" };
 }
-function $$json_to_zoya(v) {
+export function $$json_to_zoya(v) {
   if (v === null) return { $tag: "Null" };
   if (typeof v === "boolean") return { $tag: "Bool", $0: v };
   if (typeof v === "number") return Number.isInteger(v)
@@ -124,6 +146,20 @@ function $$json_to_zoya(v) {
 }"#
 }
 
+/// Generate the prelude as a standalone ESM module with its CodegenOutput
+fn prelude_module() -> CodegenOutput {
+    let code = prelude_module_source().to_string();
+    let hash = blake3::hash(code.as_bytes()).to_hex().to_string();
+    CodegenOutput { code, hash }
+}
+
+/// Generate an import statement that imports all prelude helpers from the prelude module
+fn prelude_import(prelude_hash: &str) -> String {
+    let names = PRELUDE_EXPORTS.join(", ");
+    let specifier = format_esm_module_name(PRELUDE_MODULE_NAME, prelude_hash);
+    format!("import {{ {} }} from '{}';\n", names, specifier)
+}
+
 /// Generate JavaScript code for a package and all its dependencies.
 /// Returns a map from package name to `CodegenOutput`.
 /// Dependencies are generated first so their hashes are available for import rewriting.
@@ -132,6 +168,9 @@ pub fn codegen(
     deps: &[&CheckedPackage],
 ) -> HashMap<String, CodegenOutput> {
     let mut outputs = HashMap::new();
+
+    // Generate prelude module first so its hash is available for imports
+    outputs.insert(PRELUDE_MODULE_NAME.to_string(), prelude_module());
 
     // Generate deps first (order matters: earlier deps available to later deps)
     for dep in deps {
@@ -168,9 +207,9 @@ fn codegen_package(
 ) -> CodegenOutput {
     let mut js = String::new();
 
-    // Include prelude at the start
-    js.push_str(prelude());
-    js.push('\n');
+    // Import prelude helpers from the shared prelude module
+    let prelude_hash = &dep_outputs[PRELUDE_MODULE_NAME].hash;
+    js.push_str(&prelude_import(prelude_hash));
 
     // Generate import statements for dependency functions
     let mut dep_names: Vec<&String> = pkg.imports.keys().collect();
