@@ -165,7 +165,7 @@ mod tests {
         assert!(result.is_ok());
 
         let content = fs::read_to_string(&file).unwrap();
-        assert_eq!(content, "pub fn foo() -> Int 2\n\nfn bar() -> Int 1\n");
+        assert_eq!(content, "fn bar() -> Int 1\n\npub fn foo() -> Int 2\n");
     }
 
     #[test]
@@ -230,7 +230,7 @@ mod tests {
 
         // file1 should be reformatted
         let content1 = fs::read_to_string(&file1).unwrap();
-        assert_eq!(content1, "pub fn foo() -> Int 2\n\nfn bar() -> Int 1\n");
+        assert_eq!(content1, "fn bar() -> Int 1\n\npub fn foo() -> Int 2\n");
 
         // file2 was already formatted
         let content2 = fs::read_to_string(&file2).unwrap();
@@ -238,7 +238,7 @@ mod tests {
 
         // file3 in subdir should be reformatted
         let content3 = fs::read_to_string(&file3).unwrap();
-        assert_eq!(content3, "pub fn qux() -> Int 4\n\nfn baz() -> Int 3\n");
+        assert_eq!(content3, "fn baz() -> Int 3\n\npub fn qux() -> Int 4\n");
     }
 
     #[test]

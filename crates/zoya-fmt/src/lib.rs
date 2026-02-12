@@ -11,7 +11,7 @@ const WIDTH: usize = 120;
 /// Ordering rules:
 /// 1. Mod declarations first (pub before private, stable sort)
 /// 2. Use declarations next (pub before private, stable sort)
-/// 3. Other items last (pub before private, stable sort)
+/// 3. Other items last (original parsed order preserved)
 ///
 /// Blank lines: none between consecutive mods, none between consecutive uses,
 /// blank line between each other item. Blank line separating groups. Trailing newline.
@@ -35,12 +35,7 @@ pub fn fmt(mods: Vec<ModDecl>, items: Vec<Item>) -> String {
 
     let ordered_uses: Vec<&Item> = pub_uses.iter().chain(priv_uses.iter()).collect();
 
-    let (mut pub_others, mut priv_others): (Vec<_>, Vec<_>) = others
-        .into_iter()
-        .partition(|i| item_visibility(i) == Visibility::Public);
-    let _ = (&mut pub_others, &mut priv_others);
-
-    let ordered_others: Vec<&Item> = pub_others.iter().chain(priv_others.iter()).collect();
+    let ordered_others: Vec<&Item> = others.iter().collect();
 
     let mut output = String::new();
     let mut has_content = false;
@@ -83,16 +78,6 @@ pub fn fmt(mods: Vec<ModDecl>, items: Vec<Item>) -> String {
     }
 
     output
-}
-
-fn item_visibility(item: &Item) -> Visibility {
-    match item {
-        Item::Function(f) => f.visibility,
-        Item::Struct(s) => s.visibility,
-        Item::Enum(e) => e.visibility,
-        Item::TypeAlias(t) => t.visibility,
-        Item::Use(u) => u.visibility,
-    }
 }
 
 #[cfg(test)]
@@ -251,9 +236,9 @@ mod tests {
     // --- Ordering ---
 
     #[test]
-    fn test_ordering_pub_before_private() {
+    fn test_ordering_preserves_parsed_order() {
         let result = format_source("fn bar() -> Int 1\npub fn foo() -> Int 2");
-        assert_eq!(result, "pub fn foo() -> Int 2\n\nfn bar() -> Int 1\n");
+        assert_eq!(result, "fn bar() -> Int 1\n\npub fn foo() -> Int 2\n");
     }
 
     #[test]
