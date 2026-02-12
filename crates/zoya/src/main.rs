@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+use zoya_loader::Mode;
 
 mod commands;
 
@@ -18,6 +19,9 @@ enum Command {
     Run {
         /// Path to a .zy file or directory with package.toml (defaults to current directory)
         path: Option<PathBuf>,
+        /// Compilation mode (dev, test, release)
+        #[arg(long, default_value = "dev")]
+        mode: String,
     },
     /// Start the interactive REPL
     Repl {
@@ -28,6 +32,9 @@ enum Command {
     Check {
         /// Path to a .zy file or directory with package.toml (defaults to current directory)
         path: Option<PathBuf>,
+        /// Compilation mode (dev, test, release)
+        #[arg(long, default_value = "dev")]
+        mode: String,
     },
     /// Compile a file to JavaScript
     Build {
@@ -36,6 +43,9 @@ enum Command {
         /// Output file (overrides package.toml output)
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Compilation mode (dev, test, release)
+        #[arg(long, default_value = "dev")]
+        mode: String,
     },
     /// Format source files
     Fmt {
@@ -55,13 +65,21 @@ enum Command {
     },
 }
 
+fn parse_mode(s: &str) -> Mode {
+    s.parse().unwrap_or_else(|e| {
+        eprintln!("Error: {e}");
+        std::process::exit(1);
+    })
+}
+
 fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Command::Run { path }) => {
+        Some(Command::Run { path, mode }) => {
             let path = path.unwrap_or_else(|| PathBuf::from("."));
-            if let Err(e) = commands::run::execute(&path) {
+            let mode = parse_mode(&mode);
+            if let Err(e) = commands::run::execute(&path, mode) {
                 eprintln!("Error: {e}");
                 std::process::exit(1);
             }
@@ -70,16 +88,18 @@ fn main() {
             let path = path.unwrap_or_else(|| PathBuf::from("."));
             commands::repl::execute(&path);
         }
-        Some(Command::Check { path }) => {
+        Some(Command::Check { path, mode }) => {
             let path = path.unwrap_or_else(|| PathBuf::from("."));
-            if let Err(e) = commands::check::execute(&path) {
+            let mode = parse_mode(&mode);
+            if let Err(e) = commands::check::execute(&path, mode) {
                 eprintln!("{}", e);
                 std::process::exit(1);
             }
         }
-        Some(Command::Build { path, output }) => {
+        Some(Command::Build { path, output, mode }) => {
             let path = path.unwrap_or_else(|| PathBuf::from("."));
-            if let Err(e) = commands::build::execute(&path, output.as_deref()) {
+            let mode = parse_mode(&mode);
+            if let Err(e) = commands::build::execute(&path, output.as_deref(), mode) {
                 eprintln!("{}", e);
                 std::process::exit(1);
             }

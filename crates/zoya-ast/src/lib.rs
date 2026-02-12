@@ -469,6 +469,7 @@ pub enum Stmt {
 /// Module declaration: `[pub] mod name`
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModDecl {
+    pub attributes: Vec<Attribute>,
     pub visibility: Visibility,
     pub name: String,
 }

@@ -1,11 +1,12 @@
 use std::path::Path;
 
 use zoya_check::check;
+use zoya_loader::Mode;
 
 /// Type-check a file without executing it
-pub fn execute(path: &Path) -> Result<(), String> {
+pub fn execute(path: &Path, mode: Mode) -> Result<(), String> {
     // Load and parse package
-    let pkg = zoya_loader::load_package(path).map_err(|e| format!("error: {}", e))?;
+    let pkg = zoya_loader::load_package(path, mode).map_err(|e| format!("error: {}", e))?;
 
     // Type check entire package with std
     let std = zoya_std::std();
@@ -26,7 +27,7 @@ mod tests {
         let file = dir.path().join("test.zy");
         std::fs::write(&file, "pub fn main() -> Int { 42 }").unwrap();
 
-        let result = execute(&file);
+        let result = execute(&file, Mode::Dev);
         assert!(result.is_ok());
     }
 
@@ -36,13 +37,13 @@ mod tests {
         let file = dir.path().join("test.zy");
         std::fs::write(&file, "pub fn main() -> Int { true }").unwrap();
 
-        let result = execute(&file);
+        let result = execute(&file, Mode::Dev);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_execute_file_not_found() {
-        let result = execute(Path::new("nonexistent.zy"));
+        let result = execute(Path::new("nonexistent.zy"), Mode::Dev);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("failed to read"));
     }
@@ -73,7 +74,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = execute(&main_file);
+        let result = execute(&main_file, Mode::Dev);
         assert!(result.is_ok());
     }
 
@@ -118,7 +119,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = execute(&main_file);
+        let result = execute(&main_file, Mode::Dev);
         assert!(result.is_ok());
     }
 }

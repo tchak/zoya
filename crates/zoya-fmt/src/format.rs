@@ -114,7 +114,8 @@ pub fn fmt_type_annotation(ta: &TypeAnnotation) -> RcDoc<'static> {
 // --- Mod & Use declarations ---
 
 pub fn fmt_mod_decl(m: &ModDecl) -> RcDoc<'static> {
-    fmt_vis(m.visibility)
+    fmt_attributes(&m.attributes)
+        .append(fmt_vis(m.visibility))
         .append(RcDoc::text("mod "))
         .append(RcDoc::text(m.name.clone()))
 }

@@ -204,6 +204,32 @@ pub fn parse(value: String) -> Result<JSON, ParseError> ()
 
 The compiler substitutes a JavaScript implementation at code generation time. Every `#[builtin]` function must have a corresponding implementation registered in the code generator.
 
+### Test Functions
+
+The `#[test]` attribute marks a function as test-only. Test functions are excluded from the program in `dev` and `release` modes, and included only in `test` mode.
+
+```zoya
+#[test]
+fn test_addition() -> Bool {
+    1 + 1 == 2
+}
+```
+
+The `#[test]` attribute is only valid on function definitions. Using it on structs, enums, type aliases, or use declarations is a type error. Using it on module declarations is a loader error — use `#[mode(test)]` instead.
+
+### Conditional Compilation
+
+The `#[mode(test)]` attribute marks an item or module as test-only. Like `#[test]`, items with `#[mode(test)]` are excluded in `dev` and `release` modes and included in `test` mode.
+
+```zoya
+#[mode(test)]
+fn test_helper() -> Int { 42 }
+
+#[mode(test)] mod tests
+```
+
+Unlike `#[test]`, `#[mode(test)]` can be used on any item or module declaration. When applied to a module declaration, the entire module (and its submodules) is not loaded in non-test modes.
+
 ## Struct Definitions
 
 Structs come in three forms: named-field structs, tuple structs, and unit structs.
@@ -340,7 +366,7 @@ Type alias names and type parameter names use `PascalCase`.
 ## Module Declarations
 
 ```
-mod_decl ::= visibility 'mod' identifier
+mod_decl ::= attribute* visibility 'mod' identifier
 ```
 
 A module declaration declares a submodule. Each declaration corresponds to a source file:

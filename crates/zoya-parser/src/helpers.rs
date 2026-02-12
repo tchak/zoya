@@ -54,6 +54,7 @@ pub(crate) fn mod_decl_parser<'a>()
         .then_ignore(just(Token::Mod))
         .then(ident())
         .map(|(is_pub, name)| ModDecl {
+            attributes: vec![],
             visibility: if is_pub.is_some() {
                 Visibility::Public
             } else {

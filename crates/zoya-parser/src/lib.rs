@@ -230,13 +230,21 @@ pub fn parse_module(
 
     let attributes = attribute_parser().repeated().collect::<Vec<_>>();
 
+    let mod_with_attrs = attributes
+        .clone()
+        .then(mod_decl_parser())
+        .map(|(attrs, mut m)| {
+            m.attributes = attrs;
+            ModuleElement::Mod(m)
+        });
+
     let use_with_attrs = attributes.then(use_decl_parser()).map(|(attrs, mut u)| {
         u.attributes = attrs;
         ModuleElement::Item(Box::new(Item::Use(u)))
     });
 
     let element = choice((
-        mod_decl_parser().map(ModuleElement::Mod),
+        mod_with_attrs,
         use_with_attrs,
         item_parser().map(|i| ModuleElement::Item(Box::new(i))),
     ));

@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Display};
 use std::path::{Path, PathBuf};
 
+use zoya_ast::Attribute;
+
 // Re-export module types from zoya-package
 pub use zoya_package::{ConfigError, PackageConfig};
 pub use zoya_package::{Module, Package, QualifiedPath};
@@ -11,6 +13,44 @@ mod sources;
 
 pub use source::{ModuleSource, SourceError, SourceErrorKind};
 pub use sources::{FilePath, FsSource, MemorySource};
+
+/// Compilation mode controlling which items are included
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Mode {
+    /// Development mode (default) — test items excluded
+    #[default]
+    Dev,
+    /// Test mode — all items included
+    Test,
+    /// Release mode — test items excluded
+    Release,
+}
+
+impl std::fmt::Display for Mode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Mode::Dev => write!(f, "dev"),
+            Mode::Test => write!(f, "test"),
+            Mode::Release => write!(f, "release"),
+        }
+    }
+}
+
+impl std::str::FromStr for Mode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "dev" => Ok(Mode::Dev),
+            "test" => Ok(Mode::Test),
+            "release" => Ok(Mode::Release),
+            _ => Err(format!(
+                "invalid mode '{}': expected 'dev', 'test', or 'release'",
+                s
+            )),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum LoaderError<P: Clone + Debug + Display = FilePath> {
@@ -43,6 +83,8 @@ pub enum LoaderError<P: Clone + Debug + Display = FilePath> {
     ConfigError(String),
     #[error("missing root module")]
     MissingRoot,
+    #[error("{message}")]
+    InvalidAttribute { message: String },
 }
 
 /// Load a package from a filesystem path.
@@ -51,14 +93,14 @@ pub enum LoaderError<P: Clone + Debug + Display = FilePath> {
 /// - **Directory**: looks for `package.toml`, loads config, resolves main file
 /// - **`package.toml` file**: loads config from it
 /// - **`.zy` file**: treats as standalone file, derives name from filename
-pub fn load_package(path: &Path) -> Result<Package, LoaderError<FilePath>> {
+pub fn load_package(path: &Path, mode: Mode) -> Result<Package, LoaderError<FilePath>> {
     if path.is_dir() {
-        return load_from_directory(path);
+        return load_from_directory(path, mode);
     }
 
     if path.file_name().is_some_and(|f| f == "package.toml") {
         let dir = path.parent().unwrap_or(Path::new("."));
-        return load_from_directory(dir);
+        return load_from_directory(dir, mode);
     }
 
     // Standalone .zy file
@@ -69,10 +111,10 @@ pub fn load_package(path: &Path) -> Result<Package, LoaderError<FilePath>> {
         .unwrap_or_else(|| "root".to_string());
 
     let source = FsSource::from_file(path);
-    load_with_source(&source, &FilePath::new(path), name, None)
+    load_with_source(&source, &FilePath::new(path), name, None, mode)
 }
 
-fn load_from_directory(dir: &Path) -> Result<Package, LoaderError<FilePath>> {
+fn load_from_directory(dir: &Path, mode: Mode) -> Result<Package, LoaderError<FilePath>> {
     let config_path = dir.join("package.toml");
     if !config_path.exists() {
         return Err(LoaderError::NoPackageToml {
@@ -94,18 +136,21 @@ fn load_from_directory(dir: &Path) -> Result<Package, LoaderError<FilePath>> {
     }
 
     let source = FsSource::from_file(&main_path);
-    load_with_source(&source, &FilePath::new(&main_path), name, output)
+    load_with_source(&source, &FilePath::new(&main_path), name, output, mode)
 }
 
 /// Load a package from an in-memory source.
 ///
 /// Expects a "root" module to exist in the source.
-pub fn load_memory_package(source: &MemorySource) -> Result<Package, LoaderError<String>> {
+pub fn load_memory_package(
+    source: &MemorySource,
+    mode: Mode,
+) -> Result<Package, LoaderError<String>> {
     let root_path = "root".to_string();
     if !source.exists(&root_path) {
         return Err(LoaderError::MissingRoot);
     }
-    load_with_source(source, &root_path, "root".to_string(), None)
+    load_with_source(source, &root_path, "root".to_string(), None, mode)
 }
 
 fn load_with_source<S: ModuleSource>(
@@ -113,14 +158,37 @@ fn load_with_source<S: ModuleSource>(
     file_path: &S::Path,
     name: String,
     output: Option<PathBuf>,
+    mode: Mode,
 ) -> Result<Package, LoaderError<S::Path>> {
     let mut pkg = Package {
         name,
         output,
         modules: HashMap::new(),
     };
-    load_module_recursive(source, file_path, QualifiedPath::root(), &mut pkg)?;
+    load_module_recursive(source, file_path, QualifiedPath::root(), &mut pkg, mode)?;
     Ok(pkg)
+}
+
+/// Check if attributes mark an item as test-only
+fn is_test_only(attrs: &[Attribute]) -> bool {
+    attrs.iter().any(|a| {
+        a.name == "test"
+            || (a.name == "mode"
+                && a.args
+                    .as_ref()
+                    .is_some_and(|args| args.iter().any(|arg| arg == "test")))
+    })
+}
+
+/// Get attributes for an item
+fn item_attributes(item: &zoya_ast::Item) -> &[Attribute] {
+    match item {
+        zoya_ast::Item::Function(f) => &f.attributes,
+        zoya_ast::Item::Struct(s) => &s.attributes,
+        zoya_ast::Item::Enum(e) => &e.attributes,
+        zoya_ast::Item::TypeAlias(t) => &t.attributes,
+        zoya_ast::Item::Use(u) => &u.attributes,
+    }
 }
 
 fn load_module_recursive<S: ModuleSource>(
@@ -128,6 +196,7 @@ fn load_module_recursive<S: ModuleSource>(
     file_path: &S::Path,
     module_path: QualifiedPath,
     pkg: &mut Package,
+    mode: Mode,
 ) -> Result<(), LoaderError<S::Path>> {
     // Read file
     let content = source
@@ -149,6 +218,37 @@ fn load_module_recursive<S: ModuleSource>(
             path: file_path.clone(),
             message: e.to_string(),
         })?;
+
+    // Validate: #[test] is not allowed on mod declarations (in any mode)
+    for mod_decl in &mod_decls {
+        if mod_decl.attributes.iter().any(|a| a.name == "test") {
+            return Err(LoaderError::InvalidAttribute {
+                message: format!(
+                    "#[test] is not valid on module '{}'; use #[mode(test)] instead",
+                    mod_decl.name
+                ),
+            });
+        }
+    }
+
+    // Filter items and mod_decls in non-test modes
+    let items = if mode == Mode::Test {
+        items
+    } else {
+        items
+            .into_iter()
+            .filter(|item| !is_test_only(item_attributes(item)))
+            .collect()
+    };
+
+    let mod_decls = if mode == Mode::Test {
+        mod_decls
+    } else {
+        mod_decls
+            .into_iter()
+            .filter(|m| !is_test_only(&m.attributes))
+            .collect()
+    };
 
     // Validate, check duplicates, build children map, and resolve submodules in one pass
     let mut seen_mods = HashSet::new();
@@ -201,7 +301,7 @@ fn load_module_recursive<S: ModuleSource>(
 
     // Recursively load submodules
     for (submodule_file, child_path) in submodules {
-        load_module_recursive(source, &submodule_file, child_path, pkg)?;
+        load_module_recursive(source, &submodule_file, child_path, pkg, mode)?;
     }
 
     Ok(())
@@ -298,7 +398,7 @@ mod integration_tests {
         let dir = TempDir::new().unwrap();
         create_file(dir.path(), "main.zy", "fn foo() -> Int 42");
 
-        let tree = load_package(&dir.path().join("main.zy")).unwrap();
+        let tree = load_package(&dir.path().join("main.zy"), Mode::Dev).unwrap();
 
         assert_eq!(tree.modules.len(), 1);
         let root = tree.root().unwrap();
@@ -312,7 +412,7 @@ mod integration_tests {
         let dir = TempDir::new().unwrap();
         create_file(dir.path(), "main.zy", "");
 
-        let tree = load_package(&dir.path().join("main.zy")).unwrap();
+        let tree = load_package(&dir.path().join("main.zy"), Mode::Dev).unwrap();
 
         let root = tree.root().unwrap();
         assert!(root.items.is_empty());
@@ -329,7 +429,7 @@ mod integration_tests {
             "fn add(x: Int, y: Int) -> Int x + y",
         );
 
-        let tree = load_package(&dir.path().join("main.zy")).unwrap();
+        let tree = load_package(&dir.path().join("main.zy"), Mode::Dev).unwrap();
 
         assert_eq!(tree.modules.len(), 2);
 
@@ -354,7 +454,7 @@ mod integration_tests {
         create_file(dir.path(), "helpers.zy", "fn helper_fn() -> Int 2");
         create_file(dir.path(), "types.zy", "struct Point { x: Int, y: Int }");
 
-        let tree = load_package(&dir.path().join("main.zy")).unwrap();
+        let tree = load_package(&dir.path().join("main.zy"), Mode::Dev).unwrap();
 
         assert_eq!(tree.modules.len(), 4);
 
@@ -369,7 +469,7 @@ mod integration_tests {
         create_file(dir.path(), "utils.zy", "mod helpers");
         create_file(dir.path(), "utils/helpers.zy", "fn deep_fn() -> Int 42");
 
-        let tree = load_package(&dir.path().join("main.zy")).unwrap();
+        let tree = load_package(&dir.path().join("main.zy"), Mode::Dev).unwrap();
 
         assert_eq!(tree.modules.len(), 3);
 
@@ -392,7 +492,7 @@ mod integration_tests {
         create_file(dir.path(), "a/b.zy", "mod c");
         create_file(dir.path(), "a/b/c.zy", "fn deep() -> Int 1");
 
-        let tree = load_package(&dir.path().join("main.zy")).unwrap();
+        let tree = load_package(&dir.path().join("main.zy"), Mode::Dev).unwrap();
 
         assert_eq!(tree.modules.len(), 4);
 
@@ -408,7 +508,7 @@ mod integration_tests {
         let dir = TempDir::new().unwrap();
         create_file(dir.path(), "main.zy", "mod missing");
 
-        let result = load_package(&dir.path().join("main.zy"));
+        let result = load_package(&dir.path().join("main.zy"), Mode::Dev);
 
         assert!(
             matches!(result, Err(LoaderError::ModuleNotFound { mod_name, .. }) if mod_name == "missing")
@@ -421,7 +521,7 @@ mod integration_tests {
         create_file(dir.path(), "main.zy", "mod utils mod utils");
         create_file(dir.path(), "utils.zy", "");
 
-        let result = load_package(&dir.path().join("main.zy"));
+        let result = load_package(&dir.path().join("main.zy"), Mode::Dev);
 
         assert!(
             matches!(result, Err(LoaderError::DuplicateMod { mod_name }) if mod_name == "utils")
@@ -431,7 +531,7 @@ mod integration_tests {
     #[test]
     fn test_error_io_file_not_found() {
         let dir = TempDir::new().unwrap();
-        let result = load_package(&dir.path().join("nonexistent.zy"));
+        let result = load_package(&dir.path().join("nonexistent.zy"), Mode::Dev);
 
         assert!(matches!(result, Err(LoaderError::SourceError { .. })));
     }
@@ -441,7 +541,7 @@ mod integration_tests {
         let dir = TempDir::new().unwrap();
         create_file(dir.path(), "main.zy", "fn foo() $ invalid");
 
-        let result = load_package(&dir.path().join("main.zy"));
+        let result = load_package(&dir.path().join("main.zy"), Mode::Dev);
 
         assert!(matches!(result, Err(LoaderError::LexError { .. })));
     }
@@ -451,7 +551,7 @@ mod integration_tests {
         let dir = TempDir::new().unwrap();
         create_file(dir.path(), "main.zy", "fn fn fn");
 
-        let result = load_package(&dir.path().join("main.zy"));
+        let result = load_package(&dir.path().join("main.zy"), Mode::Dev);
 
         assert!(matches!(result, Err(LoaderError::ParseError { .. })));
     }
@@ -464,7 +564,7 @@ mod integration_tests {
         create_file(dir.path(), "main.zy", "mod utils");
         create_file(dir.path(), "utils.zy", "");
 
-        let tree = load_package(&dir.path().join("main.zy")).unwrap();
+        let tree = load_package(&dir.path().join("main.zy"), Mode::Dev).unwrap();
 
         assert!(tree.get(&QualifiedPath::root()).is_some());
         assert!(tree.get(&QualifiedPath::root().child("utils")).is_some());
@@ -480,7 +580,7 @@ mod integration_tests {
     fn test_memory_source_load_single_module() {
         let source = MemorySource::new().with_module("root", "fn foo() -> Int 42");
 
-        let tree = load_memory_package(&source).unwrap();
+        let tree = load_memory_package(&source, Mode::Dev).unwrap();
 
         assert_eq!(tree.name, "root");
         assert_eq!(tree.output, None);
@@ -497,7 +597,7 @@ mod integration_tests {
             .with_module("root", "mod utils\nfn main() -> Int 42")
             .with_module("utils", "fn helper() -> Int 10");
 
-        let tree = load_memory_package(&source).unwrap();
+        let tree = load_memory_package(&source, Mode::Dev).unwrap();
 
         assert_eq!(tree.modules.len(), 2);
 
@@ -518,7 +618,7 @@ mod integration_tests {
             .with_module("utils", "mod helpers")
             .with_module("utils/helpers", "fn deep_fn() -> Int 42");
 
-        let tree = load_memory_package(&source).unwrap();
+        let tree = load_memory_package(&source, Mode::Dev).unwrap();
 
         assert_eq!(tree.modules.len(), 3);
 
@@ -531,7 +631,7 @@ mod integration_tests {
     fn test_memory_source_error_module_not_found() {
         let source = MemorySource::new().with_module("root", "mod missing");
 
-        let result = load_memory_package(&source);
+        let result = load_memory_package(&source, Mode::Dev);
 
         assert!(
             matches!(result, Err(LoaderError::ModuleNotFound { mod_name, .. }) if mod_name == "missing")
@@ -544,7 +644,7 @@ mod integration_tests {
             .with_module("root", "mod MyModule")
             .with_module("my_module", "");
 
-        let result = load_memory_package(&source);
+        let result = load_memory_package(&source, Mode::Dev);
 
         assert!(
             matches!(result, Err(LoaderError::InvalidModName { mod_name, suggestion }) if mod_name == "MyModule" && suggestion == "my_module")
@@ -557,7 +657,7 @@ mod integration_tests {
             .with_module("root", "mod _private")
             .with_module("_private", "");
 
-        let result = load_memory_package(&source);
+        let result = load_memory_package(&source, Mode::Dev);
 
         assert!(
             matches!(result, Err(LoaderError::InvalidModName { mod_name, .. }) if mod_name == "_private")
@@ -570,7 +670,7 @@ mod integration_tests {
             .with_module("root", "mod std")
             .with_module("std", "");
 
-        let result = load_memory_package(&source);
+        let result = load_memory_package(&source, Mode::Dev);
 
         assert!(
             matches!(result, Err(LoaderError::ReservedModName { mod_name }) if mod_name == "std")
@@ -583,7 +683,7 @@ mod integration_tests {
             .with_module("root", "mod zoya")
             .with_module("zoya", "");
 
-        let result = load_memory_package(&source);
+        let result = load_memory_package(&source, Mode::Dev);
 
         assert!(
             matches!(result, Err(LoaderError::ReservedModName { mod_name }) if mod_name == "zoya")
@@ -594,8 +694,128 @@ mod integration_tests {
     fn test_memory_source_error_missing_root() {
         let source = MemorySource::new();
 
-        let result = load_memory_package(&source);
+        let result = load_memory_package(&source, Mode::Dev);
 
         assert!(matches!(result, Err(LoaderError::MissingRoot)));
+    }
+
+    // === Mode filtering tests ===
+
+    #[test]
+    fn test_mode_dev_strips_test_fn() {
+        let source = MemorySource::new().with_module(
+            "root",
+            r#"
+            fn keep() -> Int { 1 }
+            #[test]
+            fn test_thing() -> Int { 2 }
+            "#,
+        );
+
+        let tree = load_memory_package(&source, Mode::Dev).unwrap();
+        let root = tree.root().unwrap();
+        assert_eq!(root.items.len(), 1); // only keep()
+    }
+
+    #[test]
+    fn test_mode_test_retains_test_fn() {
+        let source = MemorySource::new().with_module(
+            "root",
+            r#"
+            fn keep() -> Int { 1 }
+            #[test]
+            fn test_thing() -> Int { 2 }
+            "#,
+        );
+
+        let tree = load_memory_package(&source, Mode::Test).unwrap();
+        let root = tree.root().unwrap();
+        assert_eq!(root.items.len(), 2); // both keep() and test_thing()
+    }
+
+    #[test]
+    fn test_mode_dev_strips_mode_test_fn() {
+        let source = MemorySource::new().with_module(
+            "root",
+            r#"
+            fn keep() -> Int { 1 }
+            #[mode(test)]
+            fn test_helper() -> Int { 2 }
+            "#,
+        );
+
+        let tree = load_memory_package(&source, Mode::Dev).unwrap();
+        let root = tree.root().unwrap();
+        assert_eq!(root.items.len(), 1);
+    }
+
+    #[test]
+    fn test_mode_dev_strips_mode_test_mod() {
+        let source = MemorySource::new()
+            .with_module(
+                "root",
+                r#"
+                #[mode(test)] mod tests
+                fn keep() -> Int { 1 }
+                "#,
+            )
+            .with_module("tests", "fn test_fn() -> Int { 42 }");
+
+        let tree = load_memory_package(&source, Mode::Dev).unwrap();
+        assert_eq!(tree.modules.len(), 1); // only root, tests module not loaded
+        let root = tree.root().unwrap();
+        assert!(root.children.is_empty());
+    }
+
+    #[test]
+    fn test_mode_test_loads_mode_test_mod() {
+        let source = MemorySource::new()
+            .with_module(
+                "root",
+                r#"
+                #[mode(test)] mod tests
+                fn keep() -> Int { 1 }
+                "#,
+            )
+            .with_module("tests", "fn test_fn() -> Int { 42 }");
+
+        let tree = load_memory_package(&source, Mode::Test).unwrap();
+        assert_eq!(tree.modules.len(), 2); // root + tests
+        let root = tree.root().unwrap();
+        assert!(root.children.contains_key("tests"));
+    }
+
+    #[test]
+    fn test_mode_release_strips_test_fn() {
+        let source = MemorySource::new().with_module(
+            "root",
+            r#"
+            fn keep() -> Int { 1 }
+            #[test]
+            fn test_thing() -> Int { 2 }
+            "#,
+        );
+
+        let tree = load_memory_package(&source, Mode::Release).unwrap();
+        let root = tree.root().unwrap();
+        assert_eq!(root.items.len(), 1);
+    }
+
+    #[test]
+    fn test_test_on_mod_is_error_in_any_mode() {
+        let source = MemorySource::new()
+            .with_module(
+                "root",
+                r#"
+                #[test] mod tests
+                "#,
+            )
+            .with_module("tests", "");
+
+        let result = load_memory_package(&source, Mode::Dev);
+        assert!(matches!(result, Err(LoaderError::InvalidAttribute { .. })));
+
+        let result = load_memory_package(&source, Mode::Test);
+        assert!(matches!(result, Err(LoaderError::InvalidAttribute { .. })));
     }
 }

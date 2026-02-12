@@ -2,11 +2,12 @@ use std::path::Path;
 
 use zoya_check::check;
 use zoya_codegen::codegen;
+use zoya_loader::Mode;
 
 /// Compile a file to JavaScript without executing
-pub fn execute(path: &Path, output: Option<&Path>) -> Result<(), String> {
+pub fn execute(path: &Path, output: Option<&Path>, mode: Mode) -> Result<(), String> {
     // Load and parse package
-    let pkg = zoya_loader::load_package(path).map_err(|e| format!("error: {}", e))?;
+    let pkg = zoya_loader::load_package(path, mode).map_err(|e| format!("error: {}", e))?;
 
     // Type check entire package with std
     let std = zoya_std::std();
@@ -62,7 +63,7 @@ mod tests {
         let output = dir.path().join("test.js");
         std::fs::write(&input, "pub fn main() -> Int { 42 }").unwrap();
 
-        let result = execute(&input, Some(&output));
+        let result = execute(&input, Some(&output), Mode::Dev);
         assert!(result.is_ok());
         assert!(output.exists());
         let js = std::fs::read_to_string(&output).unwrap();
@@ -76,7 +77,7 @@ mod tests {
         let file = dir.path().join("test.zy");
         std::fs::write(&file, "pub fn main() -> Int { 42 }").unwrap();
 
-        let result = execute(&file, None);
+        let result = execute(&file, None, Mode::Dev);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("no output path"));
     }
@@ -100,7 +101,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = execute(dir.path(), None);
+        let result = execute(dir.path(), None, Mode::Dev);
         assert!(result.is_ok());
 
         let output_path = dir.path().join("build/out.js");
@@ -127,7 +128,7 @@ mod tests {
         .unwrap();
 
         let cli_output = dir.path().join("custom.js");
-        let result = execute(dir.path(), Some(&cli_output));
+        let result = execute(dir.path(), Some(&cli_output), Mode::Dev);
         assert!(result.is_ok());
 
         // CLI output should be used, not package.toml output
@@ -143,7 +144,7 @@ mod tests {
         let output = dir.path().join("deep/nested/out.js");
         std::fs::write(&input, "pub fn main() -> Int { 42 }").unwrap();
 
-        let result = execute(&input, Some(&output));
+        let result = execute(&input, Some(&output), Mode::Dev);
         assert!(result.is_ok());
         assert!(output.exists());
     }
@@ -155,14 +156,14 @@ mod tests {
         let output = dir.path().join("test.js");
         std::fs::write(&file, "pub fn main() -> Int { true }").unwrap();
 
-        let result = execute(&file, Some(&output));
+        let result = execute(&file, Some(&output), Mode::Dev);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_execute_file_not_found() {
         let output = PathBuf::from("/tmp/out.js");
-        let result = execute(Path::new("nonexistent.zy"), Some(&output));
+        let result = execute(Path::new("nonexistent.zy"), Some(&output), Mode::Dev);
         assert!(result.is_err());
     }
 }

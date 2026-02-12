@@ -1,6 +1,6 @@
 use zoya_check::check;
 use zoya_loader::{MemorySource, load_memory_package};
-use zoya_run::{EvalError, Value, run, run_source};
+use zoya_run::{EvalError, Value, run, run_source, run_source_with_mode};
 use zoya_std::std as zoya_std;
 
 #[test]
@@ -2439,8 +2439,8 @@ fn run_multi_module(modules: Vec<(&str, &str)>, expected: &str) {
     for (path, content) in modules {
         source.add_module(path, content);
     }
-    let package =
-        load_memory_package(&source).unwrap_or_else(|e| panic!("failed to load package: {}", e));
+    let package = load_memory_package(&source, zoya_loader::Mode::Dev)
+        .unwrap_or_else(|e| panic!("failed to load package: {}", e));
     let checked =
         check(&package, &[]).unwrap_or_else(|e| panic!("failed to type check package: {}", e));
     let result = run(checked, &[], None).unwrap_or_else(|e| panic!("failed to run package: {}", e));
@@ -2453,7 +2453,7 @@ fn expect_check_error(modules: Vec<(&str, &str)>, expected_substring: &str) {
     for (path, content) in modules {
         source.add_module(path, content);
     }
-    let package = load_memory_package(&source);
+    let package = load_memory_package(&source, zoya_loader::Mode::Dev);
     match package {
         Err(e) => {
             let msg = e.to_string();
@@ -2489,8 +2489,8 @@ fn run_multi_module_with_std(modules: Vec<(&str, &str)>, expected: &str) {
     for (path, content) in modules {
         source.add_module(path, content);
     }
-    let package =
-        load_memory_package(&source).unwrap_or_else(|e| panic!("failed to load package: {}", e));
+    let package = load_memory_package(&source, zoya_loader::Mode::Dev)
+        .unwrap_or_else(|e| panic!("failed to load package: {}", e));
     let checked =
         check(&package, &[std]).unwrap_or_else(|e| panic!("failed to type check package: {}", e));
     let result =
@@ -3157,7 +3157,7 @@ fn test_error_use_without_prefix() {
     "#,
     );
     source.add_module("utils", "pub fn helper() -> Int { 42 }");
-    let result = load_memory_package(&source);
+    let result = load_memory_package(&source, zoya_loader::Mode::Dev);
     // Parsing succeeds but check fails because there's no "utils" package dependency
     assert!(
         result.is_err() || {
@@ -3177,7 +3177,7 @@ fn test_error_module_not_found() {
         pub fn main() -> Int { 0 }
     "#,
     );
-    let result = load_memory_package(&source);
+    let result = load_memory_package(&source, zoya_loader::Mode::Dev);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(
@@ -5996,4 +5996,28 @@ fn test_run_println_with_string_variable() {
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Tuple(vec![]));
+}
+
+// ===== Mode tests =====
+
+#[test]
+fn test_run_dev_mode_strips_test_fn() {
+    let source = r#"
+        #[test]
+        fn test_helper() -> Int { 99 }
+        pub fn main() -> Int { 42 }
+    "#;
+    let result = run_source_with_mode(source, zoya_loader::Mode::Dev).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_run_test_mode_retains_test_fn() {
+    let source = r#"
+        #[test]
+        fn test_helper() -> Int { 99 }
+        pub fn main() -> Int { test_helper() }
+    "#;
+    let result = run_source_with_mode(source, zoya_loader::Mode::Test).unwrap();
+    assert_eq!(result, Value::Int(99));
 }

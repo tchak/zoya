@@ -79,19 +79,29 @@ pub fn run(
 
 /// Load, check, and run source code from a string
 pub fn run_source(source: &str) -> Result<Value, EvalError> {
+    run_source_with_mode(source, zoya_loader::Mode::Dev)
+}
+
+/// Load, check, and run source code from a string with a specific compilation mode
+pub fn run_source_with_mode(source: &str, mode: zoya_loader::Mode) -> Result<Value, EvalError> {
     let std = zoya_std::std();
     let mem_source = MemorySource::new().with_module("root", source);
-    let package =
-        load_memory_package(&mem_source).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+    let package = load_memory_package(&mem_source, mode)
+        .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
     let checked = check(&package, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
     run(checked, &[std], None)
 }
 
 /// Load, check, and run source code from a file
 pub fn run_file(path: &Path) -> Result<Value, EvalError> {
+    run_file_with_mode(path, zoya_loader::Mode::Dev)
+}
+
+/// Load, check, and run source code from a file with a specific compilation mode
+pub fn run_file_with_mode(path: &Path, mode: zoya_loader::Mode) -> Result<Value, EvalError> {
     let std = zoya_std::std();
     let package =
-        load_package(path).map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?;
+        load_package(path, mode).map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?;
     let checked = check(&package, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
     run(checked, &[std], None)
 }

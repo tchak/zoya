@@ -169,7 +169,7 @@ pub struct State {
 impl State {
     /// Create a new REPL state
     pub fn new(path: &Path) -> Result<Self, String> {
-        let base_pkg = match zoya_loader::load_package(path) {
+        let base_pkg = match zoya_loader::load_package(path, zoya_loader::Mode::Dev) {
             Ok(pkg) => Some(pkg),
             Err(zoya_loader::LoaderError::NoPackageToml { .. }) => None,
             Err(e) => return Err(format!("Failed to load package: {}", e)),

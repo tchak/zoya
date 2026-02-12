@@ -2339,6 +2339,30 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
         }
     }
 
+    // Phase 0.7: Validate #[test] attribute usage
+    // #[test] is only valid on function definitions
+    for path in &module_paths {
+        if let Some(module) = pkg.modules.get(path) {
+            for item in &module.items {
+                let (attrs, kind) = match item {
+                    Item::Function(_) => continue,
+                    Item::Struct(s) => (&s.attributes, "struct"),
+                    Item::Enum(e) => (&e.attributes, "enum"),
+                    Item::TypeAlias(t) => (&t.attributes, "type alias"),
+                    Item::Use(u) => (&u.attributes, "use"),
+                };
+                if attrs.iter().any(|a| a.name == "test") {
+                    return Err(TypeError {
+                        message: format!(
+                            "#[test] is only valid on functions, not on {} definitions",
+                            kind
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
     // Phase 1: Register ALL declarations from ALL modules
     // Split into 3 global passes so all type names exist before any function
     // signature is resolved. This ensures cross-module references between

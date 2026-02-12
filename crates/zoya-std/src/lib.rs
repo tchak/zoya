@@ -16,8 +16,8 @@ fn build_std() -> Result<CheckedPackage, String> {
         .with_module("prelude", include_str!("std/prelude.zy"))
         .with_module("result", include_str!("std/result.zy"));
 
-    let mut pkg =
-        load_memory_package(&source).map_err(|e| format!("failed to load std package: {e}"))?;
+    let mut pkg = load_memory_package(&source, zoya_loader::Mode::Release)
+        .map_err(|e| format!("failed to load std package: {e}"))?;
     pkg.name = "std".to_string();
 
     check(&pkg, &[]).map_err(|e| format!("failed to check std package: {e}"))

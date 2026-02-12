@@ -7,28 +7,43 @@
 Run a Zoya file or package. Executes the `pub fn main()` function and prints its result.
 
 ```bash
-zoya run program.zy        # Run a single file
-zoya run                   # Run package in current directory (requires package.toml)
+zoya run program.zy               # Run a single file
+zoya run                          # Run package in current directory (requires package.toml)
+zoya run --mode test program.zy   # Run in test mode (includes #[test] items)
 ```
+
+| Option | Description |
+|--------|-------------|
+| `--mode <mode>` | Compilation mode: `dev` (default), `test`, or `release` |
 
 ### `zoya check [path]`
 
 Type-check without executing.
 
 ```bash
-zoya check program.zy      # Check a single file
-zoya check                 # Check package in current directory
+zoya check program.zy               # Check a single file
+zoya check                          # Check package in current directory
+zoya check --mode test program.zy   # Check in test mode
 ```
+
+| Option | Description |
+|--------|-------------|
+| `--mode <mode>` | Compilation mode: `dev` (default), `test`, or `release` |
 
 ### `zoya build [path]`
 
 Compile to JavaScript.
 
 ```bash
-zoya build program.zy             # Output to stdout
-zoya build program.zy -o out.js   # Output to file
-zoya build                        # Build package in current directory
+zoya build program.zy -o out.js          # Output to file
+zoya build                               # Build package in current directory
+zoya build --mode release -o out.js      # Build in release mode
 ```
+
+| Option | Description |
+|--------|-------------|
+| `-o, --output <path>` | Output file (overrides package.toml output) |
+| `--mode <mode>` | Compilation mode: `dev` (default), `test`, or `release` |
 
 ### `zoya repl [path]`
 

@@ -7,6 +7,7 @@ use zoya_package::{Module, Package, QualifiedPath};
 use crate::check::{TypeEnv, check_expr};
 use crate::unify::UnifyCtx;
 
+mod attributes;
 mod binop;
 mod blocks;
 mod enums;
