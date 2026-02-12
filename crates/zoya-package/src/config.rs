@@ -4,6 +4,12 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+/// Wrapper for serializing/deserializing with `[package]` table.
+#[derive(Serialize, Deserialize)]
+struct PackageToml {
+    package: PackageConfig,
+}
+
 /// Package configuration loaded from `package.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PackageConfig {
@@ -12,7 +18,7 @@ pub struct PackageConfig {
     /// Relative path to the main entry file (defaults to "src/main.zy")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub main: Option<PathBuf>,
-    /// Output path for build artifacts (defaults to "build/{name}.js")
+    /// Output directory for build artifacts (defaults to "build")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<PathBuf>,
 }
@@ -25,11 +31,11 @@ impl PackageConfig {
             .unwrap_or_else(|| PathBuf::from("src/main.zy"))
     }
 
-    /// Get the output file path, using default if not specified.
+    /// Get the output directory path, using default if not specified.
     pub fn output_path(&self) -> PathBuf {
         self.output
             .clone()
-            .unwrap_or_else(|| PathBuf::from(format!("build/{}.js", self.name)))
+            .unwrap_or_else(|| PathBuf::from("build"))
     }
 
     /// Get the module name (hyphens replaced with underscores).
@@ -48,8 +54,9 @@ impl PackageConfig {
             path: path.to_path_buf(),
             source: e,
         })?;
-        let config: PackageConfig =
+        let wrapper: PackageToml =
             toml::from_str(&content).map_err(|e| ConfigError::Parse { source: e })?;
+        let config = wrapper.package;
 
         if !Self::is_valid_name(&config.name) {
             return Err(ConfigError::InvalidName {
@@ -62,7 +69,10 @@ impl PackageConfig {
 
     /// Serialize the config to a TOML string.
     pub fn to_toml(&self) -> String {
-        toml::to_string_pretty(self).expect("PackageConfig should always serialize")
+        let wrapper = PackageToml {
+            package: self.clone(),
+        };
+        toml::to_string_pretty(&wrapper).expect("PackageConfig should always serialize")
     }
 
     /// Check if a name is a valid package name.
@@ -145,13 +155,14 @@ mod tests {
         let config = PackageConfig {
             name: "my_project".to_string(),
             main: Some(PathBuf::from("src/main.zy")),
-            output: Some(PathBuf::from("dist/out.js")),
+            output: Some(PathBuf::from("dist")),
         };
 
         let toml = config.to_toml();
+        assert!(toml.contains("[package]"));
         assert!(toml.contains("name = \"my_project\""));
         assert!(toml.contains("main = \"src/main.zy\""));
-        assert!(toml.contains("output = \"dist/out.js\""));
+        assert!(toml.contains("output = \"dist\""));
     }
 
     #[test]
@@ -163,6 +174,7 @@ mod tests {
         };
 
         let toml = config.to_toml();
+        assert!(toml.contains("[package]"));
         assert!(toml.contains("name = \"my_project\""));
         assert!(!toml.contains("main"));
         assert!(!toml.contains("output"));
@@ -176,6 +188,7 @@ mod tests {
         std::fs::write(
             &config_path,
             r#"
+[package]
 name = "test_project"
 main = "src/main.zy"
 "#,
@@ -195,6 +208,7 @@ main = "src/main.zy"
         std::fs::write(
             &config_path,
             r#"
+[package]
 name = "test_project"
 "#,
         )
@@ -205,7 +219,7 @@ name = "test_project"
         assert_eq!(config.main, None);
         assert_eq!(config.output, None);
         assert_eq!(config.main_path(), PathBuf::from("src/main.zy"));
-        assert_eq!(config.output_path(), PathBuf::from("build/test_project.js"));
+        assert_eq!(config.output_path(), PathBuf::from("build"));
     }
 
     #[test]
@@ -214,6 +228,7 @@ name = "test_project"
         std::fs::write(
             dir.path().join("package.toml"),
             r#"
+[package]
 name = "loaded_project"
 main = "src/main.zy"
 "#,
@@ -230,6 +245,7 @@ main = "src/main.zy"
         std::fs::write(
             dir.path().join("package.toml"),
             r#"
+[package]
 name = "my-project"
 "#,
         )
@@ -238,7 +254,7 @@ name = "my-project"
         let config = PackageConfig::load(dir.path()).unwrap();
         assert_eq!(config.name, "my-project");
         assert_eq!(config.module_name(), "my_project");
-        assert_eq!(config.output_path(), PathBuf::from("build/my-project.js"));
+        assert_eq!(config.output_path(), PathBuf::from("build"));
     }
 
     #[test]
@@ -247,6 +263,7 @@ name = "my-project"
         std::fs::write(
             dir.path().join("package.toml"),
             r#"
+[package]
 name = "Invalid Name"
 "#,
         )
@@ -282,7 +299,7 @@ name = "Invalid Name"
             main: None,
             output: None,
         };
-        assert_eq!(config.output_path(), PathBuf::from("build/my-app.js"));
+        assert_eq!(config.output_path(), PathBuf::from("build"));
 
         let config = PackageConfig {
             name: "my-app".to_string(),

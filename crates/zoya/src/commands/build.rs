@@ -114,7 +114,7 @@ mod tests {
         // Create package.toml with output (now a directory)
         std::fs::write(
             dir.path().join("package.toml"),
-            "name = \"test-project\"\noutput = \"build\"\n",
+            "[package]\nname = \"test-project\"\noutput = \"build\"\n",
         )
         .unwrap();
 
@@ -140,7 +140,7 @@ mod tests {
         // Create package.toml with output
         std::fs::write(
             dir.path().join("package.toml"),
-            "name = \"test-project\"\noutput = \"build\"\n",
+            "[package]\nname = \"test-project\"\noutput = \"build\"\n",
         )
         .unwrap();
 

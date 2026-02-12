@@ -54,7 +54,11 @@ pub fn execute(path: &Path, name_override: Option<&str>) -> Result<(), NewError>
 
     // Create .gitignore
     let gitignore_path = path.join(".gitignore");
-    std::fs::write(&gitignore_path, "build/\n").map_err(|e| NewError::Io {
+    std::fs::write(
+        &gitignore_path,
+        format!("{}/\n", config.output_path().display()),
+    )
+    .map_err(|e| NewError::Io {
         path: gitignore_path,
         source: e,
     })?;

@@ -73,6 +73,31 @@ zoya new my_project              # Create project (name derived from directory)
 zoya new my_project --name app   # Create project with explicit package name
 ```
 
+## Package Configuration
+
+Zoya projects use a `package.toml` file to define project settings. The configuration lives under the `[package]` table:
+
+```toml
+[package]
+name = "my-project"
+main = "src/main.zy"
+output = "build"
+```
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `name` | Yes | — | Package name. Must be lowercase alphanumeric with hyphens or underscores, starting with a letter. Reserved names (`root`, `self`, `super`, `std`, `zoya`) are not allowed. |
+| `main` | No | `src/main.zy` | Relative path to the main entry file. |
+| `output` | No | `build` | Output directory for build artifacts. |
+
+Create a new project with `zoya new`:
+
+```bash
+zoya new my-project
+```
+
+This generates a `package.toml` with the `name` field set and defaults for `main` and `output`.
+
 ## Global Options
 
 | Option | Description |
