@@ -1,7 +1,8 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use zoya_check::check;
-use zoya_codegen::codegen;
+use zoya_codegen::{codegen, esm_module_name};
 use zoya_loader::Mode;
 
 /// Compile a file to JavaScript without executing
@@ -22,32 +23,39 @@ pub fn execute(path: &Path, output: Option<&Path>, mode: Mode) -> Result<(), Str
                 .to_string()
         })?;
 
-    // Generate JS code
-    let output_data = codegen(&checked_pkg);
+    // Generate JS code for all modules (deps + main package)
+    let outputs = codegen(&checked_pkg, &[std]);
+    let modules_ref: HashMap<&str, &zoya_codegen::CodegenOutput> =
+        outputs.iter().map(|(k, v)| (k.as_str(), v)).collect();
 
-    // Create parent directories if needed
-    if let Some(parent) = out_path.parent()
-        && !parent.exists()
-    {
-        std::fs::create_dir_all(parent).map_err(|e| {
+    // Create output directory if needed
+    if !out_path.exists() {
+        std::fs::create_dir_all(&out_path).map_err(|e| {
             format!(
                 "error: failed to create directory '{}': {}",
-                parent.display(),
+                out_path.display(),
                 e
             )
         })?;
     }
 
-    // Write output
-    std::fs::write(&out_path, &output_data.code).map_err(|e| {
-        format!(
-            "error: failed to write file '{}': {}",
-            out_path.display(),
-            e
-        )
-    })?;
+    // Write each module as {name}-{hash}.js
+    for (name, module_output) in &outputs {
+        let esm_name = esm_module_name(name, &modules_ref);
+        // Strip leading "./" from ESM name to get filename
+        let filename = esm_name.trim_start_matches("./");
+        let file_path = out_path.join(filename);
+        std::fs::write(&file_path, &module_output.code).map_err(|e| {
+            format!(
+                "error: failed to write file '{}': {}",
+                file_path.display(),
+                e
+            )
+        })?;
+        eprintln!("  {}", filename);
+    }
 
-    eprintln!("✓ Built: {}", out_path.display());
+    eprintln!("built: {}", out_path.display());
     Ok(())
 }
 
@@ -57,16 +65,36 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn test_execute_to_file() {
+    fn test_execute_to_directory() {
         let dir = tempfile::tempdir().unwrap();
         let input = dir.path().join("test.zy");
-        let output = dir.path().join("test.js");
+        let output = dir.path().join("build");
         std::fs::write(&input, "pub fn main() -> Int { 42 }").unwrap();
 
         let result = execute(&input, Some(&output), Mode::Dev);
         assert!(result.is_ok());
-        assert!(output.exists());
-        let js = std::fs::read_to_string(&output).unwrap();
+        assert!(output.is_dir());
+
+        // Should contain at least 2 files (std + main package)
+        let files: Vec<_> = std::fs::read_dir(&output)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert!(
+            files.len() >= 2,
+            "expected at least 2 module files, got {}",
+            files.len()
+        );
+
+        // Check that main package file contains expected content
+        let main_file = files
+            .iter()
+            .find(|f| f.file_name().to_str().unwrap_or("").starts_with("test-"));
+        assert!(
+            main_file.is_some(),
+            "should have a file starting with 'test-'"
+        );
+        let js = std::fs::read_to_string(main_file.unwrap().path()).unwrap();
         assert!(js.contains("function $root$main()"));
         assert!(js.contains("export {"));
     }
@@ -86,10 +114,10 @@ mod tests {
     fn test_execute_uses_package_output() {
         let dir = tempfile::tempdir().unwrap();
 
-        // Create package.toml with output
+        // Create package.toml with output (now a directory)
         std::fs::write(
             dir.path().join("package.toml"),
-            "name = \"test-project\"\noutput = \"build/out.js\"\n",
+            "name = \"test-project\"\noutput = \"build\"\n",
         )
         .unwrap();
 
@@ -104,8 +132,8 @@ mod tests {
         let result = execute(dir.path(), None, Mode::Dev);
         assert!(result.is_ok());
 
-        let output_path = dir.path().join("build/out.js");
-        assert!(output_path.exists());
+        let output_path = dir.path().join("build");
+        assert!(output_path.is_dir());
     }
 
     #[test]
@@ -115,7 +143,7 @@ mod tests {
         // Create package.toml with output
         std::fs::write(
             dir.path().join("package.toml"),
-            "name = \"test-project\"\noutput = \"build/pkg.js\"\n",
+            "name = \"test-project\"\noutput = \"build\"\n",
         )
         .unwrap();
 
@@ -127,33 +155,33 @@ mod tests {
         )
         .unwrap();
 
-        let cli_output = dir.path().join("custom.js");
+        let cli_output = dir.path().join("custom");
         let result = execute(dir.path(), Some(&cli_output), Mode::Dev);
         assert!(result.is_ok());
 
         // CLI output should be used, not package.toml output
-        assert!(cli_output.exists());
-        let pkg_output = dir.path().join("build/pkg.js");
+        assert!(cli_output.is_dir());
+        let pkg_output = dir.path().join("build");
         assert!(!pkg_output.exists());
     }
 
     #[test]
-    fn test_execute_creates_parent_dirs() {
+    fn test_execute_creates_output_dir() {
         let dir = tempfile::tempdir().unwrap();
         let input = dir.path().join("test.zy");
-        let output = dir.path().join("deep/nested/out.js");
+        let output = dir.path().join("deep/nested/out");
         std::fs::write(&input, "pub fn main() -> Int { 42 }").unwrap();
 
         let result = execute(&input, Some(&output), Mode::Dev);
         assert!(result.is_ok());
-        assert!(output.exists());
+        assert!(output.is_dir());
     }
 
     #[test]
     fn test_execute_type_error() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zy");
-        let output = dir.path().join("test.js");
+        let output = dir.path().join("build");
         std::fs::write(&file, "pub fn main() -> Int { true }").unwrap();
 
         let result = execute(&file, Some(&output), Mode::Dev);
@@ -162,8 +190,31 @@ mod tests {
 
     #[test]
     fn test_execute_file_not_found() {
-        let output = PathBuf::from("/tmp/out.js");
+        let output = PathBuf::from("/tmp/build");
         let result = execute(Path::new("nonexistent.zy"), Some(&output), Mode::Dev);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_execute_module_files_have_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("test.zy");
+        let output = dir.path().join("build");
+        std::fs::write(&input, "pub fn main() -> Int { 42 }").unwrap();
+
+        let result = execute(&input, Some(&output), Mode::Dev);
+        assert!(result.is_ok());
+
+        // All files should match pattern {name}-{hash}.js
+        for entry in std::fs::read_dir(&output).unwrap() {
+            let entry = entry.unwrap();
+            let name = entry.file_name().to_str().unwrap().to_string();
+            assert!(name.ends_with(".js"), "file should end with .js: {}", name);
+            assert!(
+                name.contains('-'),
+                "file should contain hash separator: {}",
+                name
+            );
+        }
     }
 }

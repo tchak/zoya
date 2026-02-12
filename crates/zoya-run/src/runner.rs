@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use zoya_check::check;
-use zoya_codegen::codegen;
+use zoya_codegen::{codegen, esm_module_name};
 use zoya_ir::{CheckedPackage, Definition};
 use zoya_loader::{MemorySource, load_memory_package, load_package};
 use zoya_package::QualifiedPath;
@@ -166,19 +166,18 @@ fn run_checked(
     // Build type lookup for resolving recursive type stubs
     let type_lookup = build_type_lookup(&package, deps);
 
-    // Build module map with dependency modules first
+    // Generate all modules (deps + main package)
+    let outputs = codegen(&package, deps);
+    let modules_ref: HashMap<&str, &zoya_codegen::CodegenOutput> =
+        outputs.iter().map(|(k, v)| (k.as_str(), v)).collect();
+
+    // Build virtual modules map with ESM module names
     let mut modules = HashMap::new();
-    for dep in deps {
-        let dep_output = codegen(dep);
-        modules.insert(dep.name.clone(), dep_output.code);
+    for (name, output) in &outputs {
+        let esm_name = esm_module_name(name, &modules_ref);
+        modules.insert(esm_name, output.code.clone());
     }
-
-    // Generate JS module code (ESM with exports)
-    let output = codegen(&package);
-
-    // Register the generated code
-    let module_name = format!("{}_{}", package.name, output.hash);
-    modules.insert(module_name.clone(), output.code);
+    let module_name = esm_module_name(&package.name, &modules_ref);
     let virtual_modules = VirtualModules::new(modules);
 
     // Build the entry function name using the package name

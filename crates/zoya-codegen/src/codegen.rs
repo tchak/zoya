@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use zoya_ast::{BinOp, UnaryOp};
 use zoya_ir::{
     CheckedPackage, QualifiedPath, Type, TypedEnumConstructFields, TypedExpr, TypedFunction,
@@ -94,11 +96,48 @@ function $$json_to_zoya(v) {
 }"#
 }
 
+/// Generate JavaScript code for a package and all its dependencies.
+/// Returns a map from package name to `CodegenOutput`.
+/// Dependencies are generated first so their hashes are available for import rewriting.
+pub fn codegen(
+    package: &CheckedPackage,
+    deps: &[&CheckedPackage],
+) -> HashMap<String, CodegenOutput> {
+    let mut outputs = HashMap::new();
+
+    // Generate deps first (order matters: earlier deps available to later deps)
+    for dep in deps {
+        let output = codegen_package(dep, &outputs);
+        outputs.insert(dep.name.clone(), output);
+    }
+
+    // Generate main package
+    let output = codegen_package(package, &outputs);
+    outputs.insert(package.name.clone(), output);
+
+    outputs
+}
+
+/// Format an ESM module name from a package name and its codegen output.
+/// Looks up the package in the outputs map and returns `"./{name}-{hash}.js"`.
+pub fn esm_module_name(name: &str, modules: &HashMap<&str, &CodegenOutput>) -> String {
+    let output = modules[name];
+    format_esm_module_name(name, &output.hash)
+}
+
+/// Format an ESM module name from a package name and hash.
+fn format_esm_module_name(name: &str, hash: &str) -> String {
+    format!("./{}-{}.js", name, hash)
+}
+
 /// Generate JavaScript code for all items in the checked package.
 /// Processes items in dependency order (parents before children).
 /// Includes the prelude (runtime helper functions) at the start.
 /// Returns a `CodegenOutput` containing the generated code and its Blake3 hash.
-pub fn codegen(pkg: &CheckedPackage) -> CodegenOutput {
+fn codegen_package(
+    pkg: &CheckedPackage,
+    dep_outputs: &HashMap<String, CodegenOutput>,
+) -> CodegenOutput {
     let mut js = String::new();
 
     // Include prelude at the start
@@ -113,10 +152,15 @@ pub fn codegen(pkg: &CheckedPackage) -> CodegenOutput {
         let mut import_names: Vec<String> = paths.iter().map(format_path).collect();
         import_names.sort();
         if !import_names.is_empty() {
+            let from_specifier = if let Some(dep_output) = dep_outputs.get(dep_name.as_str()) {
+                format_esm_module_name(dep_name, &dep_output.hash)
+            } else {
+                dep_name.clone()
+            };
             js.push_str(&format!(
                 "import {{ {} }} from '{}';\n",
                 import_names.join(", "),
-                dep_name
+                from_specifier
             ));
         }
     }
