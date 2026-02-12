@@ -5949,3 +5949,36 @@ fn test_run_assert_eq_deep_equality_lists() {
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(42));
 }
+
+#[test]
+fn test_run_println_returns_unit() {
+    let source = r#"
+        pub fn main() -> () { println("hello") }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Tuple(vec![]));
+}
+
+#[test]
+fn test_run_println_in_let_binding() {
+    let source = r#"
+        pub fn main() -> Int {
+            let _ = println("hello");
+            42
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_run_println_with_string_variable() {
+    let source = r#"
+        pub fn main() -> () {
+            let msg = "Hello, World!";
+            println(msg)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Tuple(vec![]));
+}

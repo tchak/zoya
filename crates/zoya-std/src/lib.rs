@@ -10,6 +10,7 @@ static STD_PACKAGE: LazyLock<CheckedPackage> =
 fn build_std() -> Result<CheckedPackage, String> {
     let source = MemorySource::new()
         .with_module("root", include_str!("std/main.zy"))
+        .with_module("io", include_str!("std/io.zy"))
         .with_module("json", include_str!("std/json.zy"))
         .with_module("option", include_str!("std/option.zy"))
         .with_module("prelude", include_str!("std/prelude.zy"))
@@ -103,6 +104,42 @@ mod tests {
                 name
             );
         }
+    }
+
+    #[test]
+    fn test_std_has_io_module() {
+        let pkg = std();
+        let io_path = QualifiedPath::root().child("io");
+        assert!(
+            pkg.definitions.contains_key(&io_path),
+            "io module should exist"
+        );
+    }
+
+    #[test]
+    fn test_std_has_println_function() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("io").child("println");
+        let def = pkg.definitions.get(&path).expect("println definition");
+        assert!(matches!(def, Definition::Function(_)));
+    }
+
+    #[test]
+    fn test_std_has_println_in_items() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("io").child("println");
+        let func = pkg.items.get(&path).expect("println in items");
+        assert!(func.is_builtin);
+    }
+
+    #[test]
+    fn test_std_prelude_has_println() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("prelude").child("println");
+        assert!(
+            pkg.definitions.contains_key(&path),
+            "println should be re-exported in prelude module"
+        );
     }
 
     #[test]

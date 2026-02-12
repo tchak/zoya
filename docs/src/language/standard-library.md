@@ -12,6 +12,7 @@ The following types and functions are automatically available in every module wi
 - **`assert(condition: Bool) -> T`** — Panics with "assertion failed" if the condition is `false`.
 - **`assert_eq(left: V, right: V) -> T`** — Panics with "assertion failed: left != right" if `left` and `right` are not equal (deep equality).
 - **`assert_ne(left: V, right: V) -> T`** — Panics with "assertion failed: left == right" if `left` and `right` are equal (deep equality).
+- **`println(message: String) -> ()`** — Prints a string to stdout followed by a newline.
 
 ```zoya
 let x = Some(42)
@@ -59,6 +60,29 @@ assert_eq([1, 2, 3], [1, 2, 3])
 ```zoya
 assert_ne(1, 2)
 assert_ne([1, 2], [3, 4])
+```
+
+### `println`
+
+`println` prints a string to stdout followed by a newline:
+
+```zoya
+println("Hello, World!")
+
+let name = "Alice"
+println("Hello, " + name + "!")
+```
+
+## `std::io`
+
+Basic I/O operations. `println` is re-exported in the prelude, so it can be used without an explicit import.
+
+### `println`
+
+```zoya
+use std::io::println
+
+println("Hello from std::io!")
 ```
 
 ## `std::json`

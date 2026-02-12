@@ -227,7 +227,25 @@ pub(crate) fn create_module_runtime(
     runtime.set_loader(resolver, loader);
 
     let context = Context::full(&runtime).map_err(|e| e.to_string())?;
+
+    context
+        .with(|ctx| inject_console(&ctx))
+        .map_err(|e| format!("failed to inject console: {e}"))?;
+
     Ok((runtime, context))
+}
+
+fn inject_console(ctx: &Ctx<'_>) -> QjsResult<()> {
+    let globals = ctx.globals();
+    let console = rquickjs::Object::new(ctx.clone())?;
+    console.set(
+        "log",
+        rquickjs::Function::new(ctx.clone(), |msg: String| {
+            println!("{}", msg);
+        })?,
+    )?;
+    globals.set("console", console)?;
+    Ok(())
 }
 
 fn map_js_error(e: rquickjs::CaughtError<'_>) -> EvalError {

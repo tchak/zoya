@@ -1,5 +1,6 @@
 pub use root::option::*
 pub use root::result::*
+pub use root::io::println
 pub use root::panic
 pub use root::assert
 pub use root::assert_eq

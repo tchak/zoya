@@ -1,0 +1,2 @@
+#[builtin]
+pub fn println(message: String) -> () ()

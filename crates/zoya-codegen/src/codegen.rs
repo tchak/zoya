@@ -1126,6 +1126,9 @@ fn codegen_builtin_function(func: &TypedFunction, path: &QualifiedPath) -> Strin
             "if ($$eq($left, $right)) $$throw(\"PANIC\", \"assertion failed: left == right\");"
                 .to_string()
         }
+        "root::io::println" => {
+            "console.log($message); return [];".to_string()
+        }
         "root::json::parse" => {
             "try { return { $tag: \"Ok\", $0: $$json_to_zoya(JSON.parse($value)) }; } catch(_) { return { $tag: \"Err\", $0: { $tag: \"ParseError\" } }; }".to_string()
         }
