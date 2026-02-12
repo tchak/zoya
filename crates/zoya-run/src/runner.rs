@@ -2,12 +2,20 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use zoya_check::check;
-use zoya_codegen::{codegen, esm_module_name};
+use zoya_codegen::{codegen, esm_module_name, format_export_path};
 use zoya_ir::{CheckedPackage, Definition};
 use zoya_loader::{MemorySource, load_memory_package, load_package};
 use zoya_package::QualifiedPath;
 
 use crate::eval::{self, EvalError, TypeLookup, Value, VirtualModules};
+
+/// Which function to invoke inside a checked package.
+enum EntryPoint {
+    /// Run `main()` in the root module or a named submodule.
+    Main(Option<String>),
+    /// Run an arbitrary function by its full qualified path.
+    Entry(QualifiedPath),
+}
 
 /// Entry point for building a run configuration.
 ///
@@ -33,7 +41,7 @@ impl Runner {
         PackageRunner {
             package,
             deps: deps.into_iter().collect(),
-            module: None,
+            entry_point: EntryPoint::Main(None),
         }
     }
 
@@ -58,19 +66,25 @@ impl Runner {
 pub struct PackageRunner<'a> {
     package: &'a CheckedPackage,
     deps: Vec<&'a CheckedPackage>,
-    module: Option<String>,
+    entry_point: EntryPoint,
 }
 
 impl<'a> PackageRunner<'a> {
     /// Select a submodule whose `main()` to run (e.g., `"repl"`).
-    pub fn module(mut self, module: impl Into<String>) -> Self {
-        self.module = Some(module.into());
+    pub fn main_module(mut self, module: impl Into<String>) -> Self {
+        self.entry_point = EntryPoint::Main(Some(module.into()));
+        self
+    }
+
+    /// Select an arbitrary function to run by its full qualified path.
+    pub fn entry(mut self, path: QualifiedPath) -> Self {
+        self.entry_point = EntryPoint::Entry(path);
         self
     }
 
     /// Execute the package and return the result.
     pub fn run(self) -> Result<Value, EvalError> {
-        run_checked(self.package, &self.deps, self.module.as_deref())
+        run_checked(self.package, &self.deps, &self.entry_point)
     }
 }
 
@@ -94,7 +108,7 @@ impl PathRunner {
             .map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?;
         let checked =
             check(&package, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-        run_checked(&checked, &[std], None)
+        run_checked(&checked, &[std], &EntryPoint::Main(None))
     }
 }
 
@@ -119,7 +133,7 @@ impl SourceRunner {
             .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
         let checked =
             check(&package, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-        run_checked(&checked, &[std], None)
+        run_checked(&checked, &[std], &EntryPoint::Main(None))
     }
 }
 
@@ -137,31 +151,43 @@ pub fn run_path(path: &Path) -> Result<Value, EvalError> {
 fn run_checked(
     package: &CheckedPackage,
     deps: &[&CheckedPackage],
-    module: Option<&str>,
+    entry_point: &EntryPoint,
 ) -> Result<Value, EvalError> {
-    // Build the definition lookup path (always uses "root" prefix)
-    let module_path = match module {
-        Some(m) => QualifiedPath::root().child(m),
-        None => QualifiedPath::root(),
+    // Resolve the function path from the entry point
+    let function_path = match entry_point {
+        EntryPoint::Main(module) => {
+            let module_path = match module {
+                Some(m) => QualifiedPath::root().child(m),
+                None => QualifiedPath::root(),
+            };
+            module_path.child("main")
+        }
+        EntryPoint::Entry(path) => path.clone(),
     };
-    let main_path = module_path.child("main");
 
-    // Find main in the specified module's definitions (must be pub)
-    let main_def = package
+    // Find the function in the package definitions
+    let func_def = package
         .definitions
-        .get(&main_path)
+        .get(&function_path)
         .and_then(|d| d.as_function())
         .ok_or_else(|| {
-            EvalError::RuntimeError(format!("no pub fn main() found in {}", module_path))
+            EvalError::RuntimeError(match entry_point {
+                EntryPoint::Main(_) => {
+                    let module_path = function_path.parent().unwrap_or_else(QualifiedPath::root);
+                    format!("no pub fn main() found in {}", module_path)
+                }
+                EntryPoint::Entry(path) => format!("function {} not found", path),
+            })
         })?;
 
-    if !main_def.params.is_empty() {
-        return Err(EvalError::RuntimeError(
-            "main() must not take any parameters".to_string(),
-        ));
+    if !func_def.params.is_empty() {
+        return Err(EvalError::RuntimeError(format!(
+            "{}() must not take any parameters",
+            function_path.last()
+        )));
     }
 
-    let return_type = main_def.return_type.clone();
+    let return_type = func_def.return_type.clone();
 
     // Build type lookup for resolving recursive type stubs
     let type_lookup = build_type_lookup(package, deps);
@@ -181,10 +207,7 @@ fn run_checked(
     let virtual_modules = VirtualModules::new(modules);
 
     // Build the entry function name using the package name
-    let entry_func = match module {
-        Some(m) => format!("${}${}$main", package.name, m),
-        None => format!("${}$main", package.name),
-    };
+    let entry_func = format_export_path(&function_path, &package.name);
 
     // Create runtime with module loader
     let (_runtime, context) = eval::create_module_runtime(virtual_modules)

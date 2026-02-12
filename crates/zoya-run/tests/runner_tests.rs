@@ -1,5 +1,6 @@
 use zoya_check::check;
 use zoya_loader::{MemorySource, load_memory_package};
+use zoya_package::QualifiedPath;
 use zoya_run::{EvalError, Runner, Value, run_source};
 use zoya_std::std as zoya_std;
 
@@ -6033,4 +6034,86 @@ fn test_run_test_mode_retains_test_fn() {
         .run()
         .unwrap();
     assert_eq!(result, Value::Tuple(vec![]));
+}
+
+// ============================================================================
+// Entry Point Tests
+// ============================================================================
+
+#[test]
+fn test_entry_runs_specific_function() {
+    let source = r#"
+        pub fn main() -> Int { 0 }
+        pub fn answer() -> Int { 42 }
+    "#;
+    let mem_source = MemorySource::new().with_module("root", source);
+    let package = load_memory_package(&mem_source, zoya_loader::Mode::Dev).unwrap();
+    let checked = check(&package, &[]).unwrap();
+    let result = Runner::new()
+        .package(&checked, [])
+        .entry(QualifiedPath::root().child("answer"))
+        .run()
+        .unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_entry_runs_function_in_submodule() {
+    let mut source = MemorySource::new();
+    source.add_module("root", "pub mod utils");
+    source.add_module("utils", "pub fn compute() -> Int { 99 }");
+    let package = load_memory_package(&source, zoya_loader::Mode::Dev).unwrap();
+    let checked = check(&package, &[]).unwrap();
+    let result = Runner::new()
+        .package(&checked, [])
+        .entry(QualifiedPath::root().child("utils").child("compute"))
+        .run()
+        .unwrap();
+    assert_eq!(result, Value::Int(99));
+}
+
+#[test]
+fn test_entry_error_on_nonexistent_function() {
+    let source = r#"
+        pub fn main() -> Int { 0 }
+    "#;
+    let mem_source = MemorySource::new().with_module("root", source);
+    let package = load_memory_package(&mem_source, zoya_loader::Mode::Dev).unwrap();
+    let checked = check(&package, &[]).unwrap();
+    let path = QualifiedPath::root().child("nonexistent");
+    let result = Runner::new().package(&checked, []).entry(path).run();
+    assert!(matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("not found")));
+}
+
+#[test]
+fn test_main_module_runs_main_in_submodule() {
+    let mut source = MemorySource::new();
+    source.add_module("root", "pub mod sub");
+    source.add_module("sub", "pub fn main() -> Int { 77 }");
+    let package = load_memory_package(&source, zoya_loader::Mode::Dev).unwrap();
+    let checked = check(&package, &[]).unwrap();
+    let result = Runner::new()
+        .package(&checked, [])
+        .main_module("sub")
+        .run()
+        .unwrap();
+    assert_eq!(result, Value::Int(77));
+}
+
+#[test]
+fn test_entry_error_on_function_with_parameters() {
+    let source = r#"
+        pub fn add(x: Int, y: Int) -> Int { x + y }
+        pub fn main() -> Int { 0 }
+    "#;
+    let mem_source = MemorySource::new().with_module("root", source);
+    let package = load_memory_package(&mem_source, zoya_loader::Mode::Dev).unwrap();
+    let checked = check(&package, &[]).unwrap();
+    let result = Runner::new()
+        .package(&checked, [])
+        .entry(QualifiedPath::root().child("add"))
+        .run();
+    assert!(
+        matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("must not take any parameters"))
+    );
 }
