@@ -87,14 +87,10 @@ fn merge(left: List<Int>, right: List<Int>) -> List<Int> {
 
 // ── Math ────────────────────────────────────────────────────────────
 
-fn modulo(a: Int, b: Int) -> Int {
-    a - (a / b) * b
-}
-
 pub fn gcd(a: Int, b: Int) -> Int {
     match b == 0 {
         true => a,
-        false => gcd(b, modulo(a, b)),
+        false => gcd(b, a % b),
     }
 }
 
@@ -123,7 +119,7 @@ pub fn fibonacci(n: Int) -> Int {
 fn is_prime_check(n: Int, d: Int) -> Bool {
     match d * d > n {
         true => true,
-        false => match modulo(n, d) == 0 {
+        false => match n % d == 0 {
             true => false,
             false => is_prime_check(n, d + 1),
         },
