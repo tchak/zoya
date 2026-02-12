@@ -3,19 +3,138 @@ use std::path::Path;
 
 use zoya_check::check;
 use zoya_codegen::codegen;
-use zoya_ir::CheckedPackage;
+use zoya_ir::{CheckedPackage, Definition};
 use zoya_loader::{MemorySource, load_memory_package, load_package};
 use zoya_package::QualifiedPath;
 
-use zoya_ir::Definition;
-
 use crate::eval::{self, EvalError, TypeLookup, Value, VirtualModules};
 
-/// Run an already-checked package by executing its main function
+/// Entry point for building a run configuration.
 ///
-/// If `module` is `None`, the root module is used.
-/// If `module` is `Some("repl")`, the repl submodule's main is used.
-pub fn run(
+/// Use `Runner::new()` then choose an input source:
+/// - `.package(pkg, deps)` → `PackageRunner`
+/// - `.path(p)` → `PathRunner`
+/// - `.source(s)` → `SourceRunner`
+#[derive(Default)]
+pub struct Runner;
+
+impl Runner {
+    /// Create a new runner.
+    pub fn new() -> Self {
+        Runner
+    }
+
+    /// Run an already-checked package with its dependencies.
+    pub fn package<'a>(
+        self,
+        package: CheckedPackage,
+        deps: impl IntoIterator<Item = &'a CheckedPackage>,
+    ) -> PackageRunner<'a> {
+        PackageRunner {
+            package,
+            deps: deps.into_iter().collect(),
+            module: None,
+        }
+    }
+
+    /// Load, check, and run a `.zy` file at the given path.
+    pub fn path(self, path: &Path) -> PathRunner {
+        PathRunner {
+            path: path.to_path_buf(),
+            mode: zoya_loader::Mode::Dev,
+        }
+    }
+
+    /// Load, check, and run source code from a string.
+    pub fn source(self, source: &str) -> SourceRunner {
+        SourceRunner {
+            source: source.to_string(),
+            mode: zoya_loader::Mode::Dev,
+        }
+    }
+}
+
+/// Runner configured with a pre-checked package.
+pub struct PackageRunner<'a> {
+    package: CheckedPackage,
+    deps: Vec<&'a CheckedPackage>,
+    module: Option<String>,
+}
+
+impl<'a> PackageRunner<'a> {
+    /// Select a submodule whose `main()` to run (e.g., `"repl"`).
+    pub fn module(mut self, module: impl Into<String>) -> Self {
+        self.module = Some(module.into());
+        self
+    }
+
+    /// Execute the package and return the result.
+    pub fn run(self) -> Result<Value, EvalError> {
+        run_checked(self.package, &self.deps, self.module.as_deref())
+    }
+}
+
+/// Runner configured to load and run a file.
+pub struct PathRunner {
+    path: std::path::PathBuf,
+    mode: zoya_loader::Mode,
+}
+
+impl PathRunner {
+    /// Set the compilation mode (default: `Mode::Dev`).
+    pub fn mode(mut self, mode: zoya_loader::Mode) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    /// Load, check, and execute the file.
+    pub fn run(self) -> Result<Value, EvalError> {
+        let std = zoya_std::std();
+        let package = load_package(&self.path, self.mode)
+            .map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?;
+        let checked =
+            check(&package, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+        run_checked(checked, &[std], None)
+    }
+}
+
+/// Runner configured to compile and run a source string.
+pub struct SourceRunner {
+    source: String,
+    mode: zoya_loader::Mode,
+}
+
+impl SourceRunner {
+    /// Set the compilation mode (default: `Mode::Dev`).
+    pub fn mode(mut self, mode: zoya_loader::Mode) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    /// Compile and execute the source string.
+    pub fn run(self) -> Result<Value, EvalError> {
+        let std = zoya_std::std();
+        let mem_source = MemorySource::new().with_module("root", &self.source);
+        let package = load_memory_package(&mem_source, self.mode)
+            .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+        let checked =
+            check(&package, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+        run_checked(checked, &[std], None)
+    }
+}
+
+/// Load, check, and run source code from a string (convenience function).
+pub fn run_source(source: &str) -> Result<Value, EvalError> {
+    Runner::new().source(source).run()
+}
+
+/// Load, check, and run a `.zy` file (convenience function).
+pub fn run_path(path: &Path) -> Result<Value, EvalError> {
+    Runner::new().path(path).run()
+}
+
+/// Internal: execute an already-checked package.
+fn run_checked(
     package: CheckedPackage,
     deps: &[&CheckedPackage],
     module: Option<&str>,
@@ -75,35 +194,6 @@ pub fn run(
     // Evaluate the module and call main
     context
         .with(|ctx| eval::eval_module(&ctx, &module_name, &entry_func, return_type, &type_lookup))
-}
-
-/// Load, check, and run source code from a string
-pub fn run_source(source: &str) -> Result<Value, EvalError> {
-    run_source_with_mode(source, zoya_loader::Mode::Dev)
-}
-
-/// Load, check, and run source code from a string with a specific compilation mode
-pub fn run_source_with_mode(source: &str, mode: zoya_loader::Mode) -> Result<Value, EvalError> {
-    let std = zoya_std::std();
-    let mem_source = MemorySource::new().with_module("root", source);
-    let package = load_memory_package(&mem_source, mode)
-        .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-    let checked = check(&package, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-    run(checked, &[std], None)
-}
-
-/// Load, check, and run source code from a file
-pub fn run_file(path: &Path) -> Result<Value, EvalError> {
-    run_file_with_mode(path, zoya_loader::Mode::Dev)
-}
-
-/// Load, check, and run source code from a file with a specific compilation mode
-pub fn run_file_with_mode(path: &Path, mode: zoya_loader::Mode) -> Result<Value, EvalError> {
-    let std = zoya_std::std();
-    let package =
-        load_package(path, mode).map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?;
-    let checked = check(&package, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-    run(checked, &[std], None)
 }
 
 /// Build a TypeLookup from a package and its dependencies for resolving

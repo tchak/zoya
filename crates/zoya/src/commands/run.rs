@@ -1,16 +1,11 @@
 use std::path::Path;
 
-use zoya_check::check;
 use zoya_loader::Mode;
-use zoya_run::{EvalError, run};
+use zoya_run::{EvalError, Runner};
 
 /// Run a Zoya package or file and print the result
 pub fn execute(path: &Path, mode: Mode) -> Result<(), EvalError> {
-    let std = zoya_std::std();
-    let pkg = zoya_loader::load_package(path, mode)
-        .map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?;
-    let checked = check(&pkg, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-    let value = run(checked, &[std], None)?;
+    let value = Runner::new().path(path).mode(mode).run()?;
     println!("{}", value);
     Ok(())
 }

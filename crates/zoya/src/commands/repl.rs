@@ -8,7 +8,7 @@ use zoya_ast::{Expr, FunctionDef, Item, LetBinding, Stmt, TupleElement, Visibili
 use zoya_check::check;
 use zoya_ir::{CheckedPackage, Type, TypedExpr, TypedPattern};
 use zoya_package::{Module, Package, QualifiedPath};
-use zoya_run::{self as runner, Value};
+use zoya_run::{Runner, Value};
 
 /// Extract all variable bindings from a typed pattern.
 /// Returns a list of (name, type) pairs for each bound variable.
@@ -283,7 +283,10 @@ impl State {
                 .collect::<Result<Vec<_>, _>>()?;
 
             // Call combined main function via runner
-            let combined_value = runner::run(checked_pkg.clone(), &[std], Some("repl"))
+            let combined_value = Runner::new()
+                .package(checked_pkg.clone(), [std])
+                .module("repl")
+                .run()
                 .map_err(|e| e.to_string())?;
 
             // Unpack tuple result

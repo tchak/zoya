@@ -2,10 +2,11 @@
 
 Runtime execution for the Zoya programming language.
 
-Provides functions to run Zoya programs by compiling to JavaScript and executing via QuickJS.
+Provides a builder-pattern API to run Zoya programs by compiling to JavaScript and executing via QuickJS.
 
 ## Features
 
+- **Builder pattern** - Composable, type-safe run configuration with compile-time guarantees
 - **Package execution** - Run type-checked packages with module and dependency support
 - **Source execution** - Compile and run source strings directly
 - **File execution** - Load, check, and run `.zy` files
@@ -18,18 +19,24 @@ Provides functions to run Zoya programs by compiling to JavaScript and executing
 ```rust
 use zoya_run::{run_source, Value};
 
-let result = run_source("fn main() -> Int { 42 }")?;
+let result = run_source("pub fn main() -> Int { 42 }")?;
 assert_eq!(result, Value::Int(42));
 ```
 
 ### Run from file
 
 ```rust
-use zoya_run::run_file;
+use zoya_run::{Runner, run_path};
 use std::path::Path;
 
-let result = run_file(Path::new("program.zy"))?;
-println!("Result: {}", result);
+// Convenience function
+let result = run_path(Path::new("program.zy"))?;
+
+// Or with builder for mode control
+let result = Runner::new()
+    .path(Path::new("program.zy"))
+    .mode(zoya_loader::Mode::Test)
+    .run()?;
 ```
 
 ### Run a checked package
@@ -37,7 +44,7 @@ println!("Result: {}", result);
 ```rust
 use zoya_check::check;
 use zoya_loader::load_package;
-use zoya_run::run;
+use zoya_run::Runner;
 use zoya_std::std;
 use std::path::Path;
 
@@ -47,38 +54,66 @@ let pkg = load_package(Path::new("src/main.zy"))?;
 let checked_pkg = check(&pkg, &[std])?;
 
 // Run the main function in the root module
-let result = run(checked_pkg, &[std], None)?;
+let result = Runner::new()
+    .package(checked_pkg, [std])
+    .run()?;
 println!("Result: {}", result);
 ```
 
 ### Run a specific module's main function
 
 ```rust
-use zoya_run::run;
+use zoya_run::Runner;
 
 // Run main() from the "repl" submodule
-let result = run(checked_pkg, &[std], Some("repl"))?;
+let result = Runner::new()
+    .package(checked_pkg, [std])
+    .module("repl")
+    .run()?;
 ```
 
 ## Public API
 
 ```rust
-/// Run a checked package by executing its main function.
-/// `deps` provides dependency packages (e.g., standard library) for codegen.
-/// `module` selects which module's main() to call (None = root).
-pub fn run(
-    package: CheckedPackage,
-    deps: &[&CheckedPackage],
-    module: Option<&str>,
-) -> Result<Value, EvalError>;
+/// Entry point — choose an input source.
+pub struct Runner;
 
-/// Load, check, and run source code from a string.
-/// Automatically includes the standard library.
+impl Runner {
+    pub fn new() -> Self;
+    pub fn package(self, pkg: CheckedPackage, deps: impl IntoIterator<Item = &CheckedPackage>) -> PackageRunner;
+    pub fn path(self, path: &Path) -> PathRunner;
+    pub fn source(self, source: &str) -> SourceRunner;
+}
+
+/// Run a pre-checked package. Optionally select a submodule.
+pub struct PackageRunner<'a>;
+
+impl PackageRunner<'_> {
+    pub fn module(self, module: impl Into<String>) -> Self;
+    pub fn run(self) -> Result<Value, EvalError>;
+}
+
+/// Load, check, and run a file. Optionally set compilation mode.
+pub struct PathRunner;
+
+impl PathRunner {
+    pub fn mode(self, mode: Mode) -> Self;
+    pub fn run(self) -> Result<Value, EvalError>;
+}
+
+/// Compile and run a source string. Optionally set compilation mode.
+pub struct SourceRunner;
+
+impl SourceRunner {
+    pub fn mode(self, mode: Mode) -> Self;
+    pub fn run(self) -> Result<Value, EvalError>;
+}
+
+/// Convenience: compile and run a source string.
 pub fn run_source(source: &str) -> Result<Value, EvalError>;
 
-/// Load, check, and run source code from a file.
-/// Automatically includes the standard library.
-pub fn run_file(path: &Path) -> Result<Value, EvalError>;
+/// Convenience: load, check, and run a file.
+pub fn run_path(path: &Path) -> Result<Value, EvalError>;
 ```
 
 ## Value Types

@@ -53,16 +53,22 @@ let nums: List<Int>
 For programmatic execution, use the [zoya-run](../zoya-run) crate:
 
 ```rust
-use zoya_run::{run_source, run_file, Value};
+use zoya_run::{Runner, run_source, run_path, Value};
 use std::path::Path;
 
 // Run from source string
-let result = run_source("fn main() -> Int { 42 }")?;
+let result = run_source("pub fn main() -> Int { 42 }")?;
 assert_eq!(result, Value::Int(42));
 
 // Run from file
-let result = run_file(Path::new("program.zy"))?;
+let result = run_path(Path::new("program.zy"))?;
 println!("Result: {}", result);
+
+// Builder with options
+let result = Runner::new()
+    .path(Path::new("program.zy"))
+    .mode(zoya_loader::Mode::Test)
+    .run()?;
 ```
 
 ## Dependencies

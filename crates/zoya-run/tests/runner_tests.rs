@@ -1,6 +1,6 @@
 use zoya_check::check;
 use zoya_loader::{MemorySource, load_memory_package};
-use zoya_run::{EvalError, Value, run, run_source, run_source_with_mode};
+use zoya_run::{EvalError, Runner, Value, run_source};
 use zoya_std::std as zoya_std;
 
 #[test]
@@ -2443,7 +2443,10 @@ fn run_multi_module(modules: Vec<(&str, &str)>, expected: &str) {
         .unwrap_or_else(|e| panic!("failed to load package: {}", e));
     let checked =
         check(&package, &[]).unwrap_or_else(|e| panic!("failed to type check package: {}", e));
-    let result = run(checked, &[], None).unwrap_or_else(|e| panic!("failed to run package: {}", e));
+    let result = Runner::new()
+        .package(checked, [])
+        .run()
+        .unwrap_or_else(|e| panic!("failed to run package: {}", e));
     assert_eq!(result.to_string(), expected, "unexpected result");
 }
 
@@ -2493,8 +2496,10 @@ fn run_multi_module_with_std(modules: Vec<(&str, &str)>, expected: &str) {
         .unwrap_or_else(|e| panic!("failed to load package: {}", e));
     let checked =
         check(&package, &[std]).unwrap_or_else(|e| panic!("failed to type check package: {}", e));
-    let result =
-        run(checked, &[std], None).unwrap_or_else(|e| panic!("failed to run package: {}", e));
+    let result = Runner::new()
+        .package(checked, [std])
+        .run()
+        .unwrap_or_else(|e| panic!("failed to run package: {}", e));
     assert_eq!(result.to_string(), expected, "unexpected result");
 }
 
@@ -6007,7 +6012,11 @@ fn test_run_dev_mode_strips_test_fn() {
         fn test_helper() -> Int { 99 }
         pub fn main() -> Int { 42 }
     "#;
-    let result = run_source_with_mode(source, zoya_loader::Mode::Dev).unwrap();
+    let result = Runner::new()
+        .source(source)
+        .mode(zoya_loader::Mode::Dev)
+        .run()
+        .unwrap();
     assert_eq!(result, Value::Int(42));
 }
 
@@ -6018,6 +6027,10 @@ fn test_run_test_mode_retains_test_fn() {
         fn test_helper() -> Int { 99 }
         pub fn main() -> Int { test_helper() }
     "#;
-    let result = run_source_with_mode(source, zoya_loader::Mode::Test).unwrap();
+    let result = Runner::new()
+        .source(source)
+        .mode(zoya_loader::Mode::Test)
+        .run()
+        .unwrap();
     assert_eq!(result, Value::Int(99));
 }
