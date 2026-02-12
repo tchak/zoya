@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+use console::{Term, style};
 use zoya_loader::Mode;
 
 mod commands;
@@ -70,23 +71,27 @@ enum Command {
     },
 }
 
-fn parse_mode(s: &str) -> Mode {
-    s.parse().unwrap_or_else(|e| {
-        eprintln!("Error: {e}");
-        std::process::exit(1);
+fn fatal(term: &Term, msg: &str) -> ! {
+    let _ = term.write_line(&format!("{}: {}", style("error").red().bold(), msg));
+    std::process::exit(1);
+}
+
+fn parse_mode(term: &Term, s: &str) -> Mode {
+    s.parse().unwrap_or_else(|e: String| {
+        fatal(term, &e);
     })
 }
 
 fn main() {
     let cli = Cli::parse();
+    let term = Term::stderr();
 
     match cli.command {
         Some(Command::Run { path, mode }) => {
             let path = path.unwrap_or_else(|| PathBuf::from("."));
-            let mode = parse_mode(&mode);
+            let mode = parse_mode(&term, &mode);
             if let Err(e) = commands::run::execute(&path, mode) {
-                eprintln!("Error: {e}");
-                std::process::exit(1);
+                fatal(&term, &e.to_string());
             }
         }
         Some(Command::Repl { path }) => {
@@ -95,38 +100,33 @@ fn main() {
         }
         Some(Command::Check { path, mode }) => {
             let path = path.unwrap_or_else(|| PathBuf::from("."));
-            let mode = parse_mode(&mode);
+            let mode = parse_mode(&term, &mode);
             if let Err(e) = commands::check::execute(&path, mode) {
-                eprintln!("{}", e);
-                std::process::exit(1);
+                fatal(&term, &e.to_string());
             }
         }
         Some(Command::Build { path, output, mode }) => {
             let path = path.unwrap_or_else(|| PathBuf::from("."));
-            let mode = parse_mode(&mode);
+            let mode = parse_mode(&term, &mode);
             if let Err(e) = commands::build::execute(&path, output.as_deref(), mode) {
-                eprintln!("{}", e);
-                std::process::exit(1);
+                fatal(&term, &e.to_string());
             }
         }
         Some(Command::Fmt { path, check }) => {
             let path = path.unwrap_or_else(|| PathBuf::from("."));
             if let Err(e) = commands::fmt::execute(&path, check) {
-                eprintln!("{}", e);
-                std::process::exit(1);
+                fatal(&term, &e.to_string());
             }
         }
         Some(Command::Test { path }) => {
             let path = path.unwrap_or_else(|| PathBuf::from("."));
             if let Err(e) = commands::test::execute(&path) {
-                eprintln!("Error: {e}");
-                std::process::exit(1);
+                fatal(&term, &e.to_string());
             }
         }
         Some(Command::New { path, name }) => {
             if let Err(e) = commands::new::execute(&path, name.as_deref()) {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
+                fatal(&term, &e.to_string());
             }
         }
         None => {

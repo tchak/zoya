@@ -1,19 +1,25 @@
 use std::path::Path;
 
+use console::{Term, style};
 use zoya_check::check;
 use zoya_loader::Mode;
 
 /// Type-check a file without executing it
 pub fn execute(path: &Path, mode: Mode) -> Result<(), String> {
     // Load and parse package
-    let pkg = zoya_loader::load_package(path, mode).map_err(|e| format!("error: {}", e))?;
+    let pkg = zoya_loader::load_package(path, mode).map_err(|e| e.to_string())?;
 
     // Type check entire package with std
     let std = zoya_std::std();
-    check(&pkg, &[std]).map_err(|e| format!("error: {}", e))?;
+    check(&pkg, &[std]).map_err(|e| e.to_string())?;
 
     // Success
-    eprintln!("✓ Type checking passed: {}", path.display());
+    let term = Term::stderr();
+    let _ = term.write_line(&format!(
+        "{} Type checking passed: {}",
+        style("✓").green(),
+        style(path.display()).bold()
+    ));
     Ok(())
 }
 

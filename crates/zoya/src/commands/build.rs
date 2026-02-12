@@ -1,18 +1,21 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use console::{Term, style};
 use zoya_check::check;
 use zoya_codegen::{codegen, esm_module_name};
 use zoya_loader::Mode;
 
 /// Compile a file to JavaScript without executing
 pub fn execute(path: &Path, output: Option<&Path>, mode: Mode) -> Result<(), String> {
+    let term = Term::stderr();
+
     // Load and parse package
-    let pkg = zoya_loader::load_package(path, mode).map_err(|e| format!("error: {}", e))?;
+    let pkg = zoya_loader::load_package(path, mode).map_err(|e| e.to_string())?;
 
     // Type check entire package with std
     let std = zoya_std::std();
-    let checked_pkg = check(&pkg, &[std]).map_err(|e| format!("error: {}", e))?;
+    let checked_pkg = check(&pkg, &[std]).map_err(|e| e.to_string())?;
 
     // Resolve output path: CLI arg > package.toml output > error
     let out_path = output
@@ -30,13 +33,8 @@ pub fn execute(path: &Path, output: Option<&Path>, mode: Mode) -> Result<(), Str
 
     // Create output directory if needed
     if !out_path.exists() {
-        std::fs::create_dir_all(&out_path).map_err(|e| {
-            format!(
-                "error: failed to create directory '{}': {}",
-                out_path.display(),
-                e
-            )
-        })?;
+        std::fs::create_dir_all(&out_path)
+            .map_err(|e| format!("failed to create directory '{}': {}", out_path.display(), e))?;
     }
 
     // Write each module as {name}-{hash}.js
@@ -45,17 +43,16 @@ pub fn execute(path: &Path, output: Option<&Path>, mode: Mode) -> Result<(), Str
         // Strip leading "./" from ESM name to get filename
         let filename = esm_name.trim_start_matches("./");
         let file_path = out_path.join(filename);
-        std::fs::write(&file_path, &module_output.code).map_err(|e| {
-            format!(
-                "error: failed to write file '{}': {}",
-                file_path.display(),
-                e
-            )
-        })?;
-        eprintln!("  {}", filename);
+        std::fs::write(&file_path, &module_output.code)
+            .map_err(|e| format!("failed to write file '{}': {}", file_path.display(), e))?;
+        let _ = term.write_line(&format!("  {}", style(filename).dim()));
     }
 
-    eprintln!("built: {}", out_path.display());
+    let _ = term.write_line(&format!(
+        "{} Built: {}",
+        style("✓").green(),
+        style(out_path.display()).bold()
+    ));
     Ok(())
 }
 

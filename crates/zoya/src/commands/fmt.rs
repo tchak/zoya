@@ -1,8 +1,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use console::{Term, style};
+
 /// Format .zy source files
 pub fn execute(path: &Path, check: bool) -> Result<(), String> {
+    let term = Term::stderr();
+
     let files = if path.is_file() {
         vec![path.to_path_buf()]
     } else if path.is_dir() {
@@ -23,7 +27,12 @@ pub fn execute(path: &Path, check: bool) -> Result<(), String> {
         let source = match fs::read_to_string(file) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("error: failed to read '{}': {}", file.display(), e);
+                let _ = term.write_line(&format!(
+                    "{}: failed to read '{}': {}",
+                    style("error").red().bold(),
+                    file.display(),
+                    e
+                ));
                 error_count += 1;
                 continue;
             }
@@ -32,7 +41,12 @@ pub fn execute(path: &Path, check: bool) -> Result<(), String> {
         let tokens = match zoya_lexer::lex(&source) {
             Ok(t) => t,
             Err(e) => {
-                eprintln!("error: failed to lex '{}': {}", file.display(), e);
+                let _ = term.write_line(&format!(
+                    "{}: failed to lex '{}': {}",
+                    style("error").red().bold(),
+                    file.display(),
+                    e
+                ));
                 error_count += 1;
                 continue;
             }
@@ -41,7 +55,12 @@ pub fn execute(path: &Path, check: bool) -> Result<(), String> {
         let (mods, items) = match zoya_parser::parse_module(tokens) {
             Ok(parsed) => parsed,
             Err(e) => {
-                eprintln!("error: failed to parse '{}': {}", file.display(), e);
+                let _ = term.write_line(&format!(
+                    "{}: failed to parse '{}': {}",
+                    style("error").red().bold(),
+                    file.display(),
+                    e
+                ));
                 error_count += 1;
                 continue;
             }
@@ -54,7 +73,12 @@ pub fn execute(path: &Path, check: bool) -> Result<(), String> {
                 unformatted.push(file.clone());
             } else {
                 if let Err(e) = fs::write(file, &formatted) {
-                    eprintln!("error: failed to write '{}': {}", file.display(), e);
+                    let _ = term.write_line(&format!(
+                        "{}: failed to write '{}': {}",
+                        style("error").red().bold(),
+                        file.display(),
+                        e
+                    ));
                     error_count += 1;
                     continue;
                 }
@@ -65,7 +89,11 @@ pub fn execute(path: &Path, check: bool) -> Result<(), String> {
 
     if check {
         if unformatted.is_empty() {
-            eprintln!("✓ All {} file(s) formatted", files.len() - error_count);
+            let _ = term.write_line(&format!(
+                "{} All {} file(s) formatted",
+                style("✓").green(),
+                files.len() - error_count
+            ));
             Ok(())
         } else {
             let mut msg = String::from("the following files are not formatted:\n");
@@ -77,13 +105,23 @@ pub fn execute(path: &Path, check: bool) -> Result<(), String> {
     } else {
         let skipped = files.len() - formatted_count - error_count;
         if formatted_count > 0 {
-            eprintln!("✓ Formatted {} file(s)", formatted_count);
+            let _ = term.write_line(&format!(
+                "{} Formatted {} file(s)",
+                style("✓").green(),
+                formatted_count
+            ));
         }
         if skipped > 0 {
-            eprintln!("  {} file(s) already formatted", skipped);
+            let _ = term.write_line(&format!(
+                "  {}",
+                style(format!("{} file(s) already formatted", skipped)).dim()
+            ));
         }
         if error_count > 0 {
-            eprintln!("  {} file(s) had errors", error_count);
+            let _ = term.write_line(&format!(
+                "  {}",
+                style(format!("{} file(s) had errors", error_count)).red()
+            ));
         }
         Ok(())
     }

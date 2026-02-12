@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use console::{Term, style};
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
@@ -471,10 +472,16 @@ fn history_path() -> PathBuf {
 
 /// Run the interactive REPL
 pub fn execute(path: &Path) {
+    let term = Term::stderr();
+
     let mut rl = match DefaultEditor::new() {
         Ok(editor) => editor,
         Err(e) => {
-            eprintln!("Failed to create editor: {}", e);
+            let _ = term.write_line(&format!(
+                "{}: failed to create editor: {}",
+                style("error").red().bold(),
+                e
+            ));
             return;
         }
     };
@@ -486,7 +493,11 @@ pub fn execute(path: &Path) {
     let mut state = match State::new(path) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Failed to initialize REPL: {}", e);
+            let _ = term.write_line(&format!(
+                "{}: failed to initialize REPL: {}",
+                style("error").red().bold(),
+                e
+            ));
             return;
         }
     };
@@ -513,30 +524,51 @@ pub fn execute(path: &Path) {
                         for result in results {
                             match result {
                                 ReplResult::FunctionDefined(name) => {
-                                    println!("defined: {}", name);
+                                    let _ = term.write_line(&format!(
+                                        "{}: {}",
+                                        style("defined").green(),
+                                        name
+                                    ));
                                 }
                                 ReplResult::StructDefined(name) => {
-                                    println!("struct: {}", name);
+                                    let _ = term.write_line(&format!(
+                                        "{}: {}",
+                                        style("struct").green(),
+                                        name
+                                    ));
                                 }
                                 ReplResult::EnumDefined(name) => {
-                                    println!("enum: {}", name);
+                                    let _ = term.write_line(&format!(
+                                        "{}: {}",
+                                        style("enum").green(),
+                                        name
+                                    ));
                                 }
                                 ReplResult::TypeAliasDefined(name) => {
-                                    println!("type: {}", name);
+                                    let _ = term.write_line(&format!(
+                                        "{}: {}",
+                                        style("type").green(),
+                                        name
+                                    ));
                                 }
                                 ReplResult::Expression(value) => {
                                     println!("{}", value);
                                 }
                                 ReplResult::LetBinding { bindings } => {
                                     for (name, ty) in bindings {
-                                        println!("let {}: {}", name, zoya_ir::pretty_type(&ty));
+                                        let _ = term.write_line(&format!(
+                                            "{} {}: {}",
+                                            style("let").cyan(),
+                                            name,
+                                            style(zoya_ir::pretty_type(&ty)).dim()
+                                        ));
                                     }
                                 }
                             }
                         }
                     }
                     Err(e) => {
-                        eprintln!("Error: {}", e);
+                        let _ = term.write_line(&format!("{}: {}", style("error").red().bold(), e));
                     }
                 }
             }
@@ -546,7 +578,7 @@ pub fn execute(path: &Path) {
                     break;
                 }
                 ctrl_c_pressed = true;
-                println!("Press Ctrl-C again to exit, or Ctrl-D");
+                let _ = term.write_line("Press Ctrl-C again to exit, or Ctrl-D");
                 continue;
             }
             Err(ReadlineError::Eof) => {
@@ -554,7 +586,7 @@ pub fn execute(path: &Path) {
                 break;
             }
             Err(err) => {
-                eprintln!("Error: {:?}", err);
+                let _ = term.write_line(&format!("{}: {:?}", style("error").red().bold(), err));
                 break;
             }
         }

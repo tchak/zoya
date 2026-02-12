@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use console::{Term, style};
 use zoya_package::PackageConfig;
 
 /// Create a new Zoya project
@@ -67,7 +68,13 @@ pub fn execute(path: &Path, name_override: Option<&str>) -> Result<(), NewError>
         }
     })?;
 
-    println!("Created project '{}' at {}", name, path.display());
+    let term = Term::stderr();
+    let _ = term.write_line(&format!(
+        "{} Created project '{}' at {}",
+        style("✓").green(),
+        style(&name).bold(),
+        path.display()
+    ));
 
     Ok(())
 }
