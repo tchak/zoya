@@ -1160,14 +1160,15 @@ fn codegen_builtin_function(func: &TypedFunction, path: &QualifiedPath) -> Strin
             "$$throw(\"PANIC\", $message);".to_string()
         }
         "root::assert" => {
-            "if (!$condition) $$throw(\"PANIC\", \"assertion failed\");".to_string()
+            "if (!$condition) $$throw(\"PANIC\", \"assertion failed\"); return [];"
+                .to_string()
         }
         "root::assert_eq" => {
-            "if (!$$eq($left, $right)) $$throw(\"PANIC\", \"assertion failed: left != right\");"
+            "if (!$$eq($left, $right)) $$throw(\"PANIC\", \"assertion failed: left != right\"); return [];"
                 .to_string()
         }
         "root::assert_ne" => {
-            "if ($$eq($left, $right)) $$throw(\"PANIC\", \"assertion failed: left == right\");"
+            "if ($$eq($left, $right)) $$throw(\"PANIC\", \"assertion failed: left == right\"); return [];"
                 .to_string()
         }
         "root::io::println" => {

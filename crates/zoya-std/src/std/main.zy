@@ -8,10 +8,10 @@ pub mod result
 pub fn panic<T>(message: String) -> T ()
 
 #[builtin]
-pub fn assert<T>(condition: Bool) -> T ()
+pub fn assert(condition: Bool) -> () ()
 
 #[builtin]
-pub fn assert_eq<T, V>(left: V, right: V) -> T ()
+pub fn assert_eq<V>(left: V, right: V) -> () ()
 
 #[builtin]
-pub fn assert_ne<T, V>(left: V, right: V) -> T ()
+pub fn assert_ne<V>(left: V, right: V) -> () ()

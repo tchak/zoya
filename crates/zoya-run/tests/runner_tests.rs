@@ -5896,7 +5896,7 @@ fn test_run_assert_true_succeeds() {
 #[test]
 fn test_run_assert_false_panics() {
     let source = r#"
-        pub fn main() -> Int {
+        pub fn main() -> () {
             assert(false)
         }
     "#;
@@ -5922,7 +5922,7 @@ fn test_run_assert_eq_same_values_succeeds() {
 #[test]
 fn test_run_assert_eq_different_values_panics() {
     let source = r#"
-        pub fn main() -> Int {
+        pub fn main() -> () {
             assert_eq(1, 2)
         }
     "#;
@@ -5948,7 +5948,7 @@ fn test_run_assert_ne_different_values_succeeds() {
 #[test]
 fn test_run_assert_ne_same_values_panics() {
     let source = r#"
-        pub fn main() -> Int {
+        pub fn main() -> () {
             assert_ne(1, 1)
         }
     "#;
