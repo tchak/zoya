@@ -99,7 +99,11 @@ fn test_run_function_no_braces_multiple() {
 fn test_run_division_by_zero() {
     let source = "pub fn main() -> Int { 1 / 0 }";
     let result = run_source(source);
-    assert!(matches!(result, Err(EvalError::DivisionByZero)));
+    assert!(
+        matches!(result, Err(EvalError::Panic(ref msg)) if msg == "division by zero"),
+        "expected Panic(\"division by zero\"), got: {:?}",
+        result
+    );
 }
 
 #[test]

@@ -39,15 +39,22 @@ const LIST_IDX_FN: &str = "$$list_idx";
 
 /// Prelude containing helper functions for generated JS
 fn prelude() -> &'static str {
-    r#"function $$is_obj(x) {
+    r#"class $$ZoyaError extends Error {
+  constructor(code, detail) {
+    super('$$zoya:' + code + (detail !== undefined ? ':' + detail : ''));
+    this.name = '$$ZoyaError';
+  }
+}
+function $$throw(code, detail) { throw new $$ZoyaError(code, detail); }
+function $$is_obj(x) {
   return typeof x === 'object' && x !== null && !Array.isArray(x);
 }
 function $$div(a, b) {
-  if (b === 0) throw new Error("division by zero");
+  if (b === 0) $$throw("PANIC", "division by zero");
   return Math.trunc(a / b);
 }
 function $$div_bigint(a, b) {
-  if (b === 0n) throw new Error("division by zero");
+  if (b === 0n) $$throw("PANIC", "division by zero");
   return a / b;
 }
 function $$abs_bigint(x) { return x < 0n ? -x : x; }
@@ -1106,7 +1113,7 @@ fn codegen_builtin_function(func: &TypedFunction, path: &QualifiedPath) -> Strin
     let path_key = path.segments().join("::");
     let body = match path_key.as_str() {
         "root::panic" => {
-            "throw new Error(\"$$panic:\" + $message);".to_string()
+            "$$throw(\"PANIC\", $message);".to_string()
         }
         "root::json::parse" => {
             "try { return { $tag: \"Ok\", $0: $$json_to_zoya(JSON.parse($value)) }; } catch(_) { return { $tag: \"Err\", $0: { $tag: \"ParseError\" } }; }".to_string()

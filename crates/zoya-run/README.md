@@ -110,7 +110,7 @@ pub enum EnumValueFields {
 
 ```rust
 pub enum EvalError {
-    DivisionByZero,
+    Panic(String),
     RuntimeError(String),
 }
 ```

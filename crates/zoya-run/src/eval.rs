@@ -232,15 +232,25 @@ pub(crate) fn create_module_runtime(
 
 fn map_js_error(e: rquickjs::CaughtError<'_>) -> EvalError {
     let msg = e.to_string();
-    if let Some(idx) = msg.find("$$panic:") {
-        let start = idx + "$$panic:".len();
-        let rest = &msg[start..];
-        let panic_msg = rest.lines().next().unwrap_or(rest);
-        EvalError::Panic(panic_msg.to_string())
-    } else if msg.contains("division by zero") {
-        EvalError::DivisionByZero
+    if let Some((code, detail)) = parse_zoya_error(&msg) {
+        match code {
+            zoya_codegen::error_codes::PANIC => {
+                EvalError::Panic(detail.unwrap_or("explicit panic").to_string())
+            }
+            _ => EvalError::Panic(format!("unknown error code: {code}")),
+        }
     } else {
-        EvalError::RuntimeError(msg)
+        EvalError::Panic(msg)
+    }
+}
+
+fn parse_zoya_error(msg: &str) -> Option<(&str, Option<&str>)> {
+    let idx = msg.find(zoya_codegen::error_codes::MARKER)?;
+    let rest = &msg[idx + zoya_codegen::error_codes::MARKER.len()..];
+    let first_line = rest.lines().next().unwrap_or(rest);
+    match first_line.split_once(':') {
+        Some((code, detail)) => Some((code, Some(detail))),
+        None => Some((first_line, None)),
     }
 }
 
@@ -414,8 +424,6 @@ impl fmt::Display for Value {
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum EvalError {
-    #[error("division by zero")]
-    DivisionByZero,
     #[error("panic: {0}")]
     Panic(String),
     #[error("runtime error: {0}")]
@@ -434,7 +442,7 @@ fn js_value_to_value(
                 .get()
                 .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
             if !val.is_finite() {
-                return Err(EvalError::DivisionByZero);
+                return Err(EvalError::Panic("division by zero".to_string()));
             }
             Ok(Value::Int(val as i64))
         }
@@ -452,7 +460,7 @@ fn js_value_to_value(
                 .get()
                 .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
             if !val.is_finite() {
-                return Err(EvalError::DivisionByZero);
+                return Err(EvalError::Panic("division by zero".to_string()));
             }
             Ok(Value::Float(val))
         }
@@ -579,5 +587,48 @@ fn js_value_to_value(
                 fields,
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_zoya_error_panic_with_detail() {
+        let msg = "Error: $$zoya:PANIC:division by zero";
+        let (code, detail) = parse_zoya_error(msg).unwrap();
+        assert_eq!(code, "PANIC");
+        assert_eq!(detail, Some("division by zero"));
+    }
+
+    #[test]
+    fn test_parse_zoya_error_panic_without_detail() {
+        let msg = "Error: $$zoya:PANIC";
+        let (code, detail) = parse_zoya_error(msg).unwrap();
+        assert_eq!(code, "PANIC");
+        assert_eq!(detail, None);
+    }
+
+    #[test]
+    fn test_parse_zoya_error_no_marker() {
+        let msg = "TypeError: undefined is not a function";
+        assert!(parse_zoya_error(msg).is_none());
+    }
+
+    #[test]
+    fn test_parse_zoya_error_with_multiline() {
+        let msg = "Error: $$zoya:PANIC:something bad\n    at main (entry:1:1)";
+        let (code, detail) = parse_zoya_error(msg).unwrap();
+        assert_eq!(code, "PANIC");
+        assert_eq!(detail, Some("something bad"));
+    }
+
+    #[test]
+    fn test_parse_zoya_error_detail_with_colons() {
+        let msg = "$$zoya:PANIC:value: 42";
+        let (code, detail) = parse_zoya_error(msg).unwrap();
+        assert_eq!(code, "PANIC");
+        assert_eq!(detail, Some("value: 42"));
     }
 }
