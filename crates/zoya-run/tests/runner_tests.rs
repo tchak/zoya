@@ -6118,7 +6118,7 @@ fn test_entry_error_on_function_with_parameters() {
     );
 }
 
-// ── test_path integration tests ──────────────────────────────────────
+// ── Runner::test() integration tests ────────────────────────────────
 
 #[test]
 fn test_test_path_all_pass() {
@@ -6136,7 +6136,7 @@ fn test_test_path_all_pass() {
     )
     .unwrap();
 
-    let report = zoya_run::test_path(&file).unwrap();
+    let report = zoya_run::Runner::new().test(&file).unwrap().run().unwrap();
     assert_eq!(report.total(), 2);
     assert_eq!(report.passed(), 2);
     assert_eq!(report.failed(), 0);
@@ -6159,7 +6159,7 @@ fn test_test_path_mix_pass_fail() {
     )
     .unwrap();
 
-    let report = zoya_run::test_path(&file).unwrap();
+    let report = zoya_run::Runner::new().test(&file).unwrap().run().unwrap();
     assert_eq!(report.total(), 2);
     assert_eq!(report.passed(), 1);
     assert_eq!(report.failed(), 1);
@@ -6172,7 +6172,7 @@ fn test_test_path_no_tests() {
     let file = dir.path().join("test.zy");
     std::fs::write(&file, "pub fn main() -> Int { 42 }").unwrap();
 
-    let report = zoya_run::test_path(&file).unwrap();
+    let report = zoya_run::Runner::new().test(&file).unwrap().run().unwrap();
     assert_eq!(report.total(), 0);
     assert!(report.is_success());
 }
@@ -6190,7 +6190,7 @@ fn test_test_path_result_err_fails() {
     )
     .unwrap();
 
-    let report = zoya_run::test_path(&file).unwrap();
+    let report = zoya_run::Runner::new().test(&file).unwrap().run().unwrap();
     assert_eq!(report.total(), 1);
     assert_eq!(report.failed(), 1);
     assert!(!report.is_success());
@@ -6216,7 +6216,7 @@ fn test_test_path_result_ok_passes() {
     )
     .unwrap();
 
-    let report = zoya_run::test_path(&file).unwrap();
+    let report = zoya_run::Runner::new().test(&file).unwrap().run().unwrap();
     assert_eq!(report.total(), 1);
     assert_eq!(report.passed(), 1);
     assert!(report.is_success());

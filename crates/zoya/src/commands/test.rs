@@ -1,43 +1,82 @@
 use std::path::Path;
 
 use console::{Term, style};
-use zoya_run::{EvalError, test_path};
+use zoya_run::{EvalError, Runner};
 
 /// Run all `#[test]` functions in a Zoya package or file
 pub fn execute(path: &Path) -> Result<(), EvalError> {
-    let report = test_path(path)?;
     let term = Term::stderr();
+    let runner = Runner::new().test(path)?;
 
-    if report.total() == 0 {
+    if runner.tests.is_empty() {
         term.write_line(&format!("{}", style("no tests found").yellow()))
             .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
         return Ok(());
     }
 
-    for result in &report.results {
-        let display_path = format_test_path(result.path.segments());
+    let is_term = term.is_term();
+    let test_count = runner.tests.len();
+
+    // Show all tests as pending upfront (only when interactive)
+    if is_term {
+        for p in &runner.tests {
+            term.write_line(&format!(
+                " {}  {}",
+                style("····").dim(),
+                style(format_test_path(p.segments())).dim()
+            ))
+            .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+        }
+        term.move_cursor_up(test_count)
+            .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+    }
+
+    // Execute, overwriting each line as results arrive
+    let report = runner.execute(|result| {
+        let display = format_test_path(result.path.segments());
+        if is_term {
+            let _ = term.clear_line();
+        }
         match &result.outcome {
             Ok(()) => {
-                term.write_line(&format!(
+                let _ = term.write_line(&format!(
                     " {}  {}",
                     style("PASS").green().bold(),
-                    style(&display_path).bold()
-                ))
-                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+                    style(&display).bold()
+                ));
             }
-            Err(msg) => {
-                term.write_line(&format!(
+            Err(_) => {
+                let _ = term.write_line(&format!(
                     " {}  {}",
                     style("FAIL").red().bold(),
-                    style(&display_path).bold()
-                ))
-                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-                term.write_line(&format!("       {}", style(msg).red().dim()))
-                    .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+                    style(&display).bold()
+                ));
             }
+        }
+    })?;
+
+    // Failure details (after all tests)
+    let failures: Vec<_> = report
+        .results
+        .iter()
+        .filter_map(|r| r.outcome.as_ref().err().map(|msg| (r, msg)))
+        .collect();
+    if !failures.is_empty() {
+        term.write_line("")
+            .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+        term.write_line(&format!("{}", style("failures:").red().bold()))
+            .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+        for (r, msg) in &failures {
+            term.write_line(&format!(
+                "  {}: {}",
+                style(format_test_path(r.path.segments())).bold(),
+                style(msg).red().dim()
+            ))
+            .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
         }
     }
 
+    // Summary
     term.write_line("")
         .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
 

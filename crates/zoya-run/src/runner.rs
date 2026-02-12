@@ -53,6 +53,29 @@ impl Runner {
         }
     }
 
+    /// Load, check, and discover tests in a `.zy` file or package.
+    pub fn test(self, path: &Path) -> Result<TestRunner, EvalError> {
+        let std = zoya_std::std();
+        let package = load_package(path, zoya_loader::Mode::Test)
+            .map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?;
+        let checked =
+            check(&package, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+
+        let mut tests: Vec<QualifiedPath> = checked
+            .items
+            .iter()
+            .filter(|(_, func)| func.is_test)
+            .map(|(path, _)| path.clone())
+            .collect();
+        tests.sort_by_key(|a| a.to_string());
+
+        Ok(TestRunner {
+            tests,
+            checked,
+            std,
+        })
+    }
+
     /// Load, check, and run source code from a string.
     pub fn source(self, source: &str) -> SourceRunner {
         SourceRunner {
@@ -178,35 +201,30 @@ impl TestReport {
     }
 }
 
-/// Load, check, and run all `#[test]` functions in a `.zy` file or package (convenience function).
-pub fn test_path(path: &Path) -> Result<TestReport, EvalError> {
-    let std = zoya_std::std();
-    let package = load_package(path, zoya_loader::Mode::Test)
-        .map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?;
-    let checked = check(&package, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-    test_checked(&checked, &[std])
+/// A test run: tests discovered, ready to execute.
+pub struct TestRunner {
+    pub tests: Vec<QualifiedPath>,
+    checked: CheckedPackage,
+    std: &'static CheckedPackage,
 }
 
-/// Run all `#[test]` functions in a checked package.
-fn test_checked(
-    package: &CheckedPackage,
-    deps: &[&CheckedPackage],
-) -> Result<TestReport, EvalError> {
-    let mut test_paths: Vec<QualifiedPath> = package
-        .items
-        .iter()
-        .filter(|(_, func)| func.is_test)
-        .map(|(path, _)| path.clone())
-        .collect();
-    test_paths.sort_by_key(|a| a.to_string());
-
-    let mut results = Vec::new();
-    for path in test_paths {
-        let outcome = run_single_test(package, deps, &path);
-        results.push(TestResult { path, outcome });
+impl TestRunner {
+    /// Run all tests, returning a report.
+    pub fn run(self) -> Result<TestReport, EvalError> {
+        self.execute(|_| {})
     }
 
-    Ok(TestReport { results })
+    /// Run all tests, calling `on_result` after each one completes.
+    pub fn execute(self, mut on_result: impl FnMut(&TestResult)) -> Result<TestReport, EvalError> {
+        let mut results = Vec::new();
+        for path in self.tests {
+            let outcome = run_single_test(&self.checked, &[self.std], &path);
+            let result = TestResult { path, outcome };
+            on_result(&result);
+            results.push(result);
+        }
+        Ok(TestReport { results })
+    }
 }
 
 /// Run a single test function and interpret its result.
