@@ -5824,6 +5824,21 @@ fn test_run_panic_with_bool_return_type() {
 }
 
 #[test]
+fn test_run_panic_in_let_wildcard() {
+    let source = r#"
+        pub fn main() -> Int {
+            let _ = panic("oops");
+            42
+        }
+    "#;
+    let result = run_source(source);
+    assert!(matches!(
+        result,
+        Err(EvalError::Panic(msg)) if msg == "oops"
+    ));
+}
+
+#[test]
 fn test_run_panic_in_match_arm() {
     let source = r#"
         pub fn main() -> Int {
