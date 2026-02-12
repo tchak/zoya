@@ -1,4 +1,8 @@
-use zoya_ast::{Attribute, Expr, FunctionDef, Item, StructDef, StructKind, Visibility};
+use zoya_ast::{
+    Attribute, Expr, FunctionDef, Item, Param, Path, Pattern, StructDef, StructKind,
+    TypeAnnotation, Visibility,
+};
+use zoya_package::QualifiedPath;
 
 use crate::check::check;
 
@@ -16,7 +20,7 @@ fn test_test_attr_on_fn_is_valid() {
         type_params: vec![],
         params: vec![],
         return_type: None,
-        body: Expr::Int(42),
+        body: Expr::Tuple(vec![]),
     })];
     let pkg = build_test_package(items);
     let result = check(&pkg, &[]);
@@ -93,4 +97,91 @@ fn test_unknown_attr_on_fn_is_silently_discarded() {
     let pkg = build_test_package(items);
     let result = check(&pkg, &[]);
     assert!(result.is_ok());
+}
+
+#[test]
+fn test_test_attr_with_params_is_error() {
+    let items = vec![Item::Function(FunctionDef {
+        attributes: vec![Attribute {
+            name: "test".to_string(),
+            args: None,
+        }],
+        visibility: Visibility::Public,
+        name: "test_bad".to_string(),
+        type_params: vec![],
+        params: vec![Param {
+            pattern: Pattern::Path(Path::simple("x".to_string())),
+            typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
+        }],
+        return_type: None,
+        body: Expr::Tuple(vec![]),
+    })];
+    let pkg = build_test_package(items);
+    let err = check(&pkg, &[]).unwrap_err();
+    assert!(err.message.contains("cannot have parameters"));
+}
+
+#[test]
+fn test_test_attr_wrong_return_type_is_error() {
+    let items = vec![Item::Function(FunctionDef {
+        attributes: vec![Attribute {
+            name: "test".to_string(),
+            args: None,
+        }],
+        visibility: Visibility::Public,
+        name: "test_bad".to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: None,
+        body: Expr::Int(42),
+    })];
+    let pkg = build_test_package(items);
+    let err = check(&pkg, &[]).unwrap_err();
+    assert!(err.message.contains("must return () or Result"));
+}
+
+#[test]
+fn test_builtin_and_test_conflict_is_error() {
+    let items = vec![Item::Function(FunctionDef {
+        attributes: vec![
+            Attribute {
+                name: "builtin".to_string(),
+                args: None,
+            },
+            Attribute {
+                name: "test".to_string(),
+                args: None,
+            },
+        ],
+        visibility: Visibility::Public,
+        name: "test_bad".to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: None,
+        body: Expr::Tuple(vec![]),
+    })];
+    let pkg = build_test_package(items);
+    let err = check(&pkg, &[]).unwrap_err();
+    assert!(err.message.contains("cannot have both"));
+}
+
+#[test]
+fn test_test_fn_has_is_test_flag() {
+    let items = vec![Item::Function(FunctionDef {
+        attributes: vec![Attribute {
+            name: "test".to_string(),
+            args: None,
+        }],
+        visibility: Visibility::Public,
+        name: "test_something".to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: None,
+        body: Expr::Tuple(vec![]),
+    })];
+    let pkg = build_test_package(items);
+    let checked = check(&pkg, &[]).unwrap();
+    let path = QualifiedPath::root().child("test_something");
+    let func = checked.items.get(&path).unwrap();
+    assert!(func.is_test);
 }

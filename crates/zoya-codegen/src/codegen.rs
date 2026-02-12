@@ -1430,6 +1430,7 @@ mod tests {
             },
             return_type: Type::Int,
             is_builtin: false,
+            is_test: false,
         };
         assert_eq!(
             codegen_function(&func, &QualifiedPath::root().child(&func.name)),
@@ -1471,6 +1472,7 @@ mod tests {
             },
             return_type: Type::Int,
             is_builtin: false,
+            is_test: false,
         };
         assert_eq!(
             codegen_function(&func, &QualifiedPath::root().child(&func.name)),
@@ -1486,6 +1488,7 @@ mod tests {
             body: TypedExpr::Int(42),
             return_type: Type::Int,
             is_builtin: false,
+            is_test: false,
         };
         assert_eq!(
             codegen_function(&func, &QualifiedPath::root().child(&func.name)),
@@ -1515,6 +1518,7 @@ mod tests {
             },
             return_type: Type::BigInt,
             is_builtin: false,
+            is_test: false,
         };
         assert_eq!(
             codegen_function(&func, &QualifiedPath::root().child(&func.name)),

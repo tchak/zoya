@@ -11,6 +11,7 @@ pub struct TypedFunction {
     pub body: TypedExpr,
     pub return_type: Type,
     pub is_builtin: bool,
+    pub is_test: bool,
 }
 
 /// Typed let binding

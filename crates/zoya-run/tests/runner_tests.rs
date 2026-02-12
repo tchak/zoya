@@ -6024,13 +6024,13 @@ fn test_run_dev_mode_strips_test_fn() {
 fn test_run_test_mode_retains_test_fn() {
     let source = r#"
         #[test]
-        fn test_helper() -> Int { 99 }
-        pub fn main() -> Int { test_helper() }
+        fn test_helper() { () }
+        pub fn main() -> () { test_helper() }
     "#;
     let result = Runner::new()
         .source(source)
         .mode(zoya_loader::Mode::Test)
         .run()
         .unwrap();
-    assert_eq!(result, Value::Int(99));
+    assert_eq!(result, Value::Tuple(vec![]));
 }

@@ -133,8 +133,23 @@ fn check_function(
         typed_params.push((typed_pattern, ctx.resolve(&ty)));
     }
 
-    // Check for #[builtin] attribute
+    // Check for #[builtin] and #[test] attributes
     let is_builtin = func.attributes.iter().any(|a| a.name == "builtin");
+    let is_test = func.attributes.iter().any(|a| a.name == "test");
+
+    // Validate: #[builtin] and #[test] are mutually exclusive
+    if is_builtin && is_test {
+        return Err(TypeError {
+            message: "a function cannot have both #[builtin] and #[test] attributes".to_string(),
+        });
+    }
+
+    // Validate: #[test] functions cannot have parameters
+    if is_test && !func.params.is_empty() {
+        return Err(TypeError {
+            message: format!("#[test] function '{}' cannot have parameters", func.name),
+        });
+    }
 
     if is_builtin {
         // Validate: only allowed in std package
@@ -174,6 +189,7 @@ fn check_function(
             body: typed_body,
             return_type: ctx.resolve(&declared_return),
             is_builtin: true,
+            is_test: false,
         });
     }
 
@@ -205,12 +221,31 @@ fn check_function(
         body_type
     };
 
+    // Validate: #[test] functions must return () or Result
+    if is_test {
+        let resolved = ctx.resolve(&return_type);
+        let valid = match &resolved {
+            Type::Tuple(elems) if elems.is_empty() => true,
+            Type::Enum { name, .. } if name == "Result" => true,
+            _ => false,
+        };
+        if !valid {
+            return Err(TypeError {
+                message: format!(
+                    "#[test] function '{}' must return () or Result, but returns {}",
+                    func.name, resolved
+                ),
+            });
+        }
+    }
+
     Ok(TypedFunction {
         name: func.name.clone(),
         params: typed_params,
         body: typed_body,
         return_type: ctx.resolve(&return_type),
         is_builtin: false,
+        is_test,
     })
 }
 

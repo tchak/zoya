@@ -210,10 +210,17 @@ The `#[test]` attribute marks a function as test-only. Test functions are exclud
 
 ```zoya
 #[test]
-fn test_addition() -> Bool {
-    1 + 1 == 2
+fn test_addition() {
+    let result = 1 + 1;
+    ()
 }
 ```
+
+Test functions have the following constraints:
+
+- **No parameters** — test functions must be parameterless.
+- **Return type** — test functions must return `()` (unit) or `Result`. No other return types are allowed.
+- **No `#[builtin]`** — a function cannot have both `#[builtin]` and `#[test]` attributes.
 
 The `#[test]` attribute is only valid on function definitions. Using it on structs, enums, type aliases, or use declarations is a type error. Using it on module declarations is a loader error — use `#[mode(test)]` instead.
 
