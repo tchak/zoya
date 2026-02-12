@@ -1,13 +1,16 @@
 use std::path::Path;
 
+use console::{Term, style};
 use zoya_run::{EvalError, test_path};
 
 /// Run all `#[test]` functions in a Zoya package or file
 pub fn execute(path: &Path) -> Result<(), EvalError> {
     let report = test_path(path)?;
+    let term = Term::stderr();
 
     if report.total() == 0 {
-        eprintln!("no tests found");
+        term.write_line(&format!("{}", style("no tests found").yellow()))
+            .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
         return Ok(());
     }
 
@@ -15,25 +18,43 @@ pub fn execute(path: &Path) -> Result<(), EvalError> {
         let display_path = format_test_path(result.path.segments());
         match &result.outcome {
             Ok(()) => {
-                eprintln!("  PASS  {display_path}");
+                term.write_line(&format!(
+                    " {}  {}",
+                    style("PASS").green().bold(),
+                    style(&display_path).bold()
+                ))
+                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
             }
             Err(msg) => {
-                eprintln!("  FAIL  {display_path}");
-                eprintln!("        {msg}");
+                term.write_line(&format!(
+                    " {}  {}",
+                    style("FAIL").red().bold(),
+                    style(&display_path).bold()
+                ))
+                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+                term.write_line(&format!("       {}", style(msg).red().dim()))
+                    .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
             }
         }
     }
 
-    eprintln!();
+    term.write_line("")
+        .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+
     if report.is_success() {
-        eprintln!("test result: ok. {} passed, 0 failed", report.passed());
+        term.write_line(&format!(
+            "  {}",
+            style(format!("{} passed", report.passed())).green().bold()
+        ))
+        .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
         Ok(())
     } else {
-        eprintln!(
-            "test result: FAILED. {} passed, {} failed",
-            report.passed(),
-            report.failed()
-        );
+        term.write_line(&format!(
+            "  {}, {}",
+            style(format!("{} passed", report.passed())).green(),
+            style(format!("{} failed", report.failed())).red().bold()
+        ))
+        .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
         Err(EvalError::RuntimeError(format!(
             "{} test(s) failed",
             report.failed()
