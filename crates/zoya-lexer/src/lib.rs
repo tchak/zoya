@@ -114,11 +114,17 @@ pub enum Token {
     #[token("-")]
     Minus,
 
+    #[token("**")]
+    StarStar,
+
     #[token("*")]
     Star,
 
     #[token("/")]
     Slash,
+
+    #[token("%")]
+    Percent,
 
     #[token("->")]
     Arrow,
@@ -272,11 +278,36 @@ mod tests {
 
     #[test]
     fn test_all_operators() {
-        let toks = toks("+ - * /");
+        let toks = toks("+ - * / % **");
         assert_eq!(
             toks,
-            vec![Token::Plus, Token::Minus, Token::Star, Token::Slash]
+            vec![
+                Token::Plus,
+                Token::Minus,
+                Token::Star,
+                Token::Slash,
+                Token::Percent,
+                Token::StarStar,
+            ]
         );
+    }
+
+    #[test]
+    fn test_star_star_token() {
+        let toks = toks("2 ** 3");
+        assert_eq!(toks, vec![Token::Int(2), Token::StarStar, Token::Int(3)]);
+    }
+
+    #[test]
+    fn test_percent_token() {
+        let toks = toks("10 % 3");
+        assert_eq!(toks, vec![Token::Int(10), Token::Percent, Token::Int(3)]);
+    }
+
+    #[test]
+    fn test_star_vs_star_star() {
+        let toks = toks("* ** *");
+        assert_eq!(toks, vec![Token::Star, Token::StarStar, Token::Star]);
     }
 
     #[test]

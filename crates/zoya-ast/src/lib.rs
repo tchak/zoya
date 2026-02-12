@@ -450,6 +450,8 @@ pub enum BinOp {
     Sub,
     Mul,
     Div,
+    Mod,
+    Pow,
     // Comparison operators
     Eq,
     Ne,

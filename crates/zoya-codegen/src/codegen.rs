@@ -27,6 +27,18 @@ const DIV_CHECK_FN: &str = "$$div";
 /// BigInt division by zero check function name used in generated JS
 const DIV_BIGINT_CHECK_FN: &str = "$$div_bigint";
 
+/// Modulo by zero check function name used in generated JS
+const MOD_CHECK_FN: &str = "$$mod";
+
+/// BigInt modulo by zero check function name used in generated JS
+const MOD_BIGINT_CHECK_FN: &str = "$$mod_bigint";
+
+/// Power with negative exponent check function name used in generated JS
+const POW_CHECK_FN: &str = "$$pow";
+
+/// BigInt power with negative exponent check function name used in generated JS
+const POW_BIGINT_CHECK_FN: &str = "$$pow_bigint";
+
 /// BigInt absolute value function name used in generated JS
 const ABS_BIGINT_FN: &str = "$$abs_bigint";
 
@@ -58,6 +70,22 @@ function $$div(a, b) {
 function $$div_bigint(a, b) {
   if (b === 0n) $$throw("PANIC", "division by zero");
   return a / b;
+}
+function $$mod(a, b) {
+  if (b === 0) $$throw("PANIC", "modulo by zero");
+  return a % b;
+}
+function $$mod_bigint(a, b) {
+  if (b === 0n) $$throw("PANIC", "modulo by zero");
+  return a % b;
+}
+function $$pow(a, b) {
+  if (b < 0) $$throw("PANIC", "negative exponent");
+  return a ** b;
+}
+function $$pow_bigint(a, b) {
+  if (b < 0n) $$throw("PANIC", "negative exponent");
+  return a ** b;
 }
 function $$abs_bigint(x) { return x < 0n ? -x : x; }
 function $$min_bigint(a, b) { return a < b ? a : b; }
@@ -862,6 +890,26 @@ fn codegen_expr(expr: &TypedExpr) -> String {
                 return format!("{}({}, {})", DIV_BIGINT_CHECK_FN, l, r);
             }
 
+            // Handle Int modulo with modulo by zero check
+            if *op == BinOp::Mod && *ty == Type::Int {
+                return format!("{}({}, {})", MOD_CHECK_FN, l, r);
+            }
+
+            // Handle BigInt modulo with modulo by zero check
+            if *op == BinOp::Mod && *ty == Type::BigInt {
+                return format!("{}({}, {})", MOD_BIGINT_CHECK_FN, l, r);
+            }
+
+            // Handle Int power with negative exponent check
+            if *op == BinOp::Pow && *ty == Type::Int {
+                return format!("{}({}, {})", POW_CHECK_FN, l, r);
+            }
+
+            // Handle BigInt power with negative exponent check
+            if *op == BinOp::Pow && *ty == Type::BigInt {
+                return format!("{}({}, {})", POW_BIGINT_CHECK_FN, l, r);
+            }
+
             let l = if is_safe_operand(left) {
                 l
             } else {
@@ -877,6 +925,8 @@ fn codegen_expr(expr: &TypedExpr) -> String {
                 BinOp::Sub => "-",
                 BinOp::Mul => "*",
                 BinOp::Div => "/",
+                BinOp::Mod => "%",
+                BinOp::Pow => "**",
                 BinOp::Eq => "===",
                 BinOp::Ne => "!==",
                 BinOp::Lt => "<",

@@ -6311,3 +6311,131 @@ fn test_list_spread_with_function_call() {
         Value::List(vec![Value::Int(2), Value::Int(4), Value::Int(6)])
     );
 }
+
+// ===== Modulo operator tests =====
+
+#[test]
+fn test_modulo_int() {
+    let source = "pub fn main() -> Int { 10 % 3 }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(1));
+}
+
+#[test]
+fn test_modulo_int_negative() {
+    let source = "pub fn main() -> Int { -7 % 3 }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(-1));
+}
+
+#[test]
+fn test_modulo_float() {
+    let source = "pub fn main() -> Float { 10.5 % 3.0 }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Float(1.5));
+}
+
+#[test]
+fn test_modulo_bigint() {
+    let source = "pub fn main() -> BigInt { 10n % 3n }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::BigInt(1));
+}
+
+#[test]
+fn test_modulo_by_zero() {
+    let source = "pub fn main() -> Int { 10 % 0 }";
+    let result = run_source(source);
+    assert!(
+        matches!(result, Err(EvalError::Panic(ref msg)) if msg == "modulo by zero"),
+        "expected Panic(\"modulo by zero\"), got: {:?}",
+        result
+    );
+}
+
+#[test]
+fn test_modulo_bigint_by_zero() {
+    let source = "pub fn main() -> BigInt { 10n % 0n }";
+    let result = run_source(source);
+    assert!(
+        matches!(result, Err(EvalError::Panic(ref msg)) if msg == "modulo by zero"),
+        "expected Panic(\"modulo by zero\"), got: {:?}",
+        result
+    );
+}
+
+// ===== Power operator tests =====
+
+#[test]
+fn test_power_int() {
+    let source = "pub fn main() -> Int { 2 ** 10 }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(1024));
+}
+
+#[test]
+fn test_power_float() {
+    let source = "pub fn main() -> Float { 2.0 ** 3.0 }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Float(8.0));
+}
+
+#[test]
+fn test_power_bigint() {
+    let source = "pub fn main() -> BigInt { 2n ** 10n }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::BigInt(1024));
+}
+
+#[test]
+fn test_power_right_associative() {
+    // 2 ** 3 ** 2 = 2 ** (3 ** 2) = 2 ** 9 = 512
+    let source = "pub fn main() -> Int { 2 ** 3 ** 2 }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(512));
+}
+
+#[test]
+fn test_power_precedence() {
+    // 2 * 3 ** 2 = 2 * (3 ** 2) = 2 * 9 = 18
+    let source = "pub fn main() -> Int { 2 * 3 ** 2 }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(18));
+}
+
+#[test]
+fn test_power_negative_exponent() {
+    let source = "pub fn main() -> Int { 2 ** -1 }";
+    let result = run_source(source);
+    assert!(
+        matches!(result, Err(EvalError::Panic(ref msg)) if msg == "negative exponent"),
+        "expected Panic(\"negative exponent\"), got: {:?}",
+        result
+    );
+}
+
+#[test]
+fn test_power_bigint_negative_exponent() {
+    let source = "pub fn main() -> BigInt { 2n ** -1n }";
+    let result = run_source(source);
+    assert!(
+        matches!(result, Err(EvalError::Panic(ref msg)) if msg == "negative exponent"),
+        "expected Panic(\"negative exponent\"), got: {:?}",
+        result
+    );
+}
+
+#[test]
+fn test_power_zero_exponent() {
+    let source = "pub fn main() -> Int { 5 ** 0 }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(1));
+}
+
+#[test]
+fn test_modulo_precedence_same_as_mul() {
+    // 2 + 10 % 3 = 2 + (10 % 3) = 2 + 1 = 3
+    let source = "pub fn main() -> Int { 2 + 10 % 3 }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(3));
+}

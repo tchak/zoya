@@ -431,10 +431,45 @@ pub(crate) fn expr_parser<'a>()
 
         let op = |t: Token, op: BinOp| just(t).to(op);
 
-        let product = unary.clone().foldl(
-            choice((op(Token::Star, BinOp::Mul), op(Token::Slash, BinOp::Div)))
-                .then(unary)
-                .repeated(),
+        // Power: right-associative, highest binary precedence
+        let power = unary
+            .clone()
+            .then(
+                op(Token::StarStar, BinOp::Pow)
+                    .then(unary.clone())
+                    .repeated()
+                    .collect::<Vec<_>>(),
+            )
+            .map(|(first, rest)| {
+                if rest.is_empty() {
+                    return first;
+                }
+                let mut items = vec![first];
+                let mut ops = vec![];
+                for (o, expr) in rest {
+                    ops.push(o);
+                    items.push(expr);
+                }
+                // fold right: 2 ** 3 ** 2 = 2 ** (3 ** 2) = 512
+                let mut result = items.pop().unwrap();
+                while let Some(expr) = items.pop() {
+                    result = Expr::BinOp {
+                        op: ops.pop().unwrap(),
+                        left: Box::new(expr),
+                        right: Box::new(result),
+                    };
+                }
+                result
+            });
+
+        let product = power.clone().foldl(
+            choice((
+                op(Token::Star, BinOp::Mul),
+                op(Token::Slash, BinOp::Div),
+                op(Token::Percent, BinOp::Mod),
+            ))
+            .then(power)
+            .repeated(),
             |left, (op, right)| Expr::BinOp {
                 op,
                 left: Box::new(left),

@@ -240,12 +240,14 @@ Negation works on `Int`, `BigInt`, and `Float`.
 binary_expr ::= expr op expr
 ```
 
-All binary operators are left-associative.
+All binary operators are left-associative, except `**` (power) which is right-associative.
 
 | Operator | Description |
 |----------|-------------|
+| `**` | Exponentiation |
 | `*` | Multiplication |
 | `/` | Division |
+| `%` | Modulo (remainder) |
 | `+` | Addition |
 | `-` | Subtraction |
 | `==` | Equal |
@@ -255,7 +257,14 @@ All binary operators are left-associative.
 | `<=` | Less or equal |
 | `>=` | Greater or equal |
 
-Arithmetic operators (`+`, `-`, `*`, `/`) require both operands to have the same numeric type (`Int`, `BigInt`, or `Float`). Comparison operators (`<`, `>`, `<=`, `>=`) work on numeric types. Equality operators (`==`, `!=`) work on all types.
+Arithmetic operators (`+`, `-`, `*`, `/`, `%`, `**`) require both operands to have the same numeric type (`Int`, `BigInt`, or `Float`). Comparison operators (`<`, `>`, `<=`, `>=`) work on numeric types. Equality operators (`==`, `!=`) work on all types.
+
+**Runtime panics:**
+- `/` and `%` with `Int` or `BigInt` operands panic on zero divisor ("division by zero", "modulo by zero").
+- `**` with `Int` or `BigInt` operands panics on negative exponent ("negative exponent"), since integer exponentiation with negative powers would produce fractional results.
+- `Float` operations do not panic (they follow IEEE 754 semantics).
+
+**Modulo semantics:** `%` computes the remainder (like Rust/JavaScript `%`), so `-7 % 3 == -1`.
 
 ### Operator Precedence
 
@@ -264,14 +273,18 @@ From highest to lowest:
 | Precedence | Operators | Associativity |
 |------------|-----------|---------------|
 | 1 | `-` (unary) | Right |
-| 2 | `*`, `/` | Left |
-| 3 | `+`, `-` | Left |
-| 4 | `==`, `!=`, `<`, `>`, `<=`, `>=` | Left |
+| 2 | `**` | Right |
+| 3 | `*`, `/`, `%` | Left |
+| 4 | `+`, `-` | Left |
+| 5 | `==`, `!=`, `<`, `>`, `<=`, `>=` | Left |
 
 ```zoya
 1 + 2 * 3       // 1 + (2 * 3) = 7
 -x * y          // (-x) * y
 a + b == c + d  // (a + b) == (c + d)
+2 ** 3 ** 2     // 2 ** (3 ** 2) = 512 (right-associative)
+2 * 3 ** 2      // 2 * (3 ** 2) = 18
+10 % 3          // 1
 ```
 
 ## Lambda Expressions

@@ -929,6 +929,8 @@ fn check_bin_op(
         BinOp::Sub => "-",
         BinOp::Mul => "*",
         BinOp::Div => "/",
+        BinOp::Mod => "%",
+        BinOp::Pow => "**",
         BinOp::Eq => "==",
         BinOp::Ne => "!=",
         BinOp::Lt => "<",
@@ -952,7 +954,7 @@ fn check_bin_op(
     let result_ty = match op {
         // Arithmetic operators: only work on numeric types, result has same type as operands
         // Type variables are allowed through (they may resolve to numeric types later via unification)
-        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => {
+        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Pow => {
             if !is_numeric_type(&resolved_ty) && !matches!(resolved_ty, Type::Var(_)) {
                 return Err(TypeError {
                     message: format!(

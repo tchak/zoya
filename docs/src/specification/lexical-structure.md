@@ -110,7 +110,9 @@ Boolean literals are the keywords `true` and `false`.
 | `+` | Plus |
 | `-` | Minus |
 | `*` | Star |
+| `**` | Power |
 | `/` | Slash |
+| `%` | Percent |
 | `==` | Equal |
 | `!=` | Not Equal |
 | `<` | Less Than |

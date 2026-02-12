@@ -540,7 +540,8 @@ fn fmt_unary_op(op: UnaryOp, expr: &Expr) -> RcDoc<'static> {
 
 fn binop_precedence(op: BinOp) -> u8 {
     match op {
-        BinOp::Mul | BinOp::Div => 3,
+        BinOp::Pow => 4,
+        BinOp::Mul | BinOp::Div | BinOp::Mod => 3,
         BinOp::Add | BinOp::Sub => 2,
         BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => 1,
     }
@@ -552,6 +553,8 @@ fn binop_str(op: BinOp) -> &'static str {
         BinOp::Sub => "-",
         BinOp::Mul => "*",
         BinOp::Div => "/",
+        BinOp::Mod => "%",
+        BinOp::Pow => "**",
         BinOp::Eq => "==",
         BinOp::Ne => "!=",
         BinOp::Lt => "<",
@@ -561,8 +564,13 @@ fn binop_str(op: BinOp) -> &'static str {
     }
 }
 
+fn is_right_associative(op: BinOp) -> bool {
+    matches!(op, BinOp::Pow)
+}
+
 fn fmt_bin_op(op: BinOp, left: &Expr, right: &Expr, parent_prec: u8) -> RcDoc<'static> {
     let prec = binop_precedence(op);
+    let right_assoc = is_right_associative(op);
     let left_doc = match left {
         Expr::BinOp {
             op: child_op,
@@ -570,7 +578,8 @@ fn fmt_bin_op(op: BinOp, left: &Expr, right: &Expr, parent_prec: u8) -> RcDoc<'s
             right: cr,
         } => {
             let child_prec = binop_precedence(*child_op);
-            if child_prec < prec {
+            // For right-associative ops, left child at same precedence needs parens
+            if child_prec < prec || (right_assoc && child_prec == prec) {
                 RcDoc::text("(")
                     .append(fmt_bin_op(*child_op, cl, cr, 0))
                     .append(RcDoc::text(")"))
@@ -587,8 +596,8 @@ fn fmt_bin_op(op: BinOp, left: &Expr, right: &Expr, parent_prec: u8) -> RcDoc<'s
             right: cr,
         } => {
             let child_prec = binop_precedence(*child_op);
-            // Parenthesize if child has lower precedence OR same precedence (left-assoc)
-            if child_prec <= prec {
+            // For right-associative ops, right child at same precedence does NOT need parens
+            if child_prec < prec || (!right_assoc && child_prec == prec) {
                 RcDoc::text("(")
                     .append(fmt_bin_op(*child_op, cl, cr, 0))
                     .append(RcDoc::text(")"))
