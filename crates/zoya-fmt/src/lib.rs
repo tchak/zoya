@@ -212,6 +212,33 @@ mod tests {
     }
 
     #[test]
+    fn test_annotation_with_args() {
+        let result = format_source("#[mode(test)] fn foo() 42");
+        assert_eq!(result, "#[mode(test)]\nfn foo() 42\n");
+    }
+
+    #[test]
+    fn test_annotation_with_multiple_args() {
+        let result = format_source("#[mode(test, foo)] fn foo() 42");
+        assert_eq!(result, "#[mode(test, foo)]\nfn foo() 42\n");
+    }
+
+    #[test]
+    fn test_annotation_with_empty_args() {
+        let result = format_source("#[mode()] fn foo() 42");
+        assert_eq!(result, "#[mode()]\nfn foo() 42\n");
+    }
+
+    #[test]
+    fn test_annotation_with_args_idempotent() {
+        let source = "#[mode(test, foo)]\nfn foo() 42";
+        let result = format_source(source);
+        assert_eq!(result, "#[mode(test, foo)]\nfn foo() 42\n");
+        let result2 = format_source(&result);
+        assert_eq!(result, result2);
+    }
+
+    #[test]
     fn test_annotation_idempotent() {
         let source = "#[test]\n#[inline]\npub fn foo() 42";
         let result = format_source(source);

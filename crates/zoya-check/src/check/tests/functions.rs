@@ -660,6 +660,7 @@ fn test_builtin_not_allowed_outside_std() {
     let func = FunctionDef {
         attributes: vec![Attribute {
             name: "builtin".to_string(),
+            args: None,
         }],
         visibility: Visibility::Public,
         name: "my_builtin".to_string(),
@@ -684,6 +685,7 @@ fn test_builtin_requires_explicit_return_type() {
     let func = FunctionDef {
         attributes: vec![Attribute {
             name: "builtin".to_string(),
+            args: None,
         }],
         visibility: Visibility::Public,
         name: "my_builtin".to_string(),
@@ -705,6 +707,7 @@ fn test_builtin_requires_unit_body() {
     let func = FunctionDef {
         attributes: vec![Attribute {
             name: "builtin".to_string(),
+            args: None,
         }],
         visibility: Visibility::Public,
         name: "my_builtin".to_string(),
@@ -726,6 +729,7 @@ fn test_builtin_valid_in_std() {
     let func = FunctionDef {
         attributes: vec![Attribute {
             name: "builtin".to_string(),
+            args: None,
         }],
         visibility: Visibility::Public,
         name: "my_builtin".to_string(),

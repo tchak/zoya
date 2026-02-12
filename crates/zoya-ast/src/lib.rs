@@ -166,10 +166,11 @@ pub struct TypeAliasDef {
     pub typ: TypeAnnotation,
 }
 
-/// An annotation: `#[name]`
+/// An annotation: `#[name]` or `#[name(args...)]`
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attribute {
     pub name: String,
+    pub args: Option<Vec<String>>,
 }
 
 /// Visibility of an item

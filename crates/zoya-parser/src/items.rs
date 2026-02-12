@@ -14,9 +14,20 @@ use crate::types::type_annotation;
 
 pub(crate) fn attribute_parser<'a>()
 -> impl Parser<'a, &'a [Token], Attribute, extra::Err<Rich<'a, Token>>> + Clone {
+    let args = ident()
+        .separated_by(just(Token::Comma))
+        .allow_trailing()
+        .collect::<Vec<String>>()
+        .delimited_by(just(Token::LParen), just(Token::RParen))
+        .or_not();
+
     just(Token::Hash)
-        .ignore_then(ident().delimited_by(just(Token::LBracket), just(Token::RBracket)))
-        .map(|name| Attribute { name })
+        .ignore_then(
+            ident()
+                .then(args)
+                .delimited_by(just(Token::LBracket), just(Token::RBracket)),
+        )
+        .map(|(name, args)| Attribute { name, args })
 }
 
 pub(crate) fn item_parser<'a>()

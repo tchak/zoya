@@ -348,6 +348,42 @@ mod tests {
     }
 
     #[test]
+    fn test_annotation_with_args_tokens() {
+        let toks = toks("#[mode(test)]");
+        assert_eq!(
+            toks,
+            vec![
+                Token::Hash,
+                Token::LBracket,
+                Token::Ident("mode".to_string()),
+                Token::LParen,
+                Token::Ident("test".to_string()),
+                Token::RParen,
+                Token::RBracket,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_annotation_with_multiple_args_tokens() {
+        let toks = toks("#[mode(test, foo)]");
+        assert_eq!(
+            toks,
+            vec![
+                Token::Hash,
+                Token::LBracket,
+                Token::Ident("mode".to_string()),
+                Token::LParen,
+                Token::Ident("test".to_string()),
+                Token::Comma,
+                Token::Ident("foo".to_string()),
+                Token::RParen,
+                Token::RBracket,
+            ]
+        );
+    }
+
+    #[test]
     fn test_at_token() {
         let toks = toks("@");
         assert_eq!(toks, vec![Token::At]);

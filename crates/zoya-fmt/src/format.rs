@@ -16,7 +16,14 @@ pub fn fmt_attributes(attrs: &[Attribute]) -> RcDoc<'static> {
     }
     let docs: Vec<RcDoc<'static>> = attrs
         .iter()
-        .map(|a| RcDoc::text(format!("#[{}]", a.name)))
+        .map(|a| {
+            let text = match &a.args {
+                None => format!("#[{}]", a.name),
+                Some(args) if args.is_empty() => format!("#[{}()]", a.name),
+                Some(args) => format!("#[{}({})]", a.name, args.join(", ")),
+            };
+            RcDoc::text(text)
+        })
         .collect();
     RcDoc::intersperse(docs, RcDoc::hardline()).append(RcDoc::hardline())
 }

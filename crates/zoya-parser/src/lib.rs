@@ -2710,6 +2710,62 @@ mod tests {
         assert_eq!(u.attributes[0].name, "allow");
     }
 
+    #[test]
+    fn test_parse_annotation_no_args() {
+        let item = parse_item_str("#[test] fn foo() 42").unwrap();
+        let Item::Function(f) = item else {
+            panic!("expected function")
+        };
+        assert_eq!(f.attributes[0].name, "test");
+        assert_eq!(f.attributes[0].args, None);
+    }
+
+    #[test]
+    fn test_parse_annotation_empty_args() {
+        let item = parse_item_str("#[mode()] fn foo() 42").unwrap();
+        let Item::Function(f) = item else {
+            panic!("expected function")
+        };
+        assert_eq!(f.attributes[0].name, "mode");
+        assert_eq!(f.attributes[0].args, Some(vec![]));
+    }
+
+    #[test]
+    fn test_parse_annotation_single_arg() {
+        let item = parse_item_str("#[mode(test)] fn foo() 42").unwrap();
+        let Item::Function(f) = item else {
+            panic!("expected function")
+        };
+        assert_eq!(f.attributes[0].name, "mode");
+        assert_eq!(f.attributes[0].args, Some(vec!["test".to_string()]));
+    }
+
+    #[test]
+    fn test_parse_annotation_multiple_args() {
+        let item = parse_item_str("#[mode(test, foo)] fn foo() 42").unwrap();
+        let Item::Function(f) = item else {
+            panic!("expected function")
+        };
+        assert_eq!(f.attributes[0].name, "mode");
+        assert_eq!(
+            f.attributes[0].args,
+            Some(vec!["test".to_string(), "foo".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_parse_annotation_trailing_comma() {
+        let item = parse_item_str("#[mode(test, foo,)] fn foo() 42").unwrap();
+        let Item::Function(f) = item else {
+            panic!("expected function")
+        };
+        assert_eq!(f.attributes[0].name, "mode");
+        assert_eq!(
+            f.attributes[0].args,
+            Some(vec!["test".to_string(), "foo".to_string()])
+        );
+    }
+
     // ===== parse_file() tests =====
 
     fn parse_file_str(input: &str) -> Result<Vec<Item>, ParseError> {
