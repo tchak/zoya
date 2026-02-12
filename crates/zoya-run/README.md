@@ -55,7 +55,7 @@ let checked_pkg = check(&pkg, &[std])?;
 
 // Run the main function in the root module
 let result = Runner::new()
-    .package(checked_pkg, [std])
+    .package(&checked_pkg, [std])
     .run()?;
 println!("Result: {}", result);
 ```
@@ -67,7 +67,7 @@ use zoya_run::Runner;
 
 // Run main() from the "repl" submodule
 let result = Runner::new()
-    .package(checked_pkg, [std])
+    .package(&checked_pkg, [std])
     .module("repl")
     .run()?;
 ```
@@ -80,7 +80,7 @@ pub struct Runner;
 
 impl Runner {
     pub fn new() -> Self;
-    pub fn package(self, pkg: CheckedPackage, deps: impl IntoIterator<Item = &CheckedPackage>) -> PackageRunner;
+    pub fn package<'a>(self, pkg: &'a CheckedPackage, deps: impl IntoIterator<Item = &'a CheckedPackage>) -> PackageRunner<'a>;
     pub fn path(self, path: &Path) -> PathRunner;
     pub fn source(self, source: &str) -> SourceRunner;
 }

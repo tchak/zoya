@@ -284,7 +284,7 @@ impl State {
 
             // Call combined main function via runner
             let combined_value = Runner::new()
-                .package(checked_pkg.clone(), [std])
+                .package(&checked_pkg, [std])
                 .module("repl")
                 .run()
                 .map_err(|e| e.to_string())?;

@@ -2444,7 +2444,7 @@ fn run_multi_module(modules: Vec<(&str, &str)>, expected: &str) {
     let checked =
         check(&package, &[]).unwrap_or_else(|e| panic!("failed to type check package: {}", e));
     let result = Runner::new()
-        .package(checked, [])
+        .package(&checked, [])
         .run()
         .unwrap_or_else(|e| panic!("failed to run package: {}", e));
     assert_eq!(result.to_string(), expected, "unexpected result");
@@ -2497,7 +2497,7 @@ fn run_multi_module_with_std(modules: Vec<(&str, &str)>, expected: &str) {
     let checked =
         check(&package, &[std]).unwrap_or_else(|e| panic!("failed to type check package: {}", e));
     let result = Runner::new()
-        .package(checked, [std])
+        .package(&checked, [std])
         .run()
         .unwrap_or_else(|e| panic!("failed to run package: {}", e));
     assert_eq!(result.to_string(), expected, "unexpected result");

@@ -27,7 +27,7 @@ impl Runner {
     /// Run an already-checked package with its dependencies.
     pub fn package<'a>(
         self,
-        package: CheckedPackage,
+        package: &'a CheckedPackage,
         deps: impl IntoIterator<Item = &'a CheckedPackage>,
     ) -> PackageRunner<'a> {
         PackageRunner {
@@ -56,7 +56,7 @@ impl Runner {
 
 /// Runner configured with a pre-checked package.
 pub struct PackageRunner<'a> {
-    package: CheckedPackage,
+    package: &'a CheckedPackage,
     deps: Vec<&'a CheckedPackage>,
     module: Option<String>,
 }
@@ -94,7 +94,7 @@ impl PathRunner {
             .map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?;
         let checked =
             check(&package, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-        run_checked(checked, &[std], None)
+        run_checked(&checked, &[std], None)
     }
 }
 
@@ -119,7 +119,7 @@ impl SourceRunner {
             .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
         let checked =
             check(&package, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-        run_checked(checked, &[std], None)
+        run_checked(&checked, &[std], None)
     }
 }
 
@@ -135,7 +135,7 @@ pub fn run_path(path: &Path) -> Result<Value, EvalError> {
 
 /// Internal: execute an already-checked package.
 fn run_checked(
-    package: CheckedPackage,
+    package: &CheckedPackage,
     deps: &[&CheckedPackage],
     module: Option<&str>,
 ) -> Result<Value, EvalError> {
