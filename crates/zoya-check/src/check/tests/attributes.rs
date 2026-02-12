@@ -166,6 +166,29 @@ fn test_builtin_and_test_conflict_is_error() {
 }
 
 #[test]
+fn test_private_test_fn_appears_in_definitions() {
+    let items = vec![Item::Function(FunctionDef {
+        attributes: vec![Attribute {
+            name: "test".to_string(),
+            args: None,
+        }],
+        visibility: Visibility::Private,
+        name: "test_something".to_string(),
+        type_params: vec![],
+        params: vec![],
+        return_type: None,
+        body: Expr::Tuple(vec![]),
+    })];
+    let pkg = build_test_package(items);
+    let checked = check(&pkg, &[]).unwrap();
+    let path = QualifiedPath::root().child("test_something");
+    assert!(
+        checked.definitions.contains_key(&path),
+        "private #[test] function should appear in definitions"
+    );
+}
+
+#[test]
 fn test_test_fn_has_is_test_flag() {
     let items = vec![Item::Function(FunctionDef {
         attributes: vec![Attribute {

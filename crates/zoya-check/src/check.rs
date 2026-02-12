@@ -2537,7 +2537,10 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
     let external_definitions = env
         .definitions
         .iter()
-        .filter(|(path, def)| is_externally_visible(path, def, &env.definitions))
+        .filter(|(path, def)| {
+            is_externally_visible(path, def, &env.definitions)
+                || checked_items.get(path).is_some_and(|f| f.is_test)
+        })
         .map(|(path, def)| (path.clone(), def.clone()))
         .collect();
 
