@@ -7,7 +7,7 @@ use zoya_ir::{CheckedPackage, Definition};
 use zoya_loader::{MemorySource, load_memory_package, load_package};
 use zoya_package::QualifiedPath;
 
-use crate::eval::{self, EvalError, TypeLookup, Value, VirtualModules};
+use crate::eval::{self, EnumValueFields, EvalError, TypeLookup, Value, VirtualModules};
 
 /// Which function to invoke inside a checked package.
 enum EntryPoint {
@@ -147,6 +147,105 @@ pub fn run_path(path: &Path) -> Result<Value, EvalError> {
     Runner::new().path(path).run()
 }
 
+/// A single test result.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TestResult {
+    pub path: QualifiedPath,
+    pub outcome: Result<(), String>,
+}
+
+/// Summary of all test results.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TestReport {
+    pub results: Vec<TestResult>,
+}
+
+impl TestReport {
+    pub fn passed(&self) -> usize {
+        self.results.iter().filter(|r| r.outcome.is_ok()).count()
+    }
+
+    pub fn failed(&self) -> usize {
+        self.results.iter().filter(|r| r.outcome.is_err()).count()
+    }
+
+    pub fn total(&self) -> usize {
+        self.results.len()
+    }
+
+    pub fn is_success(&self) -> bool {
+        self.results.iter().all(|r| r.outcome.is_ok())
+    }
+}
+
+/// Load, check, and run all `#[test]` functions in a `.zy` file or package (convenience function).
+pub fn test_path(path: &Path) -> Result<TestReport, EvalError> {
+    let std = zoya_std::std();
+    let package = load_package(path, zoya_loader::Mode::Test)
+        .map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?;
+    let checked = check(&package, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+    test_checked(&checked, &[std])
+}
+
+/// Run all `#[test]` functions in a checked package.
+fn test_checked(
+    package: &CheckedPackage,
+    deps: &[&CheckedPackage],
+) -> Result<TestReport, EvalError> {
+    let mut test_paths: Vec<QualifiedPath> = package
+        .items
+        .iter()
+        .filter(|(_, func)| func.is_test)
+        .map(|(path, _)| path.clone())
+        .collect();
+    test_paths.sort_by_key(|a| a.to_string());
+
+    let mut results = Vec::new();
+    for path in test_paths {
+        let outcome = run_single_test(package, deps, &path);
+        results.push(TestResult { path, outcome });
+    }
+
+    Ok(TestReport { results })
+}
+
+/// Run a single test function and interpret its result.
+fn run_single_test(
+    package: &CheckedPackage,
+    deps: &[&CheckedPackage],
+    path: &QualifiedPath,
+) -> Result<(), String> {
+    match run_checked(package, deps, &EntryPoint::Entry(path.clone())) {
+        Ok(value) => interpret_test_value(&value),
+        Err(EvalError::Panic(msg)) => Err(format!("panic: {msg}")),
+        Err(EvalError::RuntimeError(msg)) => Err(format!("runtime error: {msg}")),
+    }
+}
+
+/// Interpret a test function's return value as pass/fail.
+fn interpret_test_value(value: &Value) -> Result<(), String> {
+    match value {
+        Value::Tuple(elems) if elems.is_empty() => Ok(()),
+        Value::Enum {
+            enum_name,
+            variant_name,
+            fields: EnumValueFields::Tuple(_),
+        } if enum_name == "Result" && variant_name == "Ok" => Ok(()),
+        Value::Enum {
+            enum_name,
+            variant_name,
+            fields: EnumValueFields::Tuple(values),
+        } if enum_name == "Result" && variant_name == "Err" => {
+            let msg = values
+                .first()
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "test failed".to_string());
+            Err(msg)
+        }
+        _ => Err(format!("unexpected test return value: {value}")),
+    }
+}
+
 /// Internal: execute an already-checked package.
 fn run_checked(
     package: &CheckedPackage,
@@ -248,4 +347,105 @@ fn build_type_lookup(package: &CheckedPackage, deps: &[&CheckedPackage]) -> Type
     }
 
     TypeLookup { enums, structs }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_interpret_unit_return() {
+        let value = Value::Tuple(vec![]);
+        assert_eq!(interpret_test_value(&value), Ok(()));
+    }
+
+    #[test]
+    fn test_interpret_result_ok_unit() {
+        let value = Value::Enum {
+            enum_name: "Result".to_string(),
+            variant_name: "Ok".to_string(),
+            fields: EnumValueFields::Tuple(vec![Value::Tuple(vec![])]),
+        };
+        assert_eq!(interpret_test_value(&value), Ok(()));
+    }
+
+    #[test]
+    fn test_interpret_result_err() {
+        let value = Value::Enum {
+            enum_name: "Result".to_string(),
+            variant_name: "Err".to_string(),
+            fields: EnumValueFields::Tuple(vec![Value::String("something failed".to_string())]),
+        };
+        assert!(interpret_test_value(&value).is_err());
+        assert!(
+            interpret_test_value(&value)
+                .unwrap_err()
+                .contains("something failed")
+        );
+    }
+
+    #[test]
+    fn test_interpret_wrong_enum_name() {
+        let value = Value::Enum {
+            enum_name: "Option".to_string(),
+            variant_name: "Ok".to_string(),
+            fields: EnumValueFields::Tuple(vec![Value::Tuple(vec![])]),
+        };
+        assert!(interpret_test_value(&value).is_err());
+    }
+
+    #[test]
+    fn test_interpret_unexpected_value() {
+        let value = Value::Int(42);
+        assert!(interpret_test_value(&value).is_err());
+    }
+
+    #[test]
+    fn test_report_all_pass() {
+        let report = TestReport {
+            results: vec![
+                TestResult {
+                    path: QualifiedPath::root().child("test_a"),
+                    outcome: Ok(()),
+                },
+                TestResult {
+                    path: QualifiedPath::root().child("test_b"),
+                    outcome: Ok(()),
+                },
+            ],
+        };
+        assert_eq!(report.passed(), 2);
+        assert_eq!(report.failed(), 0);
+        assert_eq!(report.total(), 2);
+        assert!(report.is_success());
+    }
+
+    #[test]
+    fn test_report_with_failure() {
+        let report = TestReport {
+            results: vec![
+                TestResult {
+                    path: QualifiedPath::root().child("test_a"),
+                    outcome: Ok(()),
+                },
+                TestResult {
+                    path: QualifiedPath::root().child("test_b"),
+                    outcome: Err("failed".to_string()),
+                },
+            ],
+        };
+        assert_eq!(report.passed(), 1);
+        assert_eq!(report.failed(), 1);
+        assert_eq!(report.total(), 2);
+        assert!(!report.is_success());
+    }
+
+    #[test]
+    fn test_report_empty() {
+        let report = TestReport { results: vec![] };
+        assert_eq!(report.passed(), 0);
+        assert_eq!(report.failed(), 0);
+        assert_eq!(report.total(), 0);
+        assert!(report.is_success());
+    }
 }

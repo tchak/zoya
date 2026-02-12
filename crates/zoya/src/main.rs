@@ -55,6 +55,11 @@ enum Command {
         #[arg(long)]
         check: bool,
     },
+    /// Run tests
+    Test {
+        /// Path to a .zy file or directory with package.toml (defaults to current directory)
+        path: Option<PathBuf>,
+    },
     /// Create a new Zoya project
     New {
         /// Path to create the project at
@@ -108,6 +113,13 @@ fn main() {
             let path = path.unwrap_or_else(|| PathBuf::from("."));
             if let Err(e) = commands::fmt::execute(&path, check) {
                 eprintln!("{}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Command::Test { path }) => {
+            let path = path.unwrap_or_else(|| PathBuf::from("."));
+            if let Err(e) = commands::test::execute(&path) {
+                eprintln!("Error: {e}");
                 std::process::exit(1);
             }
         }

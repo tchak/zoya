@@ -6117,3 +6117,107 @@ fn test_entry_error_on_function_with_parameters() {
         matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("must not take any parameters"))
     );
 }
+
+// ── test_path integration tests ──────────────────────────────────────
+
+#[test]
+fn test_test_path_all_pass() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("test.zy");
+    std::fs::write(
+        &file,
+        r#"
+        #[test]
+        fn test_one() -> () { () }
+
+        #[test]
+        fn test_two() -> () { () }
+        "#,
+    )
+    .unwrap();
+
+    let report = zoya_run::test_path(&file).unwrap();
+    assert_eq!(report.total(), 2);
+    assert_eq!(report.passed(), 2);
+    assert_eq!(report.failed(), 0);
+    assert!(report.is_success());
+}
+
+#[test]
+fn test_test_path_mix_pass_fail() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("test.zy");
+    std::fs::write(
+        &file,
+        r#"
+        #[test]
+        fn test_ok() -> () { () }
+
+        #[test]
+        fn test_panic() -> () { panic("boom") }
+        "#,
+    )
+    .unwrap();
+
+    let report = zoya_run::test_path(&file).unwrap();
+    assert_eq!(report.total(), 2);
+    assert_eq!(report.passed(), 1);
+    assert_eq!(report.failed(), 1);
+    assert!(!report.is_success());
+}
+
+#[test]
+fn test_test_path_no_tests() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("test.zy");
+    std::fs::write(&file, "pub fn main() -> Int { 42 }").unwrap();
+
+    let report = zoya_run::test_path(&file).unwrap();
+    assert_eq!(report.total(), 0);
+    assert!(report.is_success());
+}
+
+#[test]
+fn test_test_path_result_err_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("test.zy");
+    std::fs::write(
+        &file,
+        r#"
+        #[test]
+        fn test_err() -> Result<(), String> { Err("something wrong") }
+        "#,
+    )
+    .unwrap();
+
+    let report = zoya_run::test_path(&file).unwrap();
+    assert_eq!(report.total(), 1);
+    assert_eq!(report.failed(), 1);
+    assert!(!report.is_success());
+    assert!(
+        report.results[0]
+            .outcome
+            .as_ref()
+            .unwrap_err()
+            .contains("something wrong")
+    );
+}
+
+#[test]
+fn test_test_path_result_ok_passes() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("test.zy");
+    std::fs::write(
+        &file,
+        r#"
+        #[test]
+        fn test_ok() -> Result<(), String> { Ok(()) }
+        "#,
+    )
+    .unwrap();
+
+    let report = zoya_run::test_path(&file).unwrap();
+    assert_eq!(report.total(), 1);
+    assert_eq!(report.passed(), 1);
+    assert!(report.is_success());
+}
