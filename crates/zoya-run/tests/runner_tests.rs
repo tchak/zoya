@@ -7497,3 +7497,631 @@ fn test_dict_from_len() {
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(3));
 }
+
+// ==================== Option Method Tests ====================
+
+#[test]
+fn test_option_is_some_true() {
+    let source = r#"
+        pub fn main() -> Bool {
+            Some(5).is_some()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_option_is_some_false() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let x: Option<Int> = None;
+            x.is_some()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(false));
+}
+
+#[test]
+fn test_option_is_none_true() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let x: Option<Int> = None;
+            x.is_none()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_option_is_none_false() {
+    let source = r#"
+        pub fn main() -> Bool {
+            Some(5).is_none()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(false));
+}
+
+#[test]
+fn test_option_unwrap_some() {
+    let source = r#"
+        pub fn main() -> Int {
+            Some(42).unwrap()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_option_expect_some() {
+    let source = r#"
+        pub fn main() -> Int {
+            Some(42).expect("should have value")
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_option_unwrap_or_some() {
+    let source = r#"
+        pub fn main() -> Int {
+            Some(42).unwrap_or(0)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_option_unwrap_or_none() {
+    let source = r#"
+        pub fn main() -> Int {
+            let x: Option<Int> = None;
+            x.unwrap_or(99)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(99));
+}
+
+#[test]
+fn test_option_unwrap_or_else_some() {
+    let source = r#"
+        pub fn main() -> Int {
+            Some(42).unwrap_or_else(|| 0)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_option_unwrap_or_else_none() {
+    let source = r#"
+        pub fn main() -> Int {
+            let x: Option<Int> = None;
+            x.unwrap_or_else(|| 99)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(99));
+}
+
+#[test]
+fn test_option_filter_match() {
+    let source = r#"
+        pub fn main() -> Option<Int> {
+            Some(4).filter(|x| x > 3)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some(4)");
+}
+
+#[test]
+fn test_option_filter_no_match() {
+    let source = r#"
+        pub fn main() -> Option<Int> {
+            Some(2).filter(|x| x > 3)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::None");
+}
+
+#[test]
+fn test_option_filter_none() {
+    let source = r#"
+        pub fn main() -> Option<Int> {
+            let x: Option<Int> = None;
+            x.filter(|x| x > 3)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::None");
+}
+
+#[test]
+fn test_option_map_or_some() {
+    let source = r#"
+        pub fn main() -> Int {
+            Some(5).map_or(0, |x| x * 2)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(10));
+}
+
+#[test]
+fn test_option_map_or_none() {
+    let source = r#"
+        pub fn main() -> Int {
+            let x: Option<Int> = None;
+            x.map_or(0, |x| x * 2)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(0));
+}
+
+#[test]
+fn test_option_map_or_else_some() {
+    let source = r#"
+        pub fn main() -> Int {
+            Some(5).map_or_else(|| 0, |x| x * 2)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(10));
+}
+
+#[test]
+fn test_option_map_or_else_none() {
+    let source = r#"
+        pub fn main() -> Int {
+            let x: Option<Int> = None;
+            x.map_or_else(|| 42, |x| x * 2)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_option_zip_both_some() {
+    let source = r#"
+        pub fn main() -> Option<(Int, String)> {
+            Some(1).zip(Some("a"))
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some((1, \"a\"))");
+}
+
+#[test]
+fn test_option_zip_first_none() {
+    let source = r#"
+        pub fn main() -> Option<(Int, String)> {
+            let x: Option<Int> = None;
+            x.zip(Some("a"))
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::None");
+}
+
+#[test]
+fn test_option_zip_second_none() {
+    let source = r#"
+        pub fn main() -> Option<(Int, String)> {
+            let y: Option<String> = None;
+            Some(1).zip(y)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::None");
+}
+
+#[test]
+fn test_option_or_some() {
+    let source = r#"
+        pub fn main() -> Option<Int> {
+            Some(1).or(Some(2))
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some(1)");
+}
+
+#[test]
+fn test_option_or_none() {
+    let source = r#"
+        pub fn main() -> Option<Int> {
+            let x: Option<Int> = None;
+            x.or(Some(2))
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some(2)");
+}
+
+#[test]
+fn test_option_or_else_some() {
+    let source = r#"
+        pub fn main() -> Option<Int> {
+            Some(1).or_else(|| Some(2))
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some(1)");
+}
+
+#[test]
+fn test_option_or_else_none() {
+    let source = r#"
+        pub fn main() -> Option<Int> {
+            let x: Option<Int> = None;
+            x.or_else(|| Some(2))
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some(2)");
+}
+
+#[test]
+fn test_option_and_some_some() {
+    let source = r#"
+        pub fn main() -> Option<String> {
+            Some(1).and(Some("hello"))
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some(\"hello\")");
+}
+
+#[test]
+fn test_option_and_none() {
+    let source = r#"
+        pub fn main() -> Option<String> {
+            let x: Option<Int> = None;
+            x.and(Some("hello"))
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::None");
+}
+
+#[test]
+fn test_option_ok_or_some() {
+    let source = r#"
+        pub fn main() -> Result<Int, String> {
+            Some(5).ok_or("missing")
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Result::Ok(5)");
+}
+
+#[test]
+fn test_option_ok_or_none() {
+    let source = r#"
+        pub fn main() -> Result<Int, String> {
+            let x: Option<Int> = None;
+            x.ok_or("missing")
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Result::Err(\"missing\")");
+}
+
+#[test]
+fn test_option_ok_or_else_some() {
+    let source = r#"
+        pub fn main() -> Result<Int, String> {
+            Some(5).ok_or_else(|| "missing")
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Result::Ok(5)");
+}
+
+#[test]
+fn test_option_ok_or_else_none() {
+    let source = r#"
+        pub fn main() -> Result<Int, String> {
+            let x: Option<Int> = None;
+            x.ok_or_else(|| "missing")
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Result::Err(\"missing\")");
+}
+
+// ==================== Result Method Tests ====================
+
+#[test]
+fn test_result_is_ok_true() {
+    let source = r#"
+        pub fn main() -> Bool {
+            Ok(5).is_ok()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_result_is_ok_false() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let x: Result<Int, String> = Err("fail");
+            x.is_ok()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(false));
+}
+
+#[test]
+fn test_result_is_err_true() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let x: Result<Int, String> = Err("fail");
+            x.is_err()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_result_is_err_false() {
+    let source = r#"
+        pub fn main() -> Bool {
+            Ok(5).is_err()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(false));
+}
+
+#[test]
+fn test_result_unwrap_ok() {
+    let source = r#"
+        pub fn main() -> Int {
+            Ok(42).unwrap()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_result_expect_ok() {
+    let source = r#"
+        pub fn main() -> Int {
+            Ok(42).expect("should be ok")
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_result_unwrap_or_ok() {
+    let source = r#"
+        pub fn main() -> Int {
+            Ok(42).unwrap_or(0)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_result_unwrap_or_err() {
+    let source = r#"
+        pub fn main() -> Int {
+            let x: Result<Int, String> = Err("fail");
+            x.unwrap_or(99)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(99));
+}
+
+#[test]
+fn test_result_unwrap_or_else_ok() {
+    let source = r#"
+        pub fn main() -> Int {
+            Ok(42).unwrap_or_else(|e: String| 0)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_result_unwrap_or_else_err() {
+    let source = r#"
+        pub fn main() -> Int {
+            let x: Result<Int, Int> = Err(5);
+            x.unwrap_or_else(|e| e * 2)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(10));
+}
+
+#[test]
+fn test_result_unwrap_err_on_err() {
+    let source = r#"
+        pub fn main() -> String {
+            let x: Result<Int, String> = Err("fail");
+            x.unwrap_err()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "\"fail\"");
+}
+
+#[test]
+fn test_result_expect_err_on_err() {
+    let source = r#"
+        pub fn main() -> String {
+            let x: Result<Int, String> = Err("fail");
+            x.expect_err("should be err")
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "\"fail\"");
+}
+
+#[test]
+fn test_result_map_err_on_err() {
+    let source = r#"
+        pub fn main() -> Result<Int, Int> {
+            let x: Result<Int, String> = Err("fail");
+            x.map_err(|e: String| e.len())
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Result::Err(4)");
+}
+
+#[test]
+fn test_result_map_err_on_ok() {
+    let source = r#"
+        pub fn main() -> Result<Int, Int> {
+            let x: Result<Int, String> = Ok(42);
+            x.map_err(|e: String| e.len())
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Result::Ok(42)");
+}
+
+#[test]
+fn test_result_or_ok() {
+    let source = r#"
+        pub fn main() -> Result<Int, String> {
+            Ok(1).or(Ok(2))
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Result::Ok(1)");
+}
+
+#[test]
+fn test_result_or_err() {
+    let source = r#"
+        pub fn main() -> Result<Int, String> {
+            let x: Result<Int, String> = Err("fail");
+            x.or(Ok(2))
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Result::Ok(2)");
+}
+
+#[test]
+fn test_result_or_else_ok() {
+    let source = r#"
+        pub fn main() -> Result<Int, String> {
+            Ok(1).or_else(|e: String| Ok(2))
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Result::Ok(1)");
+}
+
+#[test]
+fn test_result_or_else_err() {
+    let source = r#"
+        pub fn main() -> Result<Int, Int> {
+            let x: Result<Int, Int> = Err(5);
+            x.or_else(|e| Ok(e * 2))
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Result::Ok(10)");
+}
+
+#[test]
+fn test_result_and_ok() {
+    let source = r#"
+        pub fn main() -> Result<String, String> {
+            let x: Result<Int, String> = Ok(1);
+            x.and(Ok("hello"))
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Result::Ok(\"hello\")");
+}
+
+#[test]
+fn test_result_and_err() {
+    let source = r#"
+        pub fn main() -> Result<String, String> {
+            let x: Result<Int, String> = Err("fail");
+            x.and(Ok("hello"))
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Result::Err(\"fail\")");
+}
+
+#[test]
+fn test_result_ok_on_ok() {
+    let source = r#"
+        pub fn main() -> Option<Int> {
+            let x: Result<Int, String> = Ok(42);
+            x.ok()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some(42)");
+}
+
+#[test]
+fn test_result_ok_on_err() {
+    let source = r#"
+        pub fn main() -> Option<Int> {
+            let x: Result<Int, String> = Err("fail");
+            x.ok()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::None");
+}
+
+#[test]
+fn test_result_err_on_err() {
+    let source = r#"
+        pub fn main() -> Option<String> {
+            let x: Result<Int, String> = Err("fail");
+            x.err()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some(\"fail\")");
+}
+
+#[test]
+fn test_result_err_on_ok() {
+    let source = r#"
+        pub fn main() -> Option<String> {
+            let x: Result<Int, String> = Ok(42);
+            x.err()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::None");
+}

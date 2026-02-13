@@ -24,48 +24,90 @@ let err: Result<String, Int> = Err(404)
 
 ### Option Methods
 
-#### `map`
+#### `Option<T>`
 
-Transforms the contained value using a function. Returns `None` if the option is `None`.
+| Method | Description |
+|--------|-------------|
+| `map<U>(self, f: T -> U) -> Option<U>` | Transform the contained value |
+| `and_then<U>(self, f: T -> Option<U>) -> Option<U>` | Chain operations that return `Option` |
+| `is_some(self) -> Bool` | Return `true` if `Some` |
+| `is_none(self) -> Bool` | Return `true` if `None` |
+| `unwrap(self) -> T` | Extract the value or panic |
+| `expect(self, message: String) -> T` | Extract the value or panic with message |
+| `unwrap_or(self, default: T) -> T` | Extract the value or return default |
+| `unwrap_or_else(self, f: () -> T) -> T` | Extract the value or compute default |
+| `filter(self, predicate: T -> Bool) -> Option<T>` | Keep `Some` only if predicate is true |
+| `map_or<U>(self, default: U, f: T -> U) -> U` | Transform or return default |
+| `map_or_else<U>(self, default_fn: () -> U, f: T -> U) -> U` | Transform or compute default |
+| `zip<U>(self, other: Option<U>) -> Option<(T, U)>` | Combine two options into a tuple |
+| `or(self, other: Option<T>) -> Option<T>` | Return `self` if `Some`, otherwise `other` |
+| `or_else(self, f: () -> Option<T>) -> Option<T>` | Return `self` if `Some`, otherwise compute |
+| `and<U>(self, other: Option<U>) -> Option<U>` | Return `other` if `self` is `Some`, otherwise `None` |
+| `ok_or<E>(self, err: E) -> Result<T, E>` | Convert to `Result`, mapping `None` to `Err` |
+| `ok_or_else<E>(self, f: () -> E) -> Result<T, E>` | Convert to `Result`, computing error for `None` |
 
 ```zoya
-Some(5).map(|x| x * 2)    // Some(10)
-None.map(|x: Int| x * 2)  // None
-```
+Some(5).map(|x| x * 2)              // Some(10)
+Some(5).and_then(|x| Some(x + 1))   // Some(6)
+Some(5).filter(|x| x > 3)           // Some(5)
+Some(5).unwrap_or(0)                 // 5
+None.unwrap_or(0)                    // 0
 
-#### `and_then`
-
-Calls a function that returns an `Option` on the contained value. Useful for chaining operations that may fail.
-
-```zoya
-Some(5).and_then(|x| Some(x + 1))  // Some(6)
-Some(5).and_then(|x| None::<Int>)  // None
-```
-
-Methods can be chained:
-
-```zoya
+// Chaining
 Some(5).map(|x| x + 1).and_then(|x| Some(x * 2))  // Some(12)
+
+// Boolean ops
+Some(1).or(Some(2))         // Some(1)
+None.or(Some(2))            // Some(2)
+Some(1).and(Some("hello"))  // Some("hello")
+
+// Conversions
+Some(5).ok_or("missing")    // Ok(5)
+None.ok_or("missing")       // Err("missing")
+Some(1).zip(Some("a"))      // Some((1, "a"))
 ```
 
 ### Result Methods
 
-#### `map`
+#### `Result<T, E>`
 
-Transforms the success value using a function. Returns the error unchanged if the result is `Err`.
+| Method | Description |
+|--------|-------------|
+| `map<U>(self, f: T -> U) -> Result<U, E>` | Transform the success value |
+| `and_then<U>(self, f: T -> Result<U, E>) -> Result<U, E>` | Chain operations that return `Result` |
+| `is_ok(self) -> Bool` | Return `true` if `Ok` |
+| `is_err(self) -> Bool` | Return `true` if `Err` |
+| `unwrap(self) -> T` | Extract the success value or panic |
+| `expect(self, message: String) -> T` | Extract the success value or panic with message |
+| `unwrap_or(self, default: T) -> T` | Extract the success value or return default |
+| `unwrap_or_else(self, f: E -> T) -> T` | Extract the success value or compute from error |
+| `unwrap_err(self) -> E` | Extract the error value or panic |
+| `expect_err(self, message: String) -> E` | Extract the error value or panic with message |
+| `map_err<F>(self, f: E -> F) -> Result<T, F>` | Transform the error value |
+| `or(self, other: Result<T, E>) -> Result<T, E>` | Return `self` if `Ok`, otherwise `other` |
+| `or_else(self, f: E -> Result<T, E>) -> Result<T, E>` | Return `self` if `Ok`, otherwise compute from error |
+| `and<U>(self, other: Result<U, E>) -> Result<U, E>` | Return `other` if `self` is `Ok`, otherwise propagate error |
+| `ok(self) -> Option<T>` | Convert to `Option`, discarding error |
+| `err(self) -> Option<E>` | Convert error to `Option`, discarding success |
 
 ```zoya
 Ok(5).map(|x| x * 2)              // Ok(10)
-Err("fail").map(|x: Int| x * 2)   // Err("fail")
-```
+Ok(5).and_then(|x| Ok(x + 1))     // Ok(6)
+Ok(42).unwrap_or(0)                // 42
+Err("fail").unwrap_or(0)           // 0
 
-#### `and_then`
+// Error handling
+Err("fail").map_err(|e: String| e.len())  // Err(4)
 
-Calls a function that returns a `Result` on the success value. Useful for chaining operations that may fail.
+// Boolean ops
+Ok(1).or(Ok(2))            // Ok(1)
+Err("fail").or(Ok(2))      // Ok(2)
+Ok(1).and(Ok("hello"))     // Ok("hello")
 
-```zoya
-Ok(5).and_then(|x| Ok(x + 1))    // Ok(6)
-Ok(5).and_then(|x| Err("fail"))  // Err("fail")
+// Conversions
+Ok(42).ok()                // Some(42)
+Err("fail").ok()           // None
+Err("fail").err()          // Some("fail")
 ```
 
 ### `panic`

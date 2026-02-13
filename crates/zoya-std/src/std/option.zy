@@ -1,3 +1,7 @@
+use super::panic
+use super::result::Result
+use super::result::Result::*
+
 pub enum Option<T> { None, Some(T) }
 pub use self::Option::*
 
@@ -15,4 +19,36 @@ impl<T> Option<T> {
             None => None,
         }
     }
+
+    // Predicates
+    pub fn is_some(self) -> Bool { match self { Some(_) => true, None => false } }
+    pub fn is_none(self) -> Bool { match self { Some(_) => false, None => true } }
+
+    // Extractors
+    pub fn unwrap(self) -> T { match self { Some(v) => v, None => panic("called unwrap on None") } }
+    pub fn expect(self, message: String) -> T { match self { Some(v) => v, None => panic(message) } }
+    pub fn unwrap_or(self, default: T) -> T { match self { Some(v) => v, None => default } }
+    pub fn unwrap_or_else(self, f: () -> T) -> T { match self { Some(v) => v, None => f() } }
+
+    // Combinators
+    pub fn filter(self, predicate: T -> Bool) -> Option<T> {
+        match self {
+            Some(v) => match predicate(v) { true => Some(v), false => None },
+            None => None,
+        }
+    }
+    pub fn map_or<U>(self, default: U, f: T -> U) -> U { match self { Some(v) => f(v), None => default } }
+    pub fn map_or_else<U>(self, default_fn: () -> U, f: T -> U) -> U { match self { Some(v) => f(v), None => default_fn() } }
+    pub fn zip<U>(self, other: Option<U>) -> Option<(T, U)> {
+        match (self, other) { (Some(a), Some(b)) => Some((a, b)), _ => None }
+    }
+
+    // Boolean ops
+    pub fn or(self, other: Option<T>) -> Option<T> { match self { Some(v) => Some(v), None => other } }
+    pub fn or_else(self, f: () -> Option<T>) -> Option<T> { match self { Some(v) => Some(v), None => f() } }
+    pub fn and<U>(self, other: Option<U>) -> Option<U> { match self { Some(_) => other, None => None } }
+
+    // Conversions to Result
+    pub fn ok_or<E>(self, err: E) -> Result<T, E> { match self { Some(v) => Ok(v), None => Err(err) } }
+    pub fn ok_or_else<E>(self, f: () -> E) -> Result<T, E> { match self { Some(v) => Ok(v), None => Err(f()) } }
 }

@@ -1,3 +1,7 @@
+use super::panic
+use super::option::Option
+use super::option::Option::*
+
 pub enum Result<T, E> { Ok(T), Err(E) }
 pub use self::Result::*
 
@@ -15,4 +19,30 @@ impl<T, E> Result<T, E> {
             Err(e) => Err(e),
         }
     }
+
+    // Predicates
+    pub fn is_ok(self) -> Bool { match self { Ok(_) => true, Err(_) => false } }
+    pub fn is_err(self) -> Bool { match self { Ok(_) => false, Err(_) => true } }
+
+    // Ok extractors
+    pub fn unwrap(self) -> T { match self { Ok(v) => v, Err(_) => panic("called unwrap on Err") } }
+    pub fn expect(self, message: String) -> T { match self { Ok(v) => v, Err(_) => panic(message) } }
+    pub fn unwrap_or(self, default: T) -> T { match self { Ok(v) => v, Err(_) => default } }
+    pub fn unwrap_or_else(self, f: E -> T) -> T { match self { Ok(v) => v, Err(e) => f(e) } }
+
+    // Err extractors
+    pub fn unwrap_err(self) -> E { match self { Ok(_) => panic("called unwrap_err on Ok"), Err(e) => e } }
+    pub fn expect_err(self, message: String) -> E { match self { Ok(_) => panic(message), Err(e) => e } }
+
+    // Transformation
+    pub fn map_err<F>(self, f: E -> F) -> Result<T, F> { match self { Ok(v) => Ok(v), Err(e) => Err(f(e)) } }
+
+    // Boolean ops
+    pub fn or(self, other: Result<T, E>) -> Result<T, E> { match self { Ok(v) => Ok(v), Err(_) => other } }
+    pub fn or_else(self, f: E -> Result<T, E>) -> Result<T, E> { match self { Ok(v) => Ok(v), Err(e) => f(e) } }
+    pub fn and<U>(self, other: Result<U, E>) -> Result<U, E> { match self { Ok(_) => other, Err(e) => Err(e) } }
+
+    // Conversions to Option
+    pub fn ok(self) -> Option<T> { match self { Ok(v) => Some(v), Err(_) => None } }
+    pub fn err(self) -> Option<E> { match self { Ok(_) => None, Err(e) => Some(e) } }
 }
