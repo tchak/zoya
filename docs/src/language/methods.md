@@ -168,6 +168,21 @@ The standard library defines methods on primitive and collection types via `impl
 "hello".to_uppercase()     // "HELLO"
 "HELLO".to_lowercase()     // "hello"
 "  hi  ".trim()            // "hi"
+"  hi  ".trim_start()      // "hi  "
+"  hi  ".trim_end()        // "  hi"
+"hello".replace("l", "r")  // "herro"
+"ha".repeat(3)             // "hahaha"
+"a,b,c".split(",")         // ["a", "b", "c"]
+"hello".chars()            // ["h", "e", "l", "l", "o"]
+"hello".find("ll")         // Some(2)
+"hello".slice(1, 3)        // "el"
+"hello".reverse()          // "olleh"
+"hello".replace_first("l", "r")  // "herlo"
+"hi".pad_start(5, ".")     // "...hi"
+"hi".pad_end(5, ".")       // "hi..."
+"a\nb\nc".lines()          // ["a", "b", "c"]
+"42".to_int()              // Some(42)
+"3.14".to_float()          // Some(3.14)
 ```
 
 ## Int Methods

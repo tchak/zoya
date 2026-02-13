@@ -5,5 +5,19 @@ var $$String = {
   ends_with: function(s, suffix) { return s.endsWith(suffix); },
   to_uppercase: function(s) { return s.toUpperCase(); },
   to_lowercase: function(s) { return s.toLowerCase(); },
-  trim: function(s) { return s.trim(); }
+  trim: function(s) { return s.trim(); },
+  trim_start: function(s) { return s.trimStart(); },
+  trim_end: function(s) { return s.trimEnd(); },
+  replace: function(s, from, to) { return s.replaceAll(from, to); },
+  repeat: function(s, n) { return s.repeat(n); },
+  split: function(s, sep) { return s.split(sep); },
+  chars: function(s) { return Array.from(s); },
+  find: function(s, needle) { var i = s.indexOf(needle); return i < 0 ? { $tag: "None" } : { $tag: "Some", $0: i }; },
+  slice: function(s, start, end) { return s.slice(start, end); },
+  reverse: function(s) { return [...s].reverse().join(""); },
+  replace_first: function(s, from, to) { return s.replace(from, to); },
+  pad_start: function(s, len, fill) { return s.padStart(len, fill); },
+  pad_end: function(s, len, fill) { return s.padEnd(len, fill); },
+  to_int: function(s) { var n = parseInt(s, 10); return isNaN(n) ? { $tag: "None" } : { $tag: "Some", $0: n }; },
+  to_float: function(s) { var n = parseFloat(s); return isNaN(n) ? { $tag: "None" } : { $tag: "Some", $0: n }; }
 };

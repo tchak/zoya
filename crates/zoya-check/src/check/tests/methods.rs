@@ -76,6 +76,96 @@ fn test_check_chained_method_calls() {
     assert!(result.is_ok(), "Expected OK, got: {:?}", result);
 }
 
+#[test]
+fn test_check_method_call_trim_start() {
+    let result = check_source(r#"pub fn main() -> String { "  hello  ".trim_start() }"#);
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_method_call_trim_end() {
+    let result = check_source(r#"pub fn main() -> String { "  hello  ".trim_end() }"#);
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_method_call_replace() {
+    let result = check_source(r#"pub fn main() -> String { "hello".replace("l", "r") }"#);
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_method_call_repeat() {
+    let result = check_source(r#"pub fn main() -> String { "ha".repeat(3) }"#);
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_method_call_split() {
+    let result = check_source(r#"pub fn main() -> List<String> { "a,b,c".split(",") }"#);
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_method_call_chars() {
+    let result = check_source(r#"pub fn main() -> List<String> { "hello".chars() }"#);
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_method_call_find() {
+    let result = check_source(r#"pub fn main() -> Option<Int> { "hello".find("ll") }"#);
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_method_call_slice() {
+    let result = check_source(r#"pub fn main() -> String { "hello".slice(1, 3) }"#);
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_method_call_reverse() {
+    let result = check_source(r#"pub fn main() -> String { "hello".reverse() }"#);
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_method_call_replace_first() {
+    let result = check_source(r#"pub fn main() -> String { "hello".replace_first("l", "r") }"#);
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_method_call_pad_start() {
+    let result = check_source(r#"pub fn main() -> String { "hi".pad_start(5, " ") }"#);
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_method_call_pad_end() {
+    let result = check_source(r#"pub fn main() -> String { "hi".pad_end(5, " ") }"#);
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_method_call_lines() {
+    let result = check_source(r#"pub fn main() -> List<String> { "a\nb".lines() }"#);
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_method_call_to_int() {
+    let result = check_source(r#"pub fn main() -> Option<Int> { "42".to_int() }"#);
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_method_call_to_float() {
+    let result = check_source(r#"pub fn main() -> Option<Float> { "3.14".to_float() }"#);
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
 // List method tests
 
 #[test]

@@ -262,6 +262,201 @@ fn test_run_string_trim() {
 }
 
 #[test]
+fn test_run_string_trim_start() {
+    let source = r#"pub fn main() -> String { "  hello  ".trim_start() }"#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("hello  ".to_string()));
+}
+
+#[test]
+fn test_run_string_trim_end() {
+    let source = r#"pub fn main() -> String { "  hello  ".trim_end() }"#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("  hello".to_string()));
+}
+
+#[test]
+fn test_run_string_replace() {
+    let source = r#"pub fn main() -> String { "hello".replace("l", "r") }"#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("herro".to_string()));
+}
+
+#[test]
+fn test_run_string_replace_all() {
+    let source = r#"pub fn main() -> String { "aabaa".replace("aa", "x") }"#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("xbx".to_string()));
+}
+
+#[test]
+fn test_run_string_repeat() {
+    let source = r#"pub fn main() -> String { "ha".repeat(3) }"#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("hahaha".to_string()));
+}
+
+#[test]
+fn test_run_string_split() {
+    let source = r#"pub fn main() -> List<String> { "a,b,c".split(",") }"#;
+    let result = run_source(source).unwrap();
+    assert_eq!(
+        result,
+        Value::List(vec![
+            Value::String("a".to_string()),
+            Value::String("b".to_string()),
+            Value::String("c".to_string()),
+        ])
+    );
+}
+
+#[test]
+fn test_run_string_chars() {
+    let source = r#"pub fn main() -> List<String> { "hi".chars() }"#;
+    let result = run_source(source).unwrap();
+    assert_eq!(
+        result,
+        Value::List(vec![
+            Value::String("h".to_string()),
+            Value::String("i".to_string()),
+        ])
+    );
+}
+
+#[test]
+fn test_run_string_find_some() {
+    let source = r#"
+        pub fn main() -> Int {
+            match "hello".find("ll") {
+                Some(i) => i,
+                None => -1,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(2));
+}
+
+#[test]
+fn test_run_string_find_none() {
+    let source = r#"
+        pub fn main() -> Int {
+            match "hello".find("xyz") {
+                Some(i) => i,
+                None => -1,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(-1));
+}
+
+#[test]
+fn test_run_string_slice() {
+    let source = r#"pub fn main() -> String { "hello".slice(1, 3) }"#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("el".to_string()));
+}
+
+#[test]
+fn test_run_string_reverse() {
+    let source = r#"pub fn main() -> String { "hello".reverse() }"#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("olleh".to_string()));
+}
+
+#[test]
+fn test_run_string_replace_first() {
+    let source = r#"pub fn main() -> String { "hello".replace_first("l", "r") }"#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("herlo".to_string()));
+}
+
+#[test]
+fn test_run_string_pad_start() {
+    let source = r#"pub fn main() -> String { "hi".pad_start(5, ".") }"#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("...hi".to_string()));
+}
+
+#[test]
+fn test_run_string_pad_end() {
+    let source = r#"pub fn main() -> String { "hi".pad_end(5, ".") }"#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("hi...".to_string()));
+}
+
+#[test]
+fn test_run_string_lines() {
+    let source = r#"pub fn main() -> List<String> { "a\nb\nc".lines() }"#;
+    let result = run_source(source).unwrap();
+    assert_eq!(
+        result,
+        Value::List(vec![
+            Value::String("a".to_string()),
+            Value::String("b".to_string()),
+            Value::String("c".to_string()),
+        ])
+    );
+}
+
+#[test]
+fn test_run_string_to_int_some() {
+    let source = r#"
+        pub fn main() -> Int {
+            match "42".to_int() {
+                Some(n) => n,
+                None => -1,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_run_string_to_int_none() {
+    let source = r#"
+        pub fn main() -> Int {
+            match "abc".to_int() {
+                Some(n) => n,
+                None => -1,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(-1));
+}
+
+#[test]
+fn test_run_string_to_float_some() {
+    let source = r#"
+        pub fn main() -> Float {
+            match "3.14".to_float() {
+                Some(n) => n,
+                None => -1.0,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Float(3.14));
+}
+
+#[test]
+fn test_run_string_to_float_none() {
+    let source = r#"
+        pub fn main() -> Float {
+            match "abc".to_float() {
+                Some(n) => n,
+                None => -1.0,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Float(-1.0));
+}
+
+#[test]
 fn test_run_chained_method_calls() {
     let source = r#"pub fn main() -> Int { "hello".to_uppercase().len() }"#;
     let result = run_source(source).unwrap();

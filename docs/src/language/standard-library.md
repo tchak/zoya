@@ -119,6 +119,48 @@ let name = "Alice"
 println("Hello, " + name + "!")
 ```
 
+## `std::string`
+
+Methods on the `String` type.
+
+### `String`
+
+| Method | Description |
+|--------|-------------|
+| `len(self) -> Int` | Return the number of characters |
+| `is_empty(self) -> Bool` | Check if the string is empty |
+| `contains(self, needle: String) -> Bool` | Check if the string contains `needle` |
+| `starts_with(self, prefix: String) -> Bool` | Check if the string starts with `prefix` |
+| `ends_with(self, suffix: String) -> Bool` | Check if the string ends with `suffix` |
+| `to_uppercase(self) -> String` | Convert to uppercase |
+| `to_lowercase(self) -> String` | Convert to lowercase |
+| `trim(self) -> String` | Remove leading and trailing whitespace |
+| `trim_start(self) -> String` | Remove leading whitespace |
+| `trim_end(self) -> String` | Remove trailing whitespace |
+| `replace(self, from: String, to: String) -> String` | Replace all occurrences of `from` with `to` |
+| `repeat(self, n: Int) -> String` | Repeat the string `n` times |
+| `split(self, sep: String) -> List<String>` | Split the string by `sep` |
+| `chars(self) -> List<String>` | Split into individual characters |
+| `find(self, needle: String) -> Option<Int>` | Find the index of `needle`, or `None` |
+| `slice(self, start: Int, end: Int) -> String` | Extract a substring from `start` to `end` |
+| `reverse(self) -> String` | Reverse the string |
+| `replace_first(self, from: String, to: String) -> String` | Replace the first occurrence of `from` with `to` |
+| `pad_start(self, len: Int, fill: String) -> String` | Pad the start to reach `len` using `fill` |
+| `pad_end(self, len: Int, fill: String) -> String` | Pad the end to reach `len` using `fill` |
+| `lines(self) -> List<String>` | Split by newlines |
+| `to_int(self) -> Option<Int>` | Parse as integer, or `None` |
+| `to_float(self) -> Option<Float>` | Parse as float, or `None` |
+
+```zoya
+let s = "Hello, World!"
+s.len()                    // 13
+s.contains("World")        // true
+s.replace("World", "Zoya") // "Hello, Zoya!"
+s.split(", ")              // ["Hello", "World!"]
+"42".to_int()              // Some(42)
+"abc".to_int()             // None
+```
+
 ## `std::list`
 
 Methods on the immutable `List<T>` type. All operations return new lists.
