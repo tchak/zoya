@@ -13,5 +13,10 @@ pub enum JSON {
 
 pub enum ParseError { ParseError }
 
+impl JSON {
+    #[builtin]
+    pub fn to_string(self) -> String ()
+}
+
 #[builtin]
 pub fn parse(value: String) -> Result<JSON, ParseError> ()

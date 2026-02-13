@@ -266,8 +266,14 @@ Represents an arbitrary JSON value.
 | `Array(List<JSON>)` | JSON array |
 | `Object(Dict<String, JSON>)` | JSON object as key-value dictionary |
 
+#### Methods
+
+| Method | Description |
+|--------|-------------|
+| `to_string(self) -> String` | Serialize the JSON value to a string |
+
 ```zoya
-use std::json::{JSON, Number}
+use std::json::{JSON, Number, parse}
 
 let data = JSON::Object(Dict::from([
     ("name", JSON::String("Alice")),
@@ -282,5 +288,17 @@ let data = JSON::Object(Dict::from([
 match data {
     JSON::Object(dict) => dict.get("name"),
     _ => None,
+}
+
+// Serialize to JSON string
+JSON::Number(Number::Int(42)).to_string()  // "42"
+JSON::Bool(true).to_string()               // "true"
+JSON::Null.to_string()                     // "null"
+
+// Round-trip: parse and serialize
+let json = parse("{\"key\": \"value\"}")
+match json {
+    Ok(value) => value.to_string(),  // "{\"key\":\"value\"}"
+    Err(_) => "",
 }
 ```

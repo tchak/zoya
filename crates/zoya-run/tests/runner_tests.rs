@@ -5737,6 +5737,128 @@ fn test_json_parse_invalid() {
     assert_eq!(result, Value::Int(1));
 }
 
+// ==================== JSON to_string Tests ====================
+
+#[test]
+fn test_json_to_string_null() {
+    let source = r#"
+        use std::json::JSON
+
+        pub fn main() -> String {
+            JSON::Null.to_string()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("null".to_string()));
+}
+
+#[test]
+fn test_json_to_string_bool_true() {
+    let source = r#"
+        use std::json::JSON
+
+        pub fn main() -> String {
+            JSON::Bool(true).to_string()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("true".to_string()));
+}
+
+#[test]
+fn test_json_to_string_bool_false() {
+    let source = r#"
+        use std::json::JSON
+
+        pub fn main() -> String {
+            JSON::Bool(false).to_string()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("false".to_string()));
+}
+
+#[test]
+fn test_json_to_string_number_int() {
+    let source = r#"
+        use std::json::{JSON, Number}
+
+        pub fn main() -> String {
+            JSON::Number(Number::Int(42)).to_string()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("42".to_string()));
+}
+
+#[test]
+fn test_json_to_string_number_float() {
+    let source = r#"
+        use std::json::{JSON, Number}
+
+        pub fn main() -> String {
+            JSON::Number(Number::Float(3.14)).to_string()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("3.14".to_string()));
+}
+
+#[test]
+fn test_json_to_string_string() {
+    let source = r#"
+        use std::json::JSON
+
+        pub fn main() -> String {
+            JSON::String("hello").to_string()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("\"hello\"".to_string()));
+}
+
+#[test]
+fn test_json_to_string_array() {
+    let source = r#"
+        use std::json::{JSON, Number}
+
+        pub fn main() -> String {
+            JSON::Array([JSON::Number(Number::Int(1)), JSON::Number(Number::Int(2)), JSON::Number(Number::Int(3))]).to_string()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("[1,2,3]".to_string()));
+}
+
+#[test]
+fn test_json_to_string_object() {
+    let source = r#"
+        use std::json::JSON
+
+        pub fn main() -> String {
+            JSON::Object(Dict::from([("key", JSON::String("value"))])).to_string()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("{\"key\":\"value\"}".to_string()));
+}
+
+#[test]
+fn test_json_to_string_round_trip() {
+    let source = r#"
+        use std::json::{JSON, Number, parse}
+
+        pub fn main() -> Bool {
+            let original = JSON::Array([JSON::Number(Number::Int(1)), JSON::Bool(true), JSON::Null]);
+            let serialized = original.to_string();
+            let parsed = parse(serialized);
+            parsed == Ok(original)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
 // ==================== Rest Binding Tests ====================
 
 #[test]

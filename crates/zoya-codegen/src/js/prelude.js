@@ -74,3 +74,13 @@ function $$json_to_zoya(v) {
   if (Array.isArray(v)) return { $tag: "Array", $0: v.map($$json_to_zoya) };
   return { $tag: "Object", $0: $$Dict.from(Object.entries(v).map(([k, val]) => [k, $$json_to_zoya(val)])) };
 }
+function $$zoya_to_json(v) {
+  switch (v.$tag) {
+    case "Null": return null;
+    case "Bool": return v.$0;
+    case "Number": return v.$0.$0;
+    case "String": return v.$0;
+    case "Array": return v.$0.map($$zoya_to_json);
+    case "Object": return Object.fromEntries($$Dict.entries(v.$0).map(([k, val]) => [k, $$zoya_to_json(val)]));
+  }
+}

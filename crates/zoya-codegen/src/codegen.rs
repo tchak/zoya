@@ -939,6 +939,7 @@ impl<'a> PackageCodegen<'a> {
             "root::json::parse" => {
                 "try { return { $tag: \"Ok\", $0: $$json_to_zoya(JSON.parse($value)) }; } catch(_) { return { $tag: \"Err\", $0: { $tag: \"ParseError\" } }; }".to_string()
             }
+            "root::json::JSON::to_string" => "return JSON.stringify($$zoya_to_json($self));".to_string(),
             // Int methods
             "root::int::Int::abs" => "return $$Int.abs($self);".to_string(),
             "root::int::Int::to_string" => "return $$Int.to_string($self);".to_string(),
