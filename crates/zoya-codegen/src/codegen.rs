@@ -1048,8 +1048,6 @@ impl<'a> PackageCodegen<'a> {
             "root::list::List::filter_map" => {
                 "const r = []; for (const x of $self) { const v = $f(x); if (v.$tag === \"Some\") r.push(v.$0); } return r;".to_string()
             }
-            "root::list::List::first" => "return $self.length > 0 ? { $tag: \"Some\", $0: $self[0] } : { $tag: \"None\" };".to_string(),
-            "root::list::List::last" => "return $self.length > 0 ? { $tag: \"Some\", $0: $self[$self.length - 1] } : { $tag: \"None\" };".to_string(),
             "root::list::List::truncate" => "return $self.slice(0, $len);".to_string(),
             "root::list::List::insert" => "return [...$self.slice(0, $index), $value, ...$self.slice($index)];".to_string(),
             "root::list::List::remove" => "return [...$self.slice(0, $index), ...$self.slice($index + 1)];".to_string(),

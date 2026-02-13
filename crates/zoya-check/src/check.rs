@@ -2224,20 +2224,24 @@ fn check_list_index(
     })?;
 
     // Return type is Option<T>
-    // Look up the std Option definition to get its module path
-    let option_qpath = QualifiedPath::new(vec!["std".into(), "option".into(), "Option".into()]);
-    let option_module = env
-        .definitions
-        .get(&option_qpath)
-        .or_else(|| {
-            env.reexports
-                .get(&option_qpath)
-                .and_then(|real| env.definitions.get(real))
-        })
-        .and_then(|def| match def {
-            Definition::Enum(e) => Some(e.module.clone()),
-            _ => None,
-        })
+    // Look up the Option definition to get its module path
+    // Try both root:: (when type-checking std itself) and std:: (for user code)
+    let find_option_module = |prefix: &str| -> Option<QualifiedPath> {
+        let qpath = QualifiedPath::new(vec![prefix.into(), "option".into(), "Option".into()]);
+        env.definitions
+            .get(&qpath)
+            .or_else(|| {
+                env.reexports
+                    .get(&qpath)
+                    .and_then(|real| env.definitions.get(real))
+            })
+            .and_then(|def| match def {
+                Definition::Enum(e) => Some(e.module.clone()),
+                _ => None,
+            })
+    };
+    let option_module = find_option_module("root")
+        .or_else(|| find_option_module("std"))
         .unwrap_or_else(|| QualifiedPath::new(vec!["std".into(), "option".into()]));
     let option_ty = Type::Enum {
         module: option_module,

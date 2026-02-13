@@ -13,8 +13,8 @@ impl<T> List<T> {
     #[builtin] pub fn filter_map<U>(self, f: T -> Option<U>) -> List<U> ()
 
     // Accessors
-    #[builtin] pub fn first(self) -> Option<T> ()
-    #[builtin] pub fn last(self) -> Option<T> ()
+    pub fn first(self) -> Option<T> { self[0] }
+    pub fn last(self) -> Option<T> { self[-1] }
 
     // Manipulation
     #[builtin] pub fn truncate(self, len: Int) -> Self ()
