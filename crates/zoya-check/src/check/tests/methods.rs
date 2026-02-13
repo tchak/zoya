@@ -110,8 +110,84 @@ fn test_check_list_push_type_mismatch() {
 }
 
 #[test]
+fn test_check_list_map() {
+    let result = check_source("pub fn main() -> List<Int> { [1, 2].map(|x| x + 1) }");
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_list_map_type_change() {
+    let result = check_source("pub fn main() -> List<Bool> { [1, 2].map(|x| x > 0) }");
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_list_filter() {
+    let result = check_source("pub fn main() -> List<Int> { [1, 2, 3].filter(|x| x > 1) }");
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_list_fold() {
+    let result = check_source("pub fn main() -> Int { [1, 2, 3].fold(0, |acc, x| acc + x) }");
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_list_filter_map() {
+    let result = check_source(
+        r#"
+        pub fn main() -> List<Int> {
+            [1, 2, 3].filter_map(|x| match x > 1 {
+                true => Some(x * 2),
+                false => None,
+            })
+        }
+        "#,
+    );
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_list_first() {
+    let result = check_source("pub fn main() -> Option<Int> { [1, 2].first() }");
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_list_last() {
+    let result = check_source("pub fn main() -> Option<Int> { [1, 2].last() }");
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_list_truncate() {
+    let result = check_source("pub fn main() -> List<Int> { [1, 2, 3].truncate(2) }");
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_list_insert() {
+    let result = check_source("pub fn main() -> List<Int> { [1, 3].insert(1, 2) }");
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_list_remove() {
+    let result = check_source("pub fn main() -> List<Int> { [1, 2, 3].remove(1) }");
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
 fn test_check_list_chained_methods() {
     // [1, 2].push(3).reverse()
     let result = check_source("pub fn main() -> List<Int> { [1, 2].push(3).reverse() }");
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_list_filter_map_chain() {
+    let result =
+        check_source("pub fn main() -> List<Int> { [1, 2, 3].filter(|x| x > 1).map(|x| x * 10) }");
     assert!(result.is_ok(), "Expected OK, got: {:?}", result);
 }

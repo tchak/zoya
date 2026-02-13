@@ -220,6 +220,20 @@ All list operations return new lists (immutable):
 [1, 2].is_empty()       // false
 [1, 2].push(3)          // [1, 2, 3]
 [1, 2, 3].reverse()     // [3, 2, 1]
+[1, 2, 3].first()       // Some(1)
+[1, 2, 3].last()        // Some(3)
+[1, 2, 3, 4].truncate(2) // [1, 2]
+[1, 3].insert(1, 2)     // [1, 2, 3]
+[1, 2, 3].remove(1)     // [1, 3]
+```
+
+Higher-order methods for functional programming:
+
+```zoya
+[1, 2, 3].map(|x| x * 2)              // [2, 4, 6]
+[1, 2, 3, 4].filter(|x| x > 2)        // [3, 4]
+[1, 2, 3].fold(0, |acc, x| acc + x)    // 6
+[1, 2, 3].filter(|x| x > 1).map(|x| x * 10)  // [20, 30]
 ```
 
 ## Dict Methods

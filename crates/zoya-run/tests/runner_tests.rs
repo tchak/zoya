@@ -863,6 +863,164 @@ fn test_run_list_chained_methods() {
     );
 }
 
+#[test]
+fn test_run_list_map() {
+    let source = "pub fn main() -> List<Int> { [1, 2, 3].map(|x| x * 2) }";
+    let result = run_source(source).unwrap();
+    assert_eq!(
+        result,
+        Value::List(vec![Value::Int(2), Value::Int(4), Value::Int(6)])
+    );
+}
+
+#[test]
+fn test_run_list_map_empty() {
+    let source = "pub fn main() -> List<Int> { [].map(|x: Int| x * 2) }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::List(vec![]));
+}
+
+#[test]
+fn test_run_list_map_type_change() {
+    let source = "pub fn main() -> List<Bool> { [1, 2].map(|x| x > 0) }";
+    let result = run_source(source).unwrap();
+    assert_eq!(
+        result,
+        Value::List(vec![Value::Bool(true), Value::Bool(true)])
+    );
+}
+
+#[test]
+fn test_run_list_filter() {
+    let source = "pub fn main() -> List<Int> { [1, 2, 3, 4].filter(|x| x > 2) }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::List(vec![Value::Int(3), Value::Int(4)]));
+}
+
+#[test]
+fn test_run_list_filter_empty_result() {
+    let source = "pub fn main() -> List<Int> { [1, 2, 3].filter(|x| x > 10) }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::List(vec![]));
+}
+
+#[test]
+fn test_run_list_fold() {
+    let source = "pub fn main() -> Int { [1, 2, 3].fold(0, |acc, x| acc + x) }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(6));
+}
+
+#[test]
+fn test_run_list_fold_empty() {
+    let source = "pub fn main() -> Int { [].fold(0, |acc: Int, x: Int| acc + x) }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(0));
+}
+
+#[test]
+fn test_run_list_filter_map() {
+    let source = r#"
+        pub fn main() -> List<Int> {
+            [1, 2, 3].filter_map(|x| match x > 1 {
+                true => Some(x * 2),
+                false => None,
+            })
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::List(vec![Value::Int(4), Value::Int(6)]));
+}
+
+#[test]
+fn test_run_list_first() {
+    let source = r#"
+        pub fn main() -> Int {
+            match [10, 20, 30].first() {
+                Some(v) => v,
+                None => -1,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(10));
+}
+
+#[test]
+fn test_run_list_first_empty() {
+    let source = r#"
+        pub fn main() -> Int {
+            let xs: List<Int> = [];
+            match xs.first() {
+                Some(v) => v,
+                None => -1,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(-1));
+}
+
+#[test]
+fn test_run_list_last() {
+    let source = r#"
+        pub fn main() -> Int {
+            match [10, 20, 30].last() {
+                Some(v) => v,
+                None => -1,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(30));
+}
+
+#[test]
+fn test_run_list_last_empty() {
+    let source = r#"
+        pub fn main() -> Int {
+            let xs: List<Int> = [];
+            match xs.last() {
+                Some(v) => v,
+                None => -1,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(-1));
+}
+
+#[test]
+fn test_run_list_truncate() {
+    let source = "pub fn main() -> List<Int> { [1, 2, 3, 4].truncate(2) }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::List(vec![Value::Int(1), Value::Int(2)]));
+}
+
+#[test]
+fn test_run_list_insert() {
+    let source = "pub fn main() -> List<Int> { [1, 3].insert(1, 2) }";
+    let result = run_source(source).unwrap();
+    assert_eq!(
+        result,
+        Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
+    );
+}
+
+#[test]
+fn test_run_list_remove() {
+    let source = "pub fn main() -> List<Int> { [1, 2, 3].remove(1) }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::List(vec![Value::Int(1), Value::Int(3)]));
+}
+
+#[test]
+fn test_run_list_filter_then_map() {
+    let source = "pub fn main() -> List<Int> { [1, 2, 3].filter(|x| x > 1).map(|x| x * 10) }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::List(vec![Value::Int(20), Value::Int(30)]));
+}
+
 // Tuple tests
 #[test]
 fn test_run_tuple_literal() {

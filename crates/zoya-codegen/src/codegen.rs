@@ -1042,6 +1042,17 @@ impl<'a> PackageCodegen<'a> {
             "root::list::List::len" => "return ($self).length;".to_string(),
             "root::list::List::reverse" => "return ([...($self)].reverse());".to_string(),
             "root::list::List::push" => "return ([...$self, $item]);".to_string(),
+            "root::list::List::map" => "return $self.map($f);".to_string(),
+            "root::list::List::filter" => "return $self.filter($f);".to_string(),
+            "root::list::List::fold" => "return $self.reduce($f, $init);".to_string(),
+            "root::list::List::filter_map" => {
+                "const r = []; for (const x of $self) { const v = $f(x); if (v.$tag === \"Some\") r.push(v.$0); } return r;".to_string()
+            }
+            "root::list::List::first" => "return $self.length > 0 ? { $tag: \"Some\", $0: $self[0] } : { $tag: \"None\" };".to_string(),
+            "root::list::List::last" => "return $self.length > 0 ? { $tag: \"Some\", $0: $self[$self.length - 1] } : { $tag: \"None\" };".to_string(),
+            "root::list::List::truncate" => "return $self.slice(0, $len);".to_string(),
+            "root::list::List::insert" => "return [...$self.slice(0, $index), $value, ...$self.slice($index)];".to_string(),
+            "root::list::List::remove" => "return [...$self.slice(0, $index), ...$self.slice($index + 1)];".to_string(),
 
             // Dict methods
             "root::dict::Dict::new" => "return $$Dict.empty();".to_string(),

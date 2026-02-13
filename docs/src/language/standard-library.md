@@ -119,6 +119,40 @@ let name = "Alice"
 println("Hello, " + name + "!")
 ```
 
+## `std::list`
+
+Methods on the immutable `List<T>` type. All operations return new lists.
+
+### `List<T>`
+
+| Method | Description |
+|--------|-------------|
+| `len(self) -> Int` | Return the number of elements |
+| `is_empty(self) -> Bool` | Check if the list is empty |
+| `push(self, item: T) -> Self` | Return a new list with the item appended |
+| `reverse(self) -> Self` | Return a new list in reverse order |
+| `first(self) -> Option<T>` | Return the first element, or `None` if empty |
+| `last(self) -> Option<T>` | Return the last element, or `None` if empty |
+| `map<U>(self, f: T -> U) -> List<U>` | Transform each element with a function |
+| `filter(self, f: T -> Bool) -> Self` | Keep only elements where the predicate is true |
+| `fold<U>(self, init: U, f: (U, T) -> U) -> U` | Reduce the list to a single value |
+| `filter_map<U>(self, f: T -> Option<U>) -> List<U>` | Filter and transform in a single pass |
+| `truncate(self, len: Int) -> Self` | Return the first `len` elements |
+| `insert(self, index: Int, value: T) -> Self` | Return a new list with `value` inserted at `index` |
+| `remove(self, index: Int) -> Self` | Return a new list with the element at `index` removed |
+
+```zoya
+let xs = [1, 2, 3, 4, 5]
+xs.map(|x| x * 2)                // [2, 4, 6, 8, 10]
+xs.filter(|x| x > 3)             // [4, 5]
+xs.fold(0, |acc, x| acc + x)     // 15
+xs.first()                        // Some(1)
+xs.last()                         // Some(5)
+xs.truncate(3)                    // [1, 2, 3]
+xs.insert(2, 99)                  // [1, 2, 99, 3, 4, 5]
+xs.remove(0)                      // [2, 3, 4, 5]
+```
+
 ## `std::dict`
 
 Immutable dictionary type backed by a persistent hash array mapped trie (HAMT).
