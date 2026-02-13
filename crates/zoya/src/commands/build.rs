@@ -1,9 +1,8 @@
-use std::collections::HashMap;
 use std::path::Path;
 
 use console::{Term, style};
 use zoya_check::check;
-use zoya_codegen::{codegen, esm_module_name};
+use zoya_codegen::codegen;
 use zoya_loader::Mode;
 
 /// Compile a file to JavaScript without executing
@@ -26,10 +25,8 @@ pub fn execute(path: &Path, output: Option<&Path>, mode: Mode) -> Result<(), Str
                 .to_string()
         })?;
 
-    // Generate JS code for all modules (deps + main package)
-    let outputs = codegen(&checked_pkg, &[std]);
-    let modules_ref: HashMap<&str, &zoya_codegen::CodegenOutput> =
-        outputs.iter().map(|(k, v)| (k.as_str(), v)).collect();
+    // Generate single concatenated JS
+    let js_output = codegen(&checked_pkg, &[std]);
 
     // Create output directory if needed
     if !out_path.exists() {
@@ -37,16 +34,13 @@ pub fn execute(path: &Path, output: Option<&Path>, mode: Mode) -> Result<(), Str
             .map_err(|e| format!("failed to create directory '{}': {}", out_path.display(), e))?;
     }
 
-    // Write each module as {name}-{hash}.js
-    for (name, module_output) in &outputs {
-        let esm_name = esm_module_name(name, &modules_ref);
-        // Strip leading "./" from ESM name to get filename
-        let filename = esm_name.trim_start_matches("./");
-        let file_path = out_path.join(filename);
-        std::fs::write(&file_path, &module_output.code)
-            .map_err(|e| format!("failed to write file '{}': {}", file_path.display(), e))?;
-        let _ = term.write_line(&format!("  {}", style(filename).dim()));
-    }
+    // Write single JS file
+    let filename = format!("{}.js", checked_pkg.name);
+    let file_path = out_path.join(&filename);
+
+    std::fs::write(&file_path, &js_output.code)
+        .map_err(|e| format!("failed to write file '{}': {}", file_path.display(), e))?;
+    let _ = term.write_line(&format!("  {}", style(&filename).dim()));
 
     let _ = term.write_line(&format!(
         "{} Built: {}",
@@ -72,28 +66,19 @@ mod tests {
         assert!(result.is_ok());
         assert!(output.is_dir());
 
-        // Should contain at least 3 files (prelude + std + main package)
+        // Should contain exactly 1 file (single concatenated JS)
         let files: Vec<_> = std::fs::read_dir(&output)
             .unwrap()
             .filter_map(|e| e.ok())
             .collect();
-        assert!(
-            files.len() >= 3,
-            "expected at least 3 module files, got {}",
-            files.len()
-        );
+        assert_eq!(files.len(), 1, "expected 1 file, got {}", files.len());
 
-        // Check that main package file contains expected content
-        let main_file = files
-            .iter()
-            .find(|f| f.file_name().to_str().unwrap_or("").starts_with("test-"));
-        assert!(
-            main_file.is_some(),
-            "should have a file starting with 'test-'"
-        );
-        let js = std::fs::read_to_string(main_file.unwrap().path()).unwrap();
-        assert!(js.contains("function $root$main()"));
-        assert!(js.contains("export {"));
+        // Check that the file is named {pkg_name}.js and contains expected content
+        let js_file = &files[0];
+        let name = js_file.file_name().to_str().unwrap().to_string();
+        assert_eq!(name, "test.js");
+        let js = std::fs::read_to_string(js_file.path()).unwrap();
+        assert!(js.contains("function $test$main()"));
     }
 
     #[test]
@@ -190,28 +175,5 @@ mod tests {
         let output = PathBuf::from("/tmp/build");
         let result = execute(Path::new("nonexistent.zy"), Some(&output), Mode::Dev);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_execute_module_files_have_hash() {
-        let dir = tempfile::tempdir().unwrap();
-        let input = dir.path().join("test.zy");
-        let output = dir.path().join("build");
-        std::fs::write(&input, "pub fn main() -> Int { 42 }").unwrap();
-
-        let result = execute(&input, Some(&output), Mode::Dev);
-        assert!(result.is_ok());
-
-        // All files should match pattern {name}-{hash}.js
-        for entry in std::fs::read_dir(&output).unwrap() {
-            let entry = entry.unwrap();
-            let name = entry.file_name().to_str().unwrap().to_string();
-            assert!(name.ends_with(".js"), "file should end with .js: {}", name);
-            assert!(
-                name.contains('-'),
-                "file should contain hash separator: {}",
-                name
-            );
-        }
     }
 }

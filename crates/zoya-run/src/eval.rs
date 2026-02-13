@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
 
-use rquickjs::loader::{BuiltinResolver, Loader, ModuleLoader, Resolver};
-use rquickjs::{BigInt, CatchResultExt, Context, Ctx, Module, Result as QjsResult, Runtime};
+use rquickjs::{BigInt, CatchResultExt, Context, Ctx, Runtime};
 
 use zoya_ir::{EnumVariantType, Type, TypeVarId};
 
@@ -11,10 +9,6 @@ type EnumLookup = HashMap<String, (Vec<TypeVarId>, Vec<(String, EnumVariantType)
 type StructLookup = HashMap<String, (Vec<TypeVarId>, Vec<(String, Type)>)>;
 
 /// Lookup table for resolving recursive type stubs.
-///
-/// Recursive types (e.g., `enum JSON { Array(List<JSON>), ... }`) are represented
-/// with empty variants/fields at inner recursive references. This lookup resolves
-/// those stubs to the real type information during JS→Zoya value deserialization.
 pub(crate) struct TypeLookup {
     pub(crate) enums: EnumLookup,
     pub(crate) structs: StructLookup,
@@ -148,94 +142,17 @@ fn substitute_variant_type_vars(
     }
 }
 
-/// Virtual module storage - maps module names to source code
-#[derive(Clone)]
-pub(crate) struct VirtualModules {
-    modules: Arc<HashMap<String, String>>,
-}
-
-impl VirtualModules {
-    pub fn new(modules: HashMap<String, String>) -> Self {
-        Self {
-            modules: Arc::new(modules),
-        }
-    }
-
-    /// Get source code for a module
-    pub fn get(&self, name: &str) -> Option<String> {
-        self.modules.get(name).cloned()
-    }
-}
-
-/// Resolver for virtual modules
-#[derive(Clone)]
-pub(crate) struct VirtualResolver {
-    modules: VirtualModules,
-}
-
-impl VirtualResolver {
-    pub fn new(modules: VirtualModules) -> Self {
-        Self { modules }
-    }
-}
-
-impl Resolver for VirtualResolver {
-    fn resolve(&mut self, _ctx: &Ctx<'_>, base: &str, name: &str) -> QjsResult<String> {
-        // Check if we have this module registered
-        if self.modules.get(name).is_some() {
-            Ok(name.to_string())
-        } else {
-            Err(rquickjs::Error::new_resolving(base, name))
-        }
-    }
-}
-
-/// Loader for virtual modules
-#[derive(Clone)]
-pub(crate) struct VirtualLoader {
-    modules: VirtualModules,
-}
-
-impl VirtualLoader {
-    pub fn new(modules: VirtualModules) -> Self {
-        Self { modules }
-    }
-}
-
-impl Loader for VirtualLoader {
-    fn load<'js>(&mut self, ctx: &Ctx<'js>, name: &str) -> QjsResult<Module<'js>> {
-        if let Some(source) = self.modules.get(name) {
-            Module::declare(ctx.clone(), name, source)
-        } else {
-            Err(rquickjs::Error::new_loading(name))
-        }
-    }
-}
-
-/// Create a runtime and context configured for ESM module loading
-pub(crate) fn create_module_runtime(
-    virtual_modules: VirtualModules,
-) -> Result<(Runtime, Context), String> {
+/// Create a runtime and context for plain script evaluation (no module system).
+pub(crate) fn create_runtime() -> Result<(Runtime, Context), String> {
     let runtime = Runtime::new().map_err(|e| e.to_string())?;
-
-    let resolver = (
-        VirtualResolver::new(virtual_modules.clone()),
-        BuiltinResolver::default(),
-    );
-    let loader = (VirtualLoader::new(virtual_modules), ModuleLoader::default());
-
-    runtime.set_loader(resolver, loader);
-
     let context = Context::full(&runtime).map_err(|e| e.to_string())?;
-
     context
         .with(|ctx| inject_console(&ctx))
         .map_err(|e| format!("failed to inject console: {e}"))?;
-
     Ok((runtime, context))
 }
 
-fn inject_console(ctx: &Ctx<'_>) -> QjsResult<()> {
+fn inject_console(ctx: &Ctx<'_>) -> rquickjs::Result<()> {
     let globals = ctx.globals();
     let console = rquickjs::Object::new(ctx.clone())?;
     console.set(
@@ -272,42 +189,24 @@ fn parse_zoya_error(msg: &str) -> Option<(&str, Option<&str>)> {
     }
 }
 
-/// Evaluate an ESM module and get the result
+/// Evaluate a plain JS script and call an entry function.
 ///
-/// The module_source should be ESM code that exports functions.
-/// The entry_point is the function to call (e.g., "$root$main").
-/// The result is retrieved from the module's "$result" export.
-pub(crate) fn eval_module(
+/// First evaluates `code` to define all functions in the global scope,
+/// then calls `entry_func()` and converts the result to a Zoya Value.
+pub(crate) fn eval_script(
     ctx: &Ctx<'_>,
-    module_name: &str,
+    code: &str,
     entry_func: &str,
     result_type: Type,
     type_lookup: &TypeLookup,
 ) -> Result<Value, EvalError> {
-    // Create entry point script that imports the module and calls the function
-    let entry_script = format!(
-        r#"import {{ {} }} from '{}'; export const $result = {}();"#,
-        entry_func, module_name, entry_func
-    );
-
-    // Declare and evaluate the entry module
-    let entry_module = Module::declare(ctx.clone(), "__entry__", entry_script)
+    // Define all functions in global scope
+    let _: rquickjs::Value = ctx.eval(code).catch(ctx).map_err(map_js_error)?;
+    // Call entry function and get result
+    let js_val: rquickjs::Value = ctx
+        .eval(format!("{}()", entry_func))
         .catch(ctx)
         .map_err(map_js_error)?;
-
-    // Evaluate the module - eval() takes ownership and returns (Module<Evaluated>, Promise)
-    let (evaluated_module, promise) = entry_module.eval().catch(ctx).map_err(map_js_error)?;
-
-    // Check if the promise was rejected (module threw an error)
-    // The result() method returns Err(Error::Exception) if rejected
-    let _: () = promise.finish().catch(ctx).map_err(map_js_error)?;
-
-    // Get the result from the module's exports
-    let js_val: rquickjs::Value = evaluated_module
-        .get("$result")
-        .catch(ctx)
-        .map_err(|e| EvalError::RuntimeError(format!("failed to get result: {}", e)))?;
-
     js_value_to_value(js_val, &result_type, type_lookup)
 }
 
@@ -391,7 +290,6 @@ impl fmt::Display for Value {
                 if fields.is_empty() {
                     write!(f, "{} {{}}", name)
                 } else if fields[0].0.starts_with('$') {
-                    // Tuple struct: display as Name(v0, v1)
                     write!(f, "{}(", name)?;
                     write_comma_separated(f, fields.iter().map(|(_, v)| v))?;
                     write!(f, ")")
@@ -566,7 +464,6 @@ fn js_value_to_value(
                 .get("$tag")
                 .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
 
-            // Find the variant type
             let variant_type = resolved_variants
                 .iter()
                 .find(|(vname, _)| vname == &tag)

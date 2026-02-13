@@ -2,12 +2,12 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use zoya_check::check;
-use zoya_codegen::{codegen, esm_module_name, format_export_path};
+use zoya_codegen::{codegen, format_export_path};
 use zoya_ir::{CheckedPackage, Definition};
 use zoya_loader::{MemorySource, load_memory_package, load_package};
 use zoya_package::QualifiedPath;
 
-use crate::eval::{self, EnumValueFields, EvalError, TypeLookup, Value, VirtualModules};
+use crate::eval::{self, EnumValueFields, EvalError, TypeLookup, Value};
 
 /// Which function to invoke inside a checked package.
 enum EntryPoint {
@@ -309,30 +309,19 @@ fn run_checked(
     // Build type lookup for resolving recursive type stubs
     let type_lookup = build_type_lookup(package, deps);
 
-    // Generate all modules (deps + main package)
-    let outputs = codegen(package, deps);
-    let modules_ref: HashMap<&str, &zoya_codegen::CodegenOutput> =
-        outputs.iter().map(|(k, v)| (k.as_str(), v)).collect();
-
-    // Build virtual modules map with ESM module names
-    let mut modules = HashMap::new();
-    for (name, output) in &outputs {
-        let esm_name = esm_module_name(name, &modules_ref);
-        modules.insert(esm_name, output.code.clone());
-    }
-    let module_name = esm_module_name(&package.name, &modules_ref);
-    let virtual_modules = VirtualModules::new(modules);
+    // Generate single concatenated JS
+    let output = codegen(package, deps);
 
     // Build the entry function name using the package name
     let entry_func = format_export_path(&function_path, &package.name);
 
-    // Create runtime with module loader
-    let (_runtime, context) = eval::create_module_runtime(virtual_modules)
-        .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+    // Create runtime (no module system needed)
+    let (_runtime, context) =
+        eval::create_runtime().map_err(|e| EvalError::RuntimeError(e.to_string()))?;
 
-    // Evaluate the module and call main
+    // Evaluate the script and call the entry function
     context
-        .with(|ctx| eval::eval_module(&ctx, &module_name, &entry_func, return_type, &type_lookup))
+        .with(|ctx| eval::eval_script(&ctx, &output.code, &entry_func, return_type, &type_lookup))
 }
 
 /// Build a TypeLookup from a package and its dependencies for resolving
