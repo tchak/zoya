@@ -1,0 +1,6 @@
+impl<T> List<T> {
+    #[builtin] pub fn len(self) -> Int ()
+    pub fn is_empty(self) -> Bool { self.len() == 0 }
+    #[builtin] pub fn reverse(self) -> Self ()
+    #[builtin] pub fn push(self, item: T) -> Self ()
+}

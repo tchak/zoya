@@ -1350,6 +1350,7 @@ dependencies = [
  "zoya-loader",
  "zoya-naming",
  "zoya-package",
+ "zoya-std",
 ]
 
 [[package]]

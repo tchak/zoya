@@ -12,7 +12,7 @@ use zoya_ir::{
 };
 use zoya_package::Package;
 
-use crate::builtin::{builtin_method, is_numeric_type};
+use crate::builtin::{is_numeric_type, primitive_method_module, primitive_module_for_name};
 use crate::definition::{
     enum_type_from_def, function_type_from_def, struct_type_from_def, type_alias_from_def,
 };
@@ -259,7 +259,7 @@ fn check_impl_method_body(
     current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
-    _package_name: &str,
+    package_name: &str,
 ) -> Result<TypedFunction, TypeError> {
     // Create fresh type variables for impl type params
     let mut type_param_map = HashMap::new();
@@ -323,6 +323,50 @@ fn check_impl_method_body(
         }
 
         typed_params.push((typed_pattern, ctx.resolve(&ty)));
+    }
+
+    // Check for #[builtin] attribute
+    let is_builtin = method.attributes.iter().any(|a| a.name == "builtin");
+
+    if is_builtin {
+        if package_name != "std" {
+            return Err(TypeError {
+                message: "the #[builtin] attribute can only be used in the standard library"
+                    .to_string(),
+            });
+        }
+        if method.return_type.is_none() {
+            return Err(TypeError {
+                message: "#[builtin] methods must have an explicit return type".to_string(),
+            });
+        }
+        if method.body != Expr::Tuple(vec![]) {
+            return Err(TypeError {
+                message: "#[builtin] methods must have a unit body ()".to_string(),
+            });
+        }
+
+        let declared_return = resolve_type_annotation_with_self(
+            method.return_type.as_ref().unwrap(),
+            &type_param_map,
+            current_module,
+            env,
+            &self_type,
+        )?;
+
+        let body_env = env.with_locals(locals);
+        let typed_body = check_expr(&method.body, current_module, &body_env, ctx)?;
+
+        let method_name = format!("{}::{}", type_qpath.last(), method.name);
+
+        return Ok(TypedFunction {
+            name: method_name,
+            params: typed_params,
+            body: typed_body,
+            return_type: ctx.resolve(&declared_return),
+            is_builtin: true,
+            is_test: false,
+        });
     }
 
     // Check the body
@@ -1344,48 +1388,7 @@ fn check_method_call(
     let typed_receiver = check_expr(receiver, current_module, env, ctx)?;
     let receiver_ty = ctx.resolve(&typed_receiver.ty());
 
-    // Priority 1: Check builtin methods
-    if let Some((param_types, return_type)) = builtin_method(&receiver_ty, method) {
-        // Check argument count
-        if args.len() != param_types.len() {
-            return Err(TypeError {
-                message: format!(
-                    "method '{}' expects {} argument(s), got {}",
-                    method,
-                    param_types.len(),
-                    args.len()
-                ),
-            });
-        }
-
-        // Type check arguments
-        let mut typed_args = Vec::new();
-        for (arg, param_ty) in args.iter().zip(param_types.iter()) {
-            let typed_arg = check_expr(arg, current_module, env, ctx)?;
-            let arg_ty = typed_arg.ty();
-
-            ctx.unify(&arg_ty, param_ty).map_err(|e| TypeError {
-                message: format!(
-                    "argument type mismatch in method '{}': expected {}, got {}: {}",
-                    method,
-                    ctx.resolve(param_ty),
-                    ctx.resolve(&arg_ty),
-                    e.message
-                ),
-            })?;
-
-            typed_args.push(typed_arg);
-        }
-
-        return Ok(TypedExpr::MethodCall {
-            receiver: Box::new(typed_receiver),
-            method: method.to_string(),
-            args: typed_args,
-            ty: return_type,
-        });
-    }
-
-    // Priority 2: Check user-defined impl methods
+    // Check impl methods (both user-defined and std primitive methods)
     if let Some((method_qpath, imt)) = find_impl_method(&receiver_ty, method, &env.definitions) {
         if !imt.has_self {
             return Err(TypeError {
@@ -1400,6 +1403,7 @@ fn check_method_call(
         // Build instantiation: map impl type vars to the receiver's actual type args
         let receiver_type_args = match &receiver_ty {
             Type::Struct { type_args, .. } | Type::Enum { type_args, .. } => type_args.clone(),
+            Type::List(elem) => vec![*elem.clone()],
             _ => vec![],
         };
         let mut instantiation: HashMap<TypeVarId, Type> = imt
@@ -1487,9 +1491,30 @@ fn find_impl_method<'a>(
     // Get the module and type name from the receiver
     let (module, type_name) = match receiver_ty {
         Type::Struct { module, name, .. } | Type::Enum { module, name, .. } => {
-            (module, name.as_str())
+            (module.clone(), name.as_str())
         }
-        _ => return None,
+        _ => {
+            // For primitive types, look up their std impl methods
+            if let Some((mod_name, prim_type_name)) = primitive_method_module(receiver_ty) {
+                // Try root::<mod>::<Type>::<method> (inside std itself)
+                let root_path = QualifiedPath::root()
+                    .child(mod_name)
+                    .child(prim_type_name)
+                    .child(method);
+                if let Some(Definition::ImplMethod(imt)) = definitions.get(&root_path) {
+                    return Some((root_path, imt));
+                }
+                // Try std::<mod>::<Type>::<method> (when std is a dependency)
+                let std_path = QualifiedPath::new(vec!["std".to_string()])
+                    .child(mod_name)
+                    .child(prim_type_name)
+                    .child(method);
+                if let Some(Definition::ImplMethod(imt)) = definitions.get(&std_path) {
+                    return Some((std_path, imt));
+                }
+            }
+            return None;
+        }
     };
 
     // Build the qualified path directly: module::TypeName::method
@@ -3107,6 +3132,19 @@ fn register_impl_methods(
         let (type_qpath, _type_def) =
             resolve_impl_target(&impl_block.target_type, current_module, env, package_name)?;
 
+        // For primitive type impls (in std), register a Module definition at the type path
+        // so is_externally_visible can traverse the ancestor chain
+        if !env.definitions.contains_key(&type_qpath) {
+            env.register(
+                type_qpath.clone(),
+                Definition::Module(ModuleType {
+                    visibility: Visibility::Public,
+                    module: current_module.clone(),
+                    name: type_qpath.last().to_string(),
+                }),
+            );
+        }
+
         // Create fresh type variables for impl type params
         let mut impl_type_param_map = HashMap::new();
         let mut impl_type_var_ids = Vec::new();
@@ -3261,13 +3299,26 @@ fn resolve_impl_target(
         .map(|s| s.as_str())
         .unwrap_or("<unknown>");
 
-    // Reject primitive types
+    // Reject primitive types — unless we're in the std package
     if path.segments.len() == 1
         && matches!(
             type_name,
             "Int" | "BigInt" | "Float" | "Bool" | "String" | "List"
         )
     {
+        if package_name == "std" && primitive_module_for_name(type_name).is_some() {
+            // In std, primitive impl blocks resolve to root::<mod>::<Type>
+            let qpath = current_module.child(type_name);
+            // Return a dummy definition — callers ignore it
+            return Ok((
+                qpath,
+                Definition::Module(ModuleType {
+                    visibility: Visibility::Public,
+                    module: current_module.clone(),
+                    name: type_name.to_string(),
+                }),
+            ));
+        }
         return Err(TypeError {
             message: format!("cannot define impl for primitive type '{}'", type_name),
         });

@@ -1,6 +1,6 @@
 # Methods
 
-Zoya supports methods on types through two mechanisms: built-in methods on primitive and collection types, and user-defined methods via `impl` blocks on structs and enums.
+Zoya supports methods on types through `impl` blocks. The standard library provides methods on primitive types (Int, Float, String, etc.), and you can define methods on your own structs and enums.
 
 ## User-Defined Methods
 
@@ -153,9 +153,9 @@ pub fn main() -> Int {
 }
 ```
 
-## Built-in Methods
+## Primitive Type Methods
 
-Zoya provides built-in methods on primitive and collection types.
+The standard library defines methods on primitive and collection types via `impl` blocks in the `std` package.
 
 ## String Methods
 
@@ -219,6 +219,5 @@ All list operations return new lists (immutable):
 [1, 2].len()            // 2
 [1, 2].is_empty()       // false
 [1, 2].push(3)          // [1, 2, 3]
-[1, 2].concat([3, 4])   // [1, 2, 3, 4]
 [1, 2, 3].reverse()     // [3, 2, 1]
 ```

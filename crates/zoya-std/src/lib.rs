@@ -10,11 +10,16 @@ static STD_PACKAGE: LazyLock<CheckedPackage> =
 fn build_std() -> Result<CheckedPackage, String> {
     let source = MemorySource::new()
         .with_module("root", include_str!("std/main.zy"))
+        .with_module("bigint", include_str!("std/bigint.zy"))
+        .with_module("float", include_str!("std/float.zy"))
+        .with_module("int", include_str!("std/int.zy"))
         .with_module("io", include_str!("std/io.zy"))
         .with_module("json", include_str!("std/json.zy"))
+        .with_module("list", include_str!("std/list.zy"))
         .with_module("option", include_str!("std/option.zy"))
         .with_module("prelude", include_str!("std/prelude.zy"))
-        .with_module("result", include_str!("std/result.zy"));
+        .with_module("result", include_str!("std/result.zy"))
+        .with_module("string", include_str!("std/string.zy"));
 
     let mut pkg = load_memory_package(&source, zoya_loader::Mode::Release)
         .map_err(|e| format!("failed to load std package: {e}"))?;
@@ -331,10 +336,7 @@ mod tests {
             .child("option")
             .child("Option")
             .child("map");
-        let def = pkg
-            .definitions
-            .get(&path)
-            .expect("Option::map definition");
+        let def = pkg.definitions.get(&path).expect("Option::map definition");
         assert!(matches!(def, Definition::ImplMethod(_)));
     }
 
@@ -359,10 +361,7 @@ mod tests {
             .child("result")
             .child("Result")
             .child("map");
-        let def = pkg
-            .definitions
-            .get(&path)
-            .expect("Result::map definition");
+        let def = pkg.definitions.get(&path).expect("Result::map definition");
         assert!(matches!(def, Definition::ImplMethod(_)));
     }
 
@@ -377,6 +376,83 @@ mod tests {
             .definitions
             .get(&path)
             .expect("Result::and_then definition");
+        assert!(matches!(def, Definition::ImplMethod(_)));
+    }
+
+    #[test]
+    fn test_std_has_int_abs_method() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("int").child("Int").child("abs");
+        let def = pkg.definitions.get(&path).expect("Int::abs definition");
+        assert!(matches!(def, Definition::ImplMethod(_)));
+    }
+
+    #[test]
+    fn test_std_has_float_sqrt_method() {
+        let pkg = std();
+        let path = QualifiedPath::root()
+            .child("float")
+            .child("Float")
+            .child("sqrt");
+        let def = pkg.definitions.get(&path).expect("Float::sqrt definition");
+        assert!(matches!(def, Definition::ImplMethod(_)));
+    }
+
+    #[test]
+    fn test_std_has_string_len_method() {
+        let pkg = std();
+        let path = QualifiedPath::root()
+            .child("string")
+            .child("String")
+            .child("len");
+        let def = pkg.definitions.get(&path).expect("String::len definition");
+        assert!(matches!(def, Definition::ImplMethod(_)));
+    }
+
+    #[test]
+    fn test_std_has_string_is_empty_method() {
+        let pkg = std();
+        let path = QualifiedPath::root()
+            .child("string")
+            .child("String")
+            .child("is_empty");
+        let def = pkg
+            .definitions
+            .get(&path)
+            .expect("String::is_empty definition");
+        assert!(matches!(def, Definition::ImplMethod(_)));
+    }
+
+    #[test]
+    fn test_std_has_list_len_method() {
+        let pkg = std();
+        let path = QualifiedPath::root()
+            .child("list")
+            .child("List")
+            .child("len");
+        let def = pkg.definitions.get(&path).expect("List::len definition");
+        assert!(matches!(def, Definition::ImplMethod(_)));
+    }
+
+    #[test]
+    fn test_std_has_list_push_method() {
+        let pkg = std();
+        let path = QualifiedPath::root()
+            .child("list")
+            .child("List")
+            .child("push");
+        let def = pkg.definitions.get(&path).expect("List::push definition");
+        assert!(matches!(def, Definition::ImplMethod(_)));
+    }
+
+    #[test]
+    fn test_std_has_bigint_abs_method() {
+        let pkg = std();
+        let path = QualifiedPath::root()
+            .child("bigint")
+            .child("BigInt")
+            .child("abs");
+        let def = pkg.definitions.get(&path).expect("BigInt::abs definition");
         assert!(matches!(def, Definition::ImplMethod(_)));
     }
 

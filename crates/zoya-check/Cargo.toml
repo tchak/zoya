@@ -11,3 +11,4 @@ zoya-package = { path = "../zoya-package" }
 
 [dev-dependencies]
 zoya-loader = { path = "../zoya-loader" }
+zoya-std = { path = "../zoya-std" }

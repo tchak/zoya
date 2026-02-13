@@ -1,0 +1,10 @@
+impl String {
+    #[builtin] pub fn len(self) -> Int ()
+    pub fn is_empty(self) -> Bool { self.len() == 0 }
+    #[builtin] pub fn contains(self, needle: String) -> Bool ()
+    #[builtin] pub fn starts_with(self, prefix: String) -> Bool ()
+    #[builtin] pub fn ends_with(self, suffix: String) -> Bool ()
+    #[builtin] pub fn to_uppercase(self) -> String ()
+    #[builtin] pub fn to_lowercase(self) -> String ()
+    #[builtin] pub fn trim(self) -> String ()
+}

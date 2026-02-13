@@ -1,8 +1,13 @@
+pub mod bigint
+pub mod float
+pub mod int
 pub mod io
 pub mod json
+pub mod list
 pub mod option
 pub mod prelude
 pub mod result
+pub mod string
 
 #[builtin]
 pub fn panic<T>(message: String) -> T ()

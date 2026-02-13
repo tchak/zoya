@@ -854,28 +854,6 @@ fn test_run_list_push_empty() {
 }
 
 #[test]
-fn test_run_list_concat() {
-    let source = "pub fn main() -> List<Int> { [1, 2].concat([3, 4]) }";
-    let result = run_source(source).unwrap();
-    assert_eq!(
-        result,
-        Value::List(vec![
-            Value::Int(1),
-            Value::Int(2),
-            Value::Int(3),
-            Value::Int(4)
-        ])
-    );
-}
-
-#[test]
-fn test_run_list_concat_empty() {
-    let source = "pub fn main() -> List<Int> { [1, 2].concat([]) }";
-    let result = run_source(source).unwrap();
-    assert_eq!(result, Value::List(vec![Value::Int(1), Value::Int(2)]));
-}
-
-#[test]
 fn test_run_list_chained_methods() {
     let source = "pub fn main() -> List<Int> { [1, 2].push(3).reverse() }";
     let result = run_source(source).unwrap();

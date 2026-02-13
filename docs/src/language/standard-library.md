@@ -1,6 +1,6 @@
 # Standard Library
 
-Zoya's standard library provides common types for everyday programming.
+Zoya's standard library provides common types and methods for everyday programming. It includes methods on primitive types (Int, Float, String, BigInt, List) defined via `impl` blocks in dedicated modules (`std::int`, `std::float`, `std::string`, `std::bigint`, `std::list`). See [Methods](methods.md) for the full list of primitive type methods.
 
 ## Prelude
 

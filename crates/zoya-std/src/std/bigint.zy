@@ -1,0 +1,6 @@
+impl BigInt {
+    #[builtin] pub fn abs(self) -> BigInt ()
+    #[builtin] pub fn to_string(self) -> String ()
+    #[builtin] pub fn min(self, other: BigInt) -> BigInt ()
+    #[builtin] pub fn max(self, other: BigInt) -> BigInt ()
+}

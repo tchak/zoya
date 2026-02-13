@@ -222,12 +222,6 @@ pub enum TypedExpr {
         arms: Vec<TypedMatchArm>,
         ty: Type,
     },
-    MethodCall {
-        receiver: Box<TypedExpr>,
-        method: String,
-        args: Vec<TypedExpr>,
-        ty: Type,
-    },
     Lambda {
         params: Vec<(TypedPattern, Type)>,
         body: Box<TypedExpr>,
@@ -299,7 +293,6 @@ impl TypedExpr {
             TypedExpr::BinOp { ty, .. } => ty.clone(),
             TypedExpr::Block { result, .. } => result.ty(),
             TypedExpr::Match { ty, .. } => ty.clone(),
-            TypedExpr::MethodCall { ty, .. } => ty.clone(),
             TypedExpr::Lambda { ty, .. } => ty.clone(),
             TypedExpr::StructConstruct { ty, .. } => ty.clone(),
             TypedExpr::StructTupleConstruct { ty, .. } => ty.clone(),

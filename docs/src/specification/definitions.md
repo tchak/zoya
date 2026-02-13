@@ -188,21 +188,27 @@ fn curry_add(x: Int) -> Int -> Int |y| x + y
 
 ### Builtin Functions
 
-The `#[builtin]` attribute declares a function whose implementation is provided by the compiler rather than written in Zoya. The function signature is type-checked normally, but the body must be the unit expression `()` and the return type must be explicitly annotated.
+The `#[builtin]` attribute declares a function or method whose implementation is provided by the compiler rather than written in Zoya. The signature is type-checked normally, but the body must be the unit expression `()` and the return type must be explicitly annotated.
 
 ```
 builtin_function_def ::= '#[builtin]' visibility 'fn' identifier type_params? '(' params? ')' '->' type '()'
+builtin_method_def   ::= '#[builtin]' visibility 'fn' identifier '(' 'self' (',' params)? ')' '->' type '()'
 ```
 
-Builtin functions are restricted to the standard library. Attempting to use `#[builtin]` outside the `std` package is an error.
+Builtin functions and methods are restricted to the standard library. Attempting to use `#[builtin]` outside the `std` package is an error.
 
 ```zoya
-// In std::json
+// In std::json — builtin function
 #[builtin]
 pub fn parse(value: String) -> Result<JSON, ParseError> ()
+
+// In std::string — builtin method
+impl String {
+    #[builtin] pub fn len(self) -> Int ()
+}
 ```
 
-The compiler substitutes a JavaScript implementation at code generation time. Every `#[builtin]` function must have a corresponding implementation registered in the code generator.
+The compiler substitutes a JavaScript implementation at code generation time. Every `#[builtin]` function or method must have a corresponding implementation registered in the code generator.
 
 ### Test Functions
 
@@ -514,7 +520,7 @@ impl Shape {
 
 The target type of an impl block must be a named struct or enum type. The following restrictions apply:
 
-- **No primitives**: `impl Int { ... }`, `impl String { ... }`, `impl List { ... }`, etc. are not allowed.
+- **Primitives restricted to std**: `impl Int { ... }`, `impl String { ... }`, `impl List<T> { ... }`, etc. are only allowed in the standard library. User code cannot define impl blocks on primitive types.
 - **No tuples or functions**: the target must be a named type, not a tuple type or function type.
 - **Orphan rule**: the target type must be defined in the same package as the impl block. Defining an impl block for a type from another package is an error.
 

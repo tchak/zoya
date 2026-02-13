@@ -1,0 +1,7 @@
+impl Int {
+    #[builtin] pub fn abs(self) -> Int ()
+    #[builtin] pub fn to_string(self) -> String ()
+    #[builtin] pub fn to_float(self) -> Float ()
+    #[builtin] pub fn min(self, other: Int) -> Int ()
+    #[builtin] pub fn max(self, other: Int) -> Int ()
+}

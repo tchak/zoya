@@ -309,60 +309,6 @@ impl<'a> PackageCodegen<'a> {
             TypedExpr::Match {
                 scrutinee, arms, ..
             } => self.codegen_match(scrutinee, arms),
-            TypedExpr::MethodCall {
-                receiver,
-                method,
-                args,
-                ..
-            } => {
-                let receiver_code = self.codegen_expr(receiver);
-                let receiver_ty = receiver.ty();
-                let args_code: Vec<String> = args.iter().map(|a| self.codegen_expr(a)).collect();
-
-                match method.as_str() {
-                    "len" => format!("({}).length", receiver_code),
-                    "is_empty" => format!("(({}).length === 0)", receiver_code),
-                    "contains" => format!("({}).includes({})", receiver_code, args_code[0]),
-                    "starts_with" => format!("({}).startsWith({})", receiver_code, args_code[0]),
-                    "ends_with" => format!("({}).endsWith({})", receiver_code, args_code[0]),
-                    "to_uppercase" => format!("({}).toUpperCase()", receiver_code),
-                    "to_lowercase" => format!("({}).toLowerCase()", receiver_code),
-                    "trim" => format!("({}).trim()", receiver_code),
-
-                    "abs" => match receiver_ty {
-                        Type::BigInt => format!("{}({})", ABS_BIGINT_FN, receiver_code),
-                        _ => format!("Math.abs({})", receiver_code),
-                    },
-                    "min" => match receiver_ty {
-                        Type::BigInt => {
-                            format!("{}({}, {})", MIN_BIGINT_FN, receiver_code, args_code[0])
-                        }
-                        _ => format!("Math.min({}, {})", receiver_code, args_code[0]),
-                    },
-                    "max" => match receiver_ty {
-                        Type::BigInt => {
-                            format!("{}({}, {})", MAX_BIGINT_FN, receiver_code, args_code[0])
-                        }
-                        _ => format!("Math.max({}, {})", receiver_code, args_code[0]),
-                    },
-
-                    "to_string" => format!("String({})", receiver_code),
-                    "to_float" => receiver_code,
-                    "to_int" => format!("Math.trunc({})", receiver_code),
-
-                    "floor" => format!("Math.floor({})", receiver_code),
-                    "ceil" => format!("Math.ceil({})", receiver_code),
-                    "round" => format!("Math.round({})", receiver_code),
-                    "sqrt" => format!("Math.sqrt({})", receiver_code),
-
-                    "reverse" => format!("([...({})].reverse())", receiver_code),
-                    "push" => format!("([...{}, {}])", receiver_code, args_code[0]),
-                    "concat" => format!("([...{}, ...{}])", receiver_code, args_code[0]),
-
-                    _ => panic!("unknown method in codegen: {}", method),
-                }
-            }
-
             TypedExpr::Lambda { params, body, .. } => {
                 let (param_names, prologue) = self.codegen_params(params);
                 let body_code = self.codegen_expr(body);
@@ -1042,6 +988,44 @@ impl<'a> PackageCodegen<'a> {
             "root::json::parse" => {
                 "try { return { $tag: \"Ok\", $0: $$json_to_zoya(JSON.parse($value)) }; } catch(_) { return { $tag: \"Err\", $0: { $tag: \"ParseError\" } }; }".to_string()
             }
+            // Int methods
+            "root::int::Int::abs" => "return Math.abs($self);".to_string(),
+            "root::int::Int::to_string" => "return String($self);".to_string(),
+            "root::int::Int::to_float" => "return $self;".to_string(),
+            "root::int::Int::min" => "return Math.min($self, $other);".to_string(),
+            "root::int::Int::max" => "return Math.max($self, $other);".to_string(),
+
+            // BigInt methods
+            "root::bigint::BigInt::abs" => format!("return {}($self);", ABS_BIGINT_FN),
+            "root::bigint::BigInt::to_string" => "return String($self);".to_string(),
+            "root::bigint::BigInt::min" => format!("return {}($self, $other);", MIN_BIGINT_FN),
+            "root::bigint::BigInt::max" => format!("return {}($self, $other);", MAX_BIGINT_FN),
+
+            // Float methods
+            "root::float::Float::abs" => "return Math.abs($self);".to_string(),
+            "root::float::Float::to_string" => "return String($self);".to_string(),
+            "root::float::Float::to_int" => "return Math.trunc($self);".to_string(),
+            "root::float::Float::floor" => "return Math.floor($self);".to_string(),
+            "root::float::Float::ceil" => "return Math.ceil($self);".to_string(),
+            "root::float::Float::round" => "return Math.round($self);".to_string(),
+            "root::float::Float::sqrt" => "return Math.sqrt($self);".to_string(),
+            "root::float::Float::min" => "return Math.min($self, $other);".to_string(),
+            "root::float::Float::max" => "return Math.max($self, $other);".to_string(),
+
+            // String methods
+            "root::string::String::len" => "return ($self).length;".to_string(),
+            "root::string::String::contains" => "return ($self).includes($needle);".to_string(),
+            "root::string::String::starts_with" => "return ($self).startsWith($prefix);".to_string(),
+            "root::string::String::ends_with" => "return ($self).endsWith($suffix);".to_string(),
+            "root::string::String::to_uppercase" => "return ($self).toUpperCase();".to_string(),
+            "root::string::String::to_lowercase" => "return ($self).toLowerCase();".to_string(),
+            "root::string::String::trim" => "return ($self).trim();".to_string(),
+
+            // List methods
+            "root::list::List::len" => "return ($self).length;".to_string(),
+            "root::list::List::reverse" => "return ([...($self)].reverse());".to_string(),
+            "root::list::List::push" => "return ([...$self, $item]);".to_string(),
+
             _ => panic!(
                 "no builtin JS implementation for '{}' — every #[builtin] function must have a codegen entry",
                 path_key
