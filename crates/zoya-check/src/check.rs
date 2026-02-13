@@ -718,7 +718,7 @@ fn check_function_call(
     // Type check arguments and unify with parameter types
     let mut typed_args = Vec::new();
     for (arg, param_type) in args.iter().zip(instantiated_params.iter()) {
-        let typed_arg = check_expr(arg, current_module, env, ctx)?;
+        let typed_arg = check_expr_with_expected(arg, Some(param_type), current_module, env, ctx)?;
         let arg_type = typed_arg.ty();
 
         // Unify argument type with parameter type
@@ -832,7 +832,7 @@ fn check_impl_method_path_call(
 
     let mut typed_args = Vec::new();
     for (arg, param_type) in args.iter().zip(instantiated_params.iter()) {
-        let typed_arg = check_expr(arg, current_module, env, ctx)?;
+        let typed_arg = check_expr_with_expected(arg, Some(param_type), current_module, env, ctx)?;
         let arg_type = typed_arg.ty();
 
         ctx.unify(&arg_type, param_type).map_err(|e| TypeError {
@@ -910,7 +910,7 @@ fn check_lambda_call(
     // Type check arguments and unify with parameter types
     let mut typed_args = Vec::new();
     for (arg, param_type) in args.iter().zip(params.iter()) {
-        let typed_arg = check_expr(arg, current_module, env, ctx)?;
+        let typed_arg = check_expr_with_expected(arg, Some(param_type), current_module, env, ctx)?;
         let arg_type = typed_arg.ty();
 
         ctx.unify(&arg_type, param_type).map_err(|e| TypeError {
@@ -1449,7 +1449,8 @@ fn check_method_call(
         let mut typed_args = Vec::new();
         for (arg, param) in args.iter().zip(method_params.iter()) {
             let instantiated = substitute_type_vars(param, &instantiation);
-            let typed_arg = check_expr(arg, current_module, env, ctx)?;
+            let typed_arg =
+                check_expr_with_expected(arg, Some(&instantiated), current_module, env, ctx)?;
             let arg_ty = typed_arg.ty();
 
             ctx.unify(&arg_ty, &instantiated).map_err(|e| TypeError {
@@ -1610,6 +1611,7 @@ fn check_lambda(
     params: &[zoya_ast::LambdaParam],
     return_type: &Option<TypeAnnotation>,
     body: &Expr,
+    expected_type: Option<&Type>,
     current_module: &QualifiedPath,
     env: &TypeEnv,
     ctx: &mut UnifyCtx,
@@ -1642,6 +1644,23 @@ fn check_lambda(
 
         typed_params.push((typed_pattern, ctx.resolve(&param_ty)));
         param_types.push(param_ty);
+    }
+
+    // Pre-unify unannotated parameter types with expected function type
+    // to enable bidirectional type inference for lambda arguments
+    if let Some(expected) = expected_type {
+        let resolved_expected = ctx.resolve(expected);
+        if let Type::Function {
+            params: expected_params,
+            ..
+        } = &resolved_expected
+        {
+            for (param_ty, expected_param_ty) in param_types.iter().zip(expected_params.iter()) {
+                if matches!(ctx.resolve(param_ty), Type::Var(_)) {
+                    let _ = ctx.unify(param_ty, expected_param_ty);
+                }
+            }
+        }
     }
 
     // Check the body in the extended environment
@@ -2260,6 +2279,36 @@ fn check_list_index(
     })
 }
 
+/// Check an expression with an optional expected type hint.
+/// For lambda expressions, passes the expected type to enable bidirectional inference.
+fn check_expr_with_expected(
+    expr: &Expr,
+    expected_type: Option<&Type>,
+    current_module: &QualifiedPath,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
+    match (expr, expected_type) {
+        (
+            Expr::Lambda {
+                params,
+                return_type,
+                body,
+            },
+            Some(expected),
+        ) => check_lambda(
+            params,
+            return_type,
+            body,
+            Some(expected),
+            current_module,
+            env,
+            ctx,
+        ),
+        _ => check_expr(expr, current_module, env, ctx),
+    }
+}
+
 /// Check an expression with a type environment
 pub(crate) fn check_expr(
     expr: &Expr,
@@ -2292,7 +2341,7 @@ pub(crate) fn check_expr(
             params,
             return_type,
             body,
-        } => check_lambda(params, return_type, body, current_module, env, ctx),
+        } => check_lambda(params, return_type, body, None, current_module, env, ctx),
         Expr::Struct {
             path,
             fields,

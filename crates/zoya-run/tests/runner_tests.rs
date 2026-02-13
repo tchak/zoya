@@ -7989,7 +7989,7 @@ fn test_result_map_err_on_err() {
     let source = r#"
         pub fn main() -> Result<Int, Int> {
             let x: Result<Int, String> = Err("fail");
-            x.map_err(|e: String| e.len())
+            x.map_err(|e| e.len())
         }
     "#;
     let result = run_source(source).unwrap();
@@ -8001,7 +8001,7 @@ fn test_result_map_err_on_ok() {
     let source = r#"
         pub fn main() -> Result<Int, Int> {
             let x: Result<Int, String> = Ok(42);
-            x.map_err(|e: String| e.len())
+            x.map_err(|e| e.len())
         }
     "#;
     let result = run_source(source).unwrap();
