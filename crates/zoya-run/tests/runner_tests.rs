@@ -6439,3 +6439,251 @@ fn test_modulo_precedence_same_as_mul() {
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(3));
 }
+
+// ── Impl block tests ──────────────────────────────────────────────────
+
+#[test]
+fn test_impl_method_basic() {
+    let source = r#"
+        struct Point { x: Int, y: Int }
+        impl Point {
+            fn sum(self) -> Int {
+                self.x + self.y
+            }
+        }
+        pub fn main() -> Int {
+            let p = Point { x: 3, y: 4 };
+            p.sum()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(7));
+}
+
+#[test]
+fn test_impl_associated_function() {
+    let source = r#"
+        struct Point { x: Int, y: Int }
+        impl Point {
+            fn origin() -> Self {
+                Point { x: 0, y: 0 }
+            }
+        }
+        pub fn main() -> Int {
+            let p = Point::origin();
+            p.x + p.y
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(0));
+}
+
+#[test]
+fn test_impl_method_with_args() {
+    let source = r#"
+        struct Point { x: Int, y: Int }
+        impl Point {
+            fn add(self, other: Point) -> Point {
+                Point { x: self.x + other.x, y: self.y + other.y }
+            }
+        }
+        pub fn main() -> Int {
+            let a = Point { x: 1, y: 2 };
+            let b = Point { x: 3, y: 4 };
+            let c = a.add(b);
+            c.x + c.y
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(10));
+}
+
+#[test]
+fn test_impl_generic() {
+    let source = r#"
+        struct Wrapper<T> { value: T }
+        impl<T> Wrapper<T> {
+            fn unwrap(self) -> T {
+                self.value
+            }
+        }
+        pub fn main() -> Int {
+            let w = Wrapper { value: 42 };
+            w.unwrap()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_impl_generic_associated_function() {
+    let source = r#"
+        struct Wrapper<T> { value: T }
+        impl<T> Wrapper<T> {
+            fn new(v: T) -> Self {
+                Wrapper { value: v }
+            }
+        }
+        pub fn main() -> Int {
+            let w = Wrapper::new(99);
+            w.value
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(99));
+}
+
+#[test]
+fn test_impl_on_enum() {
+    let source = r#"
+        enum Shape {
+            Circle(Int),
+            Square(Int),
+        }
+        impl Shape {
+            fn area(self) -> Int {
+                match self {
+                    Shape::Circle(r) => r * r * 3,
+                    Shape::Square(s) => s * s,
+                }
+            }
+        }
+        pub fn main() -> Int {
+            let c = Shape::Circle(5);
+            let s = Shape::Square(4);
+            c.area() + s.area()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(91)); // 75 + 16
+}
+
+#[test]
+fn test_impl_enum_associated_function() {
+    let source = r#"
+        enum Color {
+            Red,
+            Green,
+            Blue,
+        }
+        impl Color {
+            fn default() -> Self {
+                Color::Red
+            }
+        }
+        pub fn main() -> Bool {
+            let c = Color::default();
+            match c {
+                Color::Red => true,
+                _ => false,
+            }
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_impl_multiple_blocks() {
+    let source = r#"
+        struct Counter { value: Int }
+        impl Counter {
+            fn new() -> Self {
+                Counter { value: 0 }
+            }
+        }
+        impl Counter {
+            fn get(self) -> Int {
+                self.value
+            }
+        }
+        pub fn main() -> Int {
+            let c = Counter::new();
+            c.get()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(0));
+}
+
+#[test]
+fn test_impl_self_type_in_return() {
+    let source = r#"
+        struct Point { x: Int, y: Int }
+        impl Point {
+            fn mirror(self) -> Self {
+                Point { x: self.y, y: self.x }
+            }
+        }
+        pub fn main() -> Int {
+            let p = Point { x: 1, y: 2 };
+            let m = p.mirror();
+            m.x * 10 + m.y
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(21)); // 2*10 + 1
+}
+
+#[test]
+fn test_impl_method_chaining() {
+    let source = r#"
+        struct Builder { value: Int }
+        impl Builder {
+            fn new() -> Self {
+                Builder { value: 0 }
+            }
+            fn add(self, n: Int) -> Self {
+                Builder { value: self.value + n }
+            }
+            fn build(self) -> Int {
+                self.value
+            }
+        }
+        pub fn main() -> Int {
+            Builder::new().add(10).add(20).add(12).build()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_impl_pub_method() {
+    let source = r#"
+        struct Foo { x: Int }
+        impl Foo {
+            pub fn get(self) -> Int {
+                self.x
+            }
+        }
+        pub fn main() -> Int {
+            let f = Foo { x: 7 };
+            f.get()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(7));
+}
+
+#[test]
+fn test_impl_method_with_let_block() {
+    let source = r#"
+        struct Point { x: Int, y: Int }
+        impl Point {
+            fn distance_squared(self, other: Point) -> Int {
+                let dx = self.x - other.x;
+                let dy = self.y - other.y;
+                dx * dx + dy * dy
+            }
+        }
+        pub fn main() -> Int {
+            let a = Point { x: 1, y: 2 };
+            let b = Point { x: 4, y: 6 };
+            a.distance_squared(b)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(25)); // (4-1)^2 + (6-2)^2 = 9 + 16
+}

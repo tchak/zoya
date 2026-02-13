@@ -196,6 +196,31 @@ pub struct ModuleType {
     pub name: String,
 }
 
+/// Impl method type definition (stored in type environment)
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImplMethodType {
+    /// Visibility of the method
+    pub visibility: Visibility,
+    /// Module where the impl block is defined
+    pub module: QualifiedPath,
+    /// Name of the target type (e.g., "Point")
+    pub target_type_name: String,
+    /// Type params on the impl block (e.g., ["T"] for `impl<T> Wrapper<T>`)
+    pub impl_type_params: Vec<String>,
+    /// TypeVarIds for impl type params
+    pub impl_type_var_ids: Vec<TypeVarId>,
+    /// Whether this is a method (has self) or associated function
+    pub has_self: bool,
+    /// Method's own type params (e.g., ["U"] for `fn map<U>(self, f: T -> U) -> U`)
+    pub type_params: Vec<String>,
+    /// TypeVarIds for method's own type params
+    pub type_var_ids: Vec<TypeVarId>,
+    /// All parameter types (including self as first if has_self)
+    pub params: Vec<Type>,
+    /// Return type
+    pub return_type: Type,
+}
+
 /// A named definition in the global namespace
 #[derive(Debug, Clone, PartialEq)]
 pub enum Definition {
@@ -205,6 +230,7 @@ pub enum Definition {
     EnumVariant(EnumType, EnumVariantType),
     TypeAlias(TypeAliasType),
     Module(ModuleType),
+    ImplMethod(ImplMethodType),
 }
 
 impl Definition {
@@ -243,6 +269,13 @@ impl Definition {
         }
     }
 
+    pub fn as_impl_method(&self) -> Option<&ImplMethodType> {
+        match self {
+            Definition::ImplMethod(m) => Some(m),
+            _ => None,
+        }
+    }
+
     pub fn is_module(&self) -> bool {
         matches!(self, Definition::Module(_))
     }
@@ -255,6 +288,7 @@ impl Definition {
             Definition::EnumVariant(..) => "enum variant",
             Definition::TypeAlias(_) => "type alias",
             Definition::Module(_) => "module",
+            Definition::ImplMethod(_) => "impl method",
         }
     }
 
@@ -266,6 +300,7 @@ impl Definition {
             Definition::EnumVariant(parent_enum, _) => &parent_enum.module,
             Definition::TypeAlias(a) => &a.module,
             Definition::Module(m) => &m.module,
+            Definition::ImplMethod(m) => &m.module,
         }
     }
 
@@ -277,6 +312,7 @@ impl Definition {
             Definition::EnumVariant(parent_enum, _) => parent_enum.visibility,
             Definition::TypeAlias(a) => a.visibility,
             Definition::Module(m) => m.visibility,
+            Definition::ImplMethod(m) => m.visibility,
         }
     }
 
@@ -307,6 +343,10 @@ impl Definition {
                 ..a
             }),
             Definition::Module(m) => Definition::Module(ModuleType {
+                module: m.module.with_root(name),
+                ..m
+            }),
+            Definition::ImplMethod(m) => Definition::ImplMethod(ImplMethodType {
                 module: m.module.with_root(name),
                 ..m
             }),

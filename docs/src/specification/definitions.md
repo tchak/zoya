@@ -4,7 +4,7 @@ A Zoya module consists of module declarations, use declarations, and item defini
 
 ```
 module ::= (mod_decl | use_decl | item)*
-item   ::= function_def | struct_def | enum_def | type_alias_def
+item   ::= function_def | struct_def | enum_def | type_alias_def | impl_block
 ```
 
 Items are described using grammar productions that reference [type annotations](types.md), [expressions](expressions.md), and [lexical tokens](lexical-structure.md) defined in earlier sections.
@@ -369,6 +369,183 @@ type StringList = List<String>
 ### Naming Conventions
 
 Type alias names and type parameter names use `PascalCase`.
+
+## Impl Blocks
+
+An impl block defines methods and associated functions on a struct or enum type.
+
+```
+impl_block     ::= attribute* 'impl' type_params? type '{' impl_method* '}'
+impl_method    ::= attribute* visibility 'fn' identifier type_params? '(' impl_params? ')' ('->' type)? body
+impl_params    ::= 'self' (',' param (',' param)*)? ','?
+                 | param (',' param)* ','?
+```
+
+An impl block has no visibility modifier of its own. Individual methods within the block each declare their own visibility.
+
+### Methods and Associated Functions
+
+Functions inside an impl block come in two forms:
+
+- **Methods** have `self` as their first parameter. They are called with dot syntax on a value of the target type.
+- **Associated functions** do not have `self`. They are called with path syntax on the type name.
+
+```zoya
+struct Point { x: Int, y: Int }
+
+impl Point {
+    // Associated function (no self)
+    fn origin() -> Self {
+        Point { x: 0, y: 0 }
+    }
+
+    // Method (has self)
+    fn sum(self) -> Int {
+        self.x + self.y
+    }
+
+    // Method with additional parameters
+    fn add(self, other: Point) -> Self {
+        Point { x: self.x + other.x, y: self.y + other.y }
+    }
+}
+```
+
+Methods are called with dot syntax:
+
+```zoya
+let p = Point { x: 1, y: 2 };
+p.sum()          // 3
+p.add(Point { x: 3, y: 4 })
+```
+
+Associated functions are called with path syntax:
+
+```zoya
+let origin = Point::origin()
+```
+
+Calling an associated function with dot syntax is an error. Calling a method with path syntax is permitted — the receiver must be passed as the first argument:
+
+```zoya
+Point::sum(p)    // equivalent to p.sum()
+```
+
+### The `Self` Type
+
+Inside an impl block, `Self` refers to the target type of the impl block. `Self` can appear in parameter types and return types.
+
+For a non-generic type `impl Point { ... }`, `Self` is `Point`.
+For a generic type `impl<T> Wrapper<T> { ... }`, `Self` is `Wrapper<T>`.
+
+Using `Self` outside of an impl block is an error.
+
+See also [Self Type](types.md#self-type).
+
+### Generic Impl Blocks
+
+Type parameters on the impl block are declared in angle brackets after the `impl` keyword. These are in scope for all methods in the block.
+
+```zoya
+struct Wrapper<T> { value: T }
+
+impl<T> Wrapper<T> {
+    fn new(v: T) -> Self {
+        Wrapper { value: v }
+    }
+
+    fn unwrap(self) -> T {
+        self.value
+    }
+}
+```
+
+Methods may also have their own type parameters:
+
+```zoya
+impl<T> Wrapper<T> {
+    fn map<U>(self, f: T -> U) -> Wrapper<U> {
+        Wrapper { value: f(self.value) }
+    }
+}
+```
+
+### Multiple Impl Blocks
+
+Multiple impl blocks may be defined for the same type. Each block may contain different methods, but method names must not conflict across blocks.
+
+```zoya
+struct Counter { value: Int }
+
+impl Counter {
+    fn new() -> Self {
+        Counter { value: 0 }
+    }
+}
+
+impl Counter {
+    fn get(self) -> Int {
+        self.value
+    }
+}
+```
+
+### Impl on Enums
+
+Impl blocks can be defined on enum types. Inside methods, `self` has the enum type and can be matched:
+
+```zoya
+enum Shape {
+    Circle(Int),
+    Square(Int),
+}
+
+impl Shape {
+    fn area(self) -> Int {
+        match self {
+            Shape::Circle(r) => r * r * 3,
+            Shape::Square(s) => s * s,
+        }
+    }
+}
+```
+
+### Target Type Restrictions
+
+The target type of an impl block must be a named struct or enum type. The following restrictions apply:
+
+- **No primitives**: `impl Int { ... }`, `impl String { ... }`, `impl List { ... }`, etc. are not allowed.
+- **No tuples or functions**: the target must be a named type, not a tuple type or function type.
+- **Orphan rule**: the target type must be defined in the same package as the impl block. Defining an impl block for a type from another package is an error.
+
+```zoya
+// Error: cannot define impl for primitive type 'Int'
+impl Int {
+    fn double(self) -> Int self * 2
+}
+
+// Error: cannot define impl for type 'Option' from package 'std' (orphan rule)
+impl Option<Int> {
+    fn unwrap_or(self, default: Int) -> Int 0
+}
+```
+
+### Method Visibility
+
+Each method in an impl block declares its own visibility with `pub` or the default (private). A private method follows the same access rules as any other private item: it is accessible from the defining module and its descendants.
+
+```zoya
+pub struct Foo { x: Int }
+
+impl Foo {
+    pub fn get(self) -> Int self.x    // accessible from any module
+    fn secret(self) -> Int self.x     // accessible from defining module only
+}
+```
+
+### Naming Conventions
+
+Method names use `snake_case`. Type parameter names use `PascalCase`.
 
 ## Module Declarations
 

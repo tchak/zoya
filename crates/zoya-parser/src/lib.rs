@@ -78,7 +78,9 @@ fn display_token(t: &Token) -> String {
         Token::Pub => "'pub'".to_string(),
         Token::Root => "'root'".to_string(),
         Token::Self_ => "'self'".to_string(),
+        Token::UpperSelf => "'Self'".to_string(),
         Token::Super => "'super'".to_string(),
+        Token::Impl => "'impl'".to_string(),
     }
 }
 
@@ -640,6 +642,15 @@ mod tests {
     fn parse_item_str(input: &str) -> Result<Item, ParseError> {
         let tokens = lex(input).expect("lexing failed");
         parse_item(tokens)
+    }
+
+    fn parse_items(input: &str) -> Result<Vec<Item>, ParseError> {
+        let tokens = lex(input).expect("lexing failed");
+        parse_input(tokens).map(|(items, _stmts)| items)
+    }
+
+    fn parse_expr(input: &str) -> Result<Expr, ParseError> {
+        parse_str(input)
     }
 
     #[test]
@@ -4123,5 +4134,146 @@ mod tests {
         };
         assert_eq!(index, 1);
         assert!(matches!(*inner, Expr::TupleIndex { index: 0, .. }));
+    }
+
+    #[test]
+    fn test_parse_impl_block_basic() {
+        let items = parse_items("impl Point { fn foo(self) -> Int { 42 } }").unwrap();
+        assert_eq!(items.len(), 1);
+        match &items[0] {
+            Item::Impl(impl_block) => {
+                assert!(impl_block.type_params.is_empty());
+                assert_eq!(impl_block.methods.len(), 1);
+                assert_eq!(impl_block.methods[0].name, "foo");
+                assert!(impl_block.methods[0].has_self);
+                assert!(impl_block.methods[0].params.is_empty());
+            }
+            _ => panic!("Expected Item::Impl"),
+        }
+    }
+
+    #[test]
+    fn test_parse_impl_block_associated_function() {
+        let items = parse_items("impl Point { fn origin() -> Self { 42 } }").unwrap();
+        assert_eq!(items.len(), 1);
+        match &items[0] {
+            Item::Impl(impl_block) => {
+                assert_eq!(impl_block.methods.len(), 1);
+                assert_eq!(impl_block.methods[0].name, "origin");
+                assert!(!impl_block.methods[0].has_self);
+            }
+            _ => panic!("Expected Item::Impl"),
+        }
+    }
+
+    #[test]
+    fn test_parse_impl_block_generic() {
+        let items = parse_items("impl<T> Wrapper<T> { fn unwrap(self) -> T { 42 } }").unwrap();
+        assert_eq!(items.len(), 1);
+        match &items[0] {
+            Item::Impl(impl_block) => {
+                assert_eq!(impl_block.type_params, vec!["T"]);
+                assert_eq!(impl_block.methods.len(), 1);
+                assert_eq!(impl_block.methods[0].name, "unwrap");
+                assert!(impl_block.methods[0].has_self);
+            }
+            _ => panic!("Expected Item::Impl"),
+        }
+    }
+
+    #[test]
+    fn test_parse_impl_block_method_with_params() {
+        let items =
+            parse_items("impl Point { fn add(self, other: Point) -> Point { 42 } }").unwrap();
+        match &items[0] {
+            Item::Impl(impl_block) => {
+                let method = &impl_block.methods[0];
+                assert!(method.has_self);
+                assert_eq!(method.params.len(), 1);
+                assert_eq!(
+                    method.params[0].pattern,
+                    Pattern::Path(Path::simple("other".to_string()))
+                );
+            }
+            _ => panic!("Expected Item::Impl"),
+        }
+    }
+
+    #[test]
+    fn test_parse_impl_block_multiple_methods() {
+        let source = r#"
+            impl Point {
+                fn x(self) -> Int { 42 }
+                fn y(self) -> Int { 42 }
+                fn origin() -> Self { 42 }
+            }
+        "#;
+        let items = parse_items(source).unwrap();
+        match &items[0] {
+            Item::Impl(impl_block) => {
+                assert_eq!(impl_block.methods.len(), 3);
+                assert!(impl_block.methods[0].has_self);
+                assert!(impl_block.methods[1].has_self);
+                assert!(!impl_block.methods[2].has_self);
+            }
+            _ => panic!("Expected Item::Impl"),
+        }
+    }
+
+    #[test]
+    fn test_parse_impl_block_pub_method() {
+        let items = parse_items("impl Point { pub fn foo(self) -> Int { 42 } }").unwrap();
+        match &items[0] {
+            Item::Impl(impl_block) => {
+                assert_eq!(impl_block.methods[0].visibility, Visibility::Public);
+            }
+            _ => panic!("Expected Item::Impl"),
+        }
+    }
+
+    #[test]
+    fn test_parse_self_expression() {
+        let expr = parse_expr("self").unwrap();
+        match expr {
+            Expr::Path(path) => {
+                assert_eq!(path.segments, vec!["self"]);
+            }
+            _ => panic!("Expected Expr::Path for self"),
+        }
+    }
+
+    #[test]
+    fn test_parse_self_field_access() {
+        let expr = parse_expr("self.x").unwrap();
+        match expr {
+            Expr::FieldAccess { expr, field } => {
+                assert_eq!(field, "x");
+                match *expr {
+                    Expr::Path(path) => assert_eq!(path.segments, vec!["self"]),
+                    _ => panic!("Expected self path"),
+                }
+            }
+            _ => panic!("Expected field access on self"),
+        }
+    }
+
+    #[test]
+    fn test_parse_self_method_call() {
+        let expr = parse_expr("self.foo()").unwrap();
+        match expr {
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+            } => {
+                assert_eq!(method, "foo");
+                assert!(args.is_empty());
+                match *receiver {
+                    Expr::Path(path) => assert_eq!(path.segments, vec!["self"]),
+                    _ => panic!("Expected self path"),
+                }
+            }
+            _ => panic!("Expected method call on self"),
+        }
     }
 }

@@ -290,6 +290,37 @@ let box = Box::<String> { value: "hello" }
 let left = Either::Left::<Int, String>(42)
 ```
 
+## Self Type
+
+Inside an [impl block](definitions.md#impl-blocks), the identifier `Self` refers to the target type of that block. It can be used in parameter types and return types of methods and associated functions.
+
+For a non-generic impl block, `Self` resolves directly to the named type:
+
+```zoya
+struct Point { x: Int, y: Int }
+
+impl Point {
+    fn origin() -> Self { ... }    // Self = Point
+    fn mirror(self) -> Self { ... } // Self = Point
+}
+```
+
+For a generic impl block, `Self` includes the type parameters:
+
+```zoya
+struct Wrapper<T> { value: T }
+
+impl<T> Wrapper<T> {
+    fn new(v: T) -> Self { ... }   // Self = Wrapper<T>
+}
+```
+
+Using `Self` outside of an impl block is an error:
+
+```zoya
+fn bad() -> Self { ... }   // Error: `Self` can only be used inside an impl block
+```
+
 ## Type Annotations
 
 ### In Let Bindings

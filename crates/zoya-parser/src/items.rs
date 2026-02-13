@@ -1,8 +1,8 @@
 use chumsky::prelude::*;
 
 use zoya_ast::{
-    Attribute, EnumDef, EnumVariant, EnumVariantKind, Expr, FunctionDef, Item, Param, StructDef,
-    StructFieldDef, StructKind, TypeAliasDef, Visibility,
+    Attribute, EnumDef, EnumVariant, EnumVariantKind, Expr, FunctionDef, ImplBlock, ImplMethod,
+    Item, Param, StructDef, StructFieldDef, StructKind, TypeAliasDef, Visibility,
 };
 use zoya_lexer::Token;
 
@@ -48,6 +48,7 @@ pub(crate) fn item_parser<'a>()
 
     // Parameters: (x: Int, y: Int)
     let params = param
+        .clone()
         .separated_by(just(Token::Comma))
         .allow_trailing()
         .collect::<Vec<_>>()
@@ -89,8 +90,8 @@ pub(crate) fn item_parser<'a>()
         .then(ident())
         .then(type_params.clone())
         .then(params)
-        .then(return_type)
-        .then(body)
+        .then(return_type.clone())
+        .then(body.clone())
         .map(
             |(((((is_pub, name), type_params), params), return_type), body)| {
                 Item::Function(FunctionDef {
@@ -221,7 +222,7 @@ pub(crate) fn item_parser<'a>()
         .or_not()
         .then_ignore(just(Token::Type))
         .then(ident())
-        .then(type_params)
+        .then(type_params.clone())
         .then_ignore(just(Token::Eq))
         .then(type_annotation())
         .map(|(((is_pub, name), type_params), typ)| {
@@ -238,10 +239,93 @@ pub(crate) fn item_parser<'a>()
             })
         });
 
+    // impl<T> TypeAnnotation { methods... }
+    let impl_method_params = {
+        // self [, param: Type, ...]
+        let self_params = just(Token::Self_)
+            .ignore_then(
+                just(Token::Comma)
+                    .ignore_then(
+                        param
+                            .clone()
+                            .separated_by(just(Token::Comma))
+                            .allow_trailing()
+                            .collect::<Vec<_>>(),
+                    )
+                    .or_not(),
+            )
+            .map(|rest| (true, rest.unwrap_or_default()));
+
+        // param: Type, ... (no self)
+        let no_self_params = param
+            .separated_by(just(Token::Comma))
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .map(|params| (false, params));
+
+        choice((self_params, no_self_params)).delimited_by(just(Token::LParen), just(Token::RParen))
+    };
+
+    let impl_method = attribute_parser()
+        .repeated()
+        .collect::<Vec<_>>()
+        .then(just(Token::Pub).or_not())
+        .then_ignore(just(Token::Fn))
+        .then(ident())
+        .then(type_params.clone())
+        .then(impl_method_params)
+        .then(return_type.clone())
+        .then(body.clone())
+        .map(
+            |(
+                (((((attrs, is_pub), name), method_type_params), (has_self, params)), return_type),
+                body,
+            )| {
+                ImplMethod {
+                    attributes: attrs,
+                    visibility: if is_pub.is_some() {
+                        Visibility::Public
+                    } else {
+                        Visibility::Private
+                    },
+                    name,
+                    type_params: method_type_params,
+                    has_self,
+                    params,
+                    return_type,
+                    body,
+                }
+            },
+        );
+
+    let impl_methods = impl_method
+        .repeated()
+        .collect::<Vec<_>>()
+        .delimited_by(just(Token::LBrace), just(Token::RBrace));
+
+    let impl_def = just(Token::Impl)
+        .ignore_then(type_params)
+        .then(type_annotation())
+        .then(impl_methods)
+        .map(|((impl_type_params, target_type), methods)| {
+            Item::Impl(ImplBlock {
+                attributes: vec![],
+                type_params: impl_type_params,
+                target_type,
+                methods,
+            })
+        });
+
     let attributes = attribute_parser().repeated().collect::<Vec<_>>();
 
     attributes
-        .then(choice((function_def, struct_def, enum_def, type_alias_def)))
+        .then(choice((
+            function_def,
+            struct_def,
+            enum_def,
+            type_alias_def,
+            impl_def,
+        )))
         .map(|(attrs, item)| {
             if attrs.is_empty() {
                 return item;
@@ -266,6 +350,10 @@ pub(crate) fn item_parser<'a>()
                 Item::Use(mut u) => {
                     u.attributes = attrs;
                     Item::Use(u)
+                }
+                Item::Impl(mut i) => {
+                    i.attributes = attrs;
+                    Item::Impl(i)
                 }
             }
         })

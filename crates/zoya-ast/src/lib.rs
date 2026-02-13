@@ -77,7 +77,7 @@ impl std::fmt::Display for Path {
     }
 }
 
-/// Top-level item (function, enum, struct, type alias, use declaration, etc.)
+/// Top-level item (function, enum, struct, type alias, use declaration, impl block, etc.)
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     Function(FunctionDef),
@@ -85,10 +85,11 @@ pub enum Item {
     Enum(EnumDef),
     TypeAlias(TypeAliasDef),
     Use(UseDecl),
+    Impl(ImplBlock),
 }
 
 impl Item {
-    /// Returns the name of this item, or `None` for items without a name (e.g., `Use`)
+    /// Returns the name of this item, or `None` for items without a name (e.g., `Use`, `Impl`)
     pub fn name(&self) -> Option<&str> {
         match self {
             Item::Function(f) => Some(&f.name),
@@ -96,8 +97,31 @@ impl Item {
             Item::Enum(e) => Some(&e.name),
             Item::TypeAlias(t) => Some(&t.name),
             Item::Use(_) => None,
+            Item::Impl(_) => None,
         }
     }
+}
+
+/// Impl block: `impl<T> TypeAnnotation { methods... }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImplBlock {
+    pub attributes: Vec<Attribute>,
+    pub type_params: Vec<String>,
+    pub target_type: TypeAnnotation,
+    pub methods: Vec<ImplMethod>,
+}
+
+/// A method or associated function inside an impl block
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImplMethod {
+    pub attributes: Vec<Attribute>,
+    pub visibility: Visibility,
+    pub name: String,
+    pub type_params: Vec<String>,
+    pub has_self: bool,
+    pub params: Vec<Param>,
+    pub return_type: Option<TypeAnnotation>,
+    pub body: Expr,
 }
 
 /// The kind of a struct definition

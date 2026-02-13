@@ -8,3 +8,6 @@ zoya-ast = { path = "../zoya-ast" }
 zoya-ir = { path = "../zoya-ir" }
 zoya-naming = { path = "../zoya-naming" }
 zoya-package = { path = "../zoya-package" }
+
+[dev-dependencies]
+zoya-loader = { path = "../zoya-loader" }

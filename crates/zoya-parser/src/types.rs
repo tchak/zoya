@@ -1,6 +1,6 @@
 use chumsky::prelude::*;
 
-use zoya_ast::TypeAnnotation;
+use zoya_ast::{Path, TypeAnnotation};
 use zoya_lexer::Token;
 
 use crate::helpers::simple_path_parser;
@@ -14,6 +14,10 @@ pub(crate) fn type_annotation<'a>()
             .separated_by(just(Token::Comma))
             .collect::<Vec<_>>()
             .delimited_by(just(Token::Lt), just(Token::Gt));
+
+        // Self type keyword
+        let self_type =
+            just(Token::UpperSelf).to(TypeAnnotation::Named(Path::simple("Self".to_string())));
 
         // Named or parameterized type: Int, List<Int>, root::types::MyType<T>
         let named_type = simple_path_parser()
@@ -55,7 +59,7 @@ pub(crate) fn type_annotation<'a>()
             });
 
         // Base type (before considering function arrow)
-        let base_type = choice((empty_tuple_type, paren_type, named_type));
+        let base_type = choice((empty_tuple_type, paren_type, self_type, named_type));
 
         // Function type: T -> U or (T, U) -> V
         // The arrow is right-associative: A -> B -> C = A -> (B -> C)

@@ -23,6 +23,26 @@ pub fn resolve_type_annotation(
         type_param_map,
         current_module,
         env,
+        None,
+        &mut HashSet::new(),
+    )
+}
+
+/// Resolve a type annotation to a concrete Type, with an optional `Self` type.
+/// Inside impl blocks, `Self` resolves to the target type.
+pub fn resolve_type_annotation_with_self(
+    annotation: &TypeAnnotation,
+    type_param_map: &HashMap<String, TypeVarId>,
+    current_module: &QualifiedPath,
+    env: &TypeEnv,
+    self_type: &Type,
+) -> Result<Type, TypeError> {
+    resolve_type_annotation_inner(
+        annotation,
+        type_param_map,
+        current_module,
+        env,
+        Some(self_type),
         &mut HashSet::new(),
     )
 }
@@ -32,13 +52,21 @@ fn resolve_type_annotation_inner(
     type_param_map: &HashMap<String, TypeVarId>,
     current_module: &QualifiedPath,
     env: &TypeEnv,
+    self_type: Option<&Type>,
     expanding_aliases: &mut HashSet<QualifiedPath>,
 ) -> Result<Type, TypeError> {
     match annotation {
         TypeAnnotation::Named(path) => {
             // Check for built-in types first (only for simple paths)
             if let Some(name) = path.as_simple() {
-                if name == "Int" {
+                if name == "Self" {
+                    return match self_type {
+                        Some(ty) => Ok(ty.clone()),
+                        None => Err(TypeError {
+                            message: "`Self` can only be used inside an impl block".to_string(),
+                        }),
+                    };
+                } else if name == "Int" {
                     return Ok(Type::Int);
                 } else if name == "BigInt" {
                     return Ok(Type::BigInt);
@@ -133,14 +161,10 @@ fn resolve_type_annotation_inner(
                             expanding_aliases.remove(&qualified_path);
                             result
                         }
-                        Definition::Function(_) => Err(TypeError {
-                            message: format!(
-                                "{} '{}' is not a type",
-                                def.kind_name(),
-                                qualified_path
-                            ),
-                        }),
-                        Definition::EnumVariant(..) | Definition::Module(..) => Err(TypeError {
+                        Definition::Function(_)
+                        | Definition::EnumVariant(..)
+                        | Definition::Module(..)
+                        | Definition::ImplMethod(_) => Err(TypeError {
                             message: format!(
                                 "{} '{}' is not a type",
                                 def.kind_name(),
@@ -169,6 +193,7 @@ fn resolve_type_annotation_inner(
                     type_param_map,
                     current_module,
                     env,
+                    self_type,
                     expanding_aliases,
                 )?;
                 return Ok(Type::List(Box::new(elem_type)));
@@ -214,6 +239,7 @@ fn resolve_type_annotation_inner(
                                         type_param_map,
                                         current_module,
                                         env,
+                                        self_type,
                                         expanding_aliases,
                                     )
                                 })
@@ -254,6 +280,7 @@ fn resolve_type_annotation_inner(
                                         type_param_map,
                                         current_module,
                                         env,
+                                        self_type,
                                         expanding_aliases,
                                     )
                                 })
@@ -305,6 +332,7 @@ fn resolve_type_annotation_inner(
                                         type_param_map,
                                         current_module,
                                         env,
+                                        self_type,
                                         expanding_aliases,
                                     )
                                 })
@@ -317,14 +345,10 @@ fn resolve_type_annotation_inner(
                             expanding_aliases.remove(&qualified_path);
                             Ok(substitute_type_vars(&alias_def.typ, &subst))
                         }
-                        Definition::Function(_) => Err(TypeError {
-                            message: format!(
-                                "{} '{}' is not a type",
-                                def.kind_name(),
-                                qualified_path
-                            ),
-                        }),
-                        Definition::EnumVariant(..) | Definition::Module(..) => Err(TypeError {
+                        Definition::Function(_)
+                        | Definition::EnumVariant(..)
+                        | Definition::Module(..)
+                        | Definition::ImplMethod(_) => Err(TypeError {
                             message: format!(
                                 "{} '{}' is not a type",
                                 def.kind_name(),
@@ -346,6 +370,7 @@ fn resolve_type_annotation_inner(
                     type_param_map,
                     current_module,
                     env,
+                    self_type,
                     expanding_aliases,
                 )?);
             }
@@ -359,6 +384,7 @@ fn resolve_type_annotation_inner(
                     type_param_map,
                     current_module,
                     env,
+                    self_type,
                     expanding_aliases,
                 )?);
             }
@@ -367,6 +393,7 @@ fn resolve_type_annotation_inner(
                 type_param_map,
                 current_module,
                 env,
+                self_type,
                 expanding_aliases,
             )?;
             Ok(Type::Function {

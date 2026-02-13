@@ -85,8 +85,14 @@ pub enum Token {
     #[token("self")]
     Self_,
 
+    #[token("Self")]
+    UpperSelf,
+
     #[token("super")]
     Super,
+
+    #[token("impl")]
+    Impl,
 
     // String literals with escape sequences
     #[regex(r#""([^"\\]|\\.)*""#, parse_string)]
@@ -954,6 +960,31 @@ mod tests {
     fn test_self_keyword() {
         let toks = toks("self");
         assert_eq!(toks, vec![Token::Self_]);
+    }
+
+    #[test]
+    fn test_impl_keyword() {
+        let toks = toks("impl");
+        assert_eq!(toks, vec![Token::Impl]);
+    }
+
+    #[test]
+    fn test_upper_self_keyword() {
+        let toks = toks("Self");
+        assert_eq!(toks, vec![Token::UpperSelf]);
+    }
+
+    #[test]
+    fn test_impl_block_tokens() {
+        let toks = toks("impl Point { fn foo(self) -> Int { self.x } }");
+        assert!(toks.contains(&Token::Impl));
+        assert!(toks.contains(&Token::Self_));
+    }
+
+    #[test]
+    fn test_upper_self_in_return_type() {
+        let toks = toks("fn origin() -> Self { }");
+        assert!(toks.contains(&Token::UpperSelf));
     }
 
     #[test]

@@ -12,6 +12,7 @@ mod binop;
 mod blocks;
 mod enums;
 mod functions;
+mod impl_blocks;
 mod imports;
 mod index;
 mod lambdas;

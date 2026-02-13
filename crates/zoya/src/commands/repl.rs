@@ -268,6 +268,7 @@ impl State {
                     results.push(ReplResult::TypeAliasDefined(t.name.clone()));
                 }
                 Item::Use(_) => {}
+                Item::Impl(_) => {}
             }
         }
 

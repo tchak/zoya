@@ -350,12 +350,16 @@ pub(crate) fn expr_parser<'a>()
                 body: Box::new(body),
             });
 
+        // `self` as an expression inside impl methods
+        let self_expr = just(Token::Self_).to(Expr::Path(Path::simple("self".to_string())));
+
         let atom = choice((
             lambda,
             literal,
             list_literal,
             match_expr,
             path_expr,
+            self_expr,
             empty_tuple,
             paren_or_tuple,
         ));

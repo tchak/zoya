@@ -1,13 +1,14 @@
 use std::collections::{HashMap, HashSet};
 
 use zoya_ast::{
-    BinOp, Expr, FunctionDef, Item, LetBinding, ListElement, MatchArm, Path, StructKind,
-    TupleElement, TypeAnnotation, UnaryOp, UseDecl, UseTarget,
+    BinOp, Expr, FunctionDef, ImplBlock, ImplMethod, Item, LetBinding, ListElement, MatchArm, Path,
+    StructKind, TupleElement, TypeAnnotation, UnaryOp, UseDecl, UseTarget,
 };
 use zoya_ir::{
-    CheckedPackage, Definition, EnumType, EnumVariantType, FunctionType, ModuleType, QualifiedPath,
-    StructType, StructTypeKind, Type, TypeAliasType, TypeError, TypeScheme, TypeVarId,
-    TypedEnumConstructFields, TypedExpr, TypedFunction, TypedListElement, Visibility,
+    CheckedPackage, Definition, EnumType, EnumVariantType, FunctionType, ImplMethodType,
+    ModuleType, QualifiedPath, StructType, StructTypeKind, Type, TypeAliasType, TypeError,
+    TypeScheme, TypeVarId, TypedEnumConstructFields, TypedExpr, TypedFunction, TypedListElement,
+    Visibility,
 };
 use zoya_package::Package;
 
@@ -20,7 +21,7 @@ use crate::imports::{
 };
 use crate::pattern::{check_irrefutable, check_let_binding, check_match_arm, check_pattern};
 use crate::resolution::{self, ResolvedPath};
-use crate::type_resolver::resolve_type_annotation;
+use crate::type_resolver::{resolve_type_annotation, resolve_type_annotation_with_self};
 use crate::unify::{UnifyCtx, substitute_type_vars, substitute_variant_type_vars};
 use crate::usefulness;
 use zoya_naming::{is_pascal_case, is_snake_case, to_pascal_case, to_snake_case};
@@ -249,6 +250,124 @@ fn check_function(
     })
 }
 
+/// Check an impl method body. Similar to check_function but handles self parameter
+/// and Self type resolution.
+fn check_impl_method_body(
+    method: &ImplMethod,
+    impl_block: &ImplBlock,
+    type_qpath: &QualifiedPath,
+    current_module: &QualifiedPath,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+    _package_name: &str,
+) -> Result<TypedFunction, TypeError> {
+    // Create fresh type variables for impl type params
+    let mut type_param_map = HashMap::new();
+    for name in &impl_block.type_params {
+        let var = ctx.fresh_var();
+        if let Type::Var(id) = var {
+            type_param_map.insert(name.clone(), id);
+        }
+    }
+
+    // Build the Self type from the target type annotation
+    let self_type = resolve_type_annotation(
+        &impl_block.target_type,
+        &type_param_map,
+        current_module,
+        env,
+    )?;
+
+    // Add method's own type params
+    for name in &method.type_params {
+        let var = ctx.fresh_var();
+        if let Type::Var(id) = var {
+            type_param_map.insert(name.clone(), id);
+        }
+    }
+
+    // Build local environment with parameters
+    let mut locals = HashMap::new();
+    let mut typed_params = Vec::new();
+
+    // If has_self, add self to locals
+    if method.has_self {
+        locals.insert("self".to_string(), TypeScheme::mono(self_type.clone()));
+        typed_params.push((
+            zoya_ir::TypedPattern::Var {
+                name: "self".to_string(),
+                ty: self_type.clone(),
+            },
+            self_type.clone(),
+        ));
+    }
+
+    for param in &method.params {
+        check_irrefutable(&param.pattern).map_err(|msg| TypeError {
+            message: format!("refutable pattern in method parameter: {}", msg),
+        })?;
+
+        let ty = resolve_type_annotation_with_self(
+            &param.typ,
+            &type_param_map,
+            current_module,
+            env,
+            &self_type,
+        )?;
+
+        let (typed_pattern, bindings) =
+            check_pattern(&param.pattern, &ty, current_module, env, ctx)?;
+
+        for (name, var_ty) in bindings {
+            locals.insert(name, TypeScheme::mono(var_ty));
+        }
+
+        typed_params.push((typed_pattern, ctx.resolve(&ty)));
+    }
+
+    // Check the body
+    let body_env = env.with_locals(locals);
+    let typed_body = check_expr(&method.body, current_module, &body_env, ctx)?;
+    let body_type = ctx.resolve(&typed_body.ty());
+
+    // Determine return type
+    let return_type = if let Some(ref annotation) = method.return_type {
+        let declared_return = resolve_type_annotation_with_self(
+            annotation,
+            &type_param_map,
+            current_module,
+            env,
+            &self_type,
+        )?;
+        ctx.unify(&body_type, &declared_return)
+            .map_err(|e| TypeError {
+                message: format!(
+                    "method '{}' on '{}' declares return type {} but body has type {}: {}",
+                    method.name,
+                    type_qpath.last(),
+                    ctx.resolve(&declared_return),
+                    body_type,
+                    e.message
+                ),
+            })?;
+        ctx.resolve(&declared_return)
+    } else {
+        body_type
+    };
+
+    // Use the qualified method name as the function name
+    let method_name = format!("{}::{}", type_qpath.last(), method.name);
+
+    Ok(TypedFunction {
+        name: method_name,
+        params: typed_params,
+        body: typed_body,
+        return_type: ctx.resolve(&return_type),
+        is_builtin: false,
+        is_test: false,
+    })
+}
+
 // ============================================================================
 // Expression type checking helper functions
 // ============================================================================
@@ -463,6 +582,12 @@ fn check_path_call(
             ctx,
         ),
         ResolvedPath::Definition {
+            def: Definition::ImplMethod(imt),
+            qualified_path,
+        } => {
+            check_impl_method_path_call(path, &qualified_path, imt, args, current_module, env, ctx)
+        }
+        ResolvedPath::Definition {
             qualified_path,
             def,
         } => {
@@ -565,6 +690,118 @@ fn check_function_call(
     }
 
     // Resolve the return type after unification
+    let return_type = ctx.resolve(&instantiated_return);
+
+    Ok(TypedExpr::Call {
+        path: qualified_path.clone(),
+        args: typed_args,
+        ty: return_type,
+    })
+}
+
+/// Check an impl method or associated function call via path syntax (e.g., `Point::origin()`)
+fn check_impl_method_path_call(
+    path: &Path,
+    qualified_path: &QualifiedPath,
+    imt: &ImplMethodType,
+    args: &[Expr],
+    current_module: &QualifiedPath,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
+    let method_name = path
+        .segments
+        .last()
+        .map(|s| s.as_str())
+        .unwrap_or("<unknown>");
+
+    // All type vars: impl type vars + method type vars
+    let all_type_params: Vec<&str> = imt
+        .impl_type_params
+        .iter()
+        .chain(imt.type_params.iter())
+        .map(|s| s.as_str())
+        .collect();
+    let all_type_var_ids: Vec<TypeVarId> = imt
+        .impl_type_var_ids
+        .iter()
+        .chain(imt.type_var_ids.iter())
+        .copied()
+        .collect();
+
+    // Handle explicit type arguments (turbofish) or create fresh type variables
+    let instantiation: HashMap<TypeVarId, Type> = if let Some(ref type_args) = path.type_args {
+        if type_args.len() != all_type_params.len() {
+            return Err(TypeError {
+                message: format!(
+                    "impl method '{}' expects {} type argument(s), got {}",
+                    method_name,
+                    all_type_params.len(),
+                    type_args.len()
+                ),
+            });
+        }
+        let resolved: Vec<Type> = type_args
+            .iter()
+            .map(|ann| resolve_type_annotation(ann, &HashMap::new(), current_module, env))
+            .collect::<Result<_, _>>()?;
+        all_type_var_ids
+            .iter()
+            .zip(resolved)
+            .map(|(&id, ty)| (id, ty))
+            .collect()
+    } else {
+        all_type_var_ids
+            .iter()
+            .map(|&id| (id, ctx.fresh_var()))
+            .collect()
+    };
+
+    // For methods with self, the first param is self and should be provided as first arg
+    // For associated functions, all params come from args
+    let expected_args = if imt.has_self {
+        // With self: first arg is the receiver
+        imt.params.len()
+    } else {
+        imt.params.len()
+    };
+
+    if args.len() != expected_args {
+        return Err(TypeError {
+            message: format!(
+                "impl method '{}' expects {} argument(s), got {}",
+                method_name,
+                expected_args,
+                args.len()
+            ),
+        });
+    }
+
+    let instantiated_params: Vec<Type> = imt
+        .params
+        .iter()
+        .map(|t| substitute_type_vars(t, &instantiation))
+        .collect();
+    let instantiated_return = substitute_type_vars(&imt.return_type, &instantiation);
+
+    let mut typed_args = Vec::new();
+    for (arg, param_type) in args.iter().zip(instantiated_params.iter()) {
+        let typed_arg = check_expr(arg, current_module, env, ctx)?;
+        let arg_type = typed_arg.ty();
+
+        ctx.unify(&arg_type, param_type).map_err(|e| TypeError {
+            message: format!(
+                "argument type mismatch in call to '{}': expected {}, got {}: {}",
+                method_name,
+                ctx.resolve(param_type),
+                ctx.resolve(&arg_type),
+                e.message
+            ),
+        })?;
+
+        typed_args.push(typed_arg);
+    }
+
     let return_type = ctx.resolve(&instantiated_return);
 
     Ok(TypedExpr::Call {
@@ -1103,49 +1340,166 @@ fn check_method_call(
     let typed_receiver = check_expr(receiver, current_module, env, ctx)?;
     let receiver_ty = ctx.resolve(&typed_receiver.ty());
 
-    // Look up the method signature
-    let (param_types, return_type) =
-        builtin_method(&receiver_ty, method).ok_or_else(|| TypeError {
-            message: format!("no method '{}' on type {}", method, receiver_ty),
-        })?;
+    // Priority 1: Check builtin methods
+    if let Some((param_types, return_type)) = builtin_method(&receiver_ty, method) {
+        // Check argument count
+        if args.len() != param_types.len() {
+            return Err(TypeError {
+                message: format!(
+                    "method '{}' expects {} argument(s), got {}",
+                    method,
+                    param_types.len(),
+                    args.len()
+                ),
+            });
+        }
 
-    // Check argument count
-    if args.len() != param_types.len() {
-        return Err(TypeError {
-            message: format!(
-                "method '{}' expects {} argument(s), got {}",
-                method,
-                param_types.len(),
-                args.len()
-            ),
+        // Type check arguments
+        let mut typed_args = Vec::new();
+        for (arg, param_ty) in args.iter().zip(param_types.iter()) {
+            let typed_arg = check_expr(arg, current_module, env, ctx)?;
+            let arg_ty = typed_arg.ty();
+
+            ctx.unify(&arg_ty, param_ty).map_err(|e| TypeError {
+                message: format!(
+                    "argument type mismatch in method '{}': expected {}, got {}: {}",
+                    method,
+                    ctx.resolve(param_ty),
+                    ctx.resolve(&arg_ty),
+                    e.message
+                ),
+            })?;
+
+            typed_args.push(typed_arg);
+        }
+
+        return Ok(TypedExpr::MethodCall {
+            receiver: Box::new(typed_receiver),
+            method: method.to_string(),
+            args: typed_args,
+            ty: return_type,
         });
     }
 
-    // Type check arguments
-    let mut typed_args = Vec::new();
-    for (arg, param_ty) in args.iter().zip(param_types.iter()) {
-        let typed_arg = check_expr(arg, current_module, env, ctx)?;
-        let arg_ty = typed_arg.ty();
+    // Priority 2: Check user-defined impl methods
+    if let Some((method_qpath, imt)) = find_impl_method(&receiver_ty, method, &env.definitions) {
+        if !imt.has_self {
+            return Err(TypeError {
+                message: format!(
+                    "'{}' is an associated function on '{}', not a method; \
+                     call it as {}::{}()",
+                    method, imt.target_type_name, imt.target_type_name, method
+                ),
+            });
+        }
 
-        ctx.unify(&arg_ty, param_ty).map_err(|e| TypeError {
-            message: format!(
-                "argument type mismatch in method '{}': expected {}, got {}: {}",
-                method,
-                ctx.resolve(param_ty),
-                ctx.resolve(&arg_ty),
-                e.message
-            ),
-        })?;
+        // Build instantiation: map impl type vars to the receiver's actual type args
+        let receiver_type_args = match &receiver_ty {
+            Type::Struct { type_args, .. } | Type::Enum { type_args, .. } => type_args.clone(),
+            _ => vec![],
+        };
+        let mut instantiation: HashMap<TypeVarId, Type> = imt
+            .impl_type_var_ids
+            .iter()
+            .zip(receiver_type_args.iter())
+            .map(|(&id, ty)| (id, ty.clone()))
+            .collect();
 
-        typed_args.push(typed_arg);
+        // Fresh vars for method's own type params
+        for &id in &imt.type_var_ids {
+            instantiation.insert(id, ctx.fresh_var());
+        }
+
+        // The first param in imt.params is self — skip it for argument matching
+        let method_params = &imt.params[1..]; // skip self
+        if args.len() != method_params.len() {
+            return Err(TypeError {
+                message: format!(
+                    "method '{}' expects {} argument(s), got {}",
+                    method,
+                    method_params.len(),
+                    args.len()
+                ),
+            });
+        }
+
+        // Instantiate self param and unify with receiver
+        let self_param = substitute_type_vars(&imt.params[0], &instantiation);
+        ctx.unify(&receiver_ty, &self_param)
+            .map_err(|e| TypeError {
+                message: format!(
+                    "self type mismatch in method '{}': expected {}, got {}: {}",
+                    method,
+                    ctx.resolve(&self_param),
+                    ctx.resolve(&receiver_ty),
+                    e.message
+                ),
+            })?;
+
+        // Type check arguments
+        let mut typed_args = Vec::new();
+        for (arg, param) in args.iter().zip(method_params.iter()) {
+            let instantiated = substitute_type_vars(param, &instantiation);
+            let typed_arg = check_expr(arg, current_module, env, ctx)?;
+            let arg_ty = typed_arg.ty();
+
+            ctx.unify(&arg_ty, &instantiated).map_err(|e| TypeError {
+                message: format!(
+                    "argument type mismatch in method '{}': expected {}, got {}: {}",
+                    method,
+                    ctx.resolve(&instantiated),
+                    ctx.resolve(&arg_ty),
+                    e.message
+                ),
+            })?;
+
+            typed_args.push(typed_arg);
+        }
+
+        let return_type = ctx.resolve(&substitute_type_vars(&imt.return_type, &instantiation));
+
+        // Desugar to a regular Call with receiver prepended
+        let mut all_args = vec![typed_receiver];
+        all_args.extend(typed_args);
+
+        return Ok(TypedExpr::Call {
+            path: method_qpath,
+            args: all_args,
+            ty: return_type,
+        });
     }
 
-    Ok(TypedExpr::MethodCall {
-        receiver: Box::new(typed_receiver),
-        method: method.to_string(),
-        args: typed_args,
-        ty: return_type,
+    Err(TypeError {
+        message: format!("no method '{}' on type {}", method, receiver_ty),
     })
+}
+
+/// Find an impl method definition for a given receiver type and method name.
+fn find_impl_method<'a>(
+    receiver_ty: &Type,
+    method: &str,
+    definitions: &'a HashMap<QualifiedPath, Definition>,
+) -> Option<(QualifiedPath, &'a ImplMethodType)> {
+    // Get the type name from the receiver
+    let type_name = match receiver_ty {
+        Type::Struct { name, .. } | Type::Enum { name, .. } => name.as_str(),
+        _ => return None,
+    };
+
+    // Find the type's qualified path
+    let type_qpath = definitions.iter().find_map(|(qpath, def)| match def {
+        Definition::Struct(s) if s.name == type_name => Some(qpath.clone()),
+        Definition::Enum(e) if e.name == type_name => Some(qpath.clone()),
+        _ => None,
+    })?;
+
+    // Look up the method at type_path::method_name
+    let method_qpath = type_qpath.child(method);
+    if let Some(Definition::ImplMethod(imt)) = definitions.get(&method_qpath) {
+        return Some((method_qpath, imt));
+    }
+
+    None
 }
 
 /// Check a list literal expression
@@ -2066,6 +2420,10 @@ fn make_reexport_definition(def: &Definition) -> Definition {
             visibility: Visibility::Public,
             ..m.clone()
         }),
+        Definition::ImplMethod(m) => Definition::ImplMethod(ImplMethodType {
+            visibility: Visibility::Public,
+            ..m.clone()
+        }),
     }
 }
 
@@ -2382,6 +2740,7 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
                     Item::Enum(e) => (&e.attributes, "enum"),
                     Item::TypeAlias(t) => (&t.attributes, "type alias"),
                     Item::Use(u) => (&u.attributes, "use"),
+                    Item::Impl(i) => (&i.attributes, "impl"),
                 };
                 if attrs.iter().any(|a| a.name == "test") {
                     return Err(TypeError {
@@ -2445,6 +2804,13 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
     for path in &module_paths {
         if let Some(module) = pkg.modules.get(path) {
             register_function_signatures(&module.items, path, &mut env, &mut ctx)?;
+        }
+    }
+
+    // Pass 3b: Register impl method signatures
+    for path in &module_paths {
+        if let Some(module) = pkg.modules.get(path) {
+            register_impl_methods(&module.items, path, &mut env, &mut ctx, &pkg.name)?;
         }
     }
 
@@ -2524,8 +2890,7 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
         if let Some(module) = pkg.modules.get(path) {
             let functions =
                 check_module_bodies(&module.items, path, &mut env, &mut ctx, &pkg.name)?;
-            for func in functions {
-                let func_path = path.child(&func.name);
+            for (func_path, func) in functions {
                 checked_items.insert(func_path, func);
             }
         }
@@ -2552,13 +2917,13 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
         .map(|(path, target)| (path.clone(), target.clone()))
         .collect();
 
-    // Build imports map: for each dep, collect function definition paths that were injected
+    // Build imports map: for each dep, collect function/impl method definition paths
     let mut imports: HashMap<String, Vec<QualifiedPath>> = HashMap::new();
     for dep in deps {
         let mut fn_paths: Vec<QualifiedPath> = dep
             .definitions
             .iter()
-            .filter(|(_, def)| def.as_function().is_some())
+            .filter(|(_, def)| def.as_function().is_some() || def.as_impl_method().is_some())
             .map(|(qpath, _)| qpath.with_root(&dep.name))
             .collect();
         fn_paths.sort_by_key(|a| a.to_string());
@@ -2702,6 +3067,243 @@ fn register_function_signatures(
     Ok(())
 }
 
+/// Pass 3b: Register impl method signatures.
+/// For each impl block, resolve the target type, then register each method
+/// as a Definition::ImplMethod under the type's qualified path.
+fn register_impl_methods(
+    items: &[Item],
+    current_module: &QualifiedPath,
+    env: &mut TypeEnv,
+    ctx: &mut UnifyCtx,
+    package_name: &str,
+) -> Result<(), TypeError> {
+    for item in items {
+        let Item::Impl(impl_block) = item else {
+            continue;
+        };
+
+        // Resolve the target type to find its qualified path
+        let (type_qpath, _type_def) =
+            resolve_impl_target(&impl_block.target_type, current_module, env, package_name)?;
+
+        // Create fresh type variables for impl type params
+        let mut impl_type_param_map = HashMap::new();
+        let mut impl_type_var_ids = Vec::new();
+        for name in &impl_block.type_params {
+            if !is_pascal_case(name) {
+                return Err(TypeError {
+                    message: format!(
+                        "type parameter '{}' should be PascalCase (e.g., '{}')",
+                        name,
+                        to_pascal_case(name)
+                    ),
+                });
+            }
+            let var = ctx.fresh_var();
+            if let Type::Var(id) = var {
+                impl_type_param_map.insert(name.clone(), id);
+                impl_type_var_ids.push(id);
+            }
+        }
+
+        // Build the Self type from the target type annotation
+        let self_type = resolve_type_annotation_with_self(
+            &impl_block.target_type,
+            &impl_type_param_map,
+            current_module,
+            env,
+            // Self is not yet available — but target type won't contain Self
+            &Type::Tuple(vec![]),
+        )?;
+
+        let target_type_name = type_qpath.last().to_string();
+
+        for method in &impl_block.methods {
+            // Validate method name
+            if !is_snake_case(&method.name) {
+                return Err(TypeError {
+                    message: format!(
+                        "method name '{}' should be snake_case (e.g., '{}')",
+                        method.name,
+                        to_snake_case(&method.name)
+                    ),
+                });
+            }
+
+            let method_qpath = type_qpath.child(&method.name);
+
+            // Check for duplicate
+            if env.definitions.contains_key(&method_qpath) {
+                return Err(TypeError {
+                    message: format!(
+                        "duplicate definition for '{}' on type '{}'",
+                        method.name, target_type_name
+                    ),
+                });
+            }
+
+            // Create fresh type vars for method's own type params
+            let mut method_type_param_map = impl_type_param_map.clone();
+            let mut method_type_var_ids = Vec::new();
+            for name in &method.type_params {
+                if !is_pascal_case(name) {
+                    return Err(TypeError {
+                        message: format!(
+                            "type parameter '{}' should be PascalCase (e.g., '{}')",
+                            name,
+                            to_pascal_case(name)
+                        ),
+                    });
+                }
+                let var = ctx.fresh_var();
+                if let Type::Var(id) = var {
+                    method_type_param_map.insert(name.clone(), id);
+                    method_type_var_ids.push(id);
+                }
+            }
+
+            // Build parameter types
+            let mut param_types = Vec::new();
+
+            // If has_self, first param is the Self type
+            if method.has_self {
+                param_types.push(self_type.clone());
+            }
+
+            // Resolve explicit params with Self available
+            for param in &method.params {
+                let ty = resolve_type_annotation_with_self(
+                    &param.typ,
+                    &method_type_param_map,
+                    current_module,
+                    env,
+                    &self_type,
+                )?;
+                param_types.push(ty);
+            }
+
+            // Resolve return type with Self available
+            let return_type = if let Some(ref annotation) = method.return_type {
+                resolve_type_annotation_with_self(
+                    annotation,
+                    &method_type_param_map,
+                    current_module,
+                    env,
+                    &self_type,
+                )?
+            } else {
+                ctx.fresh_var()
+            };
+
+            env.register(
+                method_qpath,
+                Definition::ImplMethod(ImplMethodType {
+                    visibility: method.visibility,
+                    module: current_module.clone(),
+                    target_type_name: target_type_name.clone(),
+                    impl_type_params: impl_block.type_params.clone(),
+                    impl_type_var_ids: impl_type_var_ids.clone(),
+                    has_self: method.has_self,
+                    type_params: method.type_params.clone(),
+                    type_var_ids: method_type_var_ids,
+                    params: param_types,
+                    return_type,
+                }),
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Resolve an impl block's target type to a (QualifiedPath, Definition) pair.
+/// The target must be a struct or enum defined in the current package.
+fn resolve_impl_target(
+    target_type: &TypeAnnotation,
+    current_module: &QualifiedPath,
+    env: &TypeEnv,
+    package_name: &str,
+) -> Result<(QualifiedPath, Definition), TypeError> {
+    // Extract the path from the type annotation
+    let path = match target_type {
+        TypeAnnotation::Named(path) => path,
+        TypeAnnotation::Parameterized(path, _) => path,
+        _ => {
+            return Err(TypeError {
+                message: "impl target must be a named type".to_string(),
+            });
+        }
+    };
+
+    let type_name = path
+        .segments
+        .last()
+        .map(|s| s.as_str())
+        .unwrap_or("<unknown>");
+
+    // Reject primitive types
+    if path.segments.len() == 1
+        && matches!(
+            type_name,
+            "Int" | "BigInt" | "Float" | "Bool" | "String" | "List"
+        )
+    {
+        return Err(TypeError {
+            message: format!("cannot define impl for primitive type '{}'", type_name),
+        });
+    }
+
+    // Resolve the path to find the definition
+    let resolved = resolution::resolve_pattern_path(
+        path,
+        current_module,
+        &env.imports,
+        &env.definitions,
+        &env.reexports,
+    )?;
+
+    match resolved {
+        ResolvedPath::Definition {
+            qualified_path,
+            def,
+        } => {
+            // Verify it's a struct or enum
+            match &def {
+                Definition::Struct(_) | Definition::Enum(_) => {}
+                _ => {
+                    return Err(TypeError {
+                        message: format!(
+                            "cannot define impl for {} '{}'",
+                            def.kind_name(),
+                            qualified_path
+                        ),
+                    });
+                }
+            }
+
+            // Orphan rule: type must be in the current package (path starts with "root::")
+            let segments = qualified_path.segments();
+            if !segments.is_empty() && segments[0] != "root" {
+                // Type is from a dependency package
+                let dep_name = &segments[0];
+                return Err(TypeError {
+                    message: format!(
+                        "cannot define impl for type '{}' from package '{}' (orphan rule)",
+                        type_name, dep_name
+                    ),
+                });
+            }
+
+            // Suppress unused variable warning
+            let _ = package_name;
+
+            Ok((qualified_path, def.clone()))
+        }
+        ResolvedPath::Local { name, .. } => Err(TypeError {
+            message: format!("variable '{}' is not a type", name),
+        }),
+    }
+}
+
 /// Type-check function bodies from a single module.
 /// After each function body is checked, its definition's return type is updated
 /// with the resolved type so that subsequent functions see concrete types.
@@ -2711,20 +3313,48 @@ fn check_module_bodies(
     env: &mut TypeEnv,
     ctx: &mut UnifyCtx,
     package_name: &str,
-) -> Result<Vec<TypedFunction>, TypeError> {
+) -> Result<Vec<(QualifiedPath, TypedFunction)>, TypeError> {
     let mut checked_items = Vec::new();
 
     for item in items {
-        if let Item::Function(func) = item {
-            let typed = check_function_in_module(func, current_module, env, ctx, package_name)?;
-            // Update the definition's return type immediately so subsequent
-            // functions that call this one see the resolved concrete type
-            // instead of the Phase 1 unresolved Type::Var.
-            let func_path = current_module.child(&func.name);
-            if let Some(Definition::Function(ft)) = env.definitions.get_mut(&func_path) {
-                ft.return_type = typed.return_type.clone();
+        match item {
+            Item::Function(func) => {
+                let typed = check_function_in_module(func, current_module, env, ctx, package_name)?;
+                let func_path = current_module.child(&func.name);
+                if let Some(Definition::Function(ft)) = env.definitions.get_mut(&func_path) {
+                    ft.return_type = typed.return_type.clone();
+                }
+                checked_items.push((func_path, typed));
             }
-            checked_items.push(typed);
+            Item::Impl(impl_block) => {
+                let (type_qpath, _) = resolve_impl_target(
+                    &impl_block.target_type,
+                    current_module,
+                    env,
+                    package_name,
+                )?;
+
+                for method in &impl_block.methods {
+                    let method_qpath = type_qpath.child(&method.name);
+                    let typed = check_impl_method_body(
+                        method,
+                        impl_block,
+                        &type_qpath,
+                        current_module,
+                        env,
+                        ctx,
+                        package_name,
+                    )?;
+                    // Update the definition's return type
+                    if let Some(Definition::ImplMethod(imt)) =
+                        env.definitions.get_mut(&method_qpath)
+                    {
+                        imt.return_type = typed.return_type.clone();
+                    }
+                    checked_items.push((method_qpath, typed));
+                }
+            }
+            _ => {}
         }
     }
 

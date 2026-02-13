@@ -1,9 +1,10 @@
 use pretty::RcDoc;
 use zoya_ast::{
-    Attribute, BinOp, EnumDef, EnumVariant, EnumVariantKind, Expr, FunctionDef, Item, LambdaParam,
-    LetBinding, ListElement, ListPattern, MatchArm, ModDecl, Param, Path, PathPrefix, Pattern,
-    StructDef, StructFieldDef, StructFieldPattern, StructKind, TupleElement, TuplePattern,
-    TypeAliasDef, TypeAnnotation, UnaryOp, UseDecl, UsePath, UseTarget, Visibility,
+    Attribute, BinOp, EnumDef, EnumVariant, EnumVariantKind, Expr, FunctionDef, ImplBlock,
+    ImplMethod, Item, LambdaParam, LetBinding, ListElement, ListPattern, MatchArm, ModDecl, Param,
+    Path, PathPrefix, Pattern, StructDef, StructFieldDef, StructFieldPattern, StructKind,
+    TupleElement, TuplePattern, TypeAliasDef, TypeAnnotation, UnaryOp, UseDecl, UsePath, UseTarget,
+    Visibility,
 };
 
 const INDENT: isize = 2;
@@ -826,7 +827,58 @@ pub fn fmt_item(item: &Item) -> RcDoc<'static> {
         Item::Enum(e) => fmt_enum(e),
         Item::TypeAlias(ta) => fmt_type_alias(ta),
         Item::Use(u) => fmt_use_decl(u),
+        Item::Impl(i) => fmt_impl_block(i),
     }
+}
+
+fn fmt_impl_block(i: &ImplBlock) -> RcDoc<'static> {
+    let header = fmt_attributes(&i.attributes)
+        .append(RcDoc::text("impl"))
+        .append(fmt_type_params(&i.type_params))
+        .append(RcDoc::text(" "))
+        .append(fmt_type_annotation(&i.target_type));
+
+    if i.methods.is_empty() {
+        return header.append(RcDoc::text(" {}"));
+    }
+
+    let methods = RcDoc::intersperse(
+        i.methods.iter().map(fmt_impl_method),
+        RcDoc::hardline().append(RcDoc::hardline()),
+    );
+
+    header
+        .append(RcDoc::text(" {"))
+        .append(RcDoc::hardline().append(methods).nest(INDENT))
+        .append(RcDoc::hardline())
+        .append(RcDoc::text("}"))
+}
+
+fn fmt_impl_method(m: &ImplMethod) -> RcDoc<'static> {
+    let sig = fmt_attributes(&m.attributes)
+        .append(fmt_vis(m.visibility))
+        .append(RcDoc::text("fn "))
+        .append(RcDoc::text(m.name.clone()))
+        .append(fmt_type_params(&m.type_params))
+        .append(fmt_impl_method_params(m.has_self, &m.params))
+        .append(fmt_return_type(&m.return_type));
+    let body_doc = RcDoc::text(" ").append(fmt_body(&m.body));
+    sig.append(body_doc)
+}
+
+fn fmt_impl_method_params(has_self: bool, params: &[Param]) -> RcDoc<'static> {
+    let mut entries: Vec<RcDoc<'static>> = Vec::new();
+    if has_self {
+        entries.push(RcDoc::text("self"));
+    }
+    for p in params {
+        entries.push(
+            fmt_pattern(&p.pattern)
+                .append(RcDoc::text(": "))
+                .append(fmt_type_annotation(&p.typ)),
+        );
+    }
+    paren_list(entries, RcDoc::text(","))
 }
 
 // --- Helpers for grouped layout ---
