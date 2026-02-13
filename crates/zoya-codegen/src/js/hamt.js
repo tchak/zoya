@@ -244,6 +244,8 @@ var $$Dict = (function() {
     keys: keys,
     values: values,
     len: function(d) { return d.size; },
+    has: function(d, k) { return get(d, $$hash(k), k, 0) !== undefined; },
+    from: function(pairs) { var d = EMPTY; for (var i = 0; i < pairs.length; i++) d = insert(d, $$hash(pairs[i][0]), pairs[i][0], pairs[i][1], 0); return d; },
     entries: entries
   };
 })();

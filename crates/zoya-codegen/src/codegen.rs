@@ -1006,6 +1006,8 @@ impl<'a> PackageCodegen<'a> {
             "root::dict::Dict::keys" => "return $$Dict.keys($self);".to_string(),
             "root::dict::Dict::values" => "return $$Dict.values($self);".to_string(),
             "root::dict::Dict::len" => "return $$Dict.len($self);".to_string(),
+            "root::dict::Dict::has" => "return $$Dict.has($self, $key);".to_string(),
+            "root::dict::Dict::from" => "return $$Dict.from($entries);".to_string(),
 
             _ => panic!(
                 "no builtin JS implementation for '{}' — every #[builtin] function must have a codegen entry",

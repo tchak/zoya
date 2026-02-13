@@ -8,5 +8,7 @@ impl<K, V> Dict<K, V> {
     #[builtin] pub fn keys(self) -> List<K> ()
     #[builtin] pub fn values(self) -> List<V> ()
     #[builtin] pub fn len(self) -> Int ()
+    #[builtin] pub fn has(self, key: K) -> Bool ()
+    #[builtin] pub fn from(entries: List<(K, V)>) -> Self ()
     pub fn is_empty(self) -> Bool { self.len() == 0 }
 }

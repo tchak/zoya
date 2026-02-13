@@ -7320,3 +7320,61 @@ fn test_dict_repl_display() {
     let result = run_source(source).unwrap();
     assert_eq!(result.to_string(), "<Dict<String, Int>>");
 }
+
+#[test]
+fn test_dict_has_true() {
+    let source = r#"
+        pub fn main() -> Bool {
+            Dict::new().insert("a", 1).has("a")
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_dict_has_false() {
+    let source = r#"
+        pub fn main() -> Bool {
+            Dict::new().insert("a", 1).has("b")
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(false));
+}
+
+#[test]
+fn test_dict_from_empty() {
+    let source = r#"
+        fn empty() -> Dict<String, Int> {
+            Dict::from([])
+        }
+        pub fn main() -> Bool {
+            empty().is_empty()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_dict_from_pairs() {
+    let source = r#"
+        pub fn main() -> Option<Int> {
+            Dict::from([("a", 1), ("b", 2)]).get("a")
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some(1)");
+}
+
+#[test]
+fn test_dict_from_len() {
+    let source = r#"
+        pub fn main() -> Int {
+            Dict::from([("a", 1), ("b", 2), ("c", 3)]).len()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(3));
+}

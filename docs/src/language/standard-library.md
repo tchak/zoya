@@ -210,6 +210,8 @@ Immutable dictionary type backed by a persistent hash array mapped trie (HAMT).
 | `keys(self) -> List<K>` | Return all keys as a list |
 | `values(self) -> List<V>` | Return all values as a list |
 | `len(self) -> Int` | Return the number of entries |
+| `has(self, key: K) -> Bool` | Check if a key exists |
+| `Dict::from(entries: List<(K, V)>) -> Self` | Create a dictionary from key-value pairs |
 | `is_empty(self) -> Bool` | Check if the dictionary is empty |
 
 ```zoya

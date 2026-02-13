@@ -281,3 +281,17 @@ fn test_check_list_filter_map_chain() {
         check_source("pub fn main() -> List<Int> { [1, 2, 3].filter(|x| x > 1).map(|x| x * 10) }");
     assert!(result.is_ok(), "Expected OK, got: {:?}", result);
 }
+
+// Dict method tests
+
+#[test]
+fn test_check_dict_has() {
+    let result = check_source(r#"pub fn main() -> Bool { Dict::new().insert("a", 1).has("a") }"#);
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_check_dict_from() {
+    let result = check_source(r#"pub fn main() -> Dict<String, Int> { Dict::from([("a", 1)]) }"#);
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}

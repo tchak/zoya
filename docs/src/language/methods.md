@@ -260,10 +260,16 @@ let d = Dict::new()
 let d = d.insert("a", 1)
 d.get("a")              // Some(1)
 d.get("b")              // None
+d.has("a")              // true
+d.has("b")              // false
 d.len()                 // 1
 d.is_empty()            // false
 d.keys()                // ["a"]
 d.values()              // [1]
 let d = d.remove("a")
 d.is_empty()            // true
+
+let d = Dict::from([("x", 10), ("y", 20)])
+d.get("x")              // Some(10)
+d.len()                 // 2
 ```
