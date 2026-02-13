@@ -14,7 +14,7 @@
 - [Structs](language/structs.md)
 - [Enums](language/enums.md)
 - [Pattern Matching](language/pattern-matching.md)
-- [Methods](language/methods.md)
+- [Impl Blocks](language/impl-blocks.md)
 - [Standard Library](language/standard-library.md)
 
 # Reference

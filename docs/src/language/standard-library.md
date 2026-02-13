@@ -1,6 +1,6 @@
 # Standard Library
 
-Zoya's standard library provides common types and methods for everyday programming. It includes methods on primitive types (Int, Float, String, BigInt, List, Dict) defined via `impl` blocks in dedicated modules (`std::int`, `std::float`, `std::string`, `std::bigint`, `std::list`, `std::dict`). See [Methods](methods.md) for the full list of primitive type methods.
+Zoya's standard library provides common types and methods for everyday programming. It includes methods on primitive types (Int, Float, String, BigInt, List, Dict) defined via `impl` blocks in dedicated modules (`std::int`, `std::float`, `std::string`, `std::bigint`, `std::list`, `std::dict`).
 
 ## Prelude
 
@@ -119,6 +119,78 @@ let name = "Alice"
 println("Hello, " + name + "!")
 ```
 
+## `std::int`
+
+Methods on the `Int` type.
+
+### `Int`
+
+| Method | Description |
+|--------|-------------|
+| `abs(self) -> Int` | Return the absolute value |
+| `to_string(self) -> String` | Convert to string representation |
+| `to_float(self) -> Float` | Convert to floating-point |
+| `min(self, other: Int) -> Int` | Return the smaller of two values |
+| `max(self, other: Int) -> Int` | Return the larger of two values |
+
+```zoya
+(-5).abs()              // 5
+42.to_string()          // "42"
+42.to_float()           // 42.0
+3.min(5)                // 3
+3.max(5)                // 5
+```
+
+## `std::float`
+
+Methods on the `Float` type.
+
+### `Float`
+
+| Method | Description |
+|--------|-------------|
+| `abs(self) -> Float` | Return the absolute value |
+| `to_string(self) -> String` | Convert to string representation |
+| `to_int(self) -> Int` | Truncate to integer |
+| `floor(self) -> Float` | Round down to nearest integer |
+| `ceil(self) -> Float` | Round up to nearest integer |
+| `round(self) -> Float` | Round to nearest integer |
+| `sqrt(self) -> Float` | Return the square root |
+| `min(self, other: Float) -> Float` | Return the smaller of two values |
+| `max(self, other: Float) -> Float` | Return the larger of two values |
+
+```zoya
+3.14.floor()            // 3.0
+3.14.ceil()             // 4.0
+3.14.round()            // 3.0
+4.0.sqrt()              // 2.0
+(-3.14).abs()           // 3.14
+3.14.to_string()        // "3.14"
+3.7.to_int()            // 3
+3.14.min(2.0)           // 2.0
+3.14.max(5.0)           // 5.0
+```
+
+## `std::bigint`
+
+Methods on the `BigInt` type.
+
+### `BigInt`
+
+| Method | Description |
+|--------|-------------|
+| `abs(self) -> BigInt` | Return the absolute value |
+| `to_string(self) -> String` | Convert to string representation |
+| `min(self, other: BigInt) -> BigInt` | Return the smaller of two values |
+| `max(self, other: BigInt) -> BigInt` | Return the larger of two values |
+
+```zoya
+(-5n).abs()             // 5n
+42n.to_string()         // "42"
+3n.min(5n)              // 3n
+3n.max(5n)              // 5n
+```
+
 ## `std::string`
 
 Methods on the `String` type.
@@ -164,6 +236,16 @@ s.split(", ")              // ["Hello", "World!"]
 ## `std::list`
 
 Methods on the immutable `List<T>` type. All operations return new lists.
+
+### Indexing
+
+Lists support index access with bracket notation, returning `Option<T>`. Negative indices count from the end. Out-of-bounds access returns `None`.
+
+```zoya
+[10, 20, 30][0]         // Some(10)
+[10, 20, 30][-1]        // Some(30)
+[10, 20, 30][5]         // None
+```
 
 ### `List<T>`
 
