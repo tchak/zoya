@@ -37,115 +37,49 @@ const POW_CHECK_FN: &str = "$$pow";
 /// BigInt power with negative exponent check function name used in generated JS
 const POW_BIGINT_CHECK_FN: &str = "$$pow_bigint";
 
-/// BigInt absolute value function name used in generated JS
-const ABS_BIGINT_FN: &str = "$$abs_bigint";
-
-/// BigInt minimum function name used in generated JS
-const MIN_BIGINT_FN: &str = "$$min_bigint";
-
-/// BigInt maximum function name used in generated JS
-const MAX_BIGINT_FN: &str = "$$max_bigint";
-
 /// List index function name used in generated JS
 const LIST_IDX_FN: &str = "$$list_idx";
 
-/// HAMT runtime for Dict<K, V>
-const HAMT_JS: &str = include_str!("hamt.js");
+/// Runtime JS: prelude helpers (error, equality, arithmetic checks, etc.)
+const PRELUDE_JS: &str = include_str!("js/prelude.js");
 
-/// Prelude containing runtime helper functions for generated JS (plain script, no ESM)
-fn prelude() -> &'static str {
-    r#"class $$ZoyaError extends Error {
-  constructor(code, detail) {
-    super('$$zoya:' + code + (detail !== undefined ? ':' + detail : ''));
-    this.name = '$$ZoyaError';
-  }
-}
-function $$throw(code, detail) { throw new $$ZoyaError(code, detail); }
-function $$is_obj(x) {
-  return typeof x === 'object' && x !== null && !Array.isArray(x);
-}
-function $$div(a, b) {
-  if (b === 0) $$throw("PANIC", "division by zero");
-  return Math.trunc(a / b);
-}
-function $$div_bigint(a, b) {
-  if (b === 0n) $$throw("PANIC", "division by zero");
-  return a / b;
-}
-function $$mod(a, b) {
-  if (b === 0) $$throw("PANIC", "modulo by zero");
-  return a % b;
-}
-function $$mod_bigint(a, b) {
-  if (b === 0n) $$throw("PANIC", "modulo by zero");
-  return a % b;
-}
-function $$pow(a, b) {
-  if (b < 0) $$throw("PANIC", "negative exponent");
-  return a ** b;
-}
-function $$pow_bigint(a, b) {
-  if (b < 0n) $$throw("PANIC", "negative exponent");
-  return a ** b;
-}
-function $$abs_bigint(x) { return x < 0n ? -x : x; }
-function $$min_bigint(a, b) { return a < b ? a : b; }
-function $$max_bigint(a, b) { return a > b ? a : b; }
-function $$eq(a, b) {
-  if (a === b) return true;
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) {
-      if (!$$eq(a[i], b[i])) return false;
-    }
-    return true;
-  }
-  if ($$is_obj(a) && $$is_obj(b)) {
-    if (a.$$hamt === true && b.$$hamt === true) {
-      if (a.size !== b.size) return false;
-      const ea = $$Dict.entries(a);
-      for (let i = 0; i < ea.length; i++) {
-        const v = $$Dict.get(b, ea[i][0]);
-        if (v.$tag === "None" || !$$eq(ea[i][1], v.$0)) return false;
-      }
-      return true;
-    }
-    const ka = Object.keys(a), kb = Object.keys(b);
-    if (ka.length !== kb.length) return false;
-    for (let k of ka) {
-      if (!$$eq(a[k], b[k])) return false;
-    }
-    return true;
-  }
-  return a === b;
-}
-function $$list_idx(arr, i) {
-  const idx = i < 0 ? arr.length + i : i;
-  return idx >= 0 && idx < arr.length ? { $tag: "Some", $0: arr[idx] } : { $tag: "None" };
-}
-function $$json_to_zoya(v) {
-  if (v === null) return { $tag: "Null" };
-  if (typeof v === "boolean") return { $tag: "Bool", $0: v };
-  if (typeof v === "number") return Number.isInteger(v)
-    ? { $tag: "Number", $0: { $tag: "Int", $0: v } }
-    : { $tag: "Number", $0: { $tag: "Float", $0: v } };
-  if (typeof v === "string") return { $tag: "String", $0: v };
-  if (Array.isArray(v)) return { $tag: "Array", $0: v.map($$json_to_zoya) };
-  return { $tag: "Object", $0: Object.entries(v).map(([k, val]) => [k, $$json_to_zoya(val)]) };
-}"#
-}
+/// Runtime JS: HAMT for Dict<K, V>
+const HAMT_JS: &str = include_str!("js/hamt.js");
+
+/// Runtime JS: Int methods
+const INT_JS: &str = include_str!("js/int.js");
+
+/// Runtime JS: BigInt methods
+const BIGINT_JS: &str = include_str!("js/bigint.js");
+
+/// Runtime JS: Float methods
+const FLOAT_JS: &str = include_str!("js/float.js");
+
+/// Runtime JS: String methods
+const STRING_JS: &str = include_str!("js/string.js");
+
+/// Runtime JS: List methods
+const LIST_JS: &str = include_str!("js/list.js");
 
 /// Generate a single concatenated JS string for a package and all its dependencies.
 /// Returns a `CodegenOutput` containing the prelude, dep functions, and main package functions.
 pub fn codegen(package: &CheckedPackage, deps: &[&CheckedPackage]) -> CodegenOutput {
     let mut js = String::new();
 
-    // Prelude helpers (plain script, no imports/exports)
-    js.push_str(prelude());
+    // Runtime helpers
+    js.push_str(PRELUDE_JS);
     js.push('\n');
-
-    // HAMT runtime for Dict<K, V>
     js.push_str(HAMT_JS);
+    js.push('\n');
+    js.push_str(INT_JS);
+    js.push('\n');
+    js.push_str(BIGINT_JS);
+    js.push('\n');
+    js.push_str(FLOAT_JS);
+    js.push('\n');
+    js.push_str(STRING_JS);
+    js.push('\n');
+    js.push_str(LIST_JS);
     js.push('\n');
 
     // Dependency function definitions
@@ -1006,51 +940,49 @@ impl<'a> PackageCodegen<'a> {
                 "try { return { $tag: \"Ok\", $0: $$json_to_zoya(JSON.parse($value)) }; } catch(_) { return { $tag: \"Err\", $0: { $tag: \"ParseError\" } }; }".to_string()
             }
             // Int methods
-            "root::int::Int::abs" => "return Math.abs($self);".to_string(),
-            "root::int::Int::to_string" => "return String($self);".to_string(),
-            "root::int::Int::to_float" => "return $self;".to_string(),
-            "root::int::Int::min" => "return Math.min($self, $other);".to_string(),
-            "root::int::Int::max" => "return Math.max($self, $other);".to_string(),
+            "root::int::Int::abs" => "return $$Int.abs($self);".to_string(),
+            "root::int::Int::to_string" => "return $$Int.to_string($self);".to_string(),
+            "root::int::Int::to_float" => "return $$Int.to_float($self);".to_string(),
+            "root::int::Int::min" => "return $$Int.min($self, $other);".to_string(),
+            "root::int::Int::max" => "return $$Int.max($self, $other);".to_string(),
 
             // BigInt methods
-            "root::bigint::BigInt::abs" => format!("return {}($self);", ABS_BIGINT_FN),
-            "root::bigint::BigInt::to_string" => "return String($self);".to_string(),
-            "root::bigint::BigInt::min" => format!("return {}($self, $other);", MIN_BIGINT_FN),
-            "root::bigint::BigInt::max" => format!("return {}($self, $other);", MAX_BIGINT_FN),
+            "root::bigint::BigInt::abs" => "return $$BigInt.abs($self);".to_string(),
+            "root::bigint::BigInt::to_string" => "return $$BigInt.to_string($self);".to_string(),
+            "root::bigint::BigInt::min" => "return $$BigInt.min($self, $other);".to_string(),
+            "root::bigint::BigInt::max" => "return $$BigInt.max($self, $other);".to_string(),
 
             // Float methods
-            "root::float::Float::abs" => "return Math.abs($self);".to_string(),
-            "root::float::Float::to_string" => "return String($self);".to_string(),
-            "root::float::Float::to_int" => "return Math.trunc($self);".to_string(),
-            "root::float::Float::floor" => "return Math.floor($self);".to_string(),
-            "root::float::Float::ceil" => "return Math.ceil($self);".to_string(),
-            "root::float::Float::round" => "return Math.round($self);".to_string(),
-            "root::float::Float::sqrt" => "return Math.sqrt($self);".to_string(),
-            "root::float::Float::min" => "return Math.min($self, $other);".to_string(),
-            "root::float::Float::max" => "return Math.max($self, $other);".to_string(),
+            "root::float::Float::abs" => "return $$Float.abs($self);".to_string(),
+            "root::float::Float::to_string" => "return $$Float.to_string($self);".to_string(),
+            "root::float::Float::to_int" => "return $$Float.to_int($self);".to_string(),
+            "root::float::Float::floor" => "return $$Float.floor($self);".to_string(),
+            "root::float::Float::ceil" => "return $$Float.ceil($self);".to_string(),
+            "root::float::Float::round" => "return $$Float.round($self);".to_string(),
+            "root::float::Float::sqrt" => "return $$Float.sqrt($self);".to_string(),
+            "root::float::Float::min" => "return $$Float.min($self, $other);".to_string(),
+            "root::float::Float::max" => "return $$Float.max($self, $other);".to_string(),
 
             // String methods
-            "root::string::String::len" => "return ($self).length;".to_string(),
-            "root::string::String::contains" => "return ($self).includes($needle);".to_string(),
-            "root::string::String::starts_with" => "return ($self).startsWith($prefix);".to_string(),
-            "root::string::String::ends_with" => "return ($self).endsWith($suffix);".to_string(),
-            "root::string::String::to_uppercase" => "return ($self).toUpperCase();".to_string(),
-            "root::string::String::to_lowercase" => "return ($self).toLowerCase();".to_string(),
-            "root::string::String::trim" => "return ($self).trim();".to_string(),
+            "root::string::String::len" => "return $$String.len($self);".to_string(),
+            "root::string::String::contains" => "return $$String.contains($self, $needle);".to_string(),
+            "root::string::String::starts_with" => "return $$String.starts_with($self, $prefix);".to_string(),
+            "root::string::String::ends_with" => "return $$String.ends_with($self, $suffix);".to_string(),
+            "root::string::String::to_uppercase" => "return $$String.to_uppercase($self);".to_string(),
+            "root::string::String::to_lowercase" => "return $$String.to_lowercase($self);".to_string(),
+            "root::string::String::trim" => "return $$String.trim($self);".to_string(),
 
             // List methods
-            "root::list::List::len" => "return ($self).length;".to_string(),
-            "root::list::List::reverse" => "return ([...($self)].reverse());".to_string(),
-            "root::list::List::push" => "return ([...$self, $item]);".to_string(),
-            "root::list::List::map" => "return $self.map($f);".to_string(),
-            "root::list::List::filter" => "return $self.filter($f);".to_string(),
-            "root::list::List::fold" => "return $self.reduce($f, $init);".to_string(),
-            "root::list::List::filter_map" => {
-                "const r = []; for (const x of $self) { const v = $f(x); if (v.$tag === \"Some\") r.push(v.$0); } return r;".to_string()
-            }
-            "root::list::List::truncate" => "return $self.slice(0, $len);".to_string(),
-            "root::list::List::insert" => "return [...$self.slice(0, $index), $value, ...$self.slice($index)];".to_string(),
-            "root::list::List::remove" => "return [...$self.slice(0, $index), ...$self.slice($index + 1)];".to_string(),
+            "root::list::List::len" => "return $$List.len($self);".to_string(),
+            "root::list::List::reverse" => "return $$List.reverse($self);".to_string(),
+            "root::list::List::push" => "return $$List.push($self, $item);".to_string(),
+            "root::list::List::map" => "return $$List.map($self, $f);".to_string(),
+            "root::list::List::filter" => "return $$List.filter($self, $f);".to_string(),
+            "root::list::List::fold" => "return $$List.fold($self, $init, $f);".to_string(),
+            "root::list::List::filter_map" => "return $$List.filter_map($self, $f);".to_string(),
+            "root::list::List::truncate" => "return $$List.truncate($self, $len);".to_string(),
+            "root::list::List::insert" => "return $$List.insert($self, $index, $value);".to_string(),
+            "root::list::List::remove" => "return $$List.remove($self, $index);".to_string(),
 
             // Dict methods
             "root::dict::Dict::new" => "return $$Dict.empty();".to_string(),
