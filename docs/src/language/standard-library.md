@@ -22,6 +22,52 @@ let ok = Ok("success")
 let err: Result<String, Int> = Err(404)
 ```
 
+### Option Methods
+
+#### `map`
+
+Transforms the contained value using a function. Returns `None` if the option is `None`.
+
+```zoya
+Some(5).map(|x| x * 2)    // Some(10)
+None.map(|x: Int| x * 2)  // None
+```
+
+#### `and_then`
+
+Calls a function that returns an `Option` on the contained value. Useful for chaining operations that may fail.
+
+```zoya
+Some(5).and_then(|x| Some(x + 1))  // Some(6)
+Some(5).and_then(|x| None::<Int>)  // None
+```
+
+Methods can be chained:
+
+```zoya
+Some(5).map(|x| x + 1).and_then(|x| Some(x * 2))  // Some(12)
+```
+
+### Result Methods
+
+#### `map`
+
+Transforms the success value using a function. Returns the error unchanged if the result is `Err`.
+
+```zoya
+Ok(5).map(|x| x * 2)              // Ok(10)
+Err("fail").map(|x: Int| x * 2)   // Err("fail")
+```
+
+#### `and_then`
+
+Calls a function that returns a `Result` on the success value. Useful for chaining operations that may fail.
+
+```zoya
+Ok(5).and_then(|x| Ok(x + 1))    // Ok(6)
+Ok(5).and_then(|x| Err("fail"))  // Err("fail")
+```
+
 ### `panic`
 
 `panic` terminates the program with an error message. Because its return type is generic (`T`), it can be used anywhere any type is expected:

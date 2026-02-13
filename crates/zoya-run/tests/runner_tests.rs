@@ -6687,3 +6687,104 @@ fn test_impl_method_with_let_block() {
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(25)); // (4-1)^2 + (6-2)^2 = 9 + 16
 }
+
+#[test]
+fn test_option_map_some() {
+    let source = r#"
+        pub fn main() -> Option<Int> {
+            Some(5).map(|x| x * 2)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some(10)");
+}
+
+#[test]
+fn test_option_map_none() {
+    let source = r#"
+        pub fn main() -> Option<Int> {
+            let x: Option<Int> = None;
+            x.map(|x| x * 2)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::None");
+}
+
+#[test]
+fn test_option_and_then_some() {
+    let source = r#"
+        pub fn main() -> Option<Int> {
+            Some(5).and_then(|x| Some(x + 1))
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some(6)");
+}
+
+#[test]
+fn test_option_and_then_none() {
+    let source = r#"
+        pub fn main() -> Option<Int> {
+            Some(5).and_then(|x| None::<Int>)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::None");
+}
+
+#[test]
+fn test_option_map_and_then_chained() {
+    let source = r#"
+        pub fn main() -> Option<Int> {
+            Some(5).map(|x| x + 1).and_then(|x| Some(x * 2))
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some(12)");
+}
+
+#[test]
+fn test_result_map_ok() {
+    let source = r#"
+        pub fn main() -> Result<Int, String> {
+            Ok(5).map(|x| x * 2)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Result::Ok(10)");
+}
+
+#[test]
+fn test_result_map_err() {
+    let source = r#"
+        pub fn main() -> Result<Int, String> {
+            let x: Result<Int, String> = Err("fail");
+            x.map(|x| x * 2)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Result::Err(\"fail\")");
+}
+
+#[test]
+fn test_result_and_then_ok() {
+    let source = r#"
+        pub fn main() -> Result<Int, String> {
+            Ok(5).and_then(|x| Ok(x + 1))
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Result::Ok(6)");
+}
+
+#[test]
+fn test_result_and_then_err() {
+    let source = r#"
+        pub fn main() -> Result<Int, String> {
+            Ok(5).and_then(|x| Err("fail"))
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Result::Err(\"fail\")");
+}

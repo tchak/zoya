@@ -325,6 +325,62 @@ mod tests {
     }
 
     #[test]
+    fn test_std_has_option_map_method() {
+        let pkg = std();
+        let path = QualifiedPath::root()
+            .child("option")
+            .child("Option")
+            .child("map");
+        let def = pkg
+            .definitions
+            .get(&path)
+            .expect("Option::map definition");
+        assert!(matches!(def, Definition::ImplMethod(_)));
+    }
+
+    #[test]
+    fn test_std_has_option_and_then_method() {
+        let pkg = std();
+        let path = QualifiedPath::root()
+            .child("option")
+            .child("Option")
+            .child("and_then");
+        let def = pkg
+            .definitions
+            .get(&path)
+            .expect("Option::and_then definition");
+        assert!(matches!(def, Definition::ImplMethod(_)));
+    }
+
+    #[test]
+    fn test_std_has_result_map_method() {
+        let pkg = std();
+        let path = QualifiedPath::root()
+            .child("result")
+            .child("Result")
+            .child("map");
+        let def = pkg
+            .definitions
+            .get(&path)
+            .expect("Result::map definition");
+        assert!(matches!(def, Definition::ImplMethod(_)));
+    }
+
+    #[test]
+    fn test_std_has_result_and_then_method() {
+        let pkg = std();
+        let path = QualifiedPath::root()
+            .child("result")
+            .child("Result")
+            .child("and_then");
+        let def = pkg
+            .definitions
+            .get(&path)
+            .expect("Result::and_then definition");
+        assert!(matches!(def, Definition::ImplMethod(_)));
+    }
+
+    #[test]
     fn test_std_is_cached() {
         let a = std();
         let b = std();

@@ -1,2 +1,18 @@
 pub enum Result<T, E> { Ok(T), Err(E) }
 pub use self::Result::*
+
+impl<T, E> Result<T, E> {
+    pub fn map<U>(self, f: T -> U) -> Result<U, E> {
+        match self {
+            Ok(value) => Ok(f(value)),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn and_then<U>(self, f: T -> Result<U, E>) -> Result<U, E> {
+        match self {
+            Ok(value) => f(value),
+            Err(e) => Err(e),
+        }
+    }
+}

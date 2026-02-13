@@ -1,2 +1,18 @@
 pub enum Option<T> { None, Some(T) }
 pub use self::Option::*
+
+impl<T> Option<T> {
+    pub fn map<U>(self, f: T -> U) -> Option<U> {
+        match self {
+            Some(value) => Some(f(value)),
+            None => None,
+        }
+    }
+
+    pub fn and_then<U>(self, f: T -> Option<U>) -> Option<U> {
+        match self {
+            Some(value) => f(value),
+            None => None,
+        }
+    }
+}
