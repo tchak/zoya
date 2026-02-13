@@ -264,12 +264,12 @@ Represents an arbitrary JSON value.
 | `Number(Number)` | JSON number |
 | `String(String)` | JSON string |
 | `Array(List<JSON>)` | JSON array |
-| `Object(List<(String, JSON)>)` | JSON object as key-value pairs |
+| `Object(Dict<String, JSON>)` | JSON object as key-value dictionary |
 
 ```zoya
 use std::json::{JSON, Number}
 
-let data = JSON::Object([
+let data = JSON::Object(Dict::from([
     ("name", JSON::String("Alice")),
     ("age", JSON::Number(Number::Int(30))),
     ("active", JSON::Bool(true)),
@@ -277,10 +277,10 @@ let data = JSON::Object([
         JSON::Number(Number::Float(9.5)),
         JSON::Number(Number::Float(8.0)),
     ])),
-])
+]))
 
 match data {
-    JSON::Object(entries) => entries,
-    _ => [],
+    JSON::Object(dict) => dict.get("name"),
+    _ => None,
 }
 ```

@@ -72,5 +72,5 @@ function $$json_to_zoya(v) {
     : { $tag: "Number", $0: { $tag: "Float", $0: v } };
   if (typeof v === "string") return { $tag: "String", $0: v };
   if (Array.isArray(v)) return { $tag: "Array", $0: v.map($$json_to_zoya) };
-  return { $tag: "Object", $0: Object.entries(v).map(([k, val]) => [k, $$json_to_zoya(val)]) };
+  return { $tag: "Object", $0: $$Dict.from(Object.entries(v).map(([k, val]) => [k, $$json_to_zoya(val)])) };
 }

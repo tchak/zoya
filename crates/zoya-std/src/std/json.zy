@@ -8,7 +8,7 @@ pub enum JSON {
     Number(Number),
     String(String),
     Array(List<JSON>),
-    Object(List<(String, JSON)>),
+    Object(Dict<String, JSON>),
 }
 
 pub enum ParseError { ParseError }

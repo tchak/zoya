@@ -5373,7 +5373,7 @@ fn test_json_object() {
         use std::json::JSON
 
         pub fn main() -> Int {
-            let obj = JSON::Object([("key", JSON::String("value"))]);
+            let obj = JSON::Object(Dict::from([("key", JSON::String("value"))]));
             match obj {
                 JSON::Object(_) => 1,
                 _ => 0,
@@ -5458,13 +5458,10 @@ fn test_json_fmt_object() {
     let source = r#"
         use std::json::JSON
 
-        pub fn main() -> JSON { JSON::Object([("key", JSON::String("value"))]) }
+        pub fn main() -> JSON { JSON::Object(Dict::from([("key", JSON::String("value"))])) }
     "#;
     let result = run_source(source).unwrap();
-    assert_eq!(
-        result.to_string(),
-        r#"JSON::Object([("key", JSON::String("value"))])"#
-    );
+    assert_eq!(result.to_string(), "JSON::Object(<Dict<String, JSON>>)");
 }
 
 #[test]
