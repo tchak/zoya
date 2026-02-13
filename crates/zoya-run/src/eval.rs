@@ -74,6 +74,10 @@ fn substitute_type_vars(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
     match ty {
         Type::Var(id) => mapping.get(id).cloned().unwrap_or_else(|| ty.clone()),
         Type::List(elem) => Type::List(Box::new(substitute_type_vars(elem, mapping))),
+        Type::Dict(key, val) => Type::Dict(
+            Box::new(substitute_type_vars(key, mapping)),
+            Box::new(substitute_type_vars(val, mapping)),
+        ),
         Type::Tuple(elems) => Type::Tuple(
             elems
                 .iter()
@@ -227,6 +231,10 @@ pub enum Value {
         name: String,
         fields: Vec<(String, Value)>,
     },
+    Dict {
+        key_type: Type,
+        val_type: Type,
+    },
     Fn {
         params: Vec<Type>,
         ret: Box<Type>,
@@ -302,6 +310,9 @@ impl fmt::Display for Value {
                     write_fields(f, fields)?;
                     write!(f, " }}")
                 }
+            }
+            Value::Dict { key_type, val_type } => {
+                write!(f, "<Dict<{}, {}>>", key_type, val_type)
             }
             Value::Fn { params, ret } => {
                 if params.is_empty() {
@@ -447,6 +458,10 @@ fn js_value_to_value(
                 fields: field_values,
             })
         }
+        Type::Dict(key_type, val_type) => Ok(Value::Dict {
+            key_type: *key_type.clone(),
+            val_type: *val_type.clone(),
+        }),
         Type::Var(id) => Err(EvalError::RuntimeError(format!(
             "unresolved type variable: {}",
             id

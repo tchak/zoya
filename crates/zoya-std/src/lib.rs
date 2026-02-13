@@ -11,6 +11,7 @@ fn build_std() -> Result<CheckedPackage, String> {
     let source = MemorySource::new()
         .with_module("root", include_str!("std/main.zy"))
         .with_module("bigint", include_str!("std/bigint.zy"))
+        .with_module("dict", include_str!("std/dict.zy"))
         .with_module("float", include_str!("std/float.zy"))
         .with_module("int", include_str!("std/int.zy"))
         .with_module("io", include_str!("std/io.zy"))
@@ -442,6 +443,74 @@ mod tests {
             .child("List")
             .child("push");
         let def = pkg.definitions.get(&path).expect("List::push definition");
+        assert!(matches!(def, Definition::ImplMethod(_)));
+    }
+
+    #[test]
+    fn test_std_has_dict_module() {
+        let pkg = std();
+        let dict_path = QualifiedPath::root().child("dict");
+        assert!(
+            pkg.definitions.contains_key(&dict_path),
+            "dict module should exist"
+        );
+    }
+
+    #[test]
+    fn test_std_has_dict_new_method() {
+        let pkg = std();
+        let path = QualifiedPath::root()
+            .child("dict")
+            .child("Dict")
+            .child("new");
+        let def = pkg.definitions.get(&path).expect("Dict::new definition");
+        assert!(matches!(def, Definition::ImplMethod(_)));
+    }
+
+    #[test]
+    fn test_std_has_dict_get_method() {
+        let pkg = std();
+        let path = QualifiedPath::root()
+            .child("dict")
+            .child("Dict")
+            .child("get");
+        let def = pkg.definitions.get(&path).expect("Dict::get definition");
+        assert!(matches!(def, Definition::ImplMethod(_)));
+    }
+
+    #[test]
+    fn test_std_has_dict_insert_method() {
+        let pkg = std();
+        let path = QualifiedPath::root()
+            .child("dict")
+            .child("Dict")
+            .child("insert");
+        let def = pkg.definitions.get(&path).expect("Dict::insert definition");
+        assert!(matches!(def, Definition::ImplMethod(_)));
+    }
+
+    #[test]
+    fn test_std_has_dict_len_method() {
+        let pkg = std();
+        let path = QualifiedPath::root()
+            .child("dict")
+            .child("Dict")
+            .child("len");
+        let def = pkg.definitions.get(&path).expect("Dict::len definition");
+        assert!(matches!(def, Definition::ImplMethod(_)));
+    }
+
+    #[test]
+    fn test_std_has_dict_is_empty_method() {
+        let pkg = std();
+        let path = QualifiedPath::root()
+            .child("dict")
+            .child("Dict")
+            .child("is_empty");
+        let def = pkg
+            .definitions
+            .get(&path)
+            .expect("Dict::is_empty definition");
         assert!(matches!(def, Definition::ImplMethod(_)));
     }
 

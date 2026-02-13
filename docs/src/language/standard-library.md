@@ -1,6 +1,6 @@
 # Standard Library
 
-Zoya's standard library provides common types and methods for everyday programming. It includes methods on primitive types (Int, Float, String, BigInt, List) defined via `impl` blocks in dedicated modules (`std::int`, `std::float`, `std::string`, `std::bigint`, `std::list`). See [Methods](methods.md) for the full list of primitive type methods.
+Zoya's standard library provides common types and methods for everyday programming. It includes methods on primitive types (Int, Float, String, BigInt, List, Dict) defined via `impl` blocks in dedicated modules (`std::int`, `std::float`, `std::string`, `std::bigint`, `std::list`, `std::dict`). See [Methods](methods.md) for the full list of primitive type methods.
 
 ## Prelude
 
@@ -117,6 +117,35 @@ println("Hello, World!")
 
 let name = "Alice"
 println("Hello, " + name + "!")
+```
+
+## `std::dict`
+
+Immutable dictionary type backed by a persistent hash array mapped trie (HAMT).
+
+### `Dict<K, V>`
+
+| Method | Description |
+|--------|-------------|
+| `Dict::new() -> Dict<K, V>` | Create an empty dictionary |
+| `get(self, key: K) -> Option<V>` | Look up a key, returns `Some(value)` or `None` |
+| `insert(self, key: K, value: V) -> Self` | Return a new dict with the key-value pair added (or replaced) |
+| `remove(self, key: K) -> Self` | Return a new dict with the key removed |
+| `keys(self) -> List<K>` | Return all keys as a list |
+| `values(self) -> List<V>` | Return all values as a list |
+| `len(self) -> Int` | Return the number of entries |
+| `is_empty(self) -> Bool` | Check if the dictionary is empty |
+
+```zoya
+let d = Dict::new()
+let d = d.insert("name", "Alice")
+let d = d.insert("city", "Paris")
+d.get("name")     // Some("Alice")
+d.get("age")      // None
+d.len()            // 2
+d.keys()           // ["name", "city"] (order may vary)
+let d = d.remove("city")
+d.is_empty()       // false
 ```
 
 ## `std::io`

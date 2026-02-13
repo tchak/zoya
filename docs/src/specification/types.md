@@ -72,6 +72,35 @@ let nested = [[1, 2], [3, 4]]
 
 All elements must have the same type. Empty lists require type annotation or inference from context.
 
+## Dict Types
+
+Immutable dictionaries mapping keys to values, backed by a persistent hash array mapped trie (HAMT).
+
+### Syntax
+
+```
+Dict<K, V>
+```
+
+### Usage
+
+Dict has no literal syntax. Create and manipulate dictionaries using methods:
+
+```zoya
+let d = Dict::new()
+let d = d.insert("a", 1)
+let d = d.insert("b", 2)
+d.get("a")    // Some(1)
+d.get("c")    // None
+d.len()       // 2
+d.keys()      // List of keys
+d.values()    // List of values
+d.remove("a") // New dict without "a"
+d.is_empty()  // false
+```
+
+Keys can be any type that supports structural equality. Both keys and values must be homogeneous within a single dict.
+
 ## Tuple Types
 
 Fixed-size, heterogeneous product types.

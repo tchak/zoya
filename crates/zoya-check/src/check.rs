@@ -1404,6 +1404,7 @@ fn check_method_call(
         let receiver_type_args = match &receiver_ty {
             Type::Struct { type_args, .. } | Type::Enum { type_args, .. } => type_args.clone(),
             Type::List(elem) => vec![*elem.clone()],
+            Type::Dict(key, val) => vec![*key.clone(), *val.clone()],
             _ => vec![],
         };
         let mut instantiation: HashMap<TypeVarId, Type> = imt
@@ -2759,7 +2760,6 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
                         && qpath.segments()[0] == "std"
                         && qpath.segments()[1] == "prelude"
                         && def.visibility() == Visibility::Public
-                        && !matches!(def, Definition::Module(_))
                 })
                 .map(|(qpath, _)| (qpath.last().to_string(), qpath.clone()))
                 .collect();
@@ -3303,7 +3303,7 @@ fn resolve_impl_target(
     if path.segments.len() == 1
         && matches!(
             type_name,
-            "Int" | "BigInt" | "Float" | "Bool" | "String" | "List"
+            "Int" | "BigInt" | "Float" | "Bool" | "String" | "List" | "Dict"
         )
     {
         if package_name == "std" && primitive_module_for_name(type_name).is_some() {

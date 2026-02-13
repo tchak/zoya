@@ -49,6 +49,9 @@ const MAX_BIGINT_FN: &str = "$$max_bigint";
 /// List index function name used in generated JS
 const LIST_IDX_FN: &str = "$$list_idx";
 
+/// HAMT runtime for Dict<K, V>
+const HAMT_JS: &str = include_str!("hamt.js");
+
 /// Prelude containing runtime helper functions for generated JS (plain script, no ESM)
 fn prelude() -> &'static str {
     r#"class $$ZoyaError extends Error {
@@ -89,6 +92,7 @@ function $$abs_bigint(x) { return x < 0n ? -x : x; }
 function $$min_bigint(a, b) { return a < b ? a : b; }
 function $$max_bigint(a, b) { return a > b ? a : b; }
 function $$eq(a, b) {
+  if (a === b) return true;
   if (Array.isArray(a) && Array.isArray(b)) {
     if (a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) {
@@ -97,6 +101,15 @@ function $$eq(a, b) {
     return true;
   }
   if ($$is_obj(a) && $$is_obj(b)) {
+    if (a.$$hamt === true && b.$$hamt === true) {
+      if (a.size !== b.size) return false;
+      const ea = $$Dict.entries(a);
+      for (let i = 0; i < ea.length; i++) {
+        const v = $$Dict.get(b, ea[i][0]);
+        if (v.$tag === "None" || !$$eq(ea[i][1], v.$0)) return false;
+      }
+      return true;
+    }
     const ka = Object.keys(a), kb = Object.keys(b);
     if (ka.length !== kb.length) return false;
     for (let k of ka) {
@@ -129,6 +142,10 @@ pub fn codegen(package: &CheckedPackage, deps: &[&CheckedPackage]) -> CodegenOut
 
     // Prelude helpers (plain script, no imports/exports)
     js.push_str(prelude());
+    js.push('\n');
+
+    // HAMT runtime for Dict<K, V>
+    js.push_str(HAMT_JS);
     js.push('\n');
 
     // Dependency function definitions
@@ -1026,6 +1043,15 @@ impl<'a> PackageCodegen<'a> {
             "root::list::List::reverse" => "return ([...($self)].reverse());".to_string(),
             "root::list::List::push" => "return ([...$self, $item]);".to_string(),
 
+            // Dict methods
+            "root::dict::Dict::new" => "return $$Dict.empty();".to_string(),
+            "root::dict::Dict::get" => "return $$Dict.get($self, $key);".to_string(),
+            "root::dict::Dict::insert" => "return $$Dict.insert($self, $key, $value);".to_string(),
+            "root::dict::Dict::remove" => "return $$Dict.remove($self, $key);".to_string(),
+            "root::dict::Dict::keys" => "return $$Dict.keys($self);".to_string(),
+            "root::dict::Dict::values" => "return $$Dict.values($self);".to_string(),
+            "root::dict::Dict::len" => "return $$Dict.len($self);".to_string(),
+
             _ => panic!(
                 "no builtin JS implementation for '{}' — every #[builtin] function must have a codegen entry",
                 path_key
@@ -1062,7 +1088,7 @@ fn is_safe_operand(expr: &TypedExpr) -> bool {
 fn needs_deep_equality(ty: &Type) -> bool {
     matches!(
         ty,
-        Type::List(_) | Type::Tuple(_) | Type::Struct { .. } | Type::Enum { .. }
+        Type::List(_) | Type::Dict(_, _) | Type::Tuple(_) | Type::Struct { .. } | Type::Enum { .. }
     )
 }
 

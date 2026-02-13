@@ -221,3 +221,20 @@ All list operations return new lists (immutable):
 [1, 2].push(3)          // [1, 2, 3]
 [1, 2, 3].reverse()     // [3, 2, 1]
 ```
+
+## Dict Methods
+
+Dictionaries are immutable hash maps. Create them with `Dict::new()` and manipulate with methods:
+
+```zoya
+let d = Dict::new()
+let d = d.insert("a", 1)
+d.get("a")              // Some(1)
+d.get("b")              // None
+d.len()                 // 1
+d.is_empty()            // false
+d.keys()                // ["a"]
+d.values()              // [1]
+let d = d.remove("a")
+d.is_empty()            // true
+```

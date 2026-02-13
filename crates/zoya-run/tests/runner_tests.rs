@@ -6766,3 +6766,204 @@ fn test_result_and_then_err() {
     let result = run_source(source).unwrap();
     assert_eq!(result.to_string(), "Result::Err(\"fail\")");
 }
+
+// ==================== Dict Tests ====================
+
+#[test]
+fn test_dict_new_is_empty() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let d: Dict<String, Int> = Dict::new();
+            d.is_empty()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_dict_new_len_zero() {
+    let source = r#"
+        pub fn main() -> Int {
+            let d: Dict<String, Int> = Dict::new();
+            d.len()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(0));
+}
+
+#[test]
+fn test_dict_insert_and_get() {
+    let source = r#"
+        pub fn main() -> Option<Int> {
+            let d = Dict::new().insert("a", 1);
+            d.get("a")
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some(1)");
+}
+
+#[test]
+fn test_dict_get_missing_key() {
+    let source = r#"
+        pub fn main() -> Option<Int> {
+            let d = Dict::new().insert("a", 1);
+            d.get("b")
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::None");
+}
+
+#[test]
+fn test_dict_insert_overwrite() {
+    let source = r#"
+        pub fn main() -> Option<Int> {
+            let d = Dict::new().insert("a", 1).insert("a", 2);
+            d.get("a")
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some(2)");
+}
+
+#[test]
+fn test_dict_remove() {
+    let source = r#"
+        pub fn main() -> Option<Int> {
+            let d = Dict::new().insert("a", 1).remove("a");
+            d.get("a")
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::None");
+}
+
+#[test]
+fn test_dict_len() {
+    let source = r#"
+        pub fn main() -> Int {
+            let d = Dict::new().insert("a", 1).insert("b", 2).insert("c", 3);
+            d.len()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(3));
+}
+
+#[test]
+fn test_dict_len_after_remove() {
+    let source = r#"
+        pub fn main() -> Int {
+            let d = Dict::new().insert("a", 1).insert("b", 2).remove("a");
+            d.len()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(1));
+}
+
+#[test]
+fn test_dict_keys() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let d = Dict::new().insert("a", 1);
+            let ks = d.keys();
+            ks.len() == 1
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_dict_values() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let d = Dict::new().insert("x", 10);
+            let vs = d.values();
+            vs.len() == 1
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_dict_is_empty_false() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let d = Dict::new().insert("a", 1);
+            d.is_empty()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(false));
+}
+
+#[test]
+fn test_dict_equality() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let d1 = Dict::new().insert("a", 1).insert("b", 2);
+            let d2 = Dict::new().insert("b", 2).insert("a", 1);
+            d1 == d2
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_dict_inequality() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let d1 = Dict::new().insert("a", 1);
+            let d2 = Dict::new().insert("a", 2);
+            d1 != d2
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_dict_int_keys() {
+    let source = r#"
+        pub fn main() -> Option<String> {
+            let d = Dict::new().insert(1, "one").insert(2, "two");
+            d.get(1)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "Option::Some(\"one\")");
+}
+
+#[test]
+fn test_dict_multiple_operations() {
+    let source = r#"
+        pub fn main() -> Int {
+            Dict::new()
+                .insert("a", 1)
+                .insert("b", 2)
+                .insert("c", 3)
+                .remove("b")
+                .len()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(2));
+}
+
+#[test]
+fn test_dict_repl_display() {
+    let source = r#"
+        pub fn main() -> Dict<String, Int> {
+            Dict::new().insert("a", 1)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "<Dict<String, Int>>");
+}

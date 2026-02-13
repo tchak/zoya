@@ -201,6 +201,33 @@ fn resolve_type_annotation_inner(
                 return Ok(Type::List(Box::new(elem_type)));
             }
 
+            if let Some(name) = path.as_simple()
+                && name == "Dict"
+            {
+                if params.len() != 2 {
+                    return Err(TypeError {
+                        message: "Dict requires exactly two type parameters".to_string(),
+                    });
+                }
+                let key_type = resolve_type_annotation_inner(
+                    &params[0],
+                    type_param_map,
+                    current_module,
+                    env,
+                    self_type,
+                    expanding_aliases,
+                )?;
+                let val_type = resolve_type_annotation_inner(
+                    &params[1],
+                    type_param_map,
+                    current_module,
+                    env,
+                    self_type,
+                    expanding_aliases,
+                )?;
+                return Ok(Type::Dict(Box::new(key_type), Box::new(val_type)));
+            }
+
             // Use resolve_pattern_path (type annotations never reference locals)
             let resolved = crate::resolution::resolve_pattern_path(
                 path,
@@ -595,6 +622,73 @@ mod tests {
         assert!(
             err.message
                 .contains("List requires exactly one type parameter")
+        );
+    }
+
+    // ========================================================================
+    // Dict type tests
+    // ========================================================================
+
+    #[test]
+    fn test_resolve_dict() {
+        let annotation = TypeAnnotation::Parameterized(
+            Path::simple("Dict".to_string()),
+            vec![
+                TypeAnnotation::Named(Path::simple("String".to_string())),
+                TypeAnnotation::Named(Path::simple("Int".to_string())),
+            ],
+        );
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap(),
+            Type::Dict(Box::new(Type::String), Box::new(Type::Int))
+        );
+    }
+
+    #[test]
+    fn test_resolve_dict_wrong_param_count_one() {
+        let annotation = TypeAnnotation::Parameterized(
+            Path::simple("Dict".to_string()),
+            vec![TypeAnnotation::Named(Path::simple("Int".to_string()))],
+        );
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.message
+                .contains("Dict requires exactly two type parameters")
+        );
+    }
+
+    #[test]
+    fn test_resolve_dict_wrong_param_count_zero() {
+        let annotation = TypeAnnotation::Parameterized(Path::simple("Dict".to_string()), vec![]);
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.message
+                .contains("Dict requires exactly two type parameters")
+        );
+    }
+
+    #[test]
+    fn test_resolve_dict_wrong_param_count_three() {
+        let annotation = TypeAnnotation::Parameterized(
+            Path::simple("Dict".to_string()),
+            vec![
+                TypeAnnotation::Named(Path::simple("String".to_string())),
+                TypeAnnotation::Named(Path::simple("Int".to_string())),
+                TypeAnnotation::Named(Path::simple("Bool".to_string())),
+            ],
+        );
+        let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.message
+                .contains("Dict requires exactly two type parameters")
         );
     }
 

@@ -39,6 +39,9 @@ impl UnifyCtx {
                 }
             }
             Type::List(elem) => Type::List(Box::new(self.resolve(elem))),
+            Type::Dict(key, val) => {
+                Type::Dict(Box::new(self.resolve(key)), Box::new(self.resolve(val)))
+            }
             Type::Tuple(elems) => Type::Tuple(elems.iter().map(|e| self.resolve(e)).collect()),
             Type::Function { params, ret } => Type::Function {
                 params: params.iter().map(|p| self.resolve(p)).collect(),
@@ -99,6 +102,7 @@ impl UnifyCtx {
         match ty {
             Type::Var(id) => id == var_id,
             Type::List(elem) => self.occurs(var_id, &elem),
+            Type::Dict(key, val) => self.occurs(var_id, &key) || self.occurs(var_id, &val),
             Type::Tuple(elems) => elems.iter().any(|e| self.occurs(var_id, e)),
             Type::Function { params, ret } => {
                 params.iter().any(|p| self.occurs(var_id, p)) || self.occurs(var_id, &ret)
@@ -148,6 +152,12 @@ impl UnifyCtx {
 
             // List types - unify element types
             (Type::List(e1), Type::List(e2)) => self.unify(e1, e2),
+
+            // Dict types - unify key and value types
+            (Type::Dict(k1, v1), Type::Dict(k2, v2)) => {
+                self.unify(k1, k2)?;
+                self.unify(v1, v2)
+            }
 
             // Tuple types - unify element types pairwise
             (Type::Tuple(elems1), Type::Tuple(elems2)) => {
@@ -308,6 +318,11 @@ impl UnifyCtx {
                 set
             }
             Type::List(elem) => self.free_vars(&elem),
+            Type::Dict(key, val) => {
+                let mut set = self.free_vars(&key);
+                set.extend(self.free_vars(&val));
+                set
+            }
             Type::Tuple(elems) => elems.iter().flat_map(|e| self.free_vars(e)).collect(),
             Type::Function { params, ret } => {
                 let mut set: HashSet<TypeVarId> =
@@ -380,6 +395,10 @@ pub fn substitute_type_vars(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Ty
     match ty {
         Type::Var(id) => mapping.get(id).cloned().unwrap_or_else(|| ty.clone()),
         Type::List(elem) => Type::List(Box::new(substitute_type_vars(elem, mapping))),
+        Type::Dict(key, val) => Type::Dict(
+            Box::new(substitute_type_vars(key, mapping)),
+            Box::new(substitute_type_vars(val, mapping)),
+        ),
         Type::Tuple(elems) => Type::Tuple(
             elems
                 .iter()

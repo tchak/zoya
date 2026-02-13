@@ -10,6 +10,7 @@ Zoya has the following built-in types:
 | `Bool` | `true`, `false` |
 | `String` | `"hello"`, `"line\nbreak"` |
 | `List<T>` | `[1, 2, 3]`, `[]`, `[1, ..rest]` |
+| `Dict<K, V>` | `Dict::new()`, `d.insert(k, v)` — immutable dictionary |
 | `(T, U, ...)` | `(1, "hello")`, `()`, `(42,)`, `(..a, ..b)` — access elements with `.0`, `.1` |
 | `T -> U` | `Int -> Bool`, `(Int, Int) -> Int` |
 

@@ -20,9 +20,10 @@ pub enum Type {
     Float,
     Bool,
     String,
-    List(Box<Type>),  // List with element type
-    Tuple(Vec<Type>), // Tuple with element types (heterogeneous, fixed size)
-    Var(TypeVarId),   // Unification type variable
+    List(Box<Type>),            // List with element type
+    Dict(Box<Type>, Box<Type>), // Dict with key and value types
+    Tuple(Vec<Type>),           // Tuple with element types (heterogeneous, fixed size)
+    Var(TypeVarId),             // Unification type variable
     Function {
         params: Vec<Type>,
         ret: Box<Type>,
@@ -91,6 +92,9 @@ impl Type {
                     .collect(),
             },
             Type::List(elem) => Type::List(Box::new(elem.with_root(name))),
+            Type::Dict(key, val) => {
+                Type::Dict(Box::new(key.with_root(name)), Box::new(val.with_root(name)))
+            }
             Type::Tuple(elems) => {
                 Type::Tuple(elems.into_iter().map(|t| t.with_root(name)).collect())
             }
@@ -130,6 +134,7 @@ impl fmt::Display for Type {
             Type::Bool => write!(f, "Bool"),
             Type::String => write!(f, "String"),
             Type::List(elem) => write!(f, "List<{}>", elem),
+            Type::Dict(key, val) => write!(f, "Dict<{}, {}>", key, val),
             Type::Tuple(elems) => {
                 let elem_strs: Vec<String> = elems.iter().map(|e| e.to_string()).collect();
                 write!(f, "({})", elem_strs.join(", "))
@@ -499,6 +504,18 @@ mod tests {
 
         let list_list = Type::List(Box::new(Type::List(Box::new(Type::String))));
         assert_eq!(list_list.to_string(), "List<List<String>>");
+    }
+
+    #[test]
+    fn test_display_dict() {
+        let dict = Type::Dict(Box::new(Type::String), Box::new(Type::Int));
+        assert_eq!(dict.to_string(), "Dict<String, Int>");
+
+        let nested = Type::Dict(
+            Box::new(Type::String),
+            Box::new(Type::List(Box::new(Type::Int))),
+        );
+        assert_eq!(nested.to_string(), "Dict<String, List<Int>>");
     }
 
     #[test]
