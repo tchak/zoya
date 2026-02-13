@@ -88,10 +88,12 @@ fn substitute_type_vars(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
             ret: Box::new(substitute_type_vars(ret, mapping)),
         },
         Type::Struct {
+            module,
             name,
             type_args,
             fields,
         } => Type::Struct {
+            module: module.clone(),
             name: name.clone(),
             type_args: type_args
                 .iter()
@@ -103,10 +105,12 @@ fn substitute_type_vars(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
                 .collect(),
         },
         Type::Enum {
+            module,
             name,
             type_args,
             variants,
         } => Type::Enum {
+            module: module.clone(),
             name: name.clone(),
             type_args: type_args
                 .iter()
@@ -424,6 +428,7 @@ fn js_value_to_value(
             name,
             type_args,
             fields,
+            ..
         } => {
             let resolved_fields = type_lookup.resolve_struct_fields(name, fields, type_args);
             let obj: rquickjs::Object = js_val
@@ -454,6 +459,7 @@ fn js_value_to_value(
             name: enum_name,
             type_args,
             variants,
+            ..
         } => {
             let resolved_variants =
                 type_lookup.resolve_enum_variants(enum_name, variants, type_args);

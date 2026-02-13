@@ -465,6 +465,7 @@ fn check_path_expr(
                 path: qualified_variant_path,
                 fields: TypedEnumConstructFields::Unit,
                 ty: Type::Enum {
+                    module: enum_type.module.clone(),
                     name: enum_type.name.clone(),
                     type_args,
                     variants: resolved_variants,
@@ -481,6 +482,7 @@ fn check_path_expr(
                 fields: vec![],
                 spread: None,
                 ty: Type::Struct {
+                    module: struct_type.module.clone(),
                     name: struct_type.name.clone(),
                     type_args: vec![],
                     fields: vec![],
@@ -1002,6 +1004,7 @@ fn check_enum_tuple_construct_resolved(
         path: qualified_variant_path,
         fields: TypedEnumConstructFields::Tuple(typed_exprs),
         ty: Type::Enum {
+            module: enum_type.module.clone(),
             name: enum_type.name.to_string(),
             type_args,
             variants: resolved_variants,
@@ -1107,6 +1110,7 @@ fn check_struct_tuple_construct_resolved(
         path: qualified_path.clone(),
         args: typed_args,
         ty: Type::Struct {
+            module: struct_type.module.clone(),
             name: name.to_string(),
             type_args,
             fields: resolved_fields,
@@ -1480,20 +1484,16 @@ fn find_impl_method<'a>(
     method: &str,
     definitions: &'a HashMap<QualifiedPath, Definition>,
 ) -> Option<(QualifiedPath, &'a ImplMethodType)> {
-    // Get the type name from the receiver
-    let type_name = match receiver_ty {
-        Type::Struct { name, .. } | Type::Enum { name, .. } => name.as_str(),
+    // Get the module and type name from the receiver
+    let (module, type_name) = match receiver_ty {
+        Type::Struct { module, name, .. } | Type::Enum { module, name, .. } => {
+            (module, name.as_str())
+        }
         _ => return None,
     };
 
-    // Find the type's qualified path
-    let type_qpath = definitions.iter().find_map(|(qpath, def)| match def {
-        Definition::Struct(s) if s.name == type_name => Some(qpath.clone()),
-        Definition::Enum(e) if e.name == type_name => Some(qpath.clone()),
-        _ => None,
-    })?;
-
-    // Look up the method at type_path::method_name
+    // Build the qualified path directly: module::TypeName::method
+    let type_qpath = module.child(type_name);
     let method_qpath = type_qpath.child(method);
     if let Some(Definition::ImplMethod(imt)) = definitions.get(&method_qpath) {
         return Some((method_qpath, imt));
@@ -1856,6 +1856,7 @@ fn check_struct_construct_resolved(
 
         // Build the expected struct type for unification
         let expected_struct_type = Type::Struct {
+            module: struct_type.module.clone(),
             name: name.to_string(),
             type_args: struct_type
                 .type_var_ids
@@ -1911,6 +1912,7 @@ fn check_struct_construct_resolved(
         fields: typed_fields,
         spread: typed_spread,
         ty: Type::Struct {
+            module: struct_type.module.clone(),
             name: name.to_string(),
             type_args,
             fields: resolved_fields,
@@ -2048,6 +2050,7 @@ fn check_enum_struct_construct_resolved(
         path: qualified_variant_path,
         fields: TypedEnumConstructFields::Struct(typed_fields),
         ty: Type::Enum {
+            module: enum_type.module.clone(),
             name: enum_type.name.to_string(),
             type_args,
             variants: resolved_variants,
@@ -2068,14 +2071,14 @@ fn check_field_access(
 
     match &expr_ty {
         Type::Struct {
+            module,
             name,
             fields: struct_fields,
             type_args,
-            ..
         } => {
             // If fields are empty (recursive type stub), look up real fields from definitions
             let actual_fields: Vec<(String, Type)> = if struct_fields.is_empty() {
-                lookup_struct_fields(name, type_args, &env.definitions)
+                lookup_struct_fields(module, name, type_args, &env.definitions)
                     .unwrap_or_else(|| struct_fields.clone())
             } else {
                 struct_fields.clone()
@@ -2134,13 +2137,13 @@ fn check_tuple_index(
             })
         }
         Type::Struct {
+            module,
             name,
             fields: struct_fields,
             type_args,
-            ..
         } => {
             let actual_fields: Vec<(String, Type)> = if struct_fields.is_empty() {
-                lookup_struct_fields(name, type_args, &env.definitions)
+                lookup_struct_fields(module, name, type_args, &env.definitions)
                     .unwrap_or_else(|| struct_fields.clone())
             } else {
                 struct_fields.clone()
@@ -2195,7 +2198,23 @@ fn check_list_index(
     })?;
 
     // Return type is Option<T>
+    // Look up the std Option definition to get its module path
+    let option_qpath = QualifiedPath::new(vec!["std".into(), "option".into(), "Option".into()]);
+    let option_module = env
+        .definitions
+        .get(&option_qpath)
+        .or_else(|| {
+            env.reexports
+                .get(&option_qpath)
+                .and_then(|real| env.definitions.get(real))
+        })
+        .and_then(|def| match def {
+            Definition::Enum(e) => Some(e.module.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| QualifiedPath::new(vec!["std".into(), "option".into()]));
     let option_ty = Type::Enum {
+        module: option_module,
         name: "Option".to_string(),
         type_args: vec![elem_ty.clone()],
         variants: vec![
@@ -2310,6 +2329,7 @@ pub(crate) fn instantiate_enum_type(
         .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, &instantiation)))
         .collect();
     let ty = Type::Enum {
+        module: enum_type.module.clone(),
         name: enum_type.name.clone(),
         type_args,
         variants: resolved_variants,
@@ -2338,6 +2358,7 @@ pub(crate) fn instantiate_struct_type(
         .map(|(n, ty)| (n.clone(), substitute_type_vars(ty, &instantiation)))
         .collect();
     let ty = Type::Struct {
+        module: struct_type.module.clone(),
         name: struct_type.name.clone(),
         type_args,
         fields: resolved_fields,
@@ -2347,33 +2368,33 @@ pub(crate) fn instantiate_struct_type(
 
 /// Look up struct fields from definitions when the type carries empty fields (recursive type stub).
 fn lookup_struct_fields(
+    module: &QualifiedPath,
     name: &str,
     type_args: &[Type],
     definitions: &HashMap<QualifiedPath, Definition>,
 ) -> Option<Vec<(String, Type)>> {
-    for def in definitions.values() {
-        if let Definition::Struct(struct_type) = def
-            && struct_type.name == name
-            && struct_type.kind == StructTypeKind::Named
-        {
-            if type_args.is_empty() || struct_type.type_var_ids.is_empty() {
-                return Some(struct_type.fields.clone());
-            }
-            // Build substitution: type_var_ids -> type_args
-            let mapping: HashMap<TypeVarId, Type> = struct_type
-                .type_var_ids
-                .iter()
-                .zip(type_args.iter())
-                .map(|(id, ty)| (*id, ty.clone()))
-                .collect();
-            return Some(
-                struct_type
-                    .fields
-                    .iter()
-                    .map(|(n, t)| (n.clone(), substitute_type_vars(t, &mapping)))
-                    .collect(),
-            );
+    let qpath = module.child(name);
+    if let Some(Definition::Struct(struct_type)) = definitions.get(&qpath) {
+        if struct_type.kind != StructTypeKind::Named {
+            return None;
         }
+        if type_args.is_empty() || struct_type.type_var_ids.is_empty() {
+            return Some(struct_type.fields.clone());
+        }
+        // Build substitution: type_var_ids -> type_args
+        let mapping: HashMap<TypeVarId, Type> = struct_type
+            .type_var_ids
+            .iter()
+            .zip(type_args.iter())
+            .map(|(id, ty)| (*id, ty.clone()))
+            .collect();
+        return Some(
+            struct_type
+                .fields
+                .iter()
+                .map(|(n, t)| (n.clone(), substitute_type_vars(t, &mapping)))
+                .collect(),
+        );
     }
     None
 }

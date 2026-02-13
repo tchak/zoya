@@ -1,5 +1,5 @@
 use zoya_ast::{Expr, ListElement};
-use zoya_ir::{EnumVariantType, Type};
+use zoya_ir::{EnumVariantType, QualifiedPath, Type};
 
 use super::check_expr_with_env;
 
@@ -17,6 +17,7 @@ fn test_list_index_returns_option() {
     assert_eq!(
         ty,
         Type::Enum {
+            module: QualifiedPath::new(vec!["std".into(), "option".into()]),
             name: "Option".to_string(),
             type_args: vec![Type::Int],
             variants: vec![

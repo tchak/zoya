@@ -29,6 +29,8 @@ pub enum Type {
     },
     /// Named struct type with instantiated type parameters
     Struct {
+        /// Module where this struct is defined
+        module: QualifiedPath,
         name: String,
         type_args: Vec<Type>,
         /// Field names and their instantiated types
@@ -36,6 +38,8 @@ pub enum Type {
     },
     /// Named enum type with instantiated type parameters
     Enum {
+        /// Module where this enum is defined
+        module: QualifiedPath,
         name: String,
         type_args: Vec<Type>,
         /// Variant names and their types (for exhaustiveness checking)
@@ -52,6 +56,69 @@ pub enum EnumVariantType {
     Tuple(Vec<Type>),
     /// Struct variant: `Move { x: Int, y: Int }` - field names and types
     Struct(Vec<(String, Type)>),
+}
+
+impl Type {
+    /// Remap all embedded module paths, replacing "root" with a new name.
+    pub fn with_root(self, name: &str) -> Self {
+        match self {
+            Type::Struct {
+                module,
+                name: n,
+                type_args,
+                fields,
+            } => Type::Struct {
+                module: module.with_root(name),
+                name: n,
+                type_args: type_args.into_iter().map(|t| t.with_root(name)).collect(),
+                fields: fields
+                    .into_iter()
+                    .map(|(f, t)| (f, t.with_root(name)))
+                    .collect(),
+            },
+            Type::Enum {
+                module,
+                name: n,
+                type_args,
+                variants,
+            } => Type::Enum {
+                module: module.with_root(name),
+                name: n,
+                type_args: type_args.into_iter().map(|t| t.with_root(name)).collect(),
+                variants: variants
+                    .into_iter()
+                    .map(|(v, vt)| (v, vt.with_root(name)))
+                    .collect(),
+            },
+            Type::List(elem) => Type::List(Box::new(elem.with_root(name))),
+            Type::Tuple(elems) => {
+                Type::Tuple(elems.into_iter().map(|t| t.with_root(name)).collect())
+            }
+            Type::Function { params, ret } => Type::Function {
+                params: params.into_iter().map(|t| t.with_root(name)).collect(),
+                ret: Box::new(ret.with_root(name)),
+            },
+            other => other,
+        }
+    }
+}
+
+impl EnumVariantType {
+    /// Remap all embedded module paths, replacing "root" with a new name.
+    pub fn with_root(self, name: &str) -> Self {
+        match self {
+            EnumVariantType::Unit => EnumVariantType::Unit,
+            EnumVariantType::Tuple(types) => {
+                EnumVariantType::Tuple(types.into_iter().map(|t| t.with_root(name)).collect())
+            }
+            EnumVariantType::Struct(fields) => EnumVariantType::Struct(
+                fields
+                    .into_iter()
+                    .map(|(f, t)| (f, t.with_root(name)))
+                    .collect(),
+            ),
+        }
+    }
 }
 
 impl fmt::Display for Type {
@@ -317,37 +384,57 @@ impl Definition {
     }
 
     /// Remap the module field, replacing "root" with a new name.
-    pub fn with_root(self, name: &str) -> Self {
+    pub fn with_root(self, root: &str) -> Self {
         match self {
             Definition::Function(f) => Definition::Function(FunctionType {
-                module: f.module.with_root(name),
+                module: f.module.with_root(root),
+                params: f.params.into_iter().map(|t| t.with_root(root)).collect(),
+                return_type: f.return_type.with_root(root),
                 ..f
             }),
             Definition::Struct(s) => Definition::Struct(StructType {
-                module: s.module.with_root(name),
+                module: s.module.with_root(root),
+                fields: s
+                    .fields
+                    .into_iter()
+                    .map(|(n, t)| (n, t.with_root(root)))
+                    .collect(),
                 ..s
             }),
             Definition::Enum(e) => Definition::Enum(EnumType {
-                module: e.module.with_root(name),
+                module: e.module.with_root(root),
+                variants: e
+                    .variants
+                    .into_iter()
+                    .map(|(n, vt)| (n, vt.with_root(root)))
+                    .collect(),
                 ..e
             }),
             Definition::EnumVariant(parent_enum, variant) => Definition::EnumVariant(
                 EnumType {
-                    module: parent_enum.module.with_root(name),
+                    module: parent_enum.module.with_root(root),
+                    variants: parent_enum
+                        .variants
+                        .into_iter()
+                        .map(|(n, vt)| (n, vt.with_root(root)))
+                        .collect(),
                     ..parent_enum
                 },
-                variant,
+                variant.with_root(root),
             ),
             Definition::TypeAlias(a) => Definition::TypeAlias(TypeAliasType {
-                module: a.module.with_root(name),
+                module: a.module.with_root(root),
+                typ: a.typ.with_root(root),
                 ..a
             }),
             Definition::Module(m) => Definition::Module(ModuleType {
-                module: m.module.with_root(name),
+                module: m.module.with_root(root),
                 ..m
             }),
             Definition::ImplMethod(m) => Definition::ImplMethod(ImplMethodType {
-                module: m.module.with_root(name),
+                module: m.module.with_root(root),
+                params: m.params.into_iter().map(|t| t.with_root(root)).collect(),
+                return_type: m.return_type.with_root(root),
                 ..m
             }),
         }
@@ -465,6 +552,7 @@ mod tests {
     #[test]
     fn test_display_struct_no_type_args() {
         let s = Type::Struct {
+            module: QualifiedPath::root(),
             name: "Point".to_string(),
             type_args: vec![],
             fields: vec![],
@@ -475,6 +563,7 @@ mod tests {
     #[test]
     fn test_display_struct_with_type_args() {
         let s = Type::Struct {
+            module: QualifiedPath::root(),
             name: "Pair".to_string(),
             type_args: vec![Type::Int, Type::String],
             fields: vec![],
@@ -485,6 +574,7 @@ mod tests {
     #[test]
     fn test_display_enum_no_type_args() {
         let e = Type::Enum {
+            module: QualifiedPath::root(),
             name: "Color".to_string(),
             type_args: vec![],
             variants: vec![],
@@ -495,6 +585,7 @@ mod tests {
     #[test]
     fn test_display_enum_with_type_args() {
         let e = Type::Enum {
+            module: QualifiedPath::root(),
             name: "Option".to_string(),
             type_args: vec![Type::Int],
             variants: vec![],

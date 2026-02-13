@@ -694,6 +694,7 @@ fn check_path_pattern_resolved(
         } if struct_type.fields.is_empty() => {
             // Unit struct used as a bare path pattern: `Empty`
             let expected_struct_ty = Type::Struct {
+                module: struct_type.module.clone(),
                 name: struct_type.name.clone(),
                 type_args: vec![],
                 fields: vec![],
@@ -2603,6 +2604,7 @@ mod tests {
         let env = env_with_unit_struct();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Struct {
+            module: QualifiedPath::root(),
             name: "Empty".to_string(),
             type_args: vec![],
             fields: vec![],
@@ -2639,6 +2641,7 @@ mod tests {
         let env = env_with_point();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Struct {
+            module: QualifiedPath::root(),
             name: "Point".to_string(),
             type_args: vec![],
             fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
@@ -2673,6 +2676,7 @@ mod tests {
         let env = env_with_point();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Struct {
+            module: QualifiedPath::root(),
             name: "Point".to_string(),
             type_args: vec![],
             fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
@@ -2703,6 +2707,7 @@ mod tests {
         let env = env_with_point();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Struct {
+            module: QualifiedPath::root(),
             name: "Point".to_string(),
             type_args: vec![],
             fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
@@ -2734,6 +2739,7 @@ mod tests {
         let env = env_with_point();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Struct {
+            module: QualifiedPath::root(),
             name: "Point".to_string(),
             type_args: vec![],
             fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],
@@ -2846,6 +2852,7 @@ mod tests {
         let env = env_with_option();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
+            module: QualifiedPath::root(),
             name: "Option".to_string(),
             type_args: vec![Type::Int],
             variants: vec![
@@ -2880,6 +2887,7 @@ mod tests {
         let env = env_with_option();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
+            module: QualifiedPath::root(),
             name: "Option".to_string(),
             type_args: vec![Type::Int],
             variants: vec![
@@ -2923,6 +2931,7 @@ mod tests {
         let env = env_with_message();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
+            module: QualifiedPath::root(),
             name: "Message".to_string(),
             type_args: vec![],
             variants: vec![
@@ -2970,6 +2979,7 @@ mod tests {
         let env = env_with_message();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
+            module: QualifiedPath::root(),
             name: "Message".to_string(),
             type_args: vec![],
             variants: vec![
@@ -3017,6 +3027,7 @@ mod tests {
         let env = env_with_message();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
+            module: QualifiedPath::root(),
             name: "Message".to_string(),
             type_args: vec![],
             variants: vec![
@@ -3057,6 +3068,7 @@ mod tests {
         let env = env_with_option();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
+            module: QualifiedPath::root(),
             name: "Option".to_string(),
             type_args: vec![Type::Int],
             variants: vec![
@@ -3090,6 +3102,7 @@ mod tests {
         let env = env_with_option();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
+            module: QualifiedPath::root(),
             name: "Option".to_string(),
             type_args: vec![Type::Int],
             variants: vec![
@@ -3128,6 +3141,7 @@ mod tests {
         let env = env_with_message();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
+            module: QualifiedPath::root(),
             name: "Message".to_string(),
             type_args: vec![],
             variants: vec![
@@ -3191,6 +3205,7 @@ mod tests {
         let env = env_with_option();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
+            module: QualifiedPath::root(),
             name: "Option".to_string(),
             type_args: vec![Type::Int],
             variants: vec![
@@ -3488,6 +3503,7 @@ mod tests {
         let env = env_with_multi_tuple_enum();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
+            module: QualifiedPath::root(),
             name: "Data".to_string(),
             type_args: vec![],
             variants: vec![(
@@ -3527,6 +3543,7 @@ mod tests {
         let env = env_with_multi_tuple_enum();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
+            module: QualifiedPath::root(),
             name: "Data".to_string(),
             type_args: vec![],
             variants: vec![(
@@ -3567,6 +3584,7 @@ mod tests {
         let env = env_with_multi_tuple_enum();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
+            module: QualifiedPath::root(),
             name: "Data".to_string(),
             type_args: vec![],
             variants: vec![(
@@ -3609,6 +3627,7 @@ mod tests {
         let env = env_with_multi_tuple_enum();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
+            module: QualifiedPath::root(),
             name: "Data".to_string(),
             type_args: vec![],
             variants: vec![(
@@ -3641,6 +3660,7 @@ mod tests {
         let env = env_with_multi_tuple_enum();
         let mut ctx = UnifyCtx::new();
         let scrutinee_ty = Type::Enum {
+            module: QualifiedPath::root(),
             name: "Data".to_string(),
             type_args: vec![],
             variants: vec![(

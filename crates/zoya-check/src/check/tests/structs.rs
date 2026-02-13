@@ -255,6 +255,7 @@ fn env_with_point_and_binding() -> TypeEnv {
     env.locals.insert(
         "p".to_string(),
         TypeScheme::mono(Type::Struct {
+            module: QualifiedPath::root(),
             name: "Point".to_string(),
             type_args: vec![],
             fields: vec![("x".to_string(), Type::Int), ("y".to_string(), Type::Int)],

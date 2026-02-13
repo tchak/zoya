@@ -114,6 +114,7 @@ fn resolve_type_annotation_inner(
                             }
                             // Non-generic struct: use fields as-is
                             Ok(Type::Struct {
+                                module: struct_def.module.clone(),
                                 name: name.to_string(),
                                 type_args: vec![],
                                 fields: struct_def.fields.clone(),
@@ -132,6 +133,7 @@ fn resolve_type_annotation_inner(
                             }
                             // Non-generic enum: use variants as-is
                             Ok(Type::Enum {
+                                module: enum_def.module.clone(),
                                 name: name.to_string(),
                                 type_args: vec![],
                                 variants: enum_def.variants.clone(),
@@ -255,6 +257,7 @@ fn resolve_type_annotation_inner(
                                 .map(|(n, t)| (n.clone(), substitute_type_vars(t, &subst)))
                                 .collect();
                             Ok(Type::Struct {
+                                module: struct_def.module.clone(),
                                 name: name.to_string(),
                                 type_args,
                                 fields,
@@ -298,6 +301,7 @@ fn resolve_type_annotation_inner(
                                 })
                                 .collect();
                             Ok(Type::Enum {
+                                module: enum_def.module.clone(),
                                 name: name.to_string(),
                                 type_args,
                                 variants,
@@ -639,6 +643,7 @@ mod tests {
                 name,
                 type_args,
                 fields,
+                ..
             } => {
                 assert_eq!(name, "Point");
                 assert!(type_args.is_empty());
@@ -734,6 +739,7 @@ mod tests {
                 name,
                 type_args,
                 fields,
+                ..
             } => {
                 assert_eq!(name, "Container");
                 assert_eq!(type_args, vec![Type::Int]);
@@ -774,6 +780,7 @@ mod tests {
                 name,
                 type_args,
                 variants,
+                ..
             } => {
                 assert_eq!(name, "Status");
                 assert!(type_args.is_empty());
@@ -885,6 +892,7 @@ mod tests {
                 name,
                 type_args,
                 variants,
+                ..
             } => {
                 assert_eq!(name, "Option");
                 assert_eq!(type_args, vec![Type::Int]);

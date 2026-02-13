@@ -405,6 +405,7 @@ impl TypeCtors {
                 name,
                 fields,
                 type_args,
+                ..
             } => {
                 // Resolve potentially empty fields via lookup
                 let resolved_fields = lookup.resolve_struct(name, fields, type_args);
@@ -420,6 +421,7 @@ impl TypeCtors {
                 name: enum_name,
                 variants,
                 type_args,
+                ..
             } => {
                 // Resolve potentially empty variants via lookup
                 let resolved_variants = lookup.resolve_enum(enum_name, variants, type_args);
@@ -787,6 +789,7 @@ impl Pat {
                 name,
                 variants,
                 type_args,
+                ..
             } => {
                 let resolved = lookup.resolve_enum(name, variants, type_args);
                 resolved
@@ -805,6 +808,7 @@ impl Pat {
                 name,
                 fields,
                 type_args,
+                ..
             } => {
                 let resolved = lookup.resolve_struct(name, fields, type_args);
                 let names: Vec<String> = resolved.iter().map(|(n, _)| n.clone()).collect();
@@ -1555,6 +1559,7 @@ mod tests {
 
     fn make_struct_type(name: &str, fields: Vec<(&str, Type)>) -> Type {
         Type::Struct {
+            module: QualifiedPath::root(),
             name: name.to_string(),
             type_args: vec![],
             fields: fields
@@ -1566,6 +1571,7 @@ mod tests {
 
     fn make_enum_type(name: &str, variants: Vec<(&str, EnumVariantType)>) -> Type {
         Type::Enum {
+            module: QualifiedPath::root(),
             name: name.to_string(),
             type_args: vec![],
             variants: variants
@@ -2544,6 +2550,7 @@ mod tests {
     #[test]
     fn test_struct_empty_fields_exhaustive() {
         let struct_ty = Type::Struct {
+            module: QualifiedPath::root(),
             name: "Unit".to_string(),
             type_args: vec![],
             fields: vec![],
@@ -2623,6 +2630,7 @@ mod tests {
     fn test_nested_struct_in_enum() {
         let point_ty = make_struct_type("Point", vec![("x", Type::Int), ("y", Type::Int)]);
         let shape_ty = Type::Enum {
+            module: QualifiedPath::root(),
             name: "Shape".to_string(),
             type_args: vec![],
             variants: vec![
@@ -2668,6 +2676,7 @@ mod tests {
             ],
         );
         let outer_option = Type::Enum {
+            module: QualifiedPath::root(),
             name: "Option".to_string(),
             type_args: vec![],
             variants: vec![
@@ -2830,6 +2839,7 @@ mod tests {
     fn test_lookup_resolves_empty_enum_variants() {
         // Simulate a recursive type stub: enum with empty variants
         let stub_ty = Type::Enum {
+            module: QualifiedPath::root(),
             name: "Option".to_string(),
             type_args: vec![],
             variants: vec![], // empty stub
@@ -2862,6 +2872,7 @@ mod tests {
     fn test_lookup_resolves_empty_struct_fields() {
         // Simulate a recursive type stub: struct with empty fields
         let stub_ty = Type::Struct {
+            module: QualifiedPath::root(),
             name: "Node".to_string(),
             type_args: vec![],
             fields: vec![], // empty stub
@@ -2932,6 +2943,7 @@ mod tests {
     fn test_lookup_resolves_generic_enum() {
         // Generic enum stub with type args
         let stub_ty = Type::Enum {
+            module: QualifiedPath::root(),
             name: "Option".to_string(),
             type_args: vec![Type::String],
             variants: vec![], // empty stub

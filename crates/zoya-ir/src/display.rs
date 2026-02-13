@@ -153,6 +153,7 @@ pub fn pretty_type(ty: &Type) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zoya_package::QualifiedPath;
 
     #[test]
     fn test_index_to_name() {
@@ -235,6 +236,7 @@ mod tests {
     #[test]
     fn test_pretty_type_struct_with_vars() {
         let ty = Type::Struct {
+            module: QualifiedPath::root(),
             name: "Pair".to_string(),
             type_args: vec![Type::Var(TypeVarId(5)), Type::Var(TypeVarId(10))],
             fields: vec![],
@@ -245,6 +247,7 @@ mod tests {
     #[test]
     fn test_pretty_type_enum_with_vars() {
         let ty = Type::Enum {
+            module: QualifiedPath::root(),
             name: "Result".to_string(),
             type_args: vec![Type::Var(TypeVarId(3)), Type::Var(TypeVarId(7))],
             variants: vec![],
@@ -260,6 +263,7 @@ mod tests {
         let ty = Type::Function {
             params: vec![Type::Var(a), Type::List(Box::new(Type::Var(b)))],
             ret: Box::new(Type::Enum {
+                module: QualifiedPath::root(),
                 name: "Result".to_string(),
                 type_args: vec![Type::Var(b), Type::Var(a)],
                 variants: vec![],
