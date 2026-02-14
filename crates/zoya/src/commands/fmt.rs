@@ -52,7 +52,7 @@ pub fn execute(path: &Path, check: bool) -> Result<(), String> {
             }
         };
 
-        let (mods, items) = match zoya_parser::parse_module(tokens) {
+        let items = match zoya_parser::parse_module(tokens) {
             Ok(parsed) => parsed,
             Err(e) => {
                 let _ = term.write_line(&format!(
@@ -66,7 +66,7 @@ pub fn execute(path: &Path, check: bool) -> Result<(), String> {
             }
         };
 
-        let formatted = zoya_fmt::fmt(mods, items);
+        let formatted = zoya_fmt::fmt(items);
 
         if formatted != source {
             if check {

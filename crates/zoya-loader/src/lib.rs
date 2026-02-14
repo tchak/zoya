@@ -189,6 +189,7 @@ fn item_attributes(item: &zoya_ast::Item) -> &[Attribute] {
         zoya_ast::Item::TypeAlias(t) => &t.attributes,
         zoya_ast::Item::Use(u) => &u.attributes,
         zoya_ast::Item::Impl(i) => &i.attributes,
+        zoya_ast::Item::ModDecl(m) => &m.attributes,
     }
 }
 
@@ -214,11 +215,20 @@ fn load_module_recursive<S: ModuleSource>(
     })?;
 
     // Parse
-    let (mod_decls, items) =
-        zoya_parser::parse_module(tokens).map_err(|e| LoaderError::ParseError {
-            path: file_path.clone(),
-            message: e.to_string(),
-        })?;
+    let all_items = zoya_parser::parse_module(tokens).map_err(|e| LoaderError::ParseError {
+        path: file_path.clone(),
+        message: e.to_string(),
+    })?;
+
+    // Partition items: extract ModDecl items, keep the rest
+    let mut mod_decls = Vec::new();
+    let mut items = Vec::new();
+    for item in all_items {
+        match item {
+            zoya_ast::Item::ModDecl(m) => mod_decls.push(m),
+            other => items.push(other),
+        }
+    }
 
     // Validate: #[test] is not allowed on mod declarations (in any mode)
     for mod_decl in &mod_decls {

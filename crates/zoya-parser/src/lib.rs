@@ -1,6 +1,6 @@
 use chumsky::prelude::*;
 
-use zoya_ast::{Item, ModDecl, Stmt};
+use zoya_ast::{Item, Stmt};
 use zoya_lexer::Token;
 
 mod expressions;
@@ -10,8 +10,7 @@ mod patterns;
 mod statements;
 mod types;
 
-use helpers::{mod_decl_parser, use_decl_parser};
-use items::{attribute_parser, item_parser};
+use items::item_parser;
 use statements::stmt_parser;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -176,12 +175,6 @@ enum InputElement {
     Stmt(Box<Stmt>),
 }
 
-/// Element type for module parsing
-enum ModuleElement {
-    Mod(ModDecl),
-    Item(Box<Item>),
-}
-
 /// Parse REPL input: items and statements in any order.
 ///
 /// This parser handles interactive input where definitions (type, function, etc.)
@@ -221,50 +214,17 @@ pub fn parse_input(tokens: Vec<zoya_lexer::Spanned>) -> Result<(Vec<Item>, Vec<S
 /// Parse a module file: mod declarations, use declarations, and items in any order.
 ///
 /// Module files can declare submodules, import names, and define items (types, functions, etc.)
-/// in any order.
+/// in any order. All are returned as `Item` variants (including `Item::ModDecl`).
 ///
 /// # Arguments
 /// * `tokens` - Token stream from the lexer
 ///
 /// # Returns
-/// Tuple of (mod_decls, items) on success, or `ParseError`
-pub fn parse_module(
-    tokens: Vec<zoya_lexer::Spanned>,
-) -> Result<(Vec<ModDecl>, Vec<Item>), ParseError> {
+/// Vec of items on success, or `ParseError`
+pub fn parse_module(tokens: Vec<zoya_lexer::Spanned>) -> Result<Vec<Item>, ParseError> {
     let (toks, byte_spans) = split_tokens(tokens);
 
-    let attributes = attribute_parser().repeated().collect::<Vec<_>>();
-
-    let mod_with_attrs = attributes
-        .clone()
-        .then(mod_decl_parser())
-        .map(|(attrs, mut m)| {
-            m.attributes = attrs;
-            ModuleElement::Mod(m)
-        });
-
-    let use_with_attrs = attributes.then(use_decl_parser()).map(|(attrs, mut u)| {
-        u.attributes = attrs;
-        ModuleElement::Item(Box::new(Item::Use(u)))
-    });
-
-    let element = choice((
-        mod_with_attrs,
-        use_with_attrs,
-        item_parser().map(|i| ModuleElement::Item(Box::new(i))),
-    ));
-
-    let parser = element.repeated().collect::<Vec<_>>().map(|elements| {
-        let mut mods = vec![];
-        let mut items = vec![];
-        for elem in elements {
-            match elem {
-                ModuleElement::Mod(m) => mods.push(m),
-                ModuleElement::Item(i) => items.push(*i),
-            }
-        }
-        (mods, items)
-    });
+    let parser = item_parser().repeated().collect::<Vec<_>>();
 
     parser
         .parse(&toks)
@@ -2724,7 +2684,7 @@ mod tests {
 
     #[test]
     fn test_parse_annotation_on_use() {
-        let (_, items) = parse_module_str("#[allow] use root::foo").unwrap();
+        let items = parse_module_str("#[allow] use root::foo").unwrap();
         let Item::Use(u) = &items[0] else {
             panic!("expected use")
         };
@@ -2792,7 +2752,7 @@ mod tests {
 
     fn parse_file_str(input: &str) -> Result<Vec<Item>, ParseError> {
         let tokens = lex(input).expect("lexing failed");
-        parse_module(tokens).map(|(_, items)| items)
+        parse_module(tokens)
     }
 
     #[test]
@@ -3204,7 +3164,7 @@ mod tests {
 
     // === Module parsing tests ===
 
-    fn parse_module_str(input: &str) -> Result<(Vec<ModDecl>, Vec<Item>), ParseError> {
+    fn parse_module_str(input: &str) -> Result<Vec<Item>, ParseError> {
         let tokens = lex(input).map_err(|e| {
             ParseError::SyntaxErrors(vec![SyntaxError {
                 span: 0..0,
@@ -3218,32 +3178,50 @@ mod tests {
 
     #[test]
     fn test_parse_module_empty() {
-        let (mods, items) = parse_module_str("").unwrap();
-        assert!(mods.is_empty());
+        let items = parse_module_str("").unwrap();
         assert!(items.is_empty());
     }
 
     #[test]
     fn test_parse_module_items_only() {
-        let (mods, items) = parse_module_str("fn foo() -> Int 42").unwrap();
-        assert!(mods.is_empty());
+        let items = parse_module_str("fn foo() -> Int 42").unwrap();
         assert_eq!(items.len(), 1);
+        assert!(matches!(&items[0], Item::Function(_)));
     }
 
     #[test]
     fn test_parse_module_mods_only() {
-        let (mods, items) = parse_module_str("mod foo mod bar").unwrap();
+        let items = parse_module_str("mod foo mod bar").unwrap();
+        let mods: Vec<_> = items
+            .iter()
+            .filter_map(|i| {
+                if let Item::ModDecl(m) = i {
+                    Some(m)
+                } else {
+                    None
+                }
+            })
+            .collect();
         assert_eq!(mods.len(), 2);
         assert_eq!(mods[0].name, "foo");
         assert_eq!(mods[0].visibility, Visibility::Private);
         assert_eq!(mods[1].name, "bar");
         assert_eq!(mods[1].visibility, Visibility::Private);
-        assert!(items.is_empty());
     }
 
     #[test]
     fn test_parse_module_pub_mod() {
-        let (mods, _) = parse_module_str("pub mod foo mod bar").unwrap();
+        let items = parse_module_str("pub mod foo mod bar").unwrap();
+        let mods: Vec<_> = items
+            .iter()
+            .filter_map(|i| {
+                if let Item::ModDecl(m) = i {
+                    Some(m)
+                } else {
+                    None
+                }
+            })
+            .collect();
         assert_eq!(mods.len(), 2);
         assert_eq!(mods[0].name, "foo");
         assert_eq!(mods[0].visibility, Visibility::Public);
@@ -3253,17 +3231,24 @@ mod tests {
 
     #[test]
     fn test_parse_module_mods_and_items() {
-        let (mods, items) = parse_module_str("mod utils mod helpers fn main() -> Int 42").unwrap();
-        assert_eq!(mods.len(), 2);
-        assert_eq!(items.len(), 1);
+        let items = parse_module_str("mod utils mod helpers fn main() -> Int 42").unwrap();
+        let mods_count = items
+            .iter()
+            .filter(|i| matches!(i, Item::ModDecl(_)))
+            .count();
+        let other_count = items
+            .iter()
+            .filter(|i| !matches!(i, Item::ModDecl(_)))
+            .count();
+        assert_eq!(mods_count, 2);
+        assert_eq!(other_count, 1);
     }
 
     // Use declaration tests
 
     #[test]
     fn test_parse_module_use_root() {
-        let (mods, items) = parse_module_str("use root::foo::bar").unwrap();
-        assert!(mods.is_empty());
+        let items = parse_module_str("use root::foo::bar").unwrap();
         let uses: Vec<_> = items
             .iter()
             .filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None })
@@ -3276,7 +3261,7 @@ mod tests {
 
     #[test]
     fn test_parse_module_pub_use() {
-        let (_, items) = parse_module_str("pub use root::foo::bar").unwrap();
+        let items = parse_module_str("pub use root::foo::bar").unwrap();
         let uses: Vec<_> = items
             .iter()
             .filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None })
@@ -3289,7 +3274,7 @@ mod tests {
 
     #[test]
     fn test_parse_module_use_self() {
-        let (_, items) = parse_module_str("use self::helper").unwrap();
+        let items = parse_module_str("use self::helper").unwrap();
         let uses: Vec<_> = items
             .iter()
             .filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None })
@@ -3301,7 +3286,7 @@ mod tests {
 
     #[test]
     fn test_parse_module_use_super() {
-        let (_, items) = parse_module_str("use super::parent_fn").unwrap();
+        let items = parse_module_str("use super::parent_fn").unwrap();
         let uses: Vec<_> = items
             .iter()
             .filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None })
@@ -3313,7 +3298,7 @@ mod tests {
 
     #[test]
     fn test_parse_module_use_without_prefix_is_package() {
-        let (_, items) = parse_module_str("use serde::Deserialize").unwrap();
+        let items = parse_module_str("use serde::Deserialize").unwrap();
         let uses: Vec<_> = items
             .iter()
             .filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None })
@@ -3328,7 +3313,7 @@ mod tests {
 
     #[test]
     fn test_parse_module_use_package_glob() {
-        let (_, items) = parse_module_str("use serde::*").unwrap();
+        let items = parse_module_str("use serde::*").unwrap();
         let uses: Vec<_> = items
             .iter()
             .filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None })
@@ -3343,7 +3328,7 @@ mod tests {
 
     #[test]
     fn test_parse_module_use_package_group() {
-        let (_, items) = parse_module_str("use serde::{A, B}").unwrap();
+        let items = parse_module_str("use serde::{A, B}").unwrap();
         let uses: Vec<_> = items
             .iter()
             .filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None })
@@ -3364,20 +3349,27 @@ mod tests {
 
     #[test]
     fn test_parse_module_use_multiple() {
-        let (_, items) = parse_module_str("use root::a::b use root::c::d").unwrap();
+        let items = parse_module_str("use root::a::b use root::c::d").unwrap();
         let uses_count = items.iter().filter(|i| matches!(i, Item::Use(_))).count();
         assert_eq!(uses_count, 2);
     }
 
     #[test]
     fn test_parse_module_mods_uses_items() {
-        let (mods, items) =
+        let items =
             parse_module_str("mod utils use root::types::Option fn main() -> Int 42").unwrap();
-        assert_eq!(mods.len(), 1);
+        let mods_count = items
+            .iter()
+            .filter(|i| matches!(i, Item::ModDecl(_)))
+            .count();
         let uses_count = items.iter().filter(|i| matches!(i, Item::Use(_))).count();
-        let non_use_count = items.iter().filter(|i| !matches!(i, Item::Use(_))).count();
+        let other_count = items
+            .iter()
+            .filter(|i| !matches!(i, Item::ModDecl(_) | Item::Use(_)))
+            .count();
+        assert_eq!(mods_count, 1);
         assert_eq!(uses_count, 1);
-        assert_eq!(non_use_count, 1);
+        assert_eq!(other_count, 1);
     }
 
     // Path prefix tests
@@ -3875,7 +3867,7 @@ mod tests {
     use zoya_ast::UseDecl;
 
     fn get_use_decl(input: &str) -> UseDecl {
-        let (_, items) = parse_module_str(input).unwrap();
+        let items = parse_module_str(input).unwrap();
         match items.into_iter().next().unwrap() {
             Item::Use(u) => u,
             _ => panic!("expected use declaration"),
@@ -3994,7 +3986,7 @@ mod tests {
     #[test]
     fn test_parse_use_no_prefix_is_package() {
         // Prefix-free use paths are now parsed as package paths
-        let (_, items) = parse_module_str("use foo::bar::*").unwrap();
+        let items = parse_module_str("use foo::bar::*").unwrap();
         let uses: Vec<_> = items
             .iter()
             .filter_map(|i| if let Item::Use(u) = i { Some(u) } else { None })

@@ -7,7 +7,7 @@ use zoya_ast::{
 use zoya_lexer::Token;
 
 use crate::expressions::expr_parser;
-use crate::helpers::ident;
+use crate::helpers::{ident, mod_decl_parser, use_decl_parser};
 use crate::patterns::pattern_parser;
 use crate::statements::let_binding_parser;
 use crate::types::type_annotation;
@@ -316,10 +316,15 @@ pub(crate) fn item_parser<'a>()
             })
         });
 
+    let mod_decl = mod_decl_parser().map(Item::ModDecl);
+    let use_decl = use_decl_parser().map(Item::Use);
+
     let attributes = attribute_parser().repeated().collect::<Vec<_>>();
 
     attributes
         .then(choice((
+            mod_decl,
+            use_decl,
             function_def,
             struct_def,
             enum_def,
@@ -354,6 +359,10 @@ pub(crate) fn item_parser<'a>()
                 Item::Impl(mut i) => {
                     i.attributes = attrs;
                     Item::Impl(i)
+                }
+                Item::ModDecl(mut m) => {
+                    m.attributes = attrs;
+                    Item::ModDecl(m)
                 }
             }
         })

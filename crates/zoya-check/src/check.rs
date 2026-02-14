@@ -2881,6 +2881,7 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
                     Item::TypeAlias(t) => (&t.attributes, "type alias"),
                     Item::Use(u) => (&u.attributes, "use"),
                     Item::Impl(i) => (&i.attributes, "impl"),
+                    Item::ModDecl(_) => unreachable!("mod decls are removed by the loader"),
                 };
                 if attrs.iter().any(|a| a.name == "test") {
                     return Err(TypeError {

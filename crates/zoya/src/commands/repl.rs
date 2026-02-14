@@ -198,6 +198,11 @@ impl State {
             return Ok(vec![]);
         }
 
+        // Module declarations are not allowed in the REPL
+        if items.iter().any(|i| matches!(i, Item::ModDecl(_))) {
+            return Err("module declarations are not allowed in the REPL".to_string());
+        }
+
         // Partition statements into blocks for evaluation
         let (blocks, new_lets) = partition_into_blocks(&self.accumulated_lets, &stmts);
 
@@ -269,6 +274,7 @@ impl State {
                 }
                 Item::Use(_) => {}
                 Item::Impl(_) => {}
+                Item::ModDecl(_) => unreachable!("mod decls rejected above"),
             }
         }
 

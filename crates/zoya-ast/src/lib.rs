@@ -86,6 +86,7 @@ pub enum Item {
     TypeAlias(TypeAliasDef),
     Use(UseDecl),
     Impl(ImplBlock),
+    ModDecl(ModDecl),
 }
 
 impl Item {
@@ -98,6 +99,7 @@ impl Item {
             Item::TypeAlias(t) => Some(&t.name),
             Item::Use(_) => None,
             Item::Impl(_) => None,
+            Item::ModDecl(m) => Some(&m.name),
         }
     }
 }

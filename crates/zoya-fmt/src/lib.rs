@@ -1,8 +1,8 @@
 mod format;
 
-use zoya_ast::{Item, ModDecl, Visibility};
+use zoya_ast::{Item, Visibility};
 
-use format::{fmt_item, fmt_mod_decl};
+use format::fmt_item;
 
 const WIDTH: usize = 120;
 
@@ -15,24 +15,30 @@ const WIDTH: usize = 120;
 ///
 /// Blank lines: none between consecutive mods, none between consecutive uses,
 /// blank line between each other item. Blank line separating groups. Trailing newline.
-pub fn fmt(mods: Vec<ModDecl>, items: Vec<Item>) -> String {
-    let (mut pub_mods, mut priv_mods): (Vec<_>, Vec<_>) = mods
+pub fn fmt(items: Vec<Item>) -> String {
+    // Partition items into three groups: mod decls, use decls, other items
+    let mut mods = Vec::new();
+    let mut uses = Vec::new();
+    let mut others = Vec::new();
+
+    for item in items {
+        match &item {
+            Item::ModDecl(_) => mods.push(item),
+            Item::Use(_) => uses.push(item),
+            _ => others.push(item),
+        }
+    }
+
+    // Sort mods: pub before private (stable sort preserves original order within each group)
+    let (pub_mods, priv_mods): (Vec<_>, Vec<_>) = mods
         .into_iter()
-        .partition(|m| m.visibility == Visibility::Public);
-    // Stable sort preserves original order within each group - no re-sorting needed
-    let _ = (&mut pub_mods, &mut priv_mods);
+        .partition(|i| matches!(i, Item::ModDecl(m) if m.visibility == Visibility::Public));
+    let ordered_mods: Vec<&Item> = pub_mods.iter().chain(priv_mods.iter()).collect();
 
-    let ordered_mods: Vec<&ModDecl> = pub_mods.iter().chain(priv_mods.iter()).collect();
-
-    // Separate use declarations from other items
-    let (uses, others): (Vec<_>, Vec<_>) =
-        items.into_iter().partition(|i| matches!(i, Item::Use(_)));
-
-    let (mut pub_uses, mut priv_uses): (Vec<_>, Vec<_>) = uses
+    // Sort uses: pub before private
+    let (pub_uses, priv_uses): (Vec<_>, Vec<_>) = uses
         .into_iter()
         .partition(|i| matches!(i, Item::Use(u) if u.visibility == Visibility::Public));
-    let _ = (&mut pub_uses, &mut priv_uses);
-
     let ordered_uses: Vec<&Item> = pub_uses.iter().chain(priv_uses.iter()).collect();
 
     let ordered_others: Vec<&Item> = others.iter().collect();
@@ -46,7 +52,7 @@ pub fn fmt(mods: Vec<ModDecl>, items: Vec<Item>) -> String {
             output.push('\n');
         }
         let mut rendered = String::new();
-        fmt_mod_decl(m).render_fmt(WIDTH, &mut rendered).unwrap();
+        fmt_item(m).render_fmt(WIDTH, &mut rendered).unwrap();
         output.push_str(&rendered);
         has_content = true;
     }
@@ -86,8 +92,8 @@ mod tests {
 
     fn format_source(source: &str) -> String {
         let tokens = zoya_lexer::lex(source).expect("lex failed");
-        let (mods, items) = zoya_parser::parse_module(tokens).expect("parse failed");
-        fmt(mods, items)
+        let items = zoya_parser::parse_module(tokens).expect("parse failed");
+        fmt(items)
     }
 
     // --- Simple items ---

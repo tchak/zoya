@@ -854,6 +854,7 @@ pub fn fmt_item(item: &Item) -> RcDoc<'static> {
         Item::TypeAlias(ta) => fmt_type_alias(ta),
         Item::Use(u) => fmt_use_decl(u),
         Item::Impl(i) => fmt_impl_block(i),
+        Item::ModDecl(m) => fmt_mod_decl(m),
     }
 }
 
