@@ -13,6 +13,130 @@ fn parse_bigint(lex: &logos::Lexer<Token>) -> Option<i64> {
     s[..s.len() - 1].replace('_', "").parse::<i64>().ok()
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum InterpolatedPart {
+    Literal(String),
+    Expression(String),
+}
+
+fn parse_interpolated_string(lex: &mut logos::Lexer<Token>) -> Option<Vec<InterpolatedPart>> {
+    let remainder = lex.remainder();
+    let mut parts = Vec::new();
+    let mut current_literal = String::new();
+    let mut chars = remainder.chars().peekable();
+    let mut consumed = 0;
+
+    loop {
+        match chars.next() {
+            None => return None, // Unterminated string
+            Some('"') => {
+                consumed += 1;
+                if !current_literal.is_empty() {
+                    parts.push(InterpolatedPart::Literal(current_literal));
+                }
+                lex.bump(consumed);
+                return Some(parts);
+            }
+            Some('\\') => {
+                consumed += 1;
+                match chars.next() {
+                    None => return None,
+                    Some('n') => {
+                        consumed += 1;
+                        current_literal.push('\n');
+                    }
+                    Some('t') => {
+                        consumed += 1;
+                        current_literal.push('\t');
+                    }
+                    Some('r') => {
+                        consumed += 1;
+                        current_literal.push('\r');
+                    }
+                    Some('\\') => {
+                        consumed += 1;
+                        current_literal.push('\\');
+                    }
+                    Some('"') => {
+                        consumed += 1;
+                        current_literal.push('"');
+                    }
+                    Some('{') => {
+                        consumed += 1;
+                        current_literal.push('{');
+                    }
+                    Some('}') => {
+                        consumed += 1;
+                        current_literal.push('}');
+                    }
+                    Some(other) => {
+                        consumed += other.len_utf8();
+                        current_literal.push('\\');
+                        current_literal.push(other);
+                    }
+                }
+            }
+            Some('{') => {
+                consumed += 1;
+                if !current_literal.is_empty() {
+                    parts.push(InterpolatedPart::Literal(std::mem::take(
+                        &mut current_literal,
+                    )));
+                }
+                // Read expression until matching }
+                let mut depth = 1;
+                let mut expr_src = String::new();
+                let mut in_string = false;
+                let mut string_escape = false;
+                for c in chars.by_ref() {
+                    consumed += c.len_utf8();
+                    if in_string {
+                        if string_escape {
+                            string_escape = false;
+                            expr_src.push(c);
+                        } else if c == '\\' {
+                            string_escape = true;
+                            expr_src.push(c);
+                        } else if c == '"' {
+                            in_string = false;
+                            expr_src.push(c);
+                        } else {
+                            expr_src.push(c);
+                        }
+                    } else {
+                        match c {
+                            '{' => {
+                                depth += 1;
+                                expr_src.push(c);
+                            }
+                            '}' => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    break;
+                                }
+                                expr_src.push(c);
+                            }
+                            '"' => {
+                                in_string = true;
+                                expr_src.push(c);
+                            }
+                            _ => expr_src.push(c),
+                        }
+                    }
+                }
+                if depth != 0 {
+                    return None; // Unterminated expression
+                }
+                parts.push(InterpolatedPart::Expression(expr_src));
+            }
+            Some(c) => {
+                consumed += c.len_utf8();
+                current_literal.push(c);
+            }
+        }
+    }
+}
+
 fn parse_string(lex: &logos::Lexer<Token>) -> Option<String> {
     let s = lex.slice();
     // Strip surrounding quotes
@@ -97,6 +221,10 @@ pub enum Token {
     // String literals with escape sequences
     #[regex(r#""([^"\\]|\\.)*""#, parse_string)]
     String(String),
+
+    // Interpolated string: $"hello {name}!"
+    #[token("$\"", parse_interpolated_string)]
+    InterpolatedString(Vec<InterpolatedPart>),
 
     // Float requires both integer and decimal parts (e.g., 1.0, not .5 or 1.)
     #[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*", parse_float)]
@@ -1147,6 +1275,139 @@ mod tests {
                 Token::Int(0),
                 Token::Dot,
                 Token::Int(10),
+            ]
+        );
+    }
+
+    // Interpolated string tests
+
+    #[test]
+    fn test_interpolated_string_simple() {
+        let toks = toks(r#"$"hello {name}!""#);
+        assert_eq!(
+            toks,
+            vec![Token::InterpolatedString(vec![
+                InterpolatedPart::Literal("hello ".to_string()),
+                InterpolatedPart::Expression("name".to_string()),
+                InterpolatedPart::Literal("!".to_string()),
+            ])]
+        );
+    }
+
+    #[test]
+    fn test_interpolated_string_no_expressions() {
+        let toks = toks(r#"$"plain text""#);
+        assert_eq!(
+            toks,
+            vec![Token::InterpolatedString(vec![InterpolatedPart::Literal(
+                "plain text".to_string()
+            ),])]
+        );
+    }
+
+    #[test]
+    fn test_interpolated_string_only_expression() {
+        let toks = toks(r#"$"{x}""#);
+        assert_eq!(
+            toks,
+            vec![Token::InterpolatedString(vec![
+                InterpolatedPart::Expression("x".to_string()),
+            ])]
+        );
+    }
+
+    #[test]
+    fn test_interpolated_string_multiple_expressions() {
+        let toks = toks(r#"$"{a} and {b}""#);
+        assert_eq!(
+            toks,
+            vec![Token::InterpolatedString(vec![
+                InterpolatedPart::Expression("a".to_string()),
+                InterpolatedPart::Literal(" and ".to_string()),
+                InterpolatedPart::Expression("b".to_string()),
+            ])]
+        );
+    }
+
+    #[test]
+    fn test_interpolated_string_adjacent_expressions() {
+        let toks = toks(r#"$"{a}{b}""#);
+        assert_eq!(
+            toks,
+            vec![Token::InterpolatedString(vec![
+                InterpolatedPart::Expression("a".to_string()),
+                InterpolatedPart::Expression("b".to_string()),
+            ])]
+        );
+    }
+
+    #[test]
+    fn test_interpolated_string_escaped_braces() {
+        let toks = toks(r#"$"literal \{ brace \}""#);
+        assert_eq!(
+            toks,
+            vec![Token::InterpolatedString(vec![InterpolatedPart::Literal(
+                "literal { brace }".to_string()
+            ),])]
+        );
+    }
+
+    #[test]
+    fn test_interpolated_string_escape_sequences() {
+        let toks = toks(r#"$"line\nbreak""#);
+        assert_eq!(
+            toks,
+            vec![Token::InterpolatedString(vec![InterpolatedPart::Literal(
+                "line\nbreak".to_string()
+            ),])]
+        );
+    }
+
+    #[test]
+    fn test_interpolated_string_with_string_in_expression() {
+        let toks = toks(r#"$"result: {foo("bar")}""#);
+        assert_eq!(
+            toks,
+            vec![Token::InterpolatedString(vec![
+                InterpolatedPart::Literal("result: ".to_string()),
+                InterpolatedPart::Expression(r#"foo("bar")"#.to_string()),
+            ])]
+        );
+    }
+
+    #[test]
+    fn test_interpolated_string_with_nested_braces() {
+        let toks = toks(r#"$"val: {match x { 1 => 2 }}""#);
+        assert_eq!(
+            toks,
+            vec![Token::InterpolatedString(vec![
+                InterpolatedPart::Literal("val: ".to_string()),
+                InterpolatedPart::Expression("match x { 1 => 2 }".to_string()),
+            ])]
+        );
+    }
+
+    #[test]
+    fn test_interpolated_string_empty() {
+        let toks = toks(r#"$"""#);
+        assert_eq!(toks, vec![Token::InterpolatedString(vec![])]);
+    }
+
+    #[test]
+    fn test_dollar_alone_still_errors() {
+        let result = lex("2 + $");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_interpolated_string_followed_by_code() {
+        let toks = toks(r#"$"hello" + 1"#);
+        assert_eq!(
+            toks,
+            vec![
+                Token::InterpolatedString(vec![InterpolatedPart::Literal("hello".to_string())]),
+                Token::Plus,
+                Token::Int(1),
             ]
         );
     }

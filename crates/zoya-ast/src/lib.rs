@@ -398,12 +398,19 @@ pub enum TupleElement {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum StringPart {
+    Literal(String),
+    Expr(Box<Expr>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Int(i64),
     BigInt(i64),
     Float(f64),
     Bool(bool),
     String(String),
+    InterpolatedString(Vec<StringPart>),
     List(Vec<ListElement>),
     Tuple(Vec<TupleElement>),
     /// A path expression: `foo`, `Option::None`, `Mod::Type`

@@ -97,6 +97,29 @@ Unknown escape sequences (e.g., `\x`) are preserved literally as backslash follo
 
 Examples: `"hello"`, `"line\nbreak"`, `"say \"hi\""`
 
+### Interpolated String Literals
+
+```
+interpolated_string ::= '$"' interpolated_char* '"'
+interpolated_char   ::= <any char except '"', '\', '{'> | interp_escape | '{' expression '}'
+interp_escape       ::= '\n' | '\t' | '\r' | '\\' | '\"' | '\{' | '\}'
+```
+
+Interpolated strings allow embedding expressions within a string. Expressions are enclosed in `{` and `}`. The expression must be of type `String`, `Int`, `Float`, or `BigInt`.
+
+Braces can be escaped with `\{` and `\}` to include literal brace characters.
+
+String literals inside expressions are supported (the lexer tracks brace depth and string quoting).
+
+Examples:
+```zoya
+$"hello {name}!"
+$"1 + 2 = {1 + 2}"
+$"value: {x}"
+$"literal \{ braces \}"
+$"no expressions here"
+```
+
 ### Boolean Literals
 
 Boolean literals are the keywords `true` and `false`.

@@ -1,9 +1,10 @@
 use chumsky::prelude::*;
 
 use zoya_ast::{
-    BinOp, Expr, LambdaParam, LetBinding, ListElement, MatchArm, Path, TupleElement, UnaryOp,
+    BinOp, Expr, LambdaParam, LetBinding, ListElement, MatchArm, Path, StringPart, TupleElement,
+    UnaryOp,
 };
-use zoya_lexer::Token;
+use zoya_lexer::{InterpolatedPart, Token};
 
 use crate::helpers::{ident, path_prefix_parser, validate_typed_pattern};
 use crate::patterns::pattern_parser;
@@ -20,6 +21,43 @@ pub(crate) fn expr_parser<'a>()
             Token::False => Expr::Bool(false),
             Token::String(s) => Expr::String(s),
         };
+
+        let interpolated_string = select! {
+            Token::InterpolatedString(parts) => parts,
+        }
+        .try_map(|parts: Vec<InterpolatedPart>, span| {
+            let mut string_parts = Vec::new();
+            for part in parts {
+                match part {
+                    InterpolatedPart::Literal(s) => {
+                        string_parts.push(StringPart::Literal(s));
+                    }
+                    InterpolatedPart::Expression(src) => {
+                        let tokens = zoya_lexer::lex(&src).map_err(|e| {
+                            Rich::custom(span, format!("lex error in interpolated expression: {e}"))
+                        })?;
+                        let token_slice: Vec<_> = tokens.iter().map(|(t, _)| t.clone()).collect();
+                        let parsed =
+                            expr_parser()
+                                .parse(&token_slice)
+                                .into_result()
+                                .map_err(|errs| {
+                                    let msg = errs
+                                        .into_iter()
+                                        .map(|e| format!("{:?}", e.reason()))
+                                        .collect::<Vec<_>>()
+                                        .join(", ");
+                                    Rich::custom(
+                                        span,
+                                        format!("parse error in interpolated expression: {msg}"),
+                                    )
+                                })?;
+                        string_parts.push(StringPart::Expr(Box::new(parsed)));
+                    }
+                }
+            }
+            Ok(Expr::InterpolatedString(string_parts))
+        });
 
         // List literal: [expr, ..expr, ...]
         let list_element = choice((
@@ -356,6 +394,7 @@ pub(crate) fn expr_parser<'a>()
         let atom = choice((
             lambda,
             literal,
+            interpolated_string,
             list_literal,
             match_expr,
             path_expr,

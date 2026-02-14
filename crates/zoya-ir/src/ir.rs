@@ -179,12 +179,19 @@ pub enum TypedListElement {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum TypedStringPart {
+    Literal(String),
+    Expr(Box<TypedExpr>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum TypedExpr {
     Int(i64),
     BigInt(i64),
     Float(f64),
     Bool(bool),
     String(String),
+    InterpolatedString(Vec<TypedStringPart>),
     List {
         elements: Vec<TypedListElement>,
         ty: Type,
@@ -285,6 +292,7 @@ impl TypedExpr {
             TypedExpr::Float(_) => Type::Float,
             TypedExpr::Bool(_) => Type::Bool,
             TypedExpr::String(_) => Type::String,
+            TypedExpr::InterpolatedString(_) => Type::String,
             TypedExpr::List { ty, .. } => ty.clone(),
             TypedExpr::Tuple { ty, .. } => ty.clone(),
             TypedExpr::Var { ty, .. } => ty.clone(),

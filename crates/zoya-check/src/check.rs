@@ -2,13 +2,13 @@ use std::collections::{HashMap, HashSet};
 
 use zoya_ast::{
     BinOp, Expr, FunctionDef, ImplBlock, ImplMethod, Item, LetBinding, ListElement, MatchArm, Path,
-    StructKind, TupleElement, TypeAnnotation, UnaryOp, UseDecl, UseTarget,
+    StringPart, StructKind, TupleElement, TypeAnnotation, UnaryOp, UseDecl, UseTarget,
 };
 use zoya_ir::{
     CheckedPackage, Definition, EnumType, EnumVariantType, FunctionType, ImplMethodType,
     ModuleType, QualifiedPath, StructType, StructTypeKind, Type, TypeAliasType, TypeError,
     TypeScheme, TypeVarId, TypedEnumConstructFields, TypedExpr, TypedFunction, TypedListElement,
-    Visibility,
+    TypedStringPart, Visibility,
 };
 use zoya_package::Package;
 
@@ -2322,6 +2322,9 @@ pub(crate) fn check_expr(
         Expr::Float(n) => Ok(TypedExpr::Float(*n)),
         Expr::Bool(b) => Ok(TypedExpr::Bool(*b)),
         Expr::String(s) => Ok(TypedExpr::String(s.clone())),
+        Expr::InterpolatedString(parts) => {
+            check_interpolated_string(parts, current_module, env, ctx)
+        }
         Expr::Path(path) => check_path_expr(path, current_module, env, ctx),
         Expr::Call { path, args } => check_path_call(path, args, current_module, env, ctx),
         Expr::UnaryOp { op, expr } => check_unary_op(*op, expr, current_module, env, ctx),
@@ -2355,6 +2358,43 @@ pub(crate) fn check_expr(
         }
         Expr::ListIndex { expr, index } => check_list_index(expr, index, current_module, env, ctx),
     }
+}
+
+fn check_interpolated_string(
+    parts: &[StringPart],
+    current_module: &QualifiedPath,
+    env: &TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<TypedExpr, TypeError> {
+    let mut typed_parts = Vec::new();
+    for part in parts {
+        match part {
+            StringPart::Literal(s) => {
+                typed_parts.push(TypedStringPart::Literal(s.clone()));
+            }
+            StringPart::Expr(expr) => {
+                let typed_expr = check_expr(expr, current_module, env, ctx)?;
+                let ty = ctx.resolve(&typed_expr.ty());
+                match &ty {
+                    Type::String | Type::Int | Type::Float | Type::BigInt => {}
+                    Type::Var(_) => {
+                        return Err(TypeError {
+                            message: "cannot interpolate expression of unknown type".to_string(),
+                        });
+                    }
+                    _ => {
+                        return Err(TypeError {
+                            message: format!(
+                                "cannot interpolate expression of type {ty}; only String, Int, Float, and BigInt can be interpolated"
+                            ),
+                        });
+                    }
+                }
+                typed_parts.push(TypedStringPart::Expr(Box::new(typed_expr)));
+            }
+        }
+    }
+    Ok(TypedExpr::InterpolatedString(typed_parts))
 }
 
 /// Substitute and resolve enum variants using an instantiation mapping.
@@ -2483,6 +2523,7 @@ fn is_syntactic_value(expr: &Expr) -> bool {
     match expr {
         Expr::Lambda { .. } => true,
         Expr::Int(_) | Expr::BigInt(_) | Expr::Float(_) | Expr::Bool(_) | Expr::String(_) => true,
+        Expr::InterpolatedString(_) => false,
         Expr::List(elems) => elems.iter().all(|e| match e {
             ListElement::Item(expr) => is_syntactic_value(expr),
             ListElement::Spread(_) => false,

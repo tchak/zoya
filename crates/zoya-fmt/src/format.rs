@@ -2,9 +2,9 @@ use pretty::RcDoc;
 use zoya_ast::{
     Attribute, BinOp, EnumDef, EnumVariant, EnumVariantKind, Expr, FunctionDef, ImplBlock,
     ImplMethod, Item, LambdaParam, LetBinding, ListElement, ListPattern, MatchArm, ModDecl, Param,
-    Path, PathPrefix, Pattern, StructDef, StructFieldDef, StructFieldPattern, StructKind,
-    TupleElement, TuplePattern, TypeAliasDef, TypeAnnotation, UnaryOp, UseDecl, UsePath, UseTarget,
-    Visibility,
+    Path, PathPrefix, Pattern, StringPart, StructDef, StructFieldDef, StructFieldPattern,
+    StructKind, TupleElement, TuplePattern, TypeAliasDef, TypeAnnotation, UnaryOp, UseDecl,
+    UsePath, UseTarget, Visibility,
 };
 
 const INDENT: isize = 2;
@@ -456,6 +456,32 @@ pub fn fmt_expr(expr: &Expr) -> RcDoc<'static> {
         Expr::FieldAccess { expr, field } => fmt_field_access(expr, field),
         Expr::TupleIndex { expr, index } => fmt_tuple_index(expr, *index),
         Expr::ListIndex { expr, index } => fmt_list_index(expr, index),
+        Expr::InterpolatedString(parts) => {
+            let mut doc = RcDoc::text("$\"");
+            for part in parts {
+                match part {
+                    StringPart::Literal(s) => {
+                        // Escape special chars back to source form
+                        let escaped = s
+                            .replace('\\', "\\\\")
+                            .replace('"', "\\\"")
+                            .replace('{', "\\{")
+                            .replace('}', "\\}")
+                            .replace('\n', "\\n")
+                            .replace('\t', "\\t")
+                            .replace('\r', "\\r");
+                        doc = doc.append(RcDoc::text(escaped));
+                    }
+                    StringPart::Expr(expr) => {
+                        doc = doc
+                            .append(RcDoc::text("{"))
+                            .append(fmt_expr(expr))
+                            .append(RcDoc::text("}"));
+                    }
+                }
+            }
+            doc.append(RcDoc::text("\""))
+        }
     }
 }
 

@@ -81,6 +81,7 @@ fn display_token(t: &Token) -> String {
         Token::UpperSelf => "'Self'".to_string(),
         Token::Super => "'super'".to_string(),
         Token::Impl => "'impl'".to_string(),
+        Token::InterpolatedString(_) => "interpolated string".to_string(),
     }
 }
 

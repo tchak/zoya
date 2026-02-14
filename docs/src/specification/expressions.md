@@ -7,7 +7,8 @@ Zoya is an expression-oriented language. All computations produce values; there 
 Literal expressions produce values of primitive types. See [Lexical Structure](lexical-structure.md) for detailed syntax.
 
 ```
-literal ::= int_literal | bigint_literal | float_literal | string_literal | bool_literal
+literal ::= int_literal | bigint_literal | float_literal | string_literal
+           | interpolated_string | bool_literal
 ```
 
 ```zoya
@@ -15,8 +16,23 @@ literal ::= int_literal | bigint_literal | float_literal | string_literal | bool
 100n
 3.14
 "hello"
+$"hello {name}!"
 true
 ```
+
+### Interpolated Strings
+
+Interpolated strings embed expressions within a string using `$"..."` syntax. Expressions are enclosed in `{` and `}` and must be of type `String`, `Int`, `Float`, or `BigInt`.
+
+```zoya
+let name = "world";
+$"hello {name}!"           // "hello world!"
+$"1 + 2 = {1 + 2}"        // "1 + 2 = 3"
+$"pi is {3.14}"            // "pi is 3.14"
+$"literal \{ braces \}"    // "literal { braces }"
+```
+
+Non-`String` types (`Int`, `Float`, `BigInt`) are automatically converted to their string representation. Other types (e.g., `Bool`, structs, enums) cannot be interpolated and produce a type error.
 
 ## Collection Literals
 

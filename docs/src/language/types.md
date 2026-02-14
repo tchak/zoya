@@ -8,11 +8,26 @@ Zoya has the following built-in types:
 | `BigInt` | `42n`, `9_000_000_000n` |
 | `Float` | `3.14`, `0.5` |
 | `Bool` | `true`, `false` |
-| `String` | `"hello"`, `"line\nbreak"` |
+| `String` | `"hello"`, `"line\nbreak"`, `$"hello {name}!"` |
 | `List<T>` | `[1, 2, 3]`, `[]`, `[1, ..rest]` |
 | `Dict<K, V>` | `Dict::new()`, `d.insert(k, v)` — immutable dictionary |
 | `(T, U, ...)` | `(1, "hello")`, `()`, `(42,)`, `(..a, ..b)` — access elements with `.0`, `.1` |
 | `T -> U` | `Int -> Bool`, `(Int, Int) -> Int` |
+
+### String Interpolation
+
+Interpolated strings use `$"..."` syntax to embed expressions:
+
+```zoya
+let name = "world";
+$"hello {name}!"           // "hello world!"
+$"1 + 2 = {1 + 2}"        // "1 + 2 = 3"
+$"pi is {3.14}"            // "pi is 3.14"
+$"big: {42n}"              // "big: 42"
+$"literal \{ braces \}"    // "literal { braces }"
+```
+
+Only `String`, `Int`, `Float`, and `BigInt` types can be interpolated.
 
 ## Type Inference
 

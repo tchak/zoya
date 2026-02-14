@@ -1,7 +1,7 @@
 use zoya_ast::{BinOp, UnaryOp};
 use zoya_ir::{
     CheckedPackage, QualifiedPath, Type, TypedEnumConstructFields, TypedExpr, TypedFunction,
-    TypedListElement, TypedMatchArm, TypedPattern,
+    TypedListElement, TypedMatchArm, TypedPattern, TypedStringPart,
 };
 
 /// Output of code generation containing JS code and content hash
@@ -139,6 +139,23 @@ impl<'a> PackageCodegen<'a> {
             TypedExpr::Float(n) => format_float(*n),
             TypedExpr::Bool(b) => b.to_string(),
             TypedExpr::String(s) => escape_js_string(s),
+            TypedExpr::InterpolatedString(parts) => {
+                let mut result = String::from("`");
+                for part in parts {
+                    match part {
+                        TypedStringPart::Literal(s) => {
+                            result.push_str(&escape_template_literal(s));
+                        }
+                        TypedStringPart::Expr(expr) => {
+                            result.push_str("${");
+                            result.push_str(&self.codegen_expr(expr));
+                            result.push('}');
+                        }
+                    }
+                }
+                result.push('`');
+                result
+            }
             TypedExpr::List { elements, .. } => {
                 let strs: Vec<String> = elements
                     .iter()
@@ -1053,6 +1070,7 @@ fn is_safe_operand(expr: &TypedExpr) -> bool {
             | TypedExpr::Float(_)
             | TypedExpr::Bool(_)
             | TypedExpr::String(_)
+            | TypedExpr::InterpolatedString(_)
             | TypedExpr::Var { .. }
             | TypedExpr::Call { .. }
             | TypedExpr::List { .. }
@@ -1182,6 +1200,27 @@ fn escape_js_string(s: &str) -> String {
         }
     }
     result.push('"');
+    result
+}
+
+fn escape_template_literal(s: &str) -> String {
+    use std::fmt::Write;
+    let mut result = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '`' => result.push_str("\\`"),
+            '\\' => result.push_str("\\\\"),
+            '$' => result.push_str("\\$"),
+            '\n' => result.push_str("\\n"),
+            '\r' => result.push_str("\\r"),
+            '\t' => result.push_str("\\t"),
+            '\0' => result.push_str("\\0"),
+            c if c < '\x20' => {
+                let _ = write!(result, "\\u{:04x}", c as u32);
+            }
+            _ => result.push(c),
+        }
+    }
     result
 }
 

@@ -15,6 +15,7 @@ mod functions;
 mod impl_blocks;
 mod imports;
 mod index;
+mod interpolated_string;
 mod lambdas;
 mod list_spread;
 mod match_expr;

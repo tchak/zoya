@@ -8293,3 +8293,124 @@ fn test_result_err_on_ok() {
     let result = run_source(source).unwrap();
     assert_eq!(result.to_string(), "Option::None");
 }
+
+// Interpolated string tests
+
+#[test]
+fn test_run_interpolated_string_simple() {
+    let source = r#"
+        pub fn main() -> String {
+            let name = "world";
+            $"hello {name}!"
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("hello world!".to_string()));
+}
+
+#[test]
+fn test_run_interpolated_string_int() {
+    let source = r#"
+        pub fn main() -> String {
+            let x = 42;
+            $"value: {x}"
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("value: 42".to_string()));
+}
+
+#[test]
+fn test_run_interpolated_string_float() {
+    let source = r#"
+        pub fn main() -> String {
+            let x = 3.14;
+            $"pi is {x}"
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("pi is 3.14".to_string()));
+}
+
+#[test]
+fn test_run_interpolated_string_bigint() {
+    let source = r#"
+        pub fn main() -> String {
+            let x = 42n;
+            $"big: {x}"
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("big: 42".to_string()));
+}
+
+#[test]
+fn test_run_interpolated_string_expression() {
+    let source = r#"
+        pub fn main() -> String {
+            let x = 1;
+            let y = 2;
+            $"sum: {x + y}"
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("sum: 3".to_string()));
+}
+
+#[test]
+fn test_run_interpolated_string_method_call() {
+    let source = r#"
+        pub fn main() -> String {
+            let name = "hello";
+            $"upper: {name.to_uppercase()}"
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("upper: HELLO".to_string()));
+}
+
+#[test]
+fn test_run_interpolated_string_literal_only() {
+    let source = r#"
+        pub fn main() -> String {
+            $"plain text"
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("plain text".to_string()));
+}
+
+#[test]
+fn test_run_interpolated_string_adjacent_expressions() {
+    let source = r#"
+        pub fn main() -> String {
+            let a = "hello";
+            let b = "world";
+            $"{a}{b}"
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("helloworld".to_string()));
+}
+
+#[test]
+fn test_run_interpolated_string_escaped_braces() {
+    let source = r#"
+        pub fn main() -> String {
+            $"literal \{ brace \}"
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("literal { brace }".to_string()));
+}
+
+#[test]
+fn test_run_interpolated_string_empty() {
+    let source = r#"
+        pub fn main() -> String {
+            $""
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::String("".to_string()));
+}
