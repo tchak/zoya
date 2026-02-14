@@ -6,12 +6,13 @@ This crate defines the untyped AST produced by the parser. These types represent
 
 ## Types
 
-- **Expressions** - Literals, operators, function calls, match expressions, lambdas, blocks
+- **Expressions** - Literals, operators, function calls, match expressions, lambdas, blocks, interpolated strings
 - **Patterns** - Variable bindings, destructuring, wildcards, rest patterns, as-patterns
-- **Items** - Function definitions, struct definitions, enum definitions, type aliases, use declarations
+- **Items** - Function definitions, struct definitions, enum definitions, type aliases, use declarations, impl blocks
 - **Type annotations** - Named types, generics, tuples, function types
-- **Module structure** - Module declarations (`ModDecl`), use declarations (`UseDecl`), module definitions (`ModuleDef`)
+- **Module structure** - Module declarations (`ModDecl`), use declarations (`UseDecl`)
 - **Visibility** - `Visibility` enum (`Private`, `Public`) for controlling item access
+- **Attributes** - `#[test]`, `#[builtin]`, `#[mode(test)]` annotations on items
 
 ## Usage
 
@@ -41,21 +42,39 @@ let ty = TypeAnnotation::Parameterized(
 
 // Visibility defaults to Private
 let vis = Visibility::default(); // Private
+
+// String interpolation
+let parts = vec![
+    StringPart::Literal("hello ".to_string()),
+    StringPart::Expr(Box::new(Expr::Path(Path::simple("name".to_string())))),
+    StringPart::Literal("!".to_string()),
+];
+let interp = Expr::InterpolatedString(parts);
+
+// List with spread
+let list = Expr::List(vec![
+    ListElement::Item(Expr::Int(0)),
+    ListElement::Spread(Expr::Path(Path::simple("xs".to_string()))),
+]);
 ```
 
 ## Key Types
 
 | Type | Description |
 |------|-------------|
-| `Expr` | Expression nodes (literals, calls, operators, match, lambda) |
+| `Expr` | Expression nodes (literals, calls, operators, match, lambda, interpolated strings) |
 | `Pattern` | Pattern nodes for destructuring and matching |
-| `Item` | Top-level items (functions, structs, enums, type aliases, use declarations) |
+| `Item` | Top-level items (functions, structs, enums, type aliases, use declarations, impl blocks) |
+| `ImplBlock` | Impl block with target type, type params, and methods |
+| `ImplMethod` | Method definition with optional `self` parameter |
 | `TypeAnnotation` | Type syntax in source code |
 | `Path` | Qualified paths with optional type arguments and prefixes (`root::`, `self::`, `super::`) |
 | `PathPrefix` | Path prefix (`None`, `Root`, `Self_`, `Super`) |
 | `Visibility` | Item visibility (`Private`, `Public`) |
 | `ModDecl` | Module declaration with visibility and name |
 | `UseDecl` | Use/import declaration with visibility and path |
-| `ModuleDef` | A parsed module file (mods, items) |
+| `ListElement` | List element: `Item(Expr)` or `Spread(Expr)` |
+| `StringPart` | String interpolation part: `Literal(String)` or `Expr(Box<Expr>)` |
+| `Attribute` | Item attributes (`#[test]`, `#[builtin]`, `#[mode(...)]`) |
 
 This crate has no dependencies - it contains only pure data structures.

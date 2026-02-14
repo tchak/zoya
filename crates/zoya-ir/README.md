@@ -7,7 +7,7 @@ This crate defines the type-checked IR produced by the type checker. All express
 ## Types
 
 - **Primitive types** - `Int`, `BigInt`, `Float`, `Bool`, `String`
-- **Compound types** - `List<T>`, tuples `(T, U, ...)`, functions `T -> U`
+- **Compound types** - `List<T>`, `Dict<K, V>`, tuples `(T, U, ...)`, functions `T -> U`
 - **User-defined types** - Structs, enums with generics
 - **Type variables** - For inference and polymorphism
 - **Visibility** - Re-exported from `zoya-ast` for use throughout the compiler
@@ -19,6 +19,7 @@ use zoya_ir::{Type, TypedExpr, Definition, CheckedPackage, Visibility, Qualified
 
 // Type represents resolved types
 let list_int = Type::List(Box::new(Type::Int));
+let dict = Type::Dict(Box::new(Type::String), Box::new(Type::Int));
 let pair = Type::Tuple(vec![Type::Int, Type::String]);
 let func = Type::Function {
     params: vec![Type::Int],
@@ -35,11 +36,9 @@ assert_eq!(path.to_string(), "root::utils::helper");
 
 // CheckedPackage contains all type-checked modules and definitions
 fn process_package(pkg: &CheckedPackage) {
-    // Iterate over functions in each module
-    for (path, module) in &pkg.modules {
-        for f in &module.items {
-            println!("fn {}: {:?}", f.name, f.return_type);
-        }
+    // Iterate over functions
+    for (path, func) in &pkg.items {
+        println!("fn {}: {:?}", path, func.return_type);
     }
 
     // Inspect type definitions
@@ -47,6 +46,7 @@ fn process_package(pkg: &CheckedPackage) {
         match def {
             Definition::Struct(s) => println!("struct at {}", path),
             Definition::Enum(e) => println!("enum at {}", path),
+            Definition::ImplMethod(m) => println!("method at {}", path),
             _ => {}
         }
     }
@@ -57,18 +57,18 @@ fn process_package(pkg: &CheckedPackage) {
 
 | Type | Description |
 |------|-------------|
-| `Type` | Resolved type (Int, List<T>, structs, enums, functions) |
+| `Type` | Resolved type (Int, List<T>, Dict<K, V>, structs, enums, functions) |
 | `TypedExpr` | Expression with attached type information |
 | `TypedPattern` | Pattern with resolved types for codegen |
 | `TypedFunction` | Function with typed body and return type |
-| `CheckedModule` | A module's checked functions |
-| `CheckedPackage` | Complete package of checked modules and definitions |
+| `CheckedPackage` | Complete package of checked items, definitions, re-exports, and imports |
 | `QualifiedPath` | Fully resolved path (e.g., `root::utils::helper`) |
-| `Definition` | Type definition with visibility and defining module |
+| `Definition` | Type definition: Function, Struct, Enum, EnumVariant, TypeAlias, Module, ImplMethod |
 | `FunctionType` | Function signature with visibility, module, type params |
 | `StructType` | Struct definition with visibility, module, fields |
 | `EnumType` | Enum definition with visibility, module, variants |
 | `TypeAliasType` | Type alias with visibility, module, underlying type |
+| `ImplMethodType` | Method definition with target type, self param, type params |
 | `TypeScheme` | Polymorphic type with quantified type variables |
 | `Visibility` | Re-exported `Private`/`Public` enum from `zoya-ast` |
 

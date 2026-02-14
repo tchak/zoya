@@ -13,10 +13,16 @@ zoya repl file.zy                # REPL with file preloaded
 zoya run file.zy                 # Execute a file
 zoya run                           # Run package in current directory
 zoya run path/to/project           # Run package at path
+zoya run --mode test               # Run in test mode
 zoya check file.zy               # Type-check without running
 zoya check                         # Check package in current directory
 zoya build file.zy               # Compile to JavaScript (stdout)
 zoya build file.zy -o out.js     # Compile to file
+zoya fmt                           # Format source files in current directory
+zoya fmt file.zy                 # Format a single file
+zoya fmt --check                   # Check formatting without writing
+zoya test                          # Run tests in current package
+zoya test path/to/project          # Run tests at path
 ```
 
 ## New Project
@@ -48,6 +54,21 @@ let nums: List<Int>
 3
 ```
 
+## Compilation Modes
+
+The `run`, `check`, and `build` commands support a `--mode` flag:
+
+| Mode | Description |
+|------|-------------|
+| `dev` | Development mode — excludes `#[test]` items (default) |
+| `test` | Test mode — includes all items including `#[test]` |
+| `release` | Release mode — excludes `#[test]` items |
+
+```bash
+zoya run --mode test       # Run with test items included
+zoya check --mode release  # Check in release mode
+```
+
 ## Programmatic Usage
 
 For programmatic execution, use the [zoya-run](../zoya-run) crate:
@@ -69,6 +90,11 @@ let result = Runner::new()
     .path(Path::new("program.zy"))
     .mode(zoya_loader::Mode::Test)
     .run()?;
+
+// Run tests
+let test_runner = Runner::new().test(Path::new("src/main.zy"))?;
+let report = test_runner.run()?;
+println!("{} passed, {} failed", report.passed(), report.failed());
 ```
 
 ## Dependencies
@@ -76,6 +102,7 @@ let result = Runner::new()
 - [zoya-ast](../zoya-ast) - AST types
 - [zoya-check](../zoya-check) - Type checker
 - [zoya-codegen](../zoya-codegen) - JavaScript code generation
+- [zoya-fmt](../zoya-fmt) - Source code formatter
 - [zoya-ir](../zoya-ir) - Typed IR and type definitions
 - [zoya-lexer](../zoya-lexer) - Tokenizer
 - [zoya-loader](../zoya-loader) - Package file loading
@@ -84,4 +111,5 @@ let result = Runner::new()
 - [zoya-run](../zoya-run) - Runtime execution
 - [zoya-std](../zoya-std) - Standard library
 - [clap](https://github.com/clap-rs/clap) - CLI argument parsing
+- [console](https://github.com/console-rs/console) - Terminal styling and colors
 - [rustyline](https://github.com/kkawakam/rustyline) - REPL line editing

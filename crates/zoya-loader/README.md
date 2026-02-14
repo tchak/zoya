@@ -8,6 +8,7 @@ Handles reading, parsing, and organizing Zoya source files into a package. Suppo
 
 - **Recursive module loading** - Follows `mod` declarations to build complete packages
 - **Pluggable sources** - `FsSource` for filesystem, `MemorySource` for testing
+- **Compilation modes** - `Dev`, `Test`, and `Release` modes for filtering `#[test]` and `#[mode(test)]` items
 - **Module name validation** - Enforces `snake_case` module names, rejects reserved names
 - **Error handling** - Detailed errors for missing modules, duplicates, invalid names, and parse failures
 
@@ -15,10 +16,13 @@ Handles reading, parsing, and organizing Zoya source files into a package. Suppo
 
 ```rust
 use std::path::Path;
-use zoya_loader::{load_package, load_memory_package, MemorySource, QualifiedPath};
+use zoya_loader::{load_package, load_memory_package, MemorySource, Mode, QualifiedPath};
 
 // Load from filesystem (file, directory, or package.toml)
-let pkg = load_package(Path::new("src/main.zy"))?;
+let pkg = load_package(Path::new("src/main.zy"), Mode::Dev)?;
+
+// Load in test mode (includes #[test] items)
+let pkg = load_package(Path::new("src/main.zy"), Mode::Test)?;
 
 // Access loaded modules
 let root = pkg.root().unwrap();
@@ -31,8 +35,16 @@ for (name, (child_path, visibility)) in &root.children {
 let source = MemorySource::new()
     .with_module("root", "mod utils\nfn main() -> Int { 42 }")
     .with_module("utils", "pub fn helper() -> Int { 10 }");
-let pkg = load_memory_package(&source)?;
+let pkg = load_memory_package(&source, Mode::Dev)?;
 ```
+
+## Compilation Modes
+
+| Mode | Description |
+|------|-------------|
+| `Mode::Dev` | Development mode — excludes `#[test]` items (default) |
+| `Mode::Test` | Test mode — includes all items including `#[test]` |
+| `Mode::Release` | Release mode — excludes `#[test]` items |
 
 ## Module Resolution
 
@@ -47,9 +59,9 @@ Module names must be valid `snake_case` identifiers and not reserved names (`roo
 ## Error Types
 
 ```rust
-use zoya_loader::{load_package, LoaderError};
+use zoya_loader::{load_package, LoaderError, Mode};
 
-match load_package(Path::new("missing.zy")) {
+match load_package(Path::new("missing.zy"), Mode::Dev) {
     Err(LoaderError::SourceError { path, error }) => {
         println!("Failed to read {}: {}", path, error);
     }

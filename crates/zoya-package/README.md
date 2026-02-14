@@ -66,7 +66,11 @@ use std::path::Path;
 // Load from directory
 let config = PackageConfig::load(Path::new("my_project"))?;
 println!("Package: {}", config.name);
-println!("Entry: {}", config.main.display());
+println!("Entry: {}", config.main_path().display());
+
+// Get the module name (hyphens replaced with underscores)
+let config_name = "my-project";
+// config.module_name() -> "my_project"
 
 // Validate package names
 assert!(PackageConfig::is_valid_name("my_project"));   // OK
@@ -77,6 +81,15 @@ assert_eq!(PackageConfig::sanitize_name("My-Project"), "my_project");
 
 // Serialize to TOML
 let toml = config.to_toml();
+```
+
+### package.toml Format
+
+```toml
+[package]
+name = "my_project"            # required
+main = "src/main.zy"           # optional (default: src/main.zy)
+output = "build"               # optional (default: build)
 ```
 
 ## QualifiedPath Methods
@@ -93,6 +106,19 @@ let toml = config.to_toml();
 | `tail()` | Get all segments after the first |
 | `last()` | Get the last segment |
 | `with_root(name)` | Replace the root segment with a new name |
+
+## PackageConfig Methods
+
+| Method | Description |
+|--------|-------------|
+| `load(dir)` | Load from a directory's `package.toml` |
+| `load_from(path)` | Load from a specific file path |
+| `to_toml()` | Serialize to TOML string |
+| `main_path()` | Get entry file path (default: `src/main.zy`) |
+| `output_path()` | Get output directory (default: `build`) |
+| `module_name()` | Get module name (hyphens to underscores) |
+| `is_valid_name(name)` | Check if name is valid |
+| `sanitize_name(input)` | Sanitize string to valid package name |
 
 ## Dependencies
 

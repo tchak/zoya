@@ -6,10 +6,11 @@ Provides a builder-pattern API to run Zoya programs by compiling to JavaScript a
 
 ## Features
 
-- **Builder pattern** - Composable, type-safe run configuration with compile-time guarantees
+- **Builder pattern** - Composable, type-safe run configuration
 - **Package execution** - Run type-checked packages with module and dependency support
 - **Source execution** - Compile and run source strings directly
 - **File execution** - Load, check, and run `.zy` files
+- **Test runner** - Discover and run `#[test]` functions with streaming results
 - **Value marshaling** - Convert JavaScript results to typed Zoya values
 
 ## Usage
@@ -43,14 +44,14 @@ let result = Runner::new()
 
 ```rust
 use zoya_check::check;
-use zoya_loader::load_package;
+use zoya_loader::{load_package, Mode};
 use zoya_run::Runner;
 use zoya_std::std;
 use std::path::Path;
 
 // Load and type-check with standard library
 let std = std();
-let pkg = load_package(Path::new("src/main.zy"))?;
+let pkg = load_package(Path::new("src/main.zy"), Mode::Dev)?;
 let checked_pkg = check(&pkg, &[std])?;
 
 // Run the main function in the root module
@@ -72,6 +73,28 @@ let result = Runner::new()
     .run()?;
 ```
 
+### Run tests
+
+```rust
+use zoya_run::{Runner, TestRunner, TestReport};
+use std::path::Path;
+
+// Discover and run tests
+let test_runner = Runner::new().test(Path::new("src/main.zy"))?;
+println!("Found {} tests", test_runner.tests.len());
+
+// Run all tests
+let report = test_runner.run()?;
+println!("{} passed, {} failed", report.passed(), report.failed());
+
+// Or with streaming results
+let test_runner = Runner::new().test(Path::new("src/main.zy"))?;
+let report = test_runner.execute(|result| {
+    let status = if result.outcome.is_ok() { "PASS" } else { "FAIL" };
+    println!("[{}] {}", status, result.path);
+})?;
+```
+
 ## Public API
 
 ```rust
@@ -83,6 +106,7 @@ impl Runner {
     pub fn package<'a>(self, pkg: &'a CheckedPackage, deps: impl IntoIterator<Item = &'a CheckedPackage>) -> PackageRunner<'a>;
     pub fn path(self, path: &Path) -> PathRunner;
     pub fn source(self, source: &str) -> SourceRunner;
+    pub fn test(self, path: &Path) -> Result<TestRunner, EvalError>;
 }
 
 /// Run a pre-checked package. Optionally select a submodule.
@@ -109,6 +133,28 @@ impl SourceRunner {
     pub fn run(self) -> Result<Value, EvalError>;
 }
 
+/// A test run: tests discovered, ready to execute.
+pub struct TestRunner {
+    pub tests: Vec<QualifiedPath>,
+}
+
+impl TestRunner {
+    pub fn run(self) -> Result<TestReport, EvalError>;
+    pub fn execute(self, on_result: impl FnMut(&TestResult)) -> Result<TestReport, EvalError>;
+}
+
+/// Summary of all test results.
+pub struct TestReport {
+    pub results: Vec<TestResult>,
+}
+
+impl TestReport {
+    pub fn passed(&self) -> usize;
+    pub fn failed(&self) -> usize;
+    pub fn total(&self) -> usize;
+    pub fn is_success(&self) -> bool;
+}
+
 /// Convenience: compile and run a source string.
 pub fn run_source(source: &str) -> Result<Value, EvalError>;
 
@@ -130,6 +176,7 @@ pub enum Value {
     List(Vec<Value>),
     Tuple(Vec<Value>),
     Struct { name: String, fields: Vec<(String, Value)> },
+    Dict { key_type: Type, val_type: Type },
     Fn { params: Vec<Type>, ret: Box<Type> },
     Enum { enum_name: String, variant_name: String, fields: EnumValueFields },
 }

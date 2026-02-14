@@ -28,13 +28,15 @@ crates/
 │       └── commands/
 │           ├── build.rs   # Build command
 │           ├── check.rs   # Check command
+│           ├── fmt.rs     # Format command
 │           ├── new.rs     # New project command
 │           ├── repl.rs    # REPL (rustyline)
-│           ├── resolve.rs # Entry point resolution
-│           └── run.rs     # Run command
+│           ├── run.rs     # Run command
+│           └── test.rs    # Test command
 ├── zoya-ast/          # Untyped AST types
 ├── zoya-check/        # Type checker (Hindley-Milner)
 ├── zoya-codegen/      # JavaScript code generation
+├── zoya-fmt/          # Source code formatter (pretty)
 ├── zoya-ir/           # Typed IR and type definitions
 ├── zoya-lexer/        # Tokenizer (logos)
 ├── zoya-loader/       # Package file loading
@@ -46,13 +48,22 @@ crates/
 │       ├── lib.rs         # Public API
 │       ├── eval.rs        # JS execution
 │       └── runner.rs      # Run functions
-└── zoya-std/          # Standard library (Option, Result)
+└── zoya-std/          # Standard library
     └── src/
         ├── lib.rs         # Loads and caches std package
         └── std/           # Zoya source files
-            ├── main.zy
-            ├── option.zy
-            └── result.zy
+            ├── main.zy        # Entry point, panic, assert
+            ├── prelude.zy     # Re-exports for auto-injection
+            ├── option.zy      # Option<T> type and methods
+            ├── result.zy      # Result<T, E> type and methods
+            ├── int.zy         # Int methods
+            ├── float.zy       # Float methods
+            ├── bigint.zy      # BigInt methods
+            ├── string.zy      # String methods
+            ├── list.zy        # List<T> methods
+            ├── dict.zy        # Dict<K, V> methods
+            ├── io.zy          # IO operations
+            └── json.zy        # JSON type and methods
 ```
 
 ## Commands
@@ -63,8 +74,11 @@ cargo run -p zoya -- run file.zy    # Run file
 cargo run -p zoya -- run              # Run package in current directory
 cargo run -p zoya -- check file.zy  # Type-check only
 cargo run -p zoya -- build file.zy  # Compile to JS
+cargo run -p zoya -- fmt              # Format current package
+cargo run -p zoya -- fmt --check      # Check formatting
+cargo run -p zoya -- test             # Run tests
 cargo run -p zoya -- new my_project   # Create new project
-cargo test --workspace                # Run all tests
+cargo test --workspace                # Run all Rust tests
 cargo clippy --workspace              # Lint
 ```
 
@@ -117,6 +131,7 @@ New features need tests at each pipeline stage:
 | `zoya-naming` | Name validation, case conversion |
 | `zoya-check` | Type inference, visibility, and errors |
 | `zoya-codegen` | Generated JS correctness |
+| `zoya-fmt` | Source code formatting |
 | `zoya-run` | End-to-end execution |
 | `zoya-std` | Standard library loading and caching |
 | `zoya` | CLI commands, REPL, and project creation |
