@@ -174,6 +174,13 @@ Methods on the `Int` type.
 | `to_float(self) -> Float` | Convert to floating-point |
 | `min(self, other: Int) -> Int` | Return the smaller of two values |
 | `max(self, other: Int) -> Int` | Return the larger of two values |
+| `pow(self, exp: Int) -> Int` | Raise to the power of `exp` |
+| `clamp(self, min: Int, max: Int) -> Int` | Clamp value between `min` and `max` |
+| `signum(self) -> Int` | Return -1, 0, or 1 based on sign |
+| `is_positive(self) -> Bool` | Check if strictly positive |
+| `is_negative(self) -> Bool` | Check if strictly negative |
+| `is_zero(self) -> Bool` | Check if equal to zero |
+| `to_bigint(self) -> BigInt` | Convert to BigInt |
 
 ```zoya
 (-5).abs()              // 5
@@ -181,6 +188,13 @@ Methods on the `Int` type.
 42.to_float()           // 42.0
 3.min(5)                // 3
 3.max(5)                // 5
+2.pow(10)               // 1024
+15.clamp(0, 10)         // 10
+(-42).signum()          // -1
+5.is_positive()         // true
+(-3).is_negative()      // true
+0.is_zero()             // true
+42.to_bigint()          // 42n
 ```
 
 ## `std::float`
@@ -200,6 +214,12 @@ Methods on the `Float` type.
 | `sqrt(self) -> Float` | Return the square root |
 | `min(self, other: Float) -> Float` | Return the smaller of two values |
 | `max(self, other: Float) -> Float` | Return the larger of two values |
+| `pow(self, exp: Float) -> Float` | Raise to the power of `exp` |
+| `clamp(self, min: Float, max: Float) -> Float` | Clamp value between `min` and `max` |
+| `signum(self) -> Float` | Return -1.0, 0.0, or 1.0 based on sign |
+| `is_positive(self) -> Bool` | Check if strictly positive |
+| `is_negative(self) -> Bool` | Check if strictly negative |
+| `is_zero(self) -> Bool` | Check if equal to zero |
 
 ```zoya
 3.14.floor()            // 3.0
@@ -211,6 +231,12 @@ Methods on the `Float` type.
 3.7.to_int()            // 3
 3.14.min(2.0)           // 2.0
 3.14.max(5.0)           // 5.0
+2.0.pow(3.0)            // 8.0
+15.0.clamp(0.0, 10.0)   // 10.0
+(-3.14).signum()        // -1.0
+3.14.is_positive()      // true
+(-3.14).is_negative()   // true
+0.0.is_zero()           // true
 ```
 
 ## `std::bigint`
@@ -225,12 +251,26 @@ Methods on the `BigInt` type.
 | `to_string(self) -> String` | Convert to string representation |
 | `min(self, other: BigInt) -> BigInt` | Return the smaller of two values |
 | `max(self, other: BigInt) -> BigInt` | Return the larger of two values |
+| `pow(self, exp: BigInt) -> BigInt` | Raise to the power of `exp` |
+| `clamp(self, min: BigInt, max: BigInt) -> BigInt` | Clamp value between `min` and `max` |
+| `signum(self) -> BigInt` | Return -1n, 0n, or 1n based on sign |
+| `is_positive(self) -> Bool` | Check if strictly positive |
+| `is_negative(self) -> Bool` | Check if strictly negative |
+| `is_zero(self) -> Bool` | Check if equal to zero |
+| `to_int(self) -> Int` | Convert to Int |
 
 ```zoya
 (-5n).abs()             // 5n
 42n.to_string()         // "42"
 3n.min(5n)              // 3n
 3n.max(5n)              // 5n
+2n.pow(10n)             // 1024n
+15n.clamp(0n, 10n)      // 10n
+(-42n).signum()         // -1n
+5n.is_positive()        // true
+(-3n).is_negative()     // true
+0n.is_zero()            // true
+42n.to_int()            // 42
 ```
 
 ## `std::string`

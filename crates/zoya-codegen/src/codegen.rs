@@ -946,12 +946,26 @@ impl<'a> PackageCodegen<'a> {
             "root::int::Int::to_float" => "return $$Int.to_float($self);".to_string(),
             "root::int::Int::min" => "return $$Int.min($self, $other);".to_string(),
             "root::int::Int::max" => "return $$Int.max($self, $other);".to_string(),
+            "root::int::Int::pow" => "return $$Int.pow($self, $exp);".to_string(),
+            "root::int::Int::clamp" => "return $$Int.clamp($self, $min, $max);".to_string(),
+            "root::int::Int::signum" => "return $$Int.signum($self);".to_string(),
+            "root::int::Int::is_positive" => "return $$Int.is_positive($self);".to_string(),
+            "root::int::Int::is_negative" => "return $$Int.is_negative($self);".to_string(),
+            "root::int::Int::is_zero" => "return $$Int.is_zero($self);".to_string(),
+            "root::int::Int::to_bigint" => "return $$Int.to_bigint($self);".to_string(),
 
             // BigInt methods
             "root::bigint::BigInt::abs" => "return $$BigInt.abs($self);".to_string(),
             "root::bigint::BigInt::to_string" => "return $$BigInt.to_string($self);".to_string(),
             "root::bigint::BigInt::min" => "return $$BigInt.min($self, $other);".to_string(),
             "root::bigint::BigInt::max" => "return $$BigInt.max($self, $other);".to_string(),
+            "root::bigint::BigInt::pow" => "return $$BigInt.pow($self, $exp);".to_string(),
+            "root::bigint::BigInt::clamp" => "return $$BigInt.clamp($self, $min, $max);".to_string(),
+            "root::bigint::BigInt::signum" => "return $$BigInt.signum($self);".to_string(),
+            "root::bigint::BigInt::is_positive" => "return $$BigInt.is_positive($self);".to_string(),
+            "root::bigint::BigInt::is_negative" => "return $$BigInt.is_negative($self);".to_string(),
+            "root::bigint::BigInt::is_zero" => "return $$BigInt.is_zero($self);".to_string(),
+            "root::bigint::BigInt::to_int" => "return $$BigInt.to_int($self);".to_string(),
 
             // Float methods
             "root::float::Float::abs" => "return $$Float.abs($self);".to_string(),
@@ -963,6 +977,12 @@ impl<'a> PackageCodegen<'a> {
             "root::float::Float::sqrt" => "return $$Float.sqrt($self);".to_string(),
             "root::float::Float::min" => "return $$Float.min($self, $other);".to_string(),
             "root::float::Float::max" => "return $$Float.max($self, $other);".to_string(),
+            "root::float::Float::pow" => "return $$Float.pow($self, $exp);".to_string(),
+            "root::float::Float::clamp" => "return $$Float.clamp($self, $min, $max);".to_string(),
+            "root::float::Float::signum" => "return $$Float.signum($self);".to_string(),
+            "root::float::Float::is_positive" => "return $$Float.is_positive($self);".to_string(),
+            "root::float::Float::is_negative" => "return $$Float.is_negative($self);".to_string(),
+            "root::float::Float::is_zero" => "return $$Float.is_zero($self);".to_string(),
 
             // String methods
             "root::string::String::len" => "return $$String.len($self);".to_string(),

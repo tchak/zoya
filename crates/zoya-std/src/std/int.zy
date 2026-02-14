@@ -4,4 +4,11 @@ impl Int {
     #[builtin] pub fn to_float(self) -> Float ()
     #[builtin] pub fn min(self, other: Int) -> Int ()
     #[builtin] pub fn max(self, other: Int) -> Int ()
+    #[builtin] pub fn pow(self, exp: Int) -> Int ()
+    #[builtin] pub fn clamp(self, min: Int, max: Int) -> Int ()
+    #[builtin] pub fn signum(self) -> Int ()
+    #[builtin] pub fn is_positive(self) -> Bool ()
+    #[builtin] pub fn is_negative(self) -> Bool ()
+    #[builtin] pub fn is_zero(self) -> Bool ()
+    #[builtin] pub fn to_bigint(self) -> BigInt ()
 }

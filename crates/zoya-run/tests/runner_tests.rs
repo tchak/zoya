@@ -509,6 +509,76 @@ fn test_run_int32_max() {
     assert_eq!(result, Value::Int(5));
 }
 
+#[test]
+fn test_run_int32_pow() {
+    let source = "pub fn main() -> Int { 2.pow(10) }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(1024));
+}
+
+#[test]
+fn test_run_int32_clamp() {
+    let source = "pub fn main() -> Int { 15.clamp(0, 10) }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(10));
+}
+
+#[test]
+fn test_run_int32_clamp_below() {
+    let source = "pub fn main() -> Int { (-5).clamp(0, 10) }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(0));
+}
+
+#[test]
+fn test_run_int32_signum() {
+    let source = "pub fn main() -> Int { (-42).signum() }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(-1));
+}
+
+#[test]
+fn test_run_int32_signum_zero() {
+    let source = "pub fn main() -> Int { 0.signum() }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(0));
+}
+
+#[test]
+fn test_run_int32_is_positive() {
+    let source = "pub fn main() -> Bool { 5.is_positive() }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_run_int32_is_negative() {
+    let source = "pub fn main() -> Bool { (-3).is_negative() }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_run_int32_is_zero() {
+    let source = "pub fn main() -> Bool { 0.is_zero() }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_run_int32_is_zero_nonzero() {
+    let source = "pub fn main() -> Bool { 5.is_zero() }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(false));
+}
+
+#[test]
+fn test_run_int32_to_bigint() {
+    let source = "pub fn main() -> BigInt { 42.to_bigint() }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::BigInt(42));
+}
+
 // BigInt literal tests
 #[test]
 fn test_run_int64_literal() {
@@ -543,6 +613,62 @@ fn test_run_int64_method_to_string() {
     let source = "pub fn main() -> String { 42n.to_string() }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::String("42".to_string()));
+}
+
+#[test]
+fn test_run_bigint_pow() {
+    let source = "pub fn main() -> BigInt { 2n.pow(10n) }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::BigInt(1024));
+}
+
+#[test]
+fn test_run_bigint_clamp() {
+    let source = "pub fn main() -> BigInt { 15n.clamp(0n, 10n) }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::BigInt(10));
+}
+
+#[test]
+fn test_run_bigint_signum() {
+    let source = "pub fn main() -> BigInt { (-42n).signum() }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::BigInt(-1));
+}
+
+#[test]
+fn test_run_bigint_signum_zero() {
+    let source = "pub fn main() -> BigInt { 0n.signum() }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::BigInt(0));
+}
+
+#[test]
+fn test_run_bigint_is_positive() {
+    let source = "pub fn main() -> Bool { 5n.is_positive() }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_run_bigint_is_negative() {
+    let source = "pub fn main() -> Bool { (-3n).is_negative() }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_run_bigint_is_zero() {
+    let source = "pub fn main() -> Bool { 0n.is_zero() }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_run_bigint_to_int() {
+    let source = "pub fn main() -> Int { 42n.to_int() }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
 }
 
 // Float method tests
@@ -607,6 +733,48 @@ fn test_run_float_max() {
     let source = "pub fn main() -> Float { 3.5.max(2.5) }";
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Float(3.5));
+}
+
+#[test]
+fn test_run_float_pow() {
+    let source = "pub fn main() -> Float { 2.0.pow(3.0) }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Float(8.0));
+}
+
+#[test]
+fn test_run_float_clamp() {
+    let source = "pub fn main() -> Float { 15.0.clamp(0.0, 10.0) }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Float(10.0));
+}
+
+#[test]
+fn test_run_float_signum() {
+    let source = "pub fn main() -> Float { (-3.14).signum() }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Float(-1.0));
+}
+
+#[test]
+fn test_run_float_is_positive() {
+    let source = "pub fn main() -> Bool { 3.14.is_positive() }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_run_float_is_negative() {
+    let source = "pub fn main() -> Bool { (-3.14).is_negative() }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_run_float_is_zero() {
+    let source = "pub fn main() -> Bool { 0.0.is_zero() }";
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
 }
 
 // List tests
