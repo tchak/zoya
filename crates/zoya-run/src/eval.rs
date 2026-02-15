@@ -74,6 +74,7 @@ fn substitute_type_vars(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
     match ty {
         Type::Var(id) => mapping.get(id).cloned().unwrap_or_else(|| ty.clone()),
         Type::List(elem) => Type::List(Box::new(substitute_type_vars(elem, mapping))),
+        Type::Set(elem) => Type::Set(Box::new(substitute_type_vars(elem, mapping))),
         Type::Dict(key, val) => Type::Dict(
             Box::new(substitute_type_vars(key, mapping)),
             Box::new(substitute_type_vars(val, mapping)),
@@ -231,6 +232,9 @@ pub enum Value {
         name: String,
         fields: Vec<(String, Value)>,
     },
+    Set {
+        elem_type: Type,
+    },
     Dict {
         key_type: Type,
         val_type: Type,
@@ -310,6 +314,9 @@ impl fmt::Display for Value {
                     write_fields(f, fields)?;
                     write!(f, " }}")
                 }
+            }
+            Value::Set { elem_type } => {
+                write!(f, "<Set<{}>>", elem_type)
             }
             Value::Dict { key_type, val_type } => {
                 write!(f, "<Dict<{}, {}>>", key_type, val_type)
@@ -458,6 +465,9 @@ fn js_value_to_value(
                 fields: field_values,
             })
         }
+        Type::Set(elem_type) => Ok(Value::Set {
+            elem_type: *elem_type.clone(),
+        }),
         Type::Dict(key_type, val_type) => Ok(Value::Dict {
             key_type: *key_type.clone(),
             val_type: *val_type.clone(),

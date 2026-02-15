@@ -101,6 +101,46 @@ d.is_empty()  // false
 
 Keys can be any type that supports structural equality. Both keys and values must be homogeneous within a single dict.
 
+## Set Types
+
+Immutable sets backed by a persistent hash array mapped trie (HAMT). Single type parameter for element type.
+
+### Syntax
+
+```
+Set<T>
+```
+
+### Usage
+
+Set has no literal syntax. Create and manipulate sets using methods:
+
+```zoya
+let s = Set::new()
+let s = s.insert(1)
+let s = s.insert(2)
+s.contains(1)         // true
+s.contains(3)         // false
+s.len()               // 2
+s.remove(1)           // New set without 1
+s.is_empty()          // false
+```
+
+### Set Operations
+
+```zoya
+let a = Set::from([1, 2, 3])
+let b = Set::from([2, 3, 4])
+a.union(b)            // {1, 2, 3, 4}
+a.intersection(b)     // {2, 3}
+a.difference(b)       // {1}
+a.is_subset(b)        // false
+a.is_superset(b)      // false
+a.is_disjoint(b)      // false
+```
+
+Elements can be any type that supports structural equality. Elements must be homogeneous within a single set.
+
 ## Tuple Types
 
 Fixed-size, heterogeneous product types.

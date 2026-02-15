@@ -1,4 +1,5 @@
 pub use root::dict::Dict
+pub use root::set::Set
 pub use root::option::*
 pub use root::result::*
 pub use root::io::println

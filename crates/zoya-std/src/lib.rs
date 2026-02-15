@@ -20,6 +20,7 @@ fn build_std() -> Result<CheckedPackage, String> {
         .with_module("option", include_str!("std/option.zy"))
         .with_module("prelude", include_str!("std/prelude.zy"))
         .with_module("result", include_str!("std/result.zy"))
+        .with_module("set", include_str!("std/set.zy"))
         .with_module("string", include_str!("std/string.zy"));
 
     let mut pkg = load_memory_package(&source, zoya_loader::Mode::Release)
@@ -512,6 +513,81 @@ mod tests {
             .get(&path)
             .expect("Dict::is_empty definition");
         assert!(matches!(def, Definition::ImplMethod(_)));
+    }
+
+    #[test]
+    fn test_std_has_set_module() {
+        let pkg = std();
+        let set_path = QualifiedPath::root().child("set");
+        assert!(
+            pkg.definitions.contains_key(&set_path),
+            "set module should exist"
+        );
+    }
+
+    #[test]
+    fn test_std_has_set_new_method() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("set").child("Set").child("new");
+        let def = pkg.definitions.get(&path).expect("Set::new definition");
+        assert!(matches!(def, Definition::ImplMethod(_)));
+    }
+
+    #[test]
+    fn test_std_has_set_contains_method() {
+        let pkg = std();
+        let path = QualifiedPath::root()
+            .child("set")
+            .child("Set")
+            .child("contains");
+        let def = pkg
+            .definitions
+            .get(&path)
+            .expect("Set::contains definition");
+        assert!(matches!(def, Definition::ImplMethod(_)));
+    }
+
+    #[test]
+    fn test_std_has_set_insert_method() {
+        let pkg = std();
+        let path = QualifiedPath::root()
+            .child("set")
+            .child("Set")
+            .child("insert");
+        let def = pkg.definitions.get(&path).expect("Set::insert definition");
+        assert!(matches!(def, Definition::ImplMethod(_)));
+    }
+
+    #[test]
+    fn test_std_has_set_len_method() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("set").child("Set").child("len");
+        let def = pkg.definitions.get(&path).expect("Set::len definition");
+        assert!(matches!(def, Definition::ImplMethod(_)));
+    }
+
+    #[test]
+    fn test_std_has_set_is_empty_method() {
+        let pkg = std();
+        let path = QualifiedPath::root()
+            .child("set")
+            .child("Set")
+            .child("is_empty");
+        let def = pkg
+            .definitions
+            .get(&path)
+            .expect("Set::is_empty definition");
+        assert!(matches!(def, Definition::ImplMethod(_)));
+    }
+
+    #[test]
+    fn test_std_prelude_has_set() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("prelude").child("Set");
+        assert!(
+            pkg.definitions.contains_key(&path),
+            "Set should be re-exported in prelude module"
+        );
     }
 
     #[test]

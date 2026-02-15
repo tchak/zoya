@@ -1,0 +1,16 @@
+impl<T> Set<T> {
+    #[builtin] pub fn new() -> Self ()
+    #[builtin] pub fn contains(self, value: T) -> Bool ()
+    #[builtin] pub fn insert(self, value: T) -> Self ()
+    #[builtin] pub fn remove(self, value: T) -> Self ()
+    #[builtin] pub fn len(self) -> Int ()
+    #[builtin] pub fn to_list(self) -> List<T> ()
+    #[builtin] pub fn is_disjoint(self, other: Self) -> Bool ()
+    #[builtin] pub fn is_subset(self, other: Self) -> Bool ()
+    #[builtin] pub fn is_superset(self, other: Self) -> Bool ()
+    #[builtin] pub fn difference(self, other: Self) -> Self ()
+    #[builtin] pub fn intersection(self, other: Self) -> Self ()
+    #[builtin] pub fn union(self, other: Self) -> Self ()
+    #[builtin] pub fn from(items: List<T>) -> Self ()
+    pub fn is_empty(self) -> Bool { self.len() == 0 }
+}

@@ -8,6 +8,7 @@ pub mod list
 pub mod option
 pub mod prelude
 pub mod result
+pub mod set
 pub mod string
 
 #[builtin]

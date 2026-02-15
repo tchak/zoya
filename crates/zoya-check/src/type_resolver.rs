@@ -202,6 +202,25 @@ fn resolve_type_annotation_inner(
             }
 
             if let Some(name) = path.as_simple()
+                && name == "Set"
+            {
+                if params.len() != 1 {
+                    return Err(TypeError {
+                        message: "Set requires exactly one type parameter".to_string(),
+                    });
+                }
+                let elem_type = resolve_type_annotation_inner(
+                    &params[0],
+                    type_param_map,
+                    current_module,
+                    env,
+                    self_type,
+                    expanding_aliases,
+                )?;
+                return Ok(Type::Set(Box::new(elem_type)));
+            }
+
+            if let Some(name) = path.as_simple()
                 && name == "Dict"
             {
                 if params.len() != 2 {

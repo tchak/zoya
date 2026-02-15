@@ -42,6 +42,14 @@ function $$eq(a, b) {
     return true;
   }
   if ($$is_obj(a) && $$is_obj(b)) {
+    if (a.$$set === true && b.$$set === true) {
+      if ($$Dict.len(a.$$data) !== $$Dict.len(b.$$data)) return false;
+      var ks = $$Dict.keys(a.$$data);
+      for (var j = 0; j < ks.length; j++) {
+        if (!$$Dict.has(b.$$data, ks[j])) return false;
+      }
+      return true;
+    }
     if (a.$$hamt === true && b.$$hamt === true) {
       if (a.size !== b.size) return false;
       const ea = $$Dict.entries(a);

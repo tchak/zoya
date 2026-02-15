@@ -43,6 +43,7 @@ impl TypeVarNamer {
                 self.name(*id);
             }
             Type::List(elem) => self.collect_vars(elem),
+            Type::Set(elem) => self.collect_vars(elem),
             Type::Dict(key, val) => {
                 self.collect_vars(key);
                 self.collect_vars(val);
@@ -76,6 +77,7 @@ impl TypeVarNamer {
             Type::Bool => "Bool".to_string(),
             Type::String => "String".to_string(),
             Type::List(elem) => format!("List<{}>", self.format(elem)),
+            Type::Set(elem) => format!("Set<{}>", self.format(elem)),
             Type::Dict(key, val) => format!("Dict<{}, {}>", self.format(key), self.format(val)),
             Type::Tuple(elems) => {
                 let elem_strs: Vec<String> = elems.iter().map(|e| self.format(e)).collect();

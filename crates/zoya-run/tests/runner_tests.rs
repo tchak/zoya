@@ -8414,3 +8414,299 @@ fn test_run_interpolated_string_empty() {
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::String("".to_string()));
 }
+
+// ==================== Set Tests ====================
+
+#[test]
+fn test_set_new_is_empty() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let s: Set<Int> = Set::new();
+            s.is_empty()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_set_new_len_zero() {
+    let source = r#"
+        pub fn main() -> Int {
+            let s: Set<Int> = Set::new();
+            s.len()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(0));
+}
+
+#[test]
+fn test_set_insert_and_contains() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let s = Set::new().insert(1).insert(2).insert(3);
+            s.contains(2)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_set_contains_missing() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let s = Set::new().insert(1).insert(2);
+            s.contains(3)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(false));
+}
+
+#[test]
+fn test_set_len() {
+    let source = r#"
+        pub fn main() -> Int {
+            Set::new().insert(1).insert(2).insert(3).len()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(3));
+}
+
+#[test]
+fn test_set_insert_duplicate() {
+    let source = r#"
+        pub fn main() -> Int {
+            Set::new().insert(1).insert(1).insert(1).len()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(1));
+}
+
+#[test]
+fn test_set_remove() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let s = Set::new().insert(1).insert(2).remove(1);
+            s.contains(1)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(false));
+}
+
+#[test]
+fn test_set_remove_len() {
+    let source = r#"
+        pub fn main() -> Int {
+            Set::new().insert(1).insert(2).insert(3).remove(2).len()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(2));
+}
+
+#[test]
+fn test_set_from_list() {
+    let source = r#"
+        pub fn main() -> Int {
+            Set::from([1, 2, 3, 2, 1]).len()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(3));
+}
+
+#[test]
+fn test_set_to_list() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let s = Set::from([1, 2, 3]);
+            s.to_list().len() == 3
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_set_union() {
+    let source = r#"
+        pub fn main() -> Int {
+            let a = Set::from([1, 2, 3]);
+            let b = Set::from([3, 4, 5]);
+            a.union(b).len()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(5));
+}
+
+#[test]
+fn test_set_intersection() {
+    let source = r#"
+        pub fn main() -> Int {
+            let a = Set::from([1, 2, 3]);
+            let b = Set::from([2, 3, 4]);
+            a.intersection(b).len()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(2));
+}
+
+#[test]
+fn test_set_difference() {
+    let source = r#"
+        pub fn main() -> Int {
+            let a = Set::from([1, 2, 3]);
+            let b = Set::from([2, 3, 4]);
+            a.difference(b).len()
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(1));
+}
+
+#[test]
+fn test_set_difference_contains() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let a = Set::from([1, 2, 3]);
+            let b = Set::from([2, 3, 4]);
+            a.difference(b).contains(1)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_set_is_subset_true() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let a = Set::from([1, 2]);
+            let b = Set::from([1, 2, 3]);
+            a.is_subset(b)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_set_is_subset_false() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let a = Set::from([1, 2, 4]);
+            let b = Set::from([1, 2, 3]);
+            a.is_subset(b)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(false));
+}
+
+#[test]
+fn test_set_is_superset() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let a = Set::from([1, 2, 3]);
+            let b = Set::from([1, 2]);
+            a.is_superset(b)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_set_is_disjoint_true() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let a = Set::from([1, 2]);
+            let b = Set::from([3, 4]);
+            a.is_disjoint(b)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_set_is_disjoint_false() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let a = Set::from([1, 2]);
+            let b = Set::from([2, 3]);
+            a.is_disjoint(b)
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(false));
+}
+
+#[test]
+fn test_set_equality() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let a = Set::from([1, 2, 3]);
+            let b = Set::from([3, 2, 1]);
+            a == b
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_set_inequality() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let a = Set::from([1, 2]);
+            let b = Set::from([1, 3]);
+            a != b
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_set_string_elements() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let s = Set::new().insert("hello").insert("world");
+            s.contains("hello")
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_set_string_elements_missing() {
+    let source = r#"
+        pub fn main() -> Bool {
+            let s = Set::new().insert("hello").insert("world");
+            s.contains("foo")
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Bool(false));
+}
+
+#[test]
+fn test_set_repl_display() {
+    let source = r#"
+        pub fn main() -> Set<Int> {
+            Set::from([1, 2, 3])
+        }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result.to_string(), "<Set<Int>>");
+}

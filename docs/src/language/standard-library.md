@@ -1,6 +1,6 @@
 # Standard Library
 
-Zoya's standard library provides common types and methods for everyday programming. It includes methods on primitive types (Int, Float, String, BigInt, List, Dict) defined via `impl` blocks in dedicated modules (`std::int`, `std::float`, `std::string`, `std::bigint`, `std::list`, `std::dict`).
+Zoya's standard library provides common types and methods for everyday programming. It includes methods on primitive types (Int, Float, String, BigInt, List, Set, Dict) defined via `impl` blocks in dedicated modules (`std::int`, `std::float`, `std::string`, `std::bigint`, `std::list`, `std::set`, `std::dict`).
 
 ## Prelude
 
@@ -357,6 +357,50 @@ xs.last()                         // Some(5)
 xs.truncate(3)                    // [1, 2, 3]
 xs.insert(2, 99)                  // [1, 2, 99, 3, 4, 5]
 xs.remove(0)                      // [2, 3, 4, 5]
+```
+
+## `std::set`
+
+Immutable set type backed by a persistent hash array mapped trie (HAMT). `Set` is re-exported in the prelude.
+
+### `Set<T>`
+
+| Method | Description |
+|--------|-------------|
+| `Set::new() -> Set<T>` | Create an empty set |
+| `contains(self, value: T) -> Bool` | Check if a value exists in the set |
+| `insert(self, value: T) -> Self` | Return a new set with the value added |
+| `remove(self, value: T) -> Self` | Return a new set with the value removed |
+| `len(self) -> Int` | Return the number of elements |
+| `to_list(self) -> List<T>` | Return all elements as a list |
+| `is_disjoint(self, other: Self) -> Bool` | Check if two sets have no elements in common |
+| `is_subset(self, other: Self) -> Bool` | Check if all elements are in `other` |
+| `is_superset(self, other: Self) -> Bool` | Check if `other`'s elements are all in `self` |
+| `difference(self, other: Self) -> Self` | Elements in `self` but not in `other` |
+| `intersection(self, other: Self) -> Self` | Elements in both `self` and `other` |
+| `union(self, other: Self) -> Self` | Elements in either `self` or `other` |
+| `Set::from(items: List<T>) -> Self` | Create a set from a list (duplicates removed) |
+| `is_empty(self) -> Bool` | Check if the set is empty |
+
+```zoya
+let s = Set::new()
+let s = s.insert(1).insert(2).insert(3)
+s.contains(2)         // true
+s.len()               // 3
+s.remove(2).len()     // 2
+
+// Create from list (duplicates are removed)
+let s = Set::from([1, 2, 3, 2, 1])
+s.len()               // 3
+
+// Set operations
+let a = Set::from([1, 2, 3])
+let b = Set::from([2, 3, 4])
+a.union(b).len()          // 5
+a.intersection(b).len()   // 2
+a.difference(b).len()     // 1
+a.is_subset(b)            // false
+a.is_disjoint(b)          // false
 ```
 
 ## `std::dict`

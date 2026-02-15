@@ -400,7 +400,9 @@ impl TypeCtors {
             },
             Type::Tuple(elems) => TypeCtors::Finite(vec![Constructor::Tuple(elems.len())]),
             Type::Int | Type::BigInt | Type::Float | Type::String => TypeCtors::Infinite,
-            Type::Dict(_, _) | Type::Var(_) | Type::Function { .. } => TypeCtors::Infinite, // Conservative
+            Type::Set(_) | Type::Dict(_, _) | Type::Var(_) | Type::Function { .. } => {
+                TypeCtors::Infinite
+            } // Conservative
             Type::Struct {
                 name,
                 fields,

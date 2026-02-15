@@ -58,6 +58,9 @@ const FLOAT_JS: &str = include_str!("js/float.js");
 /// Runtime JS: String methods
 const STRING_JS: &str = include_str!("js/string.js");
 
+/// Runtime JS: Set methods (wraps HAMT)
+const SET_JS: &str = include_str!("js/set.js");
+
 /// Runtime JS: List methods
 const LIST_JS: &str = include_str!("js/list.js");
 
@@ -70,6 +73,8 @@ pub fn codegen(package: &CheckedPackage, deps: &[&CheckedPackage]) -> CodegenOut
     js.push_str(PRELUDE_JS);
     js.push('\n');
     js.push_str(HAMT_JS);
+    js.push('\n');
+    js.push_str(SET_JS);
     js.push('\n');
     js.push_str(INT_JS);
     js.push('\n');
@@ -1036,6 +1041,21 @@ impl<'a> PackageCodegen<'a> {
             "root::list::List::insert" => "return $$List.insert($self, $index, $value);".to_string(),
             "root::list::List::remove" => "return $$List.remove($self, $index);".to_string(),
 
+            // Set methods
+            "root::set::Set::new" => "return $$Set.empty();".to_string(),
+            "root::set::Set::contains" => "return $$Set.contains($self, $value);".to_string(),
+            "root::set::Set::insert" => "return $$Set.insert($self, $value);".to_string(),
+            "root::set::Set::remove" => "return $$Set.remove($self, $value);".to_string(),
+            "root::set::Set::len" => "return $$Set.len($self);".to_string(),
+            "root::set::Set::to_list" => "return $$Set.to_list($self);".to_string(),
+            "root::set::Set::is_disjoint" => "return $$Set.is_disjoint($self, $other);".to_string(),
+            "root::set::Set::is_subset" => "return $$Set.is_subset($self, $other);".to_string(),
+            "root::set::Set::is_superset" => "return $$Set.is_superset($self, $other);".to_string(),
+            "root::set::Set::difference" => "return $$Set.difference($self, $other);".to_string(),
+            "root::set::Set::intersection" => "return $$Set.intersection($self, $other);".to_string(),
+            "root::set::Set::union" => "return $$Set.union($self, $other);".to_string(),
+            "root::set::Set::from" => "return $$Set.from($items);".to_string(),
+
             // Dict methods
             "root::dict::Dict::new" => "return $$Dict.empty();".to_string(),
             "root::dict::Dict::get" => "return $$Dict.get($self, $key);".to_string(),
@@ -1084,7 +1104,12 @@ fn is_safe_operand(expr: &TypedExpr) -> bool {
 fn needs_deep_equality(ty: &Type) -> bool {
     matches!(
         ty,
-        Type::List(_) | Type::Dict(_, _) | Type::Tuple(_) | Type::Struct { .. } | Type::Enum { .. }
+        Type::List(_)
+            | Type::Set(_)
+            | Type::Dict(_, _)
+            | Type::Tuple(_)
+            | Type::Struct { .. }
+            | Type::Enum { .. }
     )
 }
 

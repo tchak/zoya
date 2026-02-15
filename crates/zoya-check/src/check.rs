@@ -1404,6 +1404,7 @@ fn check_method_call(
         let receiver_type_args = match &receiver_ty {
             Type::Struct { type_args, .. } | Type::Enum { type_args, .. } => type_args.clone(),
             Type::List(elem) => vec![*elem.clone()],
+            Type::Set(elem) => vec![*elem.clone()],
             Type::Dict(key, val) => vec![*key.clone(), *val.clone()],
             _ => vec![],
         };
@@ -3398,7 +3399,7 @@ fn resolve_impl_target(
     if path.segments.len() == 1
         && matches!(
             type_name,
-            "Int" | "BigInt" | "Float" | "Bool" | "String" | "List" | "Dict"
+            "Int" | "BigInt" | "Float" | "Bool" | "String" | "List" | "Set" | "Dict"
         )
     {
         if package_name == "std" && primitive_module_for_name(type_name).is_some() {

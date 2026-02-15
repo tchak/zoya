@@ -21,6 +21,7 @@ pub enum Type {
     Bool,
     String,
     List(Box<Type>),            // List with element type
+    Set(Box<Type>),             // Set with element type
     Dict(Box<Type>, Box<Type>), // Dict with key and value types
     Tuple(Vec<Type>),           // Tuple with element types (heterogeneous, fixed size)
     Var(TypeVarId),             // Unification type variable
@@ -92,6 +93,7 @@ impl Type {
                     .collect(),
             },
             Type::List(elem) => Type::List(Box::new(elem.with_root(name))),
+            Type::Set(elem) => Type::Set(Box::new(elem.with_root(name))),
             Type::Dict(key, val) => {
                 Type::Dict(Box::new(key.with_root(name)), Box::new(val.with_root(name)))
             }
@@ -134,6 +136,7 @@ impl fmt::Display for Type {
             Type::Bool => write!(f, "Bool"),
             Type::String => write!(f, "String"),
             Type::List(elem) => write!(f, "List<{}>", elem),
+            Type::Set(elem) => write!(f, "Set<{}>", elem),
             Type::Dict(key, val) => write!(f, "Dict<{}, {}>", key, val),
             Type::Tuple(elems) => {
                 let elem_strs: Vec<String> = elems.iter().map(|e| e.to_string()).collect();

@@ -39,6 +39,7 @@ impl UnifyCtx {
                 }
             }
             Type::List(elem) => Type::List(Box::new(self.resolve(elem))),
+            Type::Set(elem) => Type::Set(Box::new(self.resolve(elem))),
             Type::Dict(key, val) => {
                 Type::Dict(Box::new(self.resolve(key)), Box::new(self.resolve(val)))
             }
@@ -102,6 +103,7 @@ impl UnifyCtx {
         match ty {
             Type::Var(id) => id == var_id,
             Type::List(elem) => self.occurs(var_id, &elem),
+            Type::Set(elem) => self.occurs(var_id, &elem),
             Type::Dict(key, val) => self.occurs(var_id, &key) || self.occurs(var_id, &val),
             Type::Tuple(elems) => elems.iter().any(|e| self.occurs(var_id, e)),
             Type::Function { params, ret } => {
@@ -152,6 +154,9 @@ impl UnifyCtx {
 
             // List types - unify element types
             (Type::List(e1), Type::List(e2)) => self.unify(e1, e2),
+
+            // Set types - unify element types
+            (Type::Set(e1), Type::Set(e2)) => self.unify(e1, e2),
 
             // Dict types - unify key and value types
             (Type::Dict(k1, v1), Type::Dict(k2, v2)) => {
@@ -318,6 +323,7 @@ impl UnifyCtx {
                 set
             }
             Type::List(elem) => self.free_vars(&elem),
+            Type::Set(elem) => self.free_vars(&elem),
             Type::Dict(key, val) => {
                 let mut set = self.free_vars(&key);
                 set.extend(self.free_vars(&val));
@@ -395,6 +401,7 @@ pub fn substitute_type_vars(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Ty
     match ty {
         Type::Var(id) => mapping.get(id).cloned().unwrap_or_else(|| ty.clone()),
         Type::List(elem) => Type::List(Box::new(substitute_type_vars(elem, mapping))),
+        Type::Set(elem) => Type::Set(Box::new(substitute_type_vars(elem, mapping))),
         Type::Dict(key, val) => Type::Dict(
             Box::new(substitute_type_vars(key, mapping)),
             Box::new(substitute_type_vars(val, mapping)),
