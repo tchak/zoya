@@ -77,18 +77,17 @@ pub(crate) fn expr_parser<'a>()
         let pattern = pattern_parser();
 
         // Let binding for use in match arm blocks (uses expr from recursive context)
+        // Note: validation of typed patterns is deferred to the block level
+        // so that errors propagate correctly through chumsky's error recovery.
         let let_in_arm = just(Token::Let)
             .ignore_then(pattern_parser())
             .then(just(Token::Colon).ignore_then(type_annotation()).or_not())
             .then_ignore(just(Token::Eq))
             .then(expr.clone())
-            .try_map(|((pattern, type_annotation), value), span| {
-                validate_typed_pattern(&pattern, &type_annotation, span)?;
-                Ok(LetBinding {
-                    pattern,
-                    type_annotation,
-                    value: Box::new(value),
-                })
+            .map(|((pattern, type_annotation), value)| LetBinding {
+                pattern,
+                type_annotation,
+                value: Box::new(value),
             });
 
         // Arm body: { [let x = e;]* expr } OR expr
@@ -103,7 +102,16 @@ pub(crate) fn expr_parser<'a>()
                 )
                 .then(expr.clone())
                 .then_ignore(just(Token::RBrace))
-                .map(|(bindings, result)| {
+                .validate(|(bindings, result), e, emitter| {
+                    for binding in &bindings {
+                        if let Err(err) = validate_typed_pattern(
+                            &binding.pattern,
+                            &binding.type_annotation,
+                            e.span(),
+                        ) {
+                            emitter.emit(err);
+                        }
+                    }
                     if bindings.is_empty() {
                         result // { expr } -> just the expression
                     } else {
@@ -344,13 +352,10 @@ pub(crate) fn expr_parser<'a>()
             .then(just(Token::Colon).ignore_then(type_annotation()).or_not())
             .then_ignore(just(Token::Eq))
             .then(expr.clone())
-            .try_map(|((pattern, type_annotation), value), span| {
-                validate_typed_pattern(&pattern, &type_annotation, span)?;
-                Ok(LetBinding {
-                    pattern,
-                    type_annotation,
-                    value: Box::new(value),
-                })
+            .map(|((pattern, type_annotation), value)| LetBinding {
+                pattern,
+                type_annotation,
+                value: Box::new(value),
             });
 
         let lambda_body = choice((
@@ -364,7 +369,16 @@ pub(crate) fn expr_parser<'a>()
                 )
                 .then(expr.clone())
                 .then_ignore(just(Token::RBrace))
-                .map(|(bindings, result)| {
+                .validate(|(bindings, result), e, emitter| {
+                    for binding in &bindings {
+                        if let Err(err) = validate_typed_pattern(
+                            &binding.pattern,
+                            &binding.type_annotation,
+                            e.span(),
+                        ) {
+                            emitter.emit(err);
+                        }
+                    }
                     if bindings.is_empty() {
                         result
                     } else {

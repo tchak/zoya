@@ -169,6 +169,20 @@ fn split_tokens(spanned_tokens: Vec<zoya_lexer::Spanned>) -> (Vec<Token>, Vec<zo
     spanned_tokens.into_iter().unzip()
 }
 
+/// Convert a chumsky ParseResult into a Result, treating any emitted errors
+/// (including validation errors from `validate`) as failures.
+fn parse_result<T>(
+    result: chumsky::ParseResult<T, Rich<'_, Token>>,
+    byte_spans: &[zoya_lexer::Span],
+) -> Result<T, ParseError> {
+    let (output, errors) = result.into_output_errors();
+    if !errors.is_empty() {
+        Err(convert_errors(errors, byte_spans))
+    } else {
+        output.ok_or_else(|| ParseError::SyntaxErrors(vec![]))
+    }
+}
+
 /// Element type for REPL input parsing
 enum InputElement {
     Item(Box<Item>),
@@ -205,10 +219,7 @@ pub fn parse_input(tokens: Vec<zoya_lexer::Spanned>) -> Result<(Vec<Item>, Vec<S
         (items, stmts)
     });
 
-    parser
-        .parse(&toks)
-        .into_result()
-        .map_err(|errs| convert_errors(errs, &byte_spans))
+    parse_result(parser.parse(&toks), &byte_spans)
 }
 
 /// Parse a module file: mod declarations, use declarations, and items in any order.
@@ -226,10 +237,7 @@ pub fn parse_module(tokens: Vec<zoya_lexer::Spanned>) -> Result<Vec<Item>, Parse
 
     let parser = item_parser().repeated().collect::<Vec<_>>();
 
-    parser
-        .parse(&toks)
-        .into_result()
-        .map_err(|errs| convert_errors(errs, &byte_spans))
+    parse_result(parser.parse(&toks), &byte_spans)
 }
 
 #[cfg(test)]
@@ -241,18 +249,12 @@ mod tests {
 
     fn parse(tokens: Vec<zoya_lexer::Spanned>) -> Result<zoya_ast::Expr, ParseError> {
         let (toks, byte_spans) = split_tokens(tokens);
-        expr_parser()
-            .parse(&toks)
-            .into_result()
-            .map_err(|errs| convert_errors(errs, &byte_spans))
+        parse_result(expr_parser().parse(&toks), &byte_spans)
     }
 
     fn parse_item(tokens: Vec<zoya_lexer::Spanned>) -> Result<Item, ParseError> {
         let (toks, byte_spans) = split_tokens(tokens);
-        item_parser()
-            .parse(&toks)
-            .into_result()
-            .map_err(|errs| convert_errors(errs, &byte_spans))
+        parse_result(item_parser().parse(&toks), &byte_spans)
     }
 
     fn parse_str(input: &str) -> Result<zoya_ast::Expr, ParseError> {
