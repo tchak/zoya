@@ -1460,5 +1460,4 @@ dependencies = [
  "rquickjs",
  "thiserror 2.0.18",
  "zoya-ir",
- "zoya-package",
 ]
