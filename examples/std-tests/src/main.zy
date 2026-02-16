@@ -1,4 +1,5 @@
 pub mod string
 pub mod list
+pub mod dict
 
 pub fn main() -> () ()

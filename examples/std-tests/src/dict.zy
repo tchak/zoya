@@ -1,0 +1,95 @@
+#[test]
+fn test_new() -> () {
+  let d: Dict<String, Int> = Dict::new();
+  let _ = assert_eq(d.is_empty(), true);
+  assert_eq(d.len(), 0)
+}
+
+#[test]
+fn test_insert_and_get() -> () {
+  let d = Dict::new().insert("a", 1);
+  assert_eq(d.get("a"), Some(1))
+}
+
+#[test]
+fn test_get_missing_key() -> () {
+  let d = Dict::new().insert("a", 1);
+  assert_eq(d.get("b"), None)
+}
+
+#[test]
+fn test_insert_overwrite() -> () {
+  let d = Dict::new().insert("a", 1).insert("a", 2);
+  assert_eq(d.get("a"), Some(2))
+}
+
+#[test]
+fn test_remove() -> () {
+  let d = Dict::new().insert("a", 1).remove("a");
+  assert_eq(d.get("a"), None)
+}
+
+#[test]
+fn test_len() -> () {
+  let _ = assert_eq(Dict::new().insert("a", 1).insert("b", 2).insert("c", 3).len(), 3);
+  assert_eq(Dict::new().insert("a", 1).insert("b", 2).remove("a").len(), 1)
+}
+
+#[test]
+fn test_keys() -> () {
+  let d = Dict::new().insert("a", 1);
+  assert_eq(d.keys().len(), 1)
+}
+
+#[test]
+fn test_values() -> () {
+  let d = Dict::new().insert("x", 10);
+  assert_eq(d.values().len(), 1)
+}
+
+#[test]
+fn test_is_empty() -> () {
+  let _ = assert_eq(Dict::new().insert("a", 1).is_empty(), false);
+  let d: Dict<String, Int> = Dict::new();
+  assert_eq(d.is_empty(), true)
+}
+
+#[test]
+fn test_equality() -> () {
+  let d1 = Dict::new().insert("a", 1).insert("b", 2);
+  let d2 = Dict::new().insert("b", 2).insert("a", 1);
+  assert_eq(d1 == d2, true)
+}
+
+#[test]
+fn test_inequality() -> () {
+  let d1 = Dict::new().insert("a", 1);
+  let d2 = Dict::new().insert("a", 2);
+  assert_eq(d1 != d2, true)
+}
+
+#[test]
+fn test_int_keys() -> () {
+  let d = Dict::new().insert(1, "one").insert(2, "two");
+  assert_eq(d.get(1), Some("one"))
+}
+
+#[test]
+fn test_has() -> () {
+  let d = Dict::new().insert("a", 1);
+  let _ = assert_eq(d.has("a"), true);
+  assert_eq(d.has("b"), false)
+}
+
+#[test]
+fn test_from() -> () {
+  let empty: Dict<String, Int> = Dict::from([]);
+  let _ = assert_eq(empty.is_empty(), true);
+  let _ = assert_eq(Dict::from([("a", 1), ("b", 2)]).get("a"), Some(1));
+  assert_eq(Dict::from([("a", 1), ("b", 2), ("c", 3)]).len(), 3)
+}
+
+#[test]
+fn test_multiple_operations() -> () {
+  assert_eq(Dict::new().insert("a", 1).insert("b", 2).insert("c", 3).remove("b").len(), 2)
+}
