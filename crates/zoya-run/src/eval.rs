@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use rquickjs::{BigInt, CatchResultExt, Context, Ctx, Runtime};
+use rquickjs::{BigInt, CatchResultExt, Context, Ctx, FromJs, Runtime};
 
 use zoya_ir::{EnumVariantType, Type, TypeVarId};
 
@@ -211,12 +211,12 @@ pub(crate) fn eval_script(
 ) -> Result<Value, EvalError> {
     // Define all functions in global scope
     let _: rquickjs::Value = ctx.eval(code).catch(ctx).map_err(map_js_error)?;
-    // Call entry function and get result
-    let js_val: rquickjs::Value = ctx
+    // Call entry function, extract into JSValue via FromJs, then convert to Value
+    let js_val: JSValue = ctx
         .eval(format!("$$zoya_to_js({}())", entry_func))
         .catch(ctx)
         .map_err(map_js_error)?;
-    js_value_to_value(js_val, &result_type, type_lookup)
+    Value::from_js_value(js_val, &result_type, type_lookup)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -234,10 +234,6 @@ pub enum Value {
     },
     Set(Vec<Value>),
     Dict(Vec<(Value, Value)>),
-    Fn {
-        params: Vec<Type>,
-        ret: Box<Type>,
-    },
     Enum {
         enum_name: String,
         variant_name: String,
@@ -325,17 +321,6 @@ impl fmt::Display for Value {
                 }
                 write!(f, "}}")
             }
-            Value::Fn { params, ret } => {
-                if params.is_empty() {
-                    write!(f, "<fn() -> {}>", ret)
-                } else if params.len() == 1 {
-                    write!(f, "<fn({}) -> {}>", params[0], ret)
-                } else {
-                    write!(f, "<fn(")?;
-                    write_comma_separated(f, params)?;
-                    write!(f, ") -> {}>", ret)
-                }
-            }
             Value::Enum {
                 enum_name,
                 variant_name,
@@ -372,199 +357,267 @@ pub enum EvalError {
     RuntimeError(String),
 }
 
-/// Convert a JavaScript value to a Zoya Value based on expected type
-fn js_value_to_value(
-    js_val: rquickjs::Value<'_>,
-    expected_type: &Type,
-    type_lookup: &TypeLookup,
-) -> Result<Value, EvalError> {
-    match expected_type {
-        Type::Int => {
-            let val: f64 = js_val
-                .get()
-                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-            if !val.is_finite() {
-                return Err(EvalError::Panic("division by zero".to_string()));
-            }
-            Ok(Value::Int(val as i64))
-        }
-        Type::BigInt => {
-            let val: BigInt = js_val
-                .get()
-                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-            let value = val.to_i64().map_err(|_| {
-                EvalError::RuntimeError("BigInt value too large for i64".to_string())
-            })?;
-            Ok(Value::BigInt(value))
-        }
-        Type::Float => {
-            let val: f64 = js_val
-                .get()
-                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-            if !val.is_finite() {
-                return Err(EvalError::Panic("division by zero".to_string()));
-            }
-            Ok(Value::Float(val))
-        }
-        Type::Bool => {
-            let val: bool = js_val
-                .get()
-                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-            Ok(Value::Bool(val))
-        }
-        Type::String => {
-            let val: String = js_val
-                .get()
-                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-            Ok(Value::String(val))
-        }
-        Type::List(elem_type) => {
-            let array: rquickjs::Array = js_val
-                .get()
-                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-            let mut values = Vec::new();
-            for i in 0..array.len() {
-                let elem_js: rquickjs::Value = array
-                    .get(i)
-                    .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-                let elem_value = js_value_to_value(elem_js, elem_type, type_lookup)?;
-                values.push(elem_value);
-            }
-            Ok(Value::List(values))
-        }
-        Type::Tuple(elem_types) => {
-            let array: rquickjs::Array = js_val
-                .get()
-                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-            let mut values = Vec::new();
-            for (i, elem_type) in elem_types.iter().enumerate() {
-                let elem_js: rquickjs::Value = array
-                    .get(i)
-                    .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-                let elem_value = js_value_to_value(elem_js, elem_type, type_lookup)?;
-                values.push(elem_value);
-            }
-            Ok(Value::Tuple(values))
-        }
-        Type::Struct {
-            name,
-            type_args,
-            fields,
-            ..
-        } => {
-            let resolved_fields = type_lookup.resolve_struct_fields(name, fields, type_args);
-            let obj: rquickjs::Object = js_val
-                .get()
-                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-            let mut field_values = Vec::new();
-            for (field_name, field_type) in &resolved_fields {
-                let field_js: rquickjs::Value = obj
-                    .get(field_name.as_str())
-                    .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-                let field_value = js_value_to_value(field_js, field_type, type_lookup)?;
-                field_values.push((field_name.clone(), field_value));
-            }
-            Ok(Value::Struct {
-                name: name.clone(),
-                fields: field_values,
-            })
-        }
-        Type::Set(elem_type) => {
-            let array: rquickjs::Array = js_val
-                .get()
-                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-            let mut values = Vec::new();
-            for i in 0..array.len() {
-                let elem_js: rquickjs::Value = array
-                    .get(i)
-                    .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-                let elem_value = js_value_to_value(elem_js, elem_type, type_lookup)?;
-                values.push(elem_value);
-            }
-            Ok(Value::Set(values))
-        }
-        Type::Dict(key_type, val_type) => {
-            let array: rquickjs::Array = js_val
-                .get()
-                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-            let mut entries = Vec::new();
-            for i in 0..array.len() {
-                let pair: rquickjs::Array = array
-                    .get(i)
-                    .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-                let key_js: rquickjs::Value = pair
-                    .get(0)
-                    .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-                let val_js: rquickjs::Value = pair
-                    .get(1)
-                    .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-                let key_value = js_value_to_value(key_js, key_type, type_lookup)?;
-                let val_value = js_value_to_value(val_js, val_type, type_lookup)?;
-                entries.push((key_value, val_value));
-            }
-            Ok(Value::Dict(entries))
-        }
-        Type::Var(id) => Err(EvalError::RuntimeError(format!(
-            "unresolved type variable: {}",
-            id
-        ))),
-        Type::Function { params, ret } => Ok(Value::Fn {
-            params: params.clone(),
-            ret: ret.clone(),
-        }),
-        Type::Enum {
-            name: enum_name,
-            type_args,
-            variants,
-            ..
-        } => {
-            let resolved_variants =
-                type_lookup.resolve_enum_variants(enum_name, variants, type_args);
-            let obj: rquickjs::Object = js_val
-                .get()
-                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-            let tag: String = obj
-                .get("$tag")
-                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+/// Intermediate representation of a JavaScript value, decoupled from QuickJS runtime.
+#[derive(Debug, Clone)]
+pub(crate) enum JSValue {
+    Int(i64),
+    BigInt(i64),
+    Float(f64),
+    Bool(bool),
+    String(String),
+    Array {
+        tag: Option<String>,
+        items: Vec<JSValue>,
+    },
+    Object {
+        tag: Option<String>,
+        fields: HashMap<String, JSValue>,
+    },
+}
 
-            let variant_type = resolved_variants
-                .iter()
-                .find(|(vname, _)| vname == &tag)
-                .map(|(_, vt)| vt)
-                .ok_or_else(|| EvalError::RuntimeError(format!("unknown enum variant: {}", tag)))?;
-
-            let fields = match variant_type {
-                EnumVariantType::Unit => EnumValueFields::Unit,
-                EnumVariantType::Tuple(field_types) => {
-                    let mut values = Vec::new();
-                    for (i, field_type) in field_types.iter().enumerate() {
-                        let field_js: rquickjs::Value = obj
-                            .get(format!("${}", i))
-                            .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-                        let field_value = js_value_to_value(field_js, field_type, type_lookup)?;
-                        values.push(field_value);
-                    }
-                    EnumValueFields::Tuple(values)
+impl<'js> FromJs<'js> for JSValue {
+    #[allow(clippy::only_used_in_recursion)]
+    fn from_js(ctx: &Ctx<'js>, value: rquickjs::Value<'js>) -> rquickjs::Result<Self> {
+        if value.is_bool() {
+            return Ok(JSValue::Bool(value.as_bool().unwrap()));
+        }
+        if value.is_int() {
+            return Ok(JSValue::Int(value.as_int().unwrap() as i64));
+        }
+        if value.type_of() == rquickjs::Type::BigInt {
+            let big: BigInt = value.get()?;
+            let n = big
+                .to_i64()
+                .map_err(|_| rquickjs::Error::new_from_js("bigint", "i64"))?;
+            return Ok(JSValue::BigInt(n));
+        }
+        if value.is_float() {
+            return Ok(JSValue::Float(value.as_float().unwrap()));
+        }
+        if value.is_string() {
+            let s: String = value.get()?;
+            return Ok(JSValue::String(s));
+        }
+        if value.is_array() {
+            let array: rquickjs::Array = value.get()?;
+            let mut items = Vec::with_capacity(array.len());
+            for i in 0..array.len() {
+                let elem: rquickjs::Value = array.get(i)?;
+                items.push(JSValue::from_js(ctx, elem)?);
+            }
+            // Read $tag property from the array-as-object
+            let obj: rquickjs::Object = array.into_object();
+            let tag: Option<String> = obj.get("$tag")?;
+            return Ok(JSValue::Array { tag, items });
+        }
+        if value.is_object() {
+            let obj: rquickjs::Object = value.get()?;
+            let mut tag = None;
+            let mut fields = HashMap::new();
+            for result in obj.props::<String, rquickjs::Value>() {
+                let (key, val) = result?;
+                if key == "$tag" {
+                    tag = Some(val.get::<String>()?);
+                } else {
+                    fields.insert(key, JSValue::from_js(ctx, val)?);
                 }
-                EnumVariantType::Struct(field_defs) => {
-                    let mut field_values = Vec::new();
-                    for (field_name, field_type) in field_defs {
-                        let field_js: rquickjs::Value = obj
-                            .get(field_name.as_str())
-                            .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-                        let field_value = js_value_to_value(field_js, field_type, type_lookup)?;
-                        field_values.push((field_name.clone(), field_value));
-                    }
-                    EnumValueFields::Struct(field_values)
-                }
-            };
-
-            Ok(Value::Enum {
-                enum_name: enum_name.clone(),
-                variant_name: tag,
-                fields,
-            })
+            }
+            return Ok(JSValue::Object { tag, fields });
         }
+        Err(rquickjs::Error::new_from_js(value.type_name(), "JSValue"))
+    }
+}
+
+impl Value {
+    /// Convert a `JSValue` to a Zoya `Value` guided by the expected Zoya type.
+    pub(crate) fn from_js_value(
+        js: JSValue,
+        ty: &Type,
+        type_lookup: &TypeLookup,
+    ) -> Result<Value, EvalError> {
+        match (js, ty) {
+            (JSValue::Int(n), Type::Int) => Ok(Value::Int(n)),
+            (JSValue::Float(f), Type::Int) => {
+                if !f.is_finite() {
+                    return Err(EvalError::Panic("division by zero".to_string()));
+                }
+                Ok(Value::Int(f as i64))
+            }
+            (JSValue::Int(n), Type::Float) => Ok(Value::Float(n as f64)),
+            (JSValue::Float(f), Type::Float) => {
+                if !f.is_finite() {
+                    return Err(EvalError::Panic("division by zero".to_string()));
+                }
+                Ok(Value::Float(f))
+            }
+            (JSValue::BigInt(n), Type::BigInt) => Ok(Value::BigInt(n)),
+            (JSValue::Bool(b), Type::Bool) => Ok(Value::Bool(b)),
+            (JSValue::String(s), Type::String) => Ok(Value::String(s)),
+            (JSValue::Array { tag: None, items }, Type::List(elem_type)) => {
+                let values = items
+                    .into_iter()
+                    .map(|item| Value::from_js_value(item, elem_type, type_lookup))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(Value::List(values))
+            }
+            (JSValue::Array { tag: None, items }, Type::Tuple(elem_types)) => {
+                let values = items
+                    .into_iter()
+                    .zip(elem_types.iter())
+                    .map(|(item, et)| Value::from_js_value(item, et, type_lookup))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(Value::Tuple(values))
+            }
+            (
+                JSValue::Array {
+                    tag: Some(ref t),
+                    items,
+                },
+                Type::Set(elem_type),
+            ) if t == "Set" => {
+                let values = items
+                    .into_iter()
+                    .map(|item| Value::from_js_value(item, elem_type, type_lookup))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(Value::Set(values))
+            }
+            (
+                JSValue::Array {
+                    tag: Some(ref t),
+                    items,
+                },
+                Type::Dict(key_type, val_type),
+            ) if t == "Dict" => {
+                let mut entries = Vec::with_capacity(items.len());
+                for item in items {
+                    if let JSValue::Array { items: pair, .. } = item {
+                        if pair.len() == 2 {
+                            let mut iter = pair.into_iter();
+                            let key =
+                                Value::from_js_value(iter.next().unwrap(), key_type, type_lookup)?;
+                            let val =
+                                Value::from_js_value(iter.next().unwrap(), val_type, type_lookup)?;
+                            entries.push((key, val));
+                        } else {
+                            return Err(EvalError::RuntimeError(
+                                "dict entry must be a 2-element array".to_string(),
+                            ));
+                        }
+                    } else {
+                        return Err(EvalError::RuntimeError(
+                            "dict entry must be an array".to_string(),
+                        ));
+                    }
+                }
+                Ok(Value::Dict(entries))
+            }
+            (
+                JSValue::Object { tag: None, fields },
+                Type::Struct {
+                    name,
+                    type_args,
+                    fields: type_fields,
+                    ..
+                },
+            ) => {
+                let resolved_fields =
+                    type_lookup.resolve_struct_fields(name, type_fields, type_args);
+                let mut field_values = Vec::with_capacity(resolved_fields.len());
+                for (field_name, field_type) in &resolved_fields {
+                    let js_field = fields.get(field_name).ok_or_else(|| {
+                        EvalError::RuntimeError(format!("missing struct field: {field_name}"))
+                    })?;
+                    let field_value =
+                        Value::from_js_value(js_field.clone(), field_type, type_lookup)?;
+                    field_values.push((field_name.clone(), field_value));
+                }
+                Ok(Value::Struct {
+                    name: name.clone(),
+                    fields: field_values,
+                })
+            }
+            (
+                JSValue::Object {
+                    tag: Some(variant_name),
+                    fields,
+                },
+                Type::Enum {
+                    name: enum_name,
+                    type_args,
+                    variants,
+                    ..
+                },
+            ) => {
+                let resolved_variants =
+                    type_lookup.resolve_enum_variants(enum_name, variants, type_args);
+                let variant_type = resolved_variants
+                    .iter()
+                    .find(|(vname, _)| vname == &variant_name)
+                    .map(|(_, vt)| vt)
+                    .ok_or_else(|| {
+                        EvalError::RuntimeError(format!("unknown enum variant: {variant_name}"))
+                    })?;
+
+                let enum_fields = match variant_type {
+                    EnumVariantType::Unit => EnumValueFields::Unit,
+                    EnumVariantType::Tuple(field_types) => {
+                        let mut values = Vec::with_capacity(field_types.len());
+                        for (i, field_type) in field_types.iter().enumerate() {
+                            let key = format!("${i}");
+                            let js_field = fields.get(&key).ok_or_else(|| {
+                                EvalError::RuntimeError(format!("missing tuple field: {key}"))
+                            })?;
+                            let val =
+                                Value::from_js_value(js_field.clone(), field_type, type_lookup)?;
+                            values.push(val);
+                        }
+                        EnumValueFields::Tuple(values)
+                    }
+                    EnumVariantType::Struct(field_defs) => {
+                        let mut field_values = Vec::with_capacity(field_defs.len());
+                        for (field_name, field_type) in field_defs {
+                            let js_field = fields.get(field_name).ok_or_else(|| {
+                                EvalError::RuntimeError(format!(
+                                    "missing enum struct field: {field_name}"
+                                ))
+                            })?;
+                            let val =
+                                Value::from_js_value(js_field.clone(), field_type, type_lookup)?;
+                            field_values.push((field_name.clone(), val));
+                        }
+                        EnumValueFields::Struct(field_values)
+                    }
+                };
+
+                Ok(Value::Enum {
+                    enum_name: enum_name.clone(),
+                    variant_name,
+                    fields: enum_fields,
+                })
+            }
+            (_, Type::Function { .. }) => Err(EvalError::RuntimeError(
+                "cannot convert function value from JS".to_string(),
+            )),
+            (_, Type::Var(id)) => Err(EvalError::RuntimeError(format!(
+                "unresolved type variable: {id}"
+            ))),
+            (js, ty) => Err(EvalError::RuntimeError(format!(
+                "type mismatch: cannot convert {js_kind} to {ty}",
+                js_kind = js_value_kind(&js),
+            ))),
+        }
+    }
+}
+
+fn js_value_kind(js: &JSValue) -> &'static str {
+    match js {
+        JSValue::Int(_) => "Int",
+        JSValue::BigInt(_) => "BigInt",
+        JSValue::Float(_) => "Float",
+        JSValue::Bool(_) => "Bool",
+        JSValue::String(_) => "String",
+        JSValue::Array { .. } => "Array",
+        JSValue::Object { .. } => "Object",
     }
 }
 

@@ -96,8 +96,16 @@ function $$zoya_to_js(v) {
   if (v === null || v === undefined || typeof v === 'boolean' || typeof v === 'number' || typeof v === 'string' || typeof v === 'bigint' || typeof v === 'function') return v;
   if (Array.isArray(v)) return v.map($$zoya_to_js);
   if (typeof v === 'object') {
-    if (v.$$set === true) return $$Dict.keys(v.$$data).map($$zoya_to_js);
-    if (v.$$hamt === true) return $$Dict.entries(v).map(function(e) { return [$$zoya_to_js(e[0]), $$zoya_to_js(e[1])]; });
+    if (v.$$set === true) {
+      var arr = $$Dict.keys(v.$$data).map($$zoya_to_js);
+      arr.$tag = "Set";
+      return arr;
+    }
+    if (v.$$hamt === true) {
+      var arr = $$Dict.entries(v).map(function(e) { return [$$zoya_to_js(e[0]), $$zoya_to_js(e[1])]; });
+      arr.$tag = "Dict";
+      return arr;
+    }
     var out = {};
     var keys = Object.keys(v);
     for (var i = 0; i < keys.length; i++) out[keys[i]] = $$zoya_to_js(v[keys[i]]);
