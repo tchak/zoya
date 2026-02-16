@@ -10,11 +10,13 @@ Run a Zoya file or package. Executes the `pub fn main()` function and prints its
 zoya run program.zy               # Run a single file
 zoya run                          # Run package in current directory (requires package.toml)
 zoya run --mode test program.zy   # Run in test mode (includes #[test] items)
+zoya run --json program.zy        # Output result as JSON
 ```
 
 | Option | Description |
 |--------|-------------|
 | `--mode <mode>` | Compilation mode: `dev` (default), `test`, or `release` |
+| `--json` | Output result as JSON instead of the default display format |
 
 ### `zoya check [path]`
 

@@ -4,9 +4,13 @@ use zoya_loader::Mode;
 use zoya_run::{EvalError, Runner};
 
 /// Run a Zoya package or file and print the result
-pub fn execute(path: &Path, mode: Mode) -> Result<(), EvalError> {
+pub fn execute(path: &Path, mode: Mode, json: bool) -> Result<(), EvalError> {
     let value = Runner::new().path(path).mode(mode).run()?;
-    println!("{}", value);
+    if json {
+        println!("{}", value.to_json());
+    } else {
+        println!("{}", value);
+    }
     Ok(())
 }
 
@@ -20,13 +24,13 @@ mod tests {
         let file = dir.path().join("test.zy");
         std::fs::write(&file, "pub fn main() -> Int { 42 }").unwrap();
 
-        let result = execute(&file, Mode::Dev);
+        let result = execute(&file, Mode::Dev, false);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_execute_file_not_found() {
-        let result = execute(Path::new("nonexistent.zy"), Mode::Dev);
+        let result = execute(Path::new("nonexistent.zy"), Mode::Dev, false);
         assert!(result.is_err());
     }
 
@@ -36,7 +40,7 @@ mod tests {
         let file = dir.path().join("test.zy");
         std::fs::write(&file, "pub fn main() -> Int { true }").unwrap();
 
-        let result = execute(&file, Mode::Dev);
+        let result = execute(&file, Mode::Dev, false);
         assert!(result.is_err());
     }
 
@@ -46,7 +50,7 @@ mod tests {
         let file = dir.path().join("test.zy");
         std::fs::write(&file, "fn helper() -> Int { 1 }").unwrap();
 
-        let result = execute(&file, Mode::Dev);
+        let result = execute(&file, Mode::Dev, false);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.to_string().contains("main"));
@@ -58,7 +62,7 @@ mod tests {
         let file = dir.path().join("test.zy");
         std::fs::write(&file, "pub fn main(x: Int) -> Int { x }").unwrap();
 
-        let result = execute(&file, Mode::Dev);
+        let result = execute(&file, Mode::Dev, false);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.to_string().contains("parameter"));
@@ -70,7 +74,7 @@ mod tests {
         let file = dir.path().join("test.zy");
         std::fs::write(&file, "pub fn main() -> Bool { true }").unwrap();
 
-        let result = execute(&file, Mode::Dev);
+        let result = execute(&file, Mode::Dev, false);
         assert!(result.is_ok());
     }
 
@@ -80,7 +84,7 @@ mod tests {
         let file = dir.path().join("test.zy");
         std::fs::write(&file, r#"pub fn main() -> String { "hello" }"#).unwrap();
 
-        let result = execute(&file, Mode::Dev);
+        let result = execute(&file, Mode::Dev, false);
         assert!(result.is_ok());
     }
 
@@ -110,7 +114,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = execute(&main_file, Mode::Dev);
+        let result = execute(&main_file, Mode::Dev, false);
         assert!(result.is_ok());
     }
 }

@@ -23,6 +23,9 @@ enum Command {
         /// Compilation mode (dev, test, release)
         #[arg(long, default_value = "dev")]
         mode: String,
+        /// Output result as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Start the interactive REPL
     Repl {
@@ -87,10 +90,10 @@ fn main() {
     let term = Term::stderr();
 
     match cli.command {
-        Some(Command::Run { path, mode }) => {
+        Some(Command::Run { path, mode, json }) => {
             let path = path.unwrap_or_else(|| PathBuf::from("."));
             let mode = parse_mode(&term, &mode);
-            if let Err(e) = commands::run::execute(&path, mode) {
+            if let Err(e) = commands::run::execute(&path, mode, json) {
                 fatal(&term, &e.to_string());
             }
         }
