@@ -213,7 +213,7 @@ pub(crate) fn eval_script(
     let _: rquickjs::Value = ctx.eval(code).catch(ctx).map_err(map_js_error)?;
     // Call entry function and get result
     let js_val: rquickjs::Value = ctx
-        .eval(format!("{}()", entry_func))
+        .eval(format!("$$zoya_to_js({}())", entry_func))
         .catch(ctx)
         .map_err(map_js_error)?;
     js_value_to_value(js_val, &result_type, type_lookup)
@@ -232,13 +232,8 @@ pub enum Value {
         name: String,
         fields: Vec<(String, Value)>,
     },
-    Set {
-        elem_type: Type,
-    },
-    Dict {
-        key_type: Type,
-        val_type: Type,
-    },
+    Set(Vec<Value>),
+    Dict(Vec<(Value, Value)>),
     Fn {
         params: Vec<Type>,
         ret: Box<Type>,
@@ -315,11 +310,20 @@ impl fmt::Display for Value {
                     write!(f, " }}")
                 }
             }
-            Value::Set { elem_type } => {
-                write!(f, "<Set<{}>>", elem_type)
+            Value::Set(items) => {
+                write!(f, "{{")?;
+                write_comma_separated(f, items)?;
+                write!(f, "}}")
             }
-            Value::Dict { key_type, val_type } => {
-                write!(f, "<Dict<{}, {}>>", key_type, val_type)
+            Value::Dict(entries) => {
+                write!(f, "{{")?;
+                for (i, (k, v)) in entries.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", k, v)?;
+                }
+                write!(f, "}}")
             }
             Value::Fn { params, ret } => {
                 if params.is_empty() {
@@ -465,13 +469,41 @@ fn js_value_to_value(
                 fields: field_values,
             })
         }
-        Type::Set(elem_type) => Ok(Value::Set {
-            elem_type: *elem_type.clone(),
-        }),
-        Type::Dict(key_type, val_type) => Ok(Value::Dict {
-            key_type: *key_type.clone(),
-            val_type: *val_type.clone(),
-        }),
+        Type::Set(elem_type) => {
+            let array: rquickjs::Array = js_val
+                .get()
+                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+            let mut values = Vec::new();
+            for i in 0..array.len() {
+                let elem_js: rquickjs::Value = array
+                    .get(i)
+                    .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+                let elem_value = js_value_to_value(elem_js, elem_type, type_lookup)?;
+                values.push(elem_value);
+            }
+            Ok(Value::Set(values))
+        }
+        Type::Dict(key_type, val_type) => {
+            let array: rquickjs::Array = js_val
+                .get()
+                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+            let mut entries = Vec::new();
+            for i in 0..array.len() {
+                let pair: rquickjs::Array = array
+                    .get(i)
+                    .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+                let key_js: rquickjs::Value = pair
+                    .get(0)
+                    .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+                let val_js: rquickjs::Value = pair
+                    .get(1)
+                    .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+                let key_value = js_value_to_value(key_js, key_type, type_lookup)?;
+                let val_value = js_value_to_value(val_js, val_type, type_lookup)?;
+                entries.push((key_value, val_value));
+            }
+            Ok(Value::Dict(entries))
+        }
         Type::Var(id) => Err(EvalError::RuntimeError(format!(
             "unresolved type variable: {}",
             id

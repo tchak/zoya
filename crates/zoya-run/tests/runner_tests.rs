@@ -4828,7 +4828,10 @@ fn test_json_fmt_object() {
         pub fn main() -> JSON { JSON::Object(Dict::from([("key", JSON::String("value"))])) }
     "#;
     let result = run_source(source).unwrap();
-    assert_eq!(result.to_string(), "JSON::Object(<Dict<String, JSON>>)");
+    assert_eq!(
+        result.to_string(),
+        "JSON::Object({\"key\": JSON::String(\"value\")})"
+    );
 }
 
 #[test]
@@ -6515,7 +6518,14 @@ fn test_dict_repl_display() {
         }
     "#;
     let result = run_source(source).unwrap();
-    assert_eq!(result.to_string(), "<Dict<String, Int>>");
+    match &result {
+        Value::Dict(entries) => {
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0], (Value::String("a".to_string()), Value::Int(1)));
+        }
+        other => panic!("expected Value::Dict, got {:?}", other),
+    }
+    assert_eq!(result.to_string(), "{\"a\": 1}");
 }
 
 // Interpolated string tests
@@ -6647,5 +6657,19 @@ fn test_set_repl_display() {
         }
     "#;
     let result = run_source(source).unwrap();
-    assert_eq!(result.to_string(), "<Set<Int>>");
+    match &result {
+        Value::Set(elements) => {
+            assert_eq!(elements.len(), 3);
+            let mut sorted: Vec<_> = elements
+                .iter()
+                .map(|v| match v {
+                    Value::Int(n) => *n,
+                    other => panic!("expected Value::Int, got {:?}", other),
+                })
+                .collect();
+            sorted.sort();
+            assert_eq!(sorted, vec![1, 2, 3]);
+        }
+        other => panic!("expected Value::Set, got {:?}", other),
+    }
 }
