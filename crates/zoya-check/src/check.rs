@@ -2820,6 +2820,32 @@ fn is_externally_visible(
     true
 }
 
+/// Compute the first safe TypeVarId counter value to avoid collisions with dep definitions.
+fn max_type_var_id_in_deps(deps: &[&CheckedPackage]) -> usize {
+    let mut max_id: usize = 0;
+    for dep in deps {
+        for def in dep.definitions.values() {
+            let ids: &[&[TypeVarId]] = match def {
+                Definition::Function(f) => &[&f.type_var_ids],
+                Definition::Struct(s) => &[&s.type_var_ids],
+                Definition::Enum(e) => &[&e.type_var_ids],
+                Definition::EnumVariant(e, _) => &[&e.type_var_ids],
+                Definition::TypeAlias(t) => &[&t.type_var_ids],
+                Definition::ImplMethod(m) => &[&m.impl_type_var_ids, &m.type_var_ids],
+                Definition::Module(_) => &[],
+            };
+            for group in ids {
+                for id in *group {
+                    if id.0 >= max_id {
+                        max_id = id.0 + 1;
+                    }
+                }
+            }
+        }
+    }
+    max_id
+}
+
 /// Check an entire module tree, returning a checked module tree.
 ///
 /// This performs multi-module type checking:
@@ -2827,7 +2853,13 @@ fn is_externally_visible(
 /// 2. Type-check all function bodies with module context for path resolution
 pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, TypeError> {
     let mut env = TypeEnv::default();
-    let mut ctx = UnifyCtx::new();
+
+    // Compute the starting TypeVarId counter to avoid collisions with dep definitions.
+    // Dependencies contain TypeVarIds in their type definitions (e.g., Option<T> has T = TypeVarId(N)).
+    // If our fresh variables start from 0, they can collide with these dep TypeVarIds during
+    // instantiation and unification, causing spurious type errors.
+    let start = max_type_var_id_in_deps(deps);
+    let mut ctx = UnifyCtx::with_start(start);
 
     // Phase 0: Inject dependency definitions
     for dep in deps {
@@ -3521,6 +3553,9 @@ fn check_module_bodies(
     for item in items {
         match item {
             Item::Function(func) => {
+                // Clear substitutions before each function body check to prevent
+                // type variable bindings from one function leaking into another.
+                ctx.clear_substitutions();
                 let typed = check_function_in_module(func, current_module, env, ctx, package_name)?;
                 let func_path = current_module.child(&func.name);
                 if let Some(Definition::Function(ft)) = env.definitions.get_mut(&func_path) {
@@ -3537,6 +3572,8 @@ fn check_module_bodies(
                 )?;
 
                 for method in &impl_block.methods {
+                    // Clear substitutions before each method body check
+                    ctx.clear_substitutions();
                     let method_qpath = type_qpath.child(&method.name);
                     let typed = check_impl_method_body(
                         method,

@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use zoya_ir::{EnumVariantType, Type, TypeError, TypeScheme, TypeVarId};
 
 /// Unification context that tracks type variable bindings.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct UnifyCtx {
     /// Maps type variables to their bound types (Union-Find style)
     substitutions: HashMap<TypeVarId, Type>,
@@ -14,9 +14,29 @@ pub struct UnifyCtx {
 }
 
 impl UnifyCtx {
-    /// Create a new empty unification context.
+    /// Create a new empty unification context with the counter starting at 0.
+    #[cfg(test)]
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            substitutions: HashMap::new(),
+            next_var: 0,
+        }
+    }
+
+    /// Create a new unification context with the counter starting after
+    /// the given value. Used to avoid TypeVarId collisions with dependency
+    /// definitions that already use TypeVarIds in the range `0..start`.
+    pub fn with_start(start: usize) -> Self {
+        Self {
+            substitutions: HashMap::new(),
+            next_var: start,
+        }
+    }
+
+    /// Clear all substitutions while preserving the variable counter.
+    /// Used to isolate type inference between independent function body checks.
+    pub fn clear_substitutions(&mut self) {
+        self.substitutions.clear();
     }
 
     /// Create a fresh type variable.
