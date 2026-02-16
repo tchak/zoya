@@ -308,6 +308,65 @@ impl JSValue {
     }
 }
 
+fn value_data_to_fields(data: ValueData) -> HashMap<String, JSValue> {
+    match data {
+        ValueData::Unit => HashMap::new(),
+        ValueData::Tuple(values) => values
+            .into_iter()
+            .enumerate()
+            .map(|(i, v)| (format!("${i}"), JSValue::from(v)))
+            .collect(),
+        ValueData::Struct(map) => map
+            .into_iter()
+            .map(|(k, v)| (k, JSValue::from(v)))
+            .collect(),
+    }
+}
+
+impl From<Value> for JSValue {
+    fn from(value: Value) -> Self {
+        match value {
+            Value::Int(n) => JSValue::Int(n),
+            Value::BigInt(n) => JSValue::BigInt(n),
+            Value::Float(f) => JSValue::Float(f),
+            Value::Bool(b) => JSValue::Bool(b),
+            Value::String(s) => JSValue::String(s),
+            Value::List(items) => JSValue::Array {
+                tag: None,
+                items: items.into_iter().map(JSValue::from).collect(),
+            },
+            Value::Tuple(items) => JSValue::Array {
+                tag: None,
+                items: items.into_iter().map(JSValue::from).collect(),
+            },
+            Value::Set(items) => JSValue::Array {
+                tag: Some("Set".to_string()),
+                items: items.into_iter().map(JSValue::from).collect(),
+            },
+            Value::Dict(entries) => JSValue::Array {
+                tag: Some("Dict".to_string()),
+                items: entries
+                    .into_iter()
+                    .map(|(k, v)| JSValue::Array {
+                        tag: None,
+                        items: vec![JSValue::from(k), JSValue::from(v)],
+                    })
+                    .collect(),
+            },
+            Value::Struct { data, .. } => JSValue::Object {
+                tag: None,
+                fields: value_data_to_fields(data),
+            },
+            Value::EnumVariant {
+                variant_name, data, ..
+            } => JSValue::Object {
+                tag: Some(variant_name),
+                fields: value_data_to_fields(data),
+            },
+        }
+    }
+}
+
 #[cfg(feature = "quickjs")]
 impl<'js> rquickjs::IntoJs<'js> for JSValue {
     fn into_js(self, ctx: &rquickjs::Ctx<'js>) -> rquickjs::Result<rquickjs::Value<'js>> {
