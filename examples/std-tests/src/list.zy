@@ -31,6 +31,11 @@ fn test_map() -> () {
 }
 
 #[test]
+fn test_map_type_change() -> () {
+  assert_eq([1, 2].map(|x| x > 0), [true, true])
+}
+
+#[test]
 fn test_filter() -> () {
   let _ = assert_eq([1, 2, 3, 4].filter(|x| x > 2), [3, 4]);
   assert_eq([1, 2, 3].filter(|x| x > 10), [])

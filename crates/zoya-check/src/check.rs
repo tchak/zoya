@@ -91,10 +91,9 @@ fn check_function(
         });
     }
 
-    // Create fresh type variables for type parameters
-    let mut type_param_map = HashMap::new();
+    // Create type variables for type parameters
+    // Check type parameter names are PascalCase
     for name in &func.type_params {
-        // Check type parameter name is PascalCase
         if !is_pascal_case(name) {
             return Err(TypeError {
                 message: format!(
@@ -104,9 +103,21 @@ fn check_function(
                 ),
             });
         }
-        let var = ctx.fresh_var();
-        if let Type::Var(id) = var {
+    }
+    let func_path = current_module.child(&func.name);
+    let mut type_param_map = HashMap::new();
+    if let Some(Definition::Function(stored_ft)) = env.definitions.get(&func_path) {
+        // Reuse Phase 1 TypeVarIds for consistency with stored type_var_ids
+        for (name, &id) in func.type_params.iter().zip(stored_ft.type_var_ids.iter()) {
             type_param_map.insert(name.clone(), id);
+        }
+    } else {
+        // Fallback (e.g. tests that don't pre-register)
+        for name in &func.type_params {
+            let var = ctx.fresh_var();
+            if let Type::Var(id) = var {
+                type_param_map.insert(name.clone(), id);
+            }
         }
     }
 
@@ -261,12 +272,25 @@ fn check_impl_method_body(
     ctx: &mut UnifyCtx,
     package_name: &str,
 ) -> Result<TypedFunction, TypeError> {
-    // Create fresh type variables for impl type params
+    // Create type variables for impl type params and method type params
+    let method_qpath = type_qpath.child(&method.name);
     let mut type_param_map = HashMap::new();
-    for name in &impl_block.type_params {
-        let var = ctx.fresh_var();
-        if let Type::Var(id) = var {
+    if let Some(Definition::ImplMethod(stored_imt)) = env.definitions.get(&method_qpath) {
+        // Reuse Phase 1 TypeVarIds for consistency with stored type_var_ids
+        for (name, &id) in impl_block
+            .type_params
+            .iter()
+            .zip(stored_imt.impl_type_var_ids.iter())
+        {
             type_param_map.insert(name.clone(), id);
+        }
+    } else {
+        // Fallback (e.g. tests that don't pre-register)
+        for name in &impl_block.type_params {
+            let var = ctx.fresh_var();
+            if let Type::Var(id) = var {
+                type_param_map.insert(name.clone(), id);
+            }
         }
     }
 
@@ -279,10 +303,20 @@ fn check_impl_method_body(
     )?;
 
     // Add method's own type params
-    for name in &method.type_params {
-        let var = ctx.fresh_var();
-        if let Type::Var(id) = var {
+    if let Some(Definition::ImplMethod(stored_imt)) = env.definitions.get(&method_qpath) {
+        for (name, &id) in method
+            .type_params
+            .iter()
+            .zip(stored_imt.type_var_ids.iter())
+        {
             type_param_map.insert(name.clone(), id);
+        }
+    } else {
+        for name in &method.type_params {
+            let var = ctx.fresh_var();
+            if let Type::Var(id) = var {
+                type_param_map.insert(name.clone(), id);
+            }
         }
     }
 

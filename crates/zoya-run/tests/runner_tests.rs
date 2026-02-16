@@ -887,17 +887,6 @@ fn test_run_list_match_prefix_suffix_multiple() {
     assert_eq!(result, Value::Int(14)); // 1 + 2 + 5 + 6
 }
 
-// List type-change map (needs return-type annotation to guide inference)
-#[test]
-fn test_run_list_map_type_change() {
-    let source = "pub fn main() -> List<Bool> { [1, 2].map(|x| x > 0) }";
-    let result = run_source(source).unwrap();
-    assert_eq!(
-        result,
-        Value::List(vec![Value::Bool(true), Value::Bool(true)])
-    );
-}
-
 // Tuple tests
 #[test]
 fn test_run_tuple_literal() {
