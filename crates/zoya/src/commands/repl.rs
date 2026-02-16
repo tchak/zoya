@@ -843,10 +843,10 @@ mod tests {
             vec![ReplResult::Expression(Value::Struct {
                 module: zoya_ir::QualifiedPath::root().child("repl"),
                 name: "Point".to_string(),
-                fields: vec![
+                data: zoya_run::ValueData::Struct(std::collections::HashMap::from([
                     ("x".to_string(), Value::Int(10)),
                     ("y".to_string(), Value::Int(20)),
-                ],
+                ])),
             })]
         );
     }
@@ -971,34 +971,34 @@ mod tests {
 
     #[test]
     fn test_repl_enum_variant() {
-        use zoya_run::EnumValueFields;
+        use zoya_run::ValueData;
         let mut state = State::new(Path::new(".")).unwrap();
         state.eval("enum Color { Red, Blue }").unwrap();
         let results = state.eval("Color::Red").unwrap();
         assert_eq!(
             results,
-            vec![ReplResult::Expression(Value::Enum {
+            vec![ReplResult::Expression(Value::EnumVariant {
                 module: zoya_ir::QualifiedPath::root().child("repl"),
                 enum_name: "Color".to_string(),
                 variant_name: "Red".to_string(),
-                fields: EnumValueFields::Unit,
+                data: ValueData::Unit,
             })]
         );
     }
 
     #[test]
     fn test_repl_enum_with_data() {
-        use zoya_run::EnumValueFields;
+        use zoya_run::ValueData;
         let mut state = State::new(Path::new(".")).unwrap();
         state.eval("enum Option<T> { Some(T), None }").unwrap();
         let results = state.eval("Option::Some(42)").unwrap();
         assert_eq!(
             results,
-            vec![ReplResult::Expression(Value::Enum {
+            vec![ReplResult::Expression(Value::EnumVariant {
                 module: zoya_ir::QualifiedPath::local("std".to_string()).child("option"),
                 enum_name: "Option".to_string(),
                 variant_name: "Some".to_string(),
-                fields: EnumValueFields::Tuple(vec![Value::Int(42)]),
+                data: ValueData::Tuple(vec![Value::Int(42)]),
             })]
         );
         // Test pattern matching on enum

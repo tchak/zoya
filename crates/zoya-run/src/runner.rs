@@ -6,7 +6,7 @@ use zoya_ir::{CheckedPackage, DefinitionLookup};
 use zoya_loader::{MemorySource, load_memory_package, load_package};
 use zoya_package::QualifiedPath;
 
-use crate::eval::{self, EnumValueFields, EvalError, Value};
+use crate::eval::{self, EvalError, Value, ValueData};
 
 /// Which function to invoke inside a checked package.
 enum EntryPoint {
@@ -243,16 +243,16 @@ fn run_single_test(
 fn interpret_test_value(value: &Value) -> Result<(), String> {
     match value {
         Value::Tuple(elems) if elems.is_empty() => Ok(()),
-        Value::Enum {
+        Value::EnumVariant {
             enum_name,
             variant_name,
-            fields: EnumValueFields::Tuple(_),
+            data: ValueData::Tuple(_),
             ..
         } if enum_name == "Result" && variant_name == "Ok" => Ok(()),
-        Value::Enum {
+        Value::EnumVariant {
             enum_name,
             variant_name,
-            fields: EnumValueFields::Tuple(values),
+            data: ValueData::Tuple(values),
             ..
         } if enum_name == "Result" && variant_name == "Err" => {
             let msg = values
@@ -337,22 +337,22 @@ mod tests {
 
     #[test]
     fn test_interpret_result_ok_unit() {
-        let value = Value::Enum {
+        let value = Value::EnumVariant {
             module: QualifiedPath::root(),
             enum_name: "Result".to_string(),
             variant_name: "Ok".to_string(),
-            fields: EnumValueFields::Tuple(vec![Value::Tuple(vec![])]),
+            data: ValueData::Tuple(vec![Value::Tuple(vec![])]),
         };
         assert_eq!(interpret_test_value(&value), Ok(()));
     }
 
     #[test]
     fn test_interpret_result_err() {
-        let value = Value::Enum {
+        let value = Value::EnumVariant {
             module: QualifiedPath::root(),
             enum_name: "Result".to_string(),
             variant_name: "Err".to_string(),
-            fields: EnumValueFields::Tuple(vec![Value::String("something failed".to_string())]),
+            data: ValueData::Tuple(vec![Value::String("something failed".to_string())]),
         };
         assert!(interpret_test_value(&value).is_err());
         assert!(
@@ -364,11 +364,11 @@ mod tests {
 
     #[test]
     fn test_interpret_wrong_enum_name() {
-        let value = Value::Enum {
+        let value = Value::EnumVariant {
             module: QualifiedPath::root(),
             enum_name: "Option".to_string(),
             variant_name: "Ok".to_string(),
-            fields: EnumValueFields::Tuple(vec![Value::Tuple(vec![])]),
+            data: ValueData::Tuple(vec![Value::Tuple(vec![])]),
         };
         assert!(interpret_test_value(&value).is_err());
     }

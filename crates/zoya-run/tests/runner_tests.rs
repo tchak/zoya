@@ -6521,7 +6521,10 @@ fn test_dict_repl_display() {
     match &result {
         Value::Dict(entries) => {
             assert_eq!(entries.len(), 1);
-            assert_eq!(entries[0], (Value::String("a".to_string()), Value::Int(1)));
+            assert_eq!(
+                entries.get(&Value::String("a".to_string())),
+                Some(&Value::Int(1))
+            );
         }
         other => panic!("expected Value::Dict, got {:?}", other),
     }

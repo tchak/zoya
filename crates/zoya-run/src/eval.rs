@@ -1,5 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
 use rquickjs::{BigInt, CatchResultExt, Context, Ctx, FromJs, Runtime};
 
@@ -73,7 +74,49 @@ pub(crate) fn eval_script(
     Value::from_js_value(js_val, &result_type, type_lookup)
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
+pub enum ValueData {
+    Unit,
+    Tuple(Vec<Value>),
+    Struct(HashMap<String, Value>),
+}
+
+impl PartialEq for ValueData {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (ValueData::Unit, ValueData::Unit) => true,
+            (ValueData::Tuple(a), ValueData::Tuple(b)) => a == b,
+            (ValueData::Struct(a), ValueData::Struct(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for ValueData {}
+
+impl Hash for ValueData {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            ValueData::Unit => {}
+            ValueData::Tuple(values) => values.hash(state),
+            ValueData::Struct(map) => {
+                state.write_usize(map.len());
+                // Order-independent hash for HashMap
+                let mut hash_sum: u64 = 0;
+                for (k, v) in map {
+                    let mut entry_hasher = std::hash::DefaultHasher::new();
+                    k.hash(&mut entry_hasher);
+                    v.hash(&mut entry_hasher);
+                    hash_sum = hash_sum.wrapping_add(entry_hasher.finish());
+                }
+                state.write_u64(hash_sum);
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum Value {
     Int(i64),
     BigInt(i64),
@@ -82,26 +125,116 @@ pub enum Value {
     String(String),
     List(Vec<Value>),
     Tuple(Vec<Value>),
+    Set(HashSet<Value>),
+    Dict(HashMap<Value, Value>),
     Struct {
-        module: QualifiedPath,
         name: String,
-        fields: Vec<(String, Value)>,
-    },
-    Set(Vec<Value>),
-    Dict(Vec<(Value, Value)>),
-    Enum {
         module: QualifiedPath,
+        data: ValueData,
+    },
+    EnumVariant {
         enum_name: String,
         variant_name: String,
-        fields: EnumValueFields,
+        module: QualifiedPath,
+        data: ValueData,
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum EnumValueFields {
-    Unit,
-    Tuple(Vec<Value>),
-    Struct(Vec<(String, Value)>),
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Int(a), Value::Int(b)) => a == b,
+            (Value::BigInt(a), Value::BigInt(b)) => a == b,
+            (Value::Float(a), Value::Float(b)) => a.to_bits() == b.to_bits(),
+            (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::String(a), Value::String(b)) => a == b,
+            (Value::List(a), Value::List(b)) => a == b,
+            (Value::Tuple(a), Value::Tuple(b)) => a == b,
+            (Value::Set(a), Value::Set(b)) => a == b,
+            (Value::Dict(a), Value::Dict(b)) => a == b,
+            (
+                Value::Struct {
+                    name: n1,
+                    module: m1,
+                    data: d1,
+                },
+                Value::Struct {
+                    name: n2,
+                    module: m2,
+                    data: d2,
+                },
+            ) => n1 == n2 && m1 == m2 && d1 == d2,
+            (
+                Value::EnumVariant {
+                    enum_name: en1,
+                    variant_name: vn1,
+                    module: m1,
+                    data: d1,
+                },
+                Value::EnumVariant {
+                    enum_name: en2,
+                    variant_name: vn2,
+                    module: m2,
+                    data: d2,
+                },
+            ) => en1 == en2 && vn1 == vn2 && m1 == m2 && d1 == d2,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Value {}
+
+impl Hash for Value {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            Value::Int(n) => n.hash(state),
+            Value::BigInt(n) => n.hash(state),
+            Value::Float(f) => f.to_bits().hash(state),
+            Value::Bool(b) => b.hash(state),
+            Value::String(s) => s.hash(state),
+            Value::List(elements) => elements.hash(state),
+            Value::Tuple(elements) => elements.hash(state),
+            Value::Set(set) => {
+                state.write_usize(set.len());
+                let mut hash_sum: u64 = 0;
+                for v in set {
+                    let mut h = std::hash::DefaultHasher::new();
+                    v.hash(&mut h);
+                    hash_sum = hash_sum.wrapping_add(h.finish());
+                }
+                state.write_u64(hash_sum);
+            }
+            Value::Dict(map) => {
+                state.write_usize(map.len());
+                let mut hash_sum: u64 = 0;
+                for (k, v) in map {
+                    let mut h = std::hash::DefaultHasher::new();
+                    k.hash(&mut h);
+                    v.hash(&mut h);
+                    hash_sum = hash_sum.wrapping_add(h.finish());
+                }
+                state.write_u64(hash_sum);
+            }
+            Value::Struct { name, module, data } => {
+                name.hash(state);
+                module.hash(state);
+                data.hash(state);
+            }
+            Value::EnumVariant {
+                enum_name,
+                variant_name,
+                module,
+                data,
+            } => {
+                enum_name.hash(state);
+                variant_name.hash(state);
+                module.hash(state);
+                data.hash(state);
+            }
+        }
+    }
 }
 
 fn write_comma_separated(
@@ -117,14 +250,31 @@ fn write_comma_separated(
     Ok(())
 }
 
-fn write_fields(f: &mut fmt::Formatter<'_>, fields: &[(String, Value)]) -> fmt::Result {
-    for (i, (k, v)) in fields.iter().enumerate() {
-        if i > 0 {
-            write!(f, ", ")?;
+fn write_data(f: &mut fmt::Formatter<'_>, prefix: &str, data: &ValueData) -> fmt::Result {
+    match data {
+        ValueData::Unit => write!(f, "{}", prefix),
+        ValueData::Tuple(values) => {
+            write!(f, "{}(", prefix)?;
+            write_comma_separated(f, values)?;
+            write!(f, ")")
         }
-        write!(f, "{}: {}", k, v)?;
+        ValueData::Struct(map) => {
+            if map.is_empty() {
+                write!(f, "{} {{}}", prefix)
+            } else {
+                write!(f, "{} {{ ", prefix)?;
+                let mut keys: Vec<&String> = map.keys().collect();
+                keys.sort();
+                for (i, k) in keys.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", k, map[*k])?;
+                }
+                write!(f, " }}")
+            }
+        }
     }
-    Ok(())
 }
 
 impl fmt::Display for Value {
@@ -149,27 +299,19 @@ impl fmt::Display for Value {
                     write!(f, ")")
                 }
             }
-            Value::Struct { name, fields, .. } => {
-                if fields.is_empty() {
-                    write!(f, "{} {{}}", name)
-                } else if fields[0].0.starts_with('$') {
-                    write!(f, "{}(", name)?;
-                    write_comma_separated(f, fields.iter().map(|(_, v)| v))?;
-                    write!(f, ")")
-                } else {
-                    write!(f, "{} {{ ", name)?;
-                    write_fields(f, fields)?;
-                    write!(f, " }}")
-                }
-            }
+            Value::Struct { name, data, .. } => write_data(f, name, data),
             Value::Set(items) => {
                 write!(f, "{{")?;
-                write_comma_separated(f, items)?;
+                let mut sorted: Vec<_> = items.iter().collect();
+                sorted.sort_by_key(|a| a.to_string());
+                write_comma_separated(f, sorted)?;
                 write!(f, "}}")
             }
             Value::Dict(entries) => {
                 write!(f, "{{")?;
-                for (i, (k, v)) in entries.iter().enumerate() {
+                let mut sorted: Vec<_> = entries.iter().collect();
+                sorted.sort_by(|a, b| a.0.to_string().cmp(&b.0.to_string()));
+                for (i, (k, v)) in sorted.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
@@ -177,30 +319,14 @@ impl fmt::Display for Value {
                 }
                 write!(f, "}}")
             }
-            Value::Enum {
+            Value::EnumVariant {
                 enum_name,
                 variant_name,
-                fields,
+                data,
                 ..
             } => {
                 let path = format!("{}::{}", enum_name, variant_name);
-                match fields {
-                    EnumValueFields::Unit => write!(f, "{}", path),
-                    EnumValueFields::Tuple(values) => {
-                        write!(f, "{}(", path)?;
-                        write_comma_separated(f, values)?;
-                        write!(f, ")")
-                    }
-                    EnumValueFields::Struct(field_values) => {
-                        if field_values.is_empty() {
-                            write!(f, "{} {{}}", path)
-                        } else {
-                            write!(f, "{} {{ ", path)?;
-                            write_fields(f, field_values)?;
-                            write!(f, " }}")
-                        }
-                    }
-                }
+                write_data(f, &path, data)
             }
         }
     }
@@ -335,7 +461,7 @@ impl Value {
                 let values = items
                     .into_iter()
                     .map(|item| Value::from_js_value(item, elem_type, type_lookup))
-                    .collect::<Result<Vec<_>, _>>()?;
+                    .collect::<Result<HashSet<_>, _>>()?;
                 Ok(Value::Set(values))
             }
             (
@@ -345,7 +471,7 @@ impl Value {
                 },
                 Type::Dict(key_type, val_type),
             ) if t == "Dict" => {
-                let mut entries = Vec::with_capacity(items.len());
+                let mut map = HashMap::with_capacity(items.len());
                 for item in items {
                     if let JSValue::Array { items: pair, .. } = item {
                         if pair.len() == 2 {
@@ -354,7 +480,7 @@ impl Value {
                                 Value::from_js_value(iter.next().unwrap(), key_type, type_lookup)?;
                             let val =
                                 Value::from_js_value(iter.next().unwrap(), val_type, type_lookup)?;
-                            entries.push((key, val));
+                            map.insert(key, val);
                         } else {
                             return Err(EvalError::RuntimeError(
                                 "dict entry must be a 2-element array".to_string(),
@@ -366,7 +492,7 @@ impl Value {
                         ));
                     }
                 }
-                Ok(Value::Dict(entries))
+                Ok(Value::Dict(map))
             }
             (
                 JSValue::Object { tag: None, fields },
@@ -379,19 +505,35 @@ impl Value {
             ) => {
                 let resolved_fields =
                     type_lookup.resolve_struct_fields(module, name, type_fields, type_args);
-                let mut field_values = Vec::with_capacity(resolved_fields.len());
-                for (field_name, field_type) in &resolved_fields {
-                    let js_field = fields.get(field_name).ok_or_else(|| {
-                        EvalError::RuntimeError(format!("missing struct field: {field_name}"))
-                    })?;
-                    let field_value =
-                        Value::from_js_value(js_field.clone(), field_type, type_lookup)?;
-                    field_values.push((field_name.clone(), field_value));
-                }
+                let data = if resolved_fields.is_empty() {
+                    ValueData::Unit
+                } else if resolved_fields[0].0.starts_with('$') {
+                    let mut values = Vec::with_capacity(resolved_fields.len());
+                    for (field_name, field_type) in &resolved_fields {
+                        let js_field = fields.get(field_name).ok_or_else(|| {
+                            EvalError::RuntimeError(format!("missing tuple field: {field_name}"))
+                        })?;
+                        let field_value =
+                            Value::from_js_value(js_field.clone(), field_type, type_lookup)?;
+                        values.push(field_value);
+                    }
+                    ValueData::Tuple(values)
+                } else {
+                    let mut map = HashMap::with_capacity(resolved_fields.len());
+                    for (field_name, field_type) in &resolved_fields {
+                        let js_field = fields.get(field_name).ok_or_else(|| {
+                            EvalError::RuntimeError(format!("missing struct field: {field_name}"))
+                        })?;
+                        let field_value =
+                            Value::from_js_value(js_field.clone(), field_type, type_lookup)?;
+                        map.insert(field_name.clone(), field_value);
+                    }
+                    ValueData::Struct(map)
+                };
                 Ok(Value::Struct {
                     module: module.clone(),
                     name: name.clone(),
-                    fields: field_values,
+                    data,
                 })
             }
             (
@@ -416,8 +558,8 @@ impl Value {
                         EvalError::RuntimeError(format!("unknown enum variant: {variant_name}"))
                     })?;
 
-                let enum_fields = match variant_type {
-                    EnumVariantType::Unit => EnumValueFields::Unit,
+                let data = match variant_type {
+                    EnumVariantType::Unit => ValueData::Unit,
                     EnumVariantType::Tuple(field_types) => {
                         let mut values = Vec::with_capacity(field_types.len());
                         for (i, field_type) in field_types.iter().enumerate() {
@@ -429,10 +571,10 @@ impl Value {
                                 Value::from_js_value(js_field.clone(), field_type, type_lookup)?;
                             values.push(val);
                         }
-                        EnumValueFields::Tuple(values)
+                        ValueData::Tuple(values)
                     }
                     EnumVariantType::Struct(field_defs) => {
-                        let mut field_values = Vec::with_capacity(field_defs.len());
+                        let mut map = HashMap::with_capacity(field_defs.len());
                         for (field_name, field_type) in field_defs {
                             let js_field = fields.get(field_name).ok_or_else(|| {
                                 EvalError::RuntimeError(format!(
@@ -441,17 +583,17 @@ impl Value {
                             })?;
                             let val =
                                 Value::from_js_value(js_field.clone(), field_type, type_lookup)?;
-                            field_values.push((field_name.clone(), val));
+                            map.insert(field_name.clone(), val);
                         }
-                        EnumValueFields::Struct(field_values)
+                        ValueData::Struct(map)
                     }
                 };
 
-                Ok(Value::Enum {
+                Ok(Value::EnumVariant {
                     module: module.clone(),
                     enum_name: enum_name.clone(),
                     variant_name,
-                    fields: enum_fields,
+                    data,
                 })
             }
             (_, Type::Function { .. }) => Err(EvalError::RuntimeError(
