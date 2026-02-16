@@ -14,6 +14,7 @@ zoya run file.zy                 # Execute a file
 zoya run                           # Run package in current directory
 zoya run path/to/project           # Run package at path
 zoya run --mode test               # Run in test mode
+zoya run --json file.zy          # Output result as JSON
 zoya check file.zy               # Type-check without running
 zoya check                         # Check package in current directory
 zoya build file.zy               # Compile to JavaScript (stdout)
@@ -110,6 +111,7 @@ println!("{} passed, {} failed", report.passed(), report.failed());
 - [zoya-parser](../zoya-parser) - Parser
 - [zoya-run](../zoya-run) - Runtime execution
 - [zoya-std](../zoya-std) - Standard library
+- [zoya-value](../zoya-value) - Runtime value types
 - [clap](https://github.com/clap-rs/clap) - CLI argument parsing
 - [console](https://github.com/console-rs/console) - Terminal styling and colors
 - [rustyline](https://github.com/kkawakam/rustyline) - REPL line editing

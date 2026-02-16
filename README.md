@@ -65,6 +65,7 @@ Zoya is organized as a Cargo workspace with multiple crates:
 | [zoya-parser](crates/zoya-parser) | Parser (chumsky) |
 | [zoya-run](crates/zoya-run) | Runtime execution (QuickJS) |
 | [zoya-std](crates/zoya-std) | Standard library |
+| [zoya-value](crates/zoya-value) | Runtime value types and serialization |
 
 ## Usage
 
@@ -126,6 +127,7 @@ zoya run program.zy         # Run a single file
 zoya run                      # Run package in current directory
 zoya run path/to/project      # Run package at path
 zoya run --mode test          # Run in test mode
+zoya run --json               # Output result as JSON
 ```
 
 ### Type Check Only

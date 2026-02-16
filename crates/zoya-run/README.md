@@ -164,29 +164,19 @@ pub fn run_path(path: &Path) -> Result<Value, EvalError>;
 
 ## Value Types
 
-The `Value` enum represents Zoya runtime values:
+Runtime values are defined in the [zoya-value](../zoya-value) crate and re-exported from `zoya-run`:
 
 ```rust
-pub enum Value {
-    Int(i64),
-    BigInt(i64),
-    Float(f64),
-    Bool(bool),
-    String(String),
-    List(Vec<Value>),
-    Tuple(Vec<Value>),
-    Struct { name: String, fields: Vec<(String, Value)> },
-    Dict { key_type: Type, val_type: Type },
-    Fn { params: Vec<Type>, ret: Box<Type> },
-    Enum { enum_name: String, variant_name: String, fields: EnumValueFields },
-}
+use zoya_run::{Value, ValueData};
 
-pub enum EnumValueFields {
-    Unit,
-    Tuple(Vec<Value>),
-    Struct(Vec<(String, Value)>),
-}
+let result = run_source("pub fn main() -> Int { 42 }")?;
+assert_eq!(result, Value::Int(42));
+
+// JSON serialization
+println!("{}", result.to_json()); // "42"
 ```
+
+See [zoya-value](../zoya-value) for full `Value`, `ValueData`, and `JSValue` documentation.
 
 ## Error Handling
 
@@ -205,5 +195,6 @@ pub enum EvalError {
 - [zoya-loader](../zoya-loader) - Package file loading
 - [zoya-package](../zoya-package) - Package data structures
 - [zoya-std](../zoya-std) - Standard library
+- [zoya-value](../zoya-value) - Runtime value types and serialization
 - [rquickjs](https://github.com/aspect-build/rquickjs) - JavaScript runtime (QuickJS)
 - [thiserror](https://github.com/dtolnay/thiserror) - Error derive macros

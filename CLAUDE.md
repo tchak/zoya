@@ -48,7 +48,7 @@ crates/
 │       ├── lib.rs         # Public API
 │       ├── eval.rs        # JS execution
 │       └── runner.rs      # Run functions
-└── zoya-std/          # Standard library
+├── zoya-std/          # Standard library
     └── src/
         ├── lib.rs         # Loads and caches std package
         └── std/           # Zoya source files
@@ -64,6 +64,9 @@ crates/
             ├── dict.zy        # Dict<K, V> methods
             ├── io.zy          # IO operations
             └── json.zy        # JSON type and methods
+└── zoya-value/        # Runtime value types & serialization
+    └── src/
+        └── lib.rs         # Value, JSValue, serde support
 ```
 
 ## Commands
@@ -72,6 +75,7 @@ crates/
 cargo run -p zoya -- repl             # REPL
 cargo run -p zoya -- run file.zy    # Run file
 cargo run -p zoya -- run              # Run package in current directory
+cargo run -p zoya -- run --json       # Output result as JSON
 cargo run -p zoya -- check file.zy  # Type-check only
 cargo run -p zoya -- build file.zy  # Compile to JS
 cargo run -p zoya -- fmt              # Format current package
@@ -134,6 +138,7 @@ New features need tests at each pipeline stage:
 | `zoya-fmt` | Source code formatting |
 | `zoya-run` | End-to-end execution |
 | `zoya-std` | Standard library loading and caching |
+| `zoya-value` | Value types, serialization, JS bridge |
 | `zoya` | CLI commands, REPL, and project creation |
 
 ```bash
