@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
+use serde::ser::{SerializeMap, SerializeSeq};
 use zoya_ir::{DefinitionLookup, EnumVariantType, QualifiedPath, Type};
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -273,6 +274,90 @@ impl fmt::Display for Value {
                 write_data(f, &path, data)
             }
         }
+    }
+}
+
+fn qualified_type_name(module: &QualifiedPath, name: &str) -> String {
+    let segments: Vec<&str> = module
+        .segments()
+        .iter()
+        .skip_while(|s| s.as_str() == "root")
+        .map(|s| s.as_str())
+        .chain(std::iter::once(name))
+        .collect();
+    segments.join("::")
+}
+
+fn serialize_data<S: serde::Serializer>(
+    serializer: S,
+    type_name: &str,
+    data: &ValueData,
+) -> Result<S::Ok, S::Error> {
+    match data {
+        ValueData::Unit => {
+            let mut map = serializer.serialize_map(Some(1))?;
+            map.serialize_entry("type", type_name)?;
+            map.end()
+        }
+        ValueData::Tuple(values) => {
+            let mut map = serializer.serialize_map(Some(2))?;
+            map.serialize_entry("type", type_name)?;
+            map.serialize_entry("data", values)?;
+            map.end()
+        }
+        ValueData::Struct(fields) => {
+            let mut map = serializer.serialize_map(Some(2))?;
+            map.serialize_entry("type", type_name)?;
+            map.serialize_entry("data", fields)?;
+            map.end()
+        }
+    }
+}
+
+impl serde::Serialize for Value {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Value::Int(n) => serializer.serialize_i64(*n),
+            Value::Float(f) => serializer.serialize_f64(*f),
+            Value::BigInt(n) => serializer.serialize_str(&n.to_string()),
+            Value::Bool(b) => serializer.serialize_bool(*b),
+            Value::String(s) => serializer.serialize_str(s),
+            Value::Tuple(values) | Value::List(values) => values.serialize(serializer),
+            Value::Set(values) => {
+                let mut seq = serializer.serialize_seq(Some(values.len()))?;
+                for v in values {
+                    seq.serialize_element(v)?;
+                }
+                seq.end()
+            }
+            Value::Dict(entries) => {
+                let mut seq = serializer.serialize_seq(Some(entries.len()))?;
+                for (k, v) in entries {
+                    seq.serialize_element(&(k, v))?;
+                }
+                seq.end()
+            }
+            Value::Struct { name, module, data } => {
+                let type_name = qualified_type_name(module, name);
+                serialize_data(serializer, &type_name, data)
+            }
+            Value::EnumVariant {
+                enum_name,
+                variant_name,
+                module,
+                data,
+            } => {
+                let name = format!("{enum_name}::{variant_name}");
+                let type_name = qualified_type_name(module, &name);
+                serialize_data(serializer, &type_name, data)
+            }
+        }
+    }
+}
+
+impl Value {
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap()
     }
 }
 
@@ -649,5 +734,176 @@ impl Value {
                 to: ty.to_string(),
             }),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serialize_int() {
+        assert_eq!(Value::Int(42).to_json(), "42");
+    }
+
+    #[test]
+    fn serialize_float() {
+        assert_eq!(Value::Float(3.14).to_json(), "3.14");
+    }
+
+    #[test]
+    fn serialize_bigint() {
+        assert_eq!(Value::BigInt(123).to_json(), r#""123""#);
+    }
+
+    #[test]
+    fn serialize_bool() {
+        assert_eq!(Value::Bool(true).to_json(), "true");
+        assert_eq!(Value::Bool(false).to_json(), "false");
+    }
+
+    #[test]
+    fn serialize_string() {
+        assert_eq!(Value::String("hello".into()).to_json(), r#""hello""#);
+    }
+
+    #[test]
+    fn serialize_tuple() {
+        let val = Value::Tuple(vec![Value::Int(1), Value::Bool(true)]);
+        assert_eq!(val.to_json(), "[1,true]");
+    }
+
+    #[test]
+    fn serialize_list() {
+        let val = Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
+        assert_eq!(val.to_json(), "[1,2,3]");
+    }
+
+    #[test]
+    fn serialize_set() {
+        let mut set = HashSet::new();
+        set.insert(Value::Int(1));
+        let val = Value::Set(set);
+        assert_eq!(val.to_json(), "[1]");
+    }
+
+    #[test]
+    fn serialize_dict() {
+        let mut map = HashMap::new();
+        map.insert(Value::String("a".into()), Value::Int(1));
+        let val = Value::Dict(map);
+        assert_eq!(val.to_json(), r#"[["a",1]]"#);
+    }
+
+    #[test]
+    fn serialize_struct_unit() {
+        let val = Value::Struct {
+            name: "Foo".into(),
+            module: QualifiedPath::new(vec!["root".into()]),
+            data: ValueData::Unit,
+        };
+        assert_eq!(val.to_json(), r#"{"type":"Foo"}"#);
+    }
+
+    #[test]
+    fn serialize_struct_tuple() {
+        let val = Value::Struct {
+            name: "Point".into(),
+            module: QualifiedPath::new(vec!["root".into()]),
+            data: ValueData::Tuple(vec![Value::Int(1), Value::Int(2)]),
+        };
+        assert_eq!(val.to_json(), r#"{"type":"Point","data":[1,2]}"#);
+    }
+
+    #[test]
+    fn serialize_struct_fields() {
+        let mut fields = HashMap::new();
+        fields.insert("x".into(), Value::Int(10));
+        let val = Value::Struct {
+            name: "Point".into(),
+            module: QualifiedPath::new(vec!["root".into()]),
+            data: ValueData::Struct(fields),
+        };
+        assert_eq!(val.to_json(), r#"{"type":"Point","data":{"x":10}}"#);
+    }
+
+    #[test]
+    fn serialize_struct_in_module() {
+        let val = Value::Struct {
+            name: "Foo".into(),
+            module: QualifiedPath::new(vec!["root".into(), "mymod".into()]),
+            data: ValueData::Unit,
+        };
+        assert_eq!(val.to_json(), r#"{"type":"mymod::Foo"}"#);
+    }
+
+    #[test]
+    fn serialize_struct_in_nested_module() {
+        let val = Value::Struct {
+            name: "Bar".into(),
+            module: QualifiedPath::new(vec!["root".into(), "a".into(), "b".into()]),
+            data: ValueData::Tuple(vec![Value::Int(1)]),
+        };
+        assert_eq!(val.to_json(), r#"{"type":"a::b::Bar","data":[1]}"#);
+    }
+
+    #[test]
+    fn serialize_enum_unit() {
+        let val = Value::EnumVariant {
+            enum_name: "Color".into(),
+            variant_name: "Red".into(),
+            module: QualifiedPath::new(vec!["root".into()]),
+            data: ValueData::Unit,
+        };
+        assert_eq!(val.to_json(), r#"{"type":"Color::Red"}"#);
+    }
+
+    #[test]
+    fn serialize_enum_tuple() {
+        let val = Value::EnumVariant {
+            enum_name: "Shape".into(),
+            variant_name: "Circle".into(),
+            module: QualifiedPath::new(vec!["root".into()]),
+            data: ValueData::Tuple(vec![Value::Float(5.0)]),
+        };
+        assert_eq!(val.to_json(), r#"{"type":"Shape::Circle","data":[5.0]}"#);
+    }
+
+    #[test]
+    fn serialize_enum_struct() {
+        let mut fields = HashMap::new();
+        fields.insert("name".into(), Value::String("Alice".into()));
+        let val = Value::EnumVariant {
+            enum_name: "Result".into(),
+            variant_name: "Ok".into(),
+            module: QualifiedPath::new(vec!["root".into()]),
+            data: ValueData::Struct(fields),
+        };
+        assert_eq!(
+            val.to_json(),
+            r#"{"type":"Result::Ok","data":{"name":"Alice"}}"#
+        );
+    }
+
+    #[test]
+    fn serialize_enum_in_module() {
+        let val = Value::EnumVariant {
+            enum_name: "Color".into(),
+            variant_name: "Red".into(),
+            module: QualifiedPath::new(vec!["root".into(), "graphics".into()]),
+            data: ValueData::Unit,
+        };
+        assert_eq!(val.to_json(), r#"{"type":"graphics::Color::Red"}"#);
+    }
+
+    #[test]
+    fn serialize_nested() {
+        let inner = Value::Struct {
+            name: "Unit".into(),
+            module: QualifiedPath::new(vec!["root".into()]),
+            data: ValueData::Unit,
+        };
+        let val = Value::List(vec![inner, Value::Int(42)]);
+        assert_eq!(val.to_json(), r#"[{"type":"Unit"},42]"#);
     }
 }
