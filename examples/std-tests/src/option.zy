@@ -1,0 +1,117 @@
+#[test]
+fn test_map() -> () {
+  let none: Option<Int> = None;
+  let _ = assert_eq(Some(5).map(|x| x * 2), Some(10));
+  assert_eq(none.map(|x| x * 2), None)
+}
+
+#[test]
+fn test_and_then() -> () {
+  let _ = assert_eq(Some(5).and_then(|x| Some(x + 1)), Some(6));
+  assert_eq(Some(5).and_then(|x| None::<Int>), None)
+}
+
+#[test]
+fn test_map_and_then_chained() -> () {
+  assert_eq(Some(5).map(|x| x + 1).and_then(|x| Some(x * 2)), Some(12))
+}
+
+#[test]
+fn test_is_some() -> () {
+  let none: Option<Int> = None;
+  let _ = assert_eq(Some(5).is_some(), true);
+  assert_eq(none.is_some(), false)
+}
+
+#[test]
+fn test_is_none() -> () {
+  let none: Option<Int> = None;
+  let _ = assert_eq(none.is_none(), true);
+  assert_eq(Some(5).is_none(), false)
+}
+
+#[test]
+fn test_unwrap() -> () assert_eq(Some(42).unwrap(), 42)
+
+#[test]
+fn test_expect() -> () assert_eq(Some(42).expect("should have value"), 42)
+
+#[test]
+fn test_unwrap_or() -> () {
+  let none: Option<Int> = None;
+  let _ = assert_eq(Some(42).unwrap_or(0), 42);
+  assert_eq(none.unwrap_or(99), 99)
+}
+
+#[test]
+fn test_unwrap_or_else() -> () {
+  let none: Option<Int> = None;
+  let _ = assert_eq(Some(42).unwrap_or_else(|| 0), 42);
+  assert_eq(none.unwrap_or_else(|| 99), 99)
+}
+
+#[test]
+fn test_filter() -> () {
+  let none: Option<Int> = None;
+  let _ = assert_eq(Some(4).filter(|x| x > 3), Some(4));
+  let _ = assert_eq(Some(2).filter(|x| x > 3), None);
+  assert_eq(none.filter(|x| x > 3), None)
+}
+
+#[test]
+fn test_map_or() -> () {
+  let none: Option<Int> = None;
+  let _ = assert_eq(Some(5).map_or(0, |x| x * 2), 10);
+  assert_eq(none.map_or(0, |x| x * 2), 0)
+}
+
+#[test]
+fn test_map_or_else() -> () {
+  let none: Option<Int> = None;
+  let _ = assert_eq(Some(5).map_or_else(|| 0, |x| x * 2), 10);
+  assert_eq(none.map_or_else(|| 42, |x| x * 2), 42)
+}
+
+#[test]
+fn test_zip() -> () {
+  let none_int: Option<Int> = None;
+  let none_str: Option<String> = None;
+  let _ = assert_eq(Some(1).zip(Some("a")), Some((1, "a")));
+  let _ = assert_eq(none_int.zip(Some("a")), None);
+  assert_eq(Some(1).zip(none_str), None)
+}
+
+#[test]
+fn test_or() -> () {
+  let none: Option<Int> = None;
+  let _ = assert_eq(Some(1).or(Some(2)), Some(1));
+  assert_eq(none.or(Some(2)), Some(2))
+}
+
+#[test]
+fn test_or_else() -> () {
+  let none: Option<Int> = None;
+  let _ = assert_eq(Some(1).or_else(|| Some(2)), Some(1));
+  assert_eq(none.or_else(|| Some(2)), Some(2))
+}
+
+#[test]
+fn test_and() -> () {
+  let none: Option<Int> = None;
+  let _ = assert_eq(Some(1).and(Some("hello")), Some("hello"));
+  assert_eq(none.and(Some("hello")), None)
+}
+
+#[test]
+fn test_ok_or() -> () {
+  let none: Option<Int> = None;
+  let _ = assert_eq(Some(5).ok_or("missing"), Ok(5));
+  assert_eq(none.ok_or("missing"), Err("missing"))
+}
+
+#[test]
+fn test_ok_or_else() -> () {
+  let none: Option<Int> = None;
+  let _ = assert_eq(Some(5).ok_or_else(|| "missing"), Ok(5));
+  assert_eq(none.ok_or_else(|| "missing"), Err("missing"))
+}

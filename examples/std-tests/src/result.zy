@@ -1,0 +1,106 @@
+#[test]
+fn test_map() -> () {
+  let err: Result<Int, String> = Err("fail");
+  let _ = assert_eq(Ok(5).map(|x| x * 2), Ok(10));
+  assert_eq(err.map(|x| x * 2), Err("fail"))
+}
+
+#[test]
+fn test_and_then() -> () {
+  let _ = assert_eq(Ok(5).and_then(|x| Ok(x + 1)), Ok(6));
+  assert_eq(Ok(5).and_then(|x| Err("fail")), Err("fail"))
+}
+
+#[test]
+fn test_is_ok() -> () {
+  let err: Result<Int, String> = Err("fail");
+  let _ = assert_eq(Ok(5).is_ok(), true);
+  assert_eq(err.is_ok(), false)
+}
+
+#[test]
+fn test_is_err() -> () {
+  let err: Result<Int, String> = Err("fail");
+  let _ = assert_eq(err.is_err(), true);
+  assert_eq(Ok(5).is_err(), false)
+}
+
+#[test]
+fn test_unwrap() -> () assert_eq(Ok(42).unwrap(), 42)
+
+#[test]
+fn test_expect() -> () assert_eq(Ok(42).expect("should be ok"), 42)
+
+#[test]
+fn test_unwrap_or() -> () {
+  let err: Result<Int, String> = Err("fail");
+  let _ = assert_eq(Ok(42).unwrap_or(0), 42);
+  assert_eq(err.unwrap_or(99), 99)
+}
+
+#[test]
+fn test_unwrap_or_else() -> () {
+  let _ = assert_eq(Ok(42).unwrap_or_else(|e: String| 0), 42);
+  let err: Result<Int, Int> = Err(5);
+  assert_eq(err.unwrap_or_else(|e| e * 2), 10)
+}
+
+#[test]
+fn test_unwrap_err() -> () {
+  let err: Result<Int, String> = Err("fail");
+  assert_eq(err.unwrap_err(), "fail")
+}
+
+#[test]
+fn test_expect_err() -> () {
+  let err: Result<Int, String> = Err("fail");
+  assert_eq(err.expect_err("should be err"), "fail")
+}
+
+#[test]
+fn test_map_err() -> () {
+  let err: Result<Int, String> = Err("fail");
+  let ok: Result<Int, String> = Ok(42);
+  let _ = assert_eq(err.map_err(|e| e.len()), Err(4));
+  assert_eq(ok.map_err(|e| e.len()), Ok(42))
+}
+
+#[test]
+fn test_or() -> () {
+  let err: Result<Int, String> = Err("fail");
+  let _ = assert_eq(Ok(1).or(Ok(2)), Ok(1));
+  assert_eq(err.or(Ok(2)), Ok(2))
+}
+
+#[test]
+fn test_or_else() -> () {
+  let _ = assert_eq(Ok(1).or_else(|e: String| Ok(2)), Ok(1));
+  let err: Result<Int, Int> = Err(5);
+  assert_eq(err.or_else(|e| Ok(e * 2)), Ok(10))
+}
+
+#[test]
+fn test_and() -> () {
+  let ok: Result<Int, String> = Ok(1);
+  let err: Result<Int, String> = Err("fail");
+  let _ = assert_eq(ok.and(Ok("hello")), Ok("hello"));
+  assert_eq(err.and(Ok("hello")), Err("fail"))
+}
+
+#[test]
+fn test_ok() -> () {
+  let ok: Result<Int, String> = Ok(42);
+  let err: Result<Int, String> = Err("fail");
+  let none: Option<Int> = None;
+  let _ = assert_eq(ok.ok(), Some(42));
+  assert_eq(err.ok(), none)
+}
+
+#[test]
+fn test_err() -> () {
+  let err: Result<Int, String> = Err("fail");
+  let ok: Result<Int, String> = Ok(42);
+  let none: Option<String> = None;
+  let _ = assert_eq(err.err(), Some("fail"));
+  assert_eq(ok.err(), none)
+}
