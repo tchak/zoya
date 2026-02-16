@@ -1441,6 +1441,7 @@ dependencies = [
  "zoya-loader",
  "zoya-package",
  "zoya-std",
+ "zoya-value",
 ]
 
 [[package]]
@@ -1450,4 +1451,14 @@ dependencies = [
  "zoya-check",
  "zoya-ir",
  "zoya-loader",
+]
+
+[[package]]
+name = "zoya-value"
+version = "0.1.0"
+dependencies = [
+ "rquickjs",
+ "thiserror 2.0.18",
+ "zoya-ir",
+ "zoya-package",
 ]

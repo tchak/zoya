@@ -1,0 +1,13 @@
+[package]
+name = "zoya-value"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+quickjs = ["dep:rquickjs"]
+
+[dependencies]
+thiserror = "2"
+zoya-ir = { path = "../zoya-ir" }
+zoya-package = { path = "../zoya-package" }
+rquickjs = { version = "0.9", features = ["bindgen"], optional = true }

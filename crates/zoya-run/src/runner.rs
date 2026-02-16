@@ -6,7 +6,9 @@ use zoya_ir::{CheckedPackage, DefinitionLookup};
 use zoya_loader::{MemorySource, load_memory_package, load_package};
 use zoya_package::QualifiedPath;
 
-use crate::eval::{self, EvalError, Value, ValueData};
+use zoya_value::{Value, ValueData};
+
+use crate::eval::{self, EvalError};
 
 /// Which function to invoke inside a checked package.
 enum EntryPoint {
