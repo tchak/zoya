@@ -1,7 +1,10 @@
+use std::collections::HashMap;
 use std::fmt;
 
 use zoya_ast::Visibility;
 use zoya_package::QualifiedPath;
+
+use crate::ir::CheckedPackage;
 
 /// Unique identifier for a type variable
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -478,6 +481,231 @@ pub struct TypeError {
 impl fmt::Display for TypeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
+    }
+}
+
+/// Lookup table for resolving recursive type stubs.
+///
+/// During two-phase type registration, inner references to recursive types
+/// carry empty variants/fields. This table maps qualified paths to their real
+/// definitions so consumers can inflate these stubs at any nesting depth.
+type EnumInfo = (Vec<TypeVarId>, Vec<(String, EnumVariantType)>);
+type StructInfo = (Vec<TypeVarId>, Vec<(String, Type)>);
+
+pub struct DefinitionLookup {
+    enums: HashMap<QualifiedPath, EnumInfo>,
+    structs: HashMap<QualifiedPath, StructInfo>,
+}
+
+impl DefinitionLookup {
+    /// Build lookup from the global definitions table.
+    pub fn from_definitions(definitions: &HashMap<QualifiedPath, Definition>) -> Self {
+        let mut enums = HashMap::new();
+        let mut structs = HashMap::new();
+
+        for (path, def) in definitions {
+            match def {
+                Definition::Enum(enum_type) if !enum_type.variants.is_empty() => {
+                    enums.insert(
+                        path.clone(),
+                        (enum_type.type_var_ids.clone(), enum_type.variants.clone()),
+                    );
+                }
+                Definition::Struct(struct_type) if !struct_type.fields.is_empty() => {
+                    structs.insert(
+                        path.clone(),
+                        (struct_type.type_var_ids.clone(), struct_type.fields.clone()),
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        DefinitionLookup { enums, structs }
+    }
+
+    /// Build lookup from a package and its dependencies.
+    pub fn from_packages(package: &CheckedPackage, deps: &[&CheckedPackage]) -> Self {
+        let mut lookup = Self::from_definitions(&package.definitions);
+        for dep in deps {
+            lookup.add_definitions(&dep.definitions);
+        }
+        lookup
+    }
+
+    /// Add definitions from another definitions map.
+    fn add_definitions(&mut self, definitions: &HashMap<QualifiedPath, Definition>) {
+        for (path, def) in definitions {
+            match def {
+                Definition::Enum(enum_type) if !enum_type.variants.is_empty() => {
+                    self.enums.insert(
+                        path.clone(),
+                        (enum_type.type_var_ids.clone(), enum_type.variants.clone()),
+                    );
+                }
+                Definition::Struct(struct_type) if !struct_type.fields.is_empty() => {
+                    self.structs.insert(
+                        path.clone(),
+                        (struct_type.type_var_ids.clone(), struct_type.fields.clone()),
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Create an empty lookup (for tests that don't need recursive type resolution).
+    pub fn empty() -> Self {
+        DefinitionLookup {
+            enums: HashMap::new(),
+            structs: HashMap::new(),
+        }
+    }
+
+    /// Resolve enum variants: if the type carries empty variants (a stub),
+    /// look up the real variants and apply type argument substitution.
+    pub fn resolve_enum_variants(
+        &self,
+        module: &QualifiedPath,
+        name: &str,
+        variants: &[(String, EnumVariantType)],
+        type_args: &[Type],
+    ) -> Vec<(String, EnumVariantType)> {
+        if !variants.is_empty() {
+            return variants.to_vec();
+        }
+        let key = module.child(name);
+        if let Some((type_var_ids, real_variants)) = self.enums.get(&key) {
+            if type_args.is_empty() || type_var_ids.is_empty() {
+                return real_variants.clone();
+            }
+            let mapping: HashMap<TypeVarId, Type> = type_var_ids
+                .iter()
+                .zip(type_args.iter())
+                .map(|(id, ty)| (*id, ty.clone()))
+                .collect();
+            real_variants
+                .iter()
+                .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, &mapping)))
+                .collect()
+        } else {
+            variants.to_vec()
+        }
+    }
+
+    /// Resolve struct fields: if the type carries empty fields (a stub),
+    /// look up the real fields and apply type argument substitution.
+    pub fn resolve_struct_fields(
+        &self,
+        module: &QualifiedPath,
+        name: &str,
+        fields: &[(String, Type)],
+        type_args: &[Type],
+    ) -> Vec<(String, Type)> {
+        if !fields.is_empty() {
+            return fields.to_vec();
+        }
+        let key = module.child(name);
+        if let Some((type_var_ids, real_fields)) = self.structs.get(&key) {
+            if type_args.is_empty() || type_var_ids.is_empty() {
+                return real_fields.clone();
+            }
+            let mapping: HashMap<TypeVarId, Type> = type_var_ids
+                .iter()
+                .zip(type_args.iter())
+                .map(|(id, ty)| (*id, ty.clone()))
+                .collect();
+            real_fields
+                .iter()
+                .map(|(n, t)| (n.clone(), substitute_type_vars(t, &mapping)))
+                .collect()
+        } else {
+            fields.to_vec()
+        }
+    }
+}
+
+/// Substitute type variables in a type using a mapping (recursive).
+pub fn substitute_type_vars(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
+    match ty {
+        Type::Var(id) => mapping.get(id).cloned().unwrap_or_else(|| ty.clone()),
+        Type::List(elem) => Type::List(Box::new(substitute_type_vars(elem, mapping))),
+        Type::Set(elem) => Type::Set(Box::new(substitute_type_vars(elem, mapping))),
+        Type::Dict(key, val) => Type::Dict(
+            Box::new(substitute_type_vars(key, mapping)),
+            Box::new(substitute_type_vars(val, mapping)),
+        ),
+        Type::Tuple(elems) => Type::Tuple(
+            elems
+                .iter()
+                .map(|e| substitute_type_vars(e, mapping))
+                .collect(),
+        ),
+        Type::Function { params, ret } => Type::Function {
+            params: params
+                .iter()
+                .map(|p| substitute_type_vars(p, mapping))
+                .collect(),
+            ret: Box::new(substitute_type_vars(ret, mapping)),
+        },
+        Type::Struct {
+            module,
+            name,
+            type_args,
+            fields,
+        } => Type::Struct {
+            module: module.clone(),
+            name: name.clone(),
+            type_args: type_args
+                .iter()
+                .map(|t| substitute_type_vars(t, mapping))
+                .collect(),
+            fields: fields
+                .iter()
+                .map(|(n, t)| (n.clone(), substitute_type_vars(t, mapping)))
+                .collect(),
+        },
+        Type::Enum {
+            module,
+            name,
+            type_args,
+            variants,
+        } => Type::Enum {
+            module: module.clone(),
+            name: name.clone(),
+            type_args: type_args
+                .iter()
+                .map(|t| substitute_type_vars(t, mapping))
+                .collect(),
+            variants: variants
+                .iter()
+                .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, mapping)))
+                .collect(),
+        },
+        // Concrete types don't contain type vars
+        Type::Int | Type::BigInt | Type::Float | Type::Bool | Type::String => ty.clone(),
+    }
+}
+
+/// Substitute type variables in an enum variant type.
+pub fn substitute_variant_type_vars(
+    vt: &EnumVariantType,
+    mapping: &HashMap<TypeVarId, Type>,
+) -> EnumVariantType {
+    match vt {
+        EnumVariantType::Unit => EnumVariantType::Unit,
+        EnumVariantType::Tuple(types) => EnumVariantType::Tuple(
+            types
+                .iter()
+                .map(|t| substitute_type_vars(t, mapping))
+                .collect(),
+        ),
+        EnumVariantType::Struct(fields) => EnumVariantType::Struct(
+            fields
+                .iter()
+                .map(|(n, t)| (n.clone(), substitute_type_vars(t, mapping)))
+                .collect(),
+        ),
     }
 }
 

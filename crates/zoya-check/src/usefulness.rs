@@ -2,126 +2,13 @@
 //!
 //! Based on "Warnings for pattern matching" (Luc Maranget, JFP 2007).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 
 use zoya_ir::{
-    Definition, EnumVariantType, QualifiedPath, Type, TypeError, TypeVarId, TypedExpr,
-    TypedMatchArm, TypedPattern,
+    DefinitionLookup, EnumVariantType, QualifiedPath, Type, TypeError, TypedExpr, TypedMatchArm,
+    TypedPattern,
 };
-
-use crate::unify::{substitute_type_vars, substitute_variant_type_vars};
-
-/// Lookup table for resolving recursive type stubs.
-///
-/// During two-phase type registration, inner references to recursive types
-/// carry empty variants/fields. This table maps type names to their real
-/// definitions so `TypeCtors::from_type` and `Pat::from_typed` can inflate
-/// these stubs at any nesting depth.
-type EnumInfo = (Vec<TypeVarId>, Vec<(String, EnumVariantType)>);
-type StructInfo = (Vec<TypeVarId>, Vec<(String, Type)>);
-
-pub struct DefinitionLookup {
-    enums: HashMap<String, EnumInfo>,
-    structs: HashMap<String, StructInfo>,
-}
-
-impl DefinitionLookup {
-    /// Build lookup from the global definitions table.
-    pub fn from_definitions(definitions: &HashMap<QualifiedPath, Definition>) -> Self {
-        let mut enums = HashMap::new();
-        let mut structs = HashMap::new();
-
-        for def in definitions.values() {
-            match def {
-                Definition::Enum(enum_type) if !enum_type.variants.is_empty() => {
-                    enums.insert(
-                        enum_type.name.clone(),
-                        (enum_type.type_var_ids.clone(), enum_type.variants.clone()),
-                    );
-                }
-                Definition::Struct(struct_type) if !struct_type.fields.is_empty() => {
-                    structs.insert(
-                        struct_type.name.clone(),
-                        (struct_type.type_var_ids.clone(), struct_type.fields.clone()),
-                    );
-                }
-                _ => {}
-            }
-        }
-
-        DefinitionLookup { enums, structs }
-    }
-
-    /// Create an empty lookup (for tests that don't need recursive type resolution).
-    #[cfg(test)]
-    pub fn empty() -> Self {
-        DefinitionLookup {
-            enums: HashMap::new(),
-            structs: HashMap::new(),
-        }
-    }
-
-    /// Resolve an enum type: if it has empty variants but the lookup has real ones,
-    /// return the inflated type.
-    fn resolve_enum(
-        &self,
-        name: &str,
-        variants: &[(String, EnumVariantType)],
-        type_args: &[Type],
-    ) -> Vec<(String, EnumVariantType)> {
-        if !variants.is_empty() {
-            return variants.to_vec();
-        }
-        if let Some((type_var_ids, real_variants)) = self.enums.get(name) {
-            if type_args.is_empty() || type_var_ids.is_empty() {
-                return real_variants.clone();
-            }
-            // Build substitution: type_var_ids -> type_args
-            let mapping: HashMap<TypeVarId, Type> = type_var_ids
-                .iter()
-                .zip(type_args.iter())
-                .map(|(id, ty)| (*id, ty.clone()))
-                .collect();
-            real_variants
-                .iter()
-                .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, &mapping)))
-                .collect()
-        } else {
-            variants.to_vec()
-        }
-    }
-
-    /// Resolve a struct type: if it has empty fields but the lookup has real ones,
-    /// return the inflated fields.
-    fn resolve_struct(
-        &self,
-        name: &str,
-        fields: &[(String, Type)],
-        type_args: &[Type],
-    ) -> Vec<(String, Type)> {
-        if !fields.is_empty() {
-            return fields.to_vec();
-        }
-        if let Some((type_var_ids, real_fields)) = self.structs.get(name) {
-            if type_args.is_empty() || type_var_ids.is_empty() {
-                return real_fields.clone();
-            }
-            // Build substitution: type_var_ids -> type_args
-            let mapping: HashMap<TypeVarId, Type> = type_var_ids
-                .iter()
-                .zip(type_args.iter())
-                .map(|(id, ty)| (*id, ty.clone()))
-                .collect();
-            real_fields
-                .iter()
-                .map(|(n, t)| (n.clone(), substitute_type_vars(t, &mapping)))
-                .collect()
-        } else {
-            fields.to_vec()
-        }
-    }
-}
 
 /// A constructor represents a way to build a value of a given type.
 #[derive(Debug, Clone)]
@@ -404,13 +291,13 @@ impl TypeCtors {
                 TypeCtors::Infinite
             } // Conservative
             Type::Struct {
+                module,
                 name,
                 fields,
                 type_args,
-                ..
             } => {
                 // Resolve potentially empty fields via lookup
-                let resolved_fields = lookup.resolve_struct(name, fields, type_args);
+                let resolved_fields = lookup.resolve_struct_fields(module, name, fields, type_args);
                 let (field_names, field_types): (Vec<_>, Vec<_>) =
                     resolved_fields.into_iter().unzip();
                 TypeCtors::Finite(vec![Constructor::Struct {
@@ -420,13 +307,14 @@ impl TypeCtors {
                 }])
             }
             Type::Enum {
+                module,
                 name: enum_name,
                 variants,
                 type_args,
-                ..
             } => {
                 // Resolve potentially empty variants via lookup
-                let resolved_variants = lookup.resolve_enum(enum_name, variants, type_args);
+                let resolved_variants =
+                    lookup.resolve_enum_variants(module, enum_name, variants, type_args);
                 let ctors: Vec<Constructor> = resolved_variants
                     .iter()
                     .map(|(variant_name, variant_type)| {
@@ -788,12 +676,12 @@ impl Pat {
     ) -> Option<EnumVariantType> {
         match ty {
             Type::Enum {
+                module,
                 name,
                 variants,
                 type_args,
-                ..
             } => {
-                let resolved = lookup.resolve_enum(name, variants, type_args);
+                let resolved = lookup.resolve_enum_variants(module, name, variants, type_args);
                 resolved
                     .into_iter()
                     .find(|(vname, _)| vname == variant_name)
@@ -807,12 +695,12 @@ impl Pat {
     fn get_struct_field_info(ty: &Type, lookup: &DefinitionLookup) -> (Vec<String>, Vec<Type>) {
         match ty {
             Type::Struct {
+                module,
                 name,
                 fields,
                 type_args,
-                ..
             } => {
-                let resolved = lookup.resolve_struct(name, fields, type_args);
+                let resolved = lookup.resolve_struct_fields(module, name, fields, type_args);
                 let names: Vec<String> = resolved.iter().map(|(n, _)| n.clone()).collect();
                 let types: Vec<Type> = resolved.iter().map(|(_, t)| t.clone()).collect();
                 (names, types)
@@ -1315,8 +1203,10 @@ pub fn check_patterns(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
-    use zoya_ir::TypeVarId;
+    use zoya_ir::{Definition, EnumType, StructType, StructTypeKind, TypeVarId, Visibility};
 
     fn make_bool_arm(val: bool) -> TypedMatchArm {
         TypedMatchArm {
@@ -2837,6 +2727,41 @@ mod tests {
 
     // ==================== DefinitionLookup Tests ====================
 
+    fn make_enum_def(
+        name: &str,
+        type_var_ids: Vec<TypeVarId>,
+        variants: Vec<(String, EnumVariantType)>,
+    ) -> (QualifiedPath, Definition) {
+        let path = QualifiedPath::root().child(name);
+        (
+            path.clone(),
+            Definition::Enum(EnumType {
+                visibility: Visibility::Public,
+                module: QualifiedPath::root(),
+                name: name.to_string(),
+                type_params: vec![],
+                type_var_ids,
+                variants,
+            }),
+        )
+    }
+
+    fn make_struct_def(name: &str, fields: Vec<(String, Type)>) -> (QualifiedPath, Definition) {
+        let path = QualifiedPath::root().child(name);
+        (
+            path.clone(),
+            Definition::Struct(StructType {
+                visibility: Visibility::Public,
+                module: QualifiedPath::root(),
+                name: name.to_string(),
+                type_params: vec![],
+                type_var_ids: vec![],
+                kind: StructTypeKind::Named,
+                fields,
+            }),
+        )
+    }
+
     #[test]
     fn test_lookup_resolves_empty_enum_variants() {
         // Simulate a recursive type stub: enum with empty variants
@@ -2848,17 +2773,15 @@ mod tests {
         };
 
         // Build a lookup with the real definition
-        let mut lookup = DefinitionLookup::empty();
-        lookup.enums.insert(
-            "Option".to_string(),
-            (
-                vec![],
-                vec![
-                    ("None".to_string(), EnumVariantType::Unit),
-                    ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Int])),
-                ],
-            ),
-        );
+        let defs: HashMap<QualifiedPath, Definition> = HashMap::from([make_enum_def(
+            "Option",
+            vec![],
+            vec![
+                ("None".to_string(), EnumVariantType::Unit),
+                ("Some".to_string(), EnumVariantType::Tuple(vec![Type::Int])),
+            ],
+        )]);
+        let lookup = DefinitionLookup::from_definitions(&defs);
 
         // from_type should return the real constructors
         let ctors = TypeCtors::from_type(&stub_ty, &lookup);
@@ -2881,20 +2804,17 @@ mod tests {
         };
 
         // Build a lookup with the real definition
-        let mut lookup = DefinitionLookup::empty();
-        lookup.structs.insert(
-            "Node".to_string(),
-            (
-                vec![],
-                vec![
-                    ("value".to_string(), Type::Int),
-                    (
-                        "children".to_string(),
-                        Type::List(Box::new(stub_ty.clone())),
-                    ),
-                ],
-            ),
-        );
+        let defs: HashMap<QualifiedPath, Definition> = HashMap::from([make_struct_def(
+            "Node",
+            vec![
+                ("value".to_string(), Type::Int),
+                (
+                    "children".to_string(),
+                    Type::List(Box::new(stub_ty.clone())),
+                ),
+            ],
+        )]);
+        let lookup = DefinitionLookup::from_definitions(&defs);
 
         // from_type should return the real constructor with correct arity
         let ctors = TypeCtors::from_type(&stub_ty, &lookup);
@@ -2918,18 +2838,16 @@ mod tests {
             ],
         );
 
-        let mut lookup = DefinitionLookup::empty();
-        lookup.enums.insert(
-            "Color".to_string(),
-            (
-                vec![],
-                vec![
-                    ("Red".to_string(), EnumVariantType::Unit),
-                    ("Green".to_string(), EnumVariantType::Unit),
-                    ("Blue".to_string(), EnumVariantType::Unit),
-                ],
-            ),
-        );
+        let defs: HashMap<QualifiedPath, Definition> = HashMap::from([make_enum_def(
+            "Color",
+            vec![],
+            vec![
+                ("Red".to_string(), EnumVariantType::Unit),
+                ("Green".to_string(), EnumVariantType::Unit),
+                ("Blue".to_string(), EnumVariantType::Unit),
+            ],
+        )]);
+        let lookup = DefinitionLookup::from_definitions(&defs);
 
         let ctors = TypeCtors::from_type(&full_ty, &lookup);
         match ctors {
@@ -2952,20 +2870,18 @@ mod tests {
         };
 
         let type_var = TypeVarId(99);
-        let mut lookup = DefinitionLookup::empty();
-        lookup.enums.insert(
-            "Option".to_string(),
-            (
-                vec![type_var],
-                vec![
-                    ("None".to_string(), EnumVariantType::Unit),
-                    (
-                        "Some".to_string(),
-                        EnumVariantType::Tuple(vec![Type::Var(type_var)]),
-                    ),
-                ],
-            ),
-        );
+        let defs: HashMap<QualifiedPath, Definition> = HashMap::from([make_enum_def(
+            "Option",
+            vec![type_var],
+            vec![
+                ("None".to_string(), EnumVariantType::Unit),
+                (
+                    "Some".to_string(),
+                    EnumVariantType::Tuple(vec![Type::Var(type_var)]),
+                ),
+            ],
+        )]);
+        let lookup = DefinitionLookup::from_definitions(&defs);
 
         let ctors = TypeCtors::from_type(&stub_ty, &lookup);
         match ctors {

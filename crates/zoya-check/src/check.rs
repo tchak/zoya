@@ -1400,7 +1400,7 @@ fn check_match_expr(
 
     // Check exhaustiveness and usefulness for all types
     let resolved_scrutinee_ty = ctx.resolve(&scrutinee_ty);
-    let def_lookup = usefulness::DefinitionLookup::from_definitions(&env.definitions);
+    let def_lookup = zoya_ir::DefinitionLookup::from_definitions(&env.definitions);
     usefulness::check_patterns(&typed_arms, &resolved_scrutinee_ty, &def_lookup)?;
 
     Ok(TypedExpr::Match {
@@ -2157,12 +2157,9 @@ fn check_field_access(
             type_args,
         } => {
             // If fields are empty (recursive type stub), look up real fields from definitions
-            let actual_fields: Vec<(String, Type)> = if struct_fields.is_empty() {
-                lookup_struct_fields(module, name, type_args, &env.definitions)
-                    .unwrap_or_else(|| struct_fields.clone())
-            } else {
-                struct_fields.clone()
-            };
+            let def_lookup = zoya_ir::DefinitionLookup::from_definitions(&env.definitions);
+            let actual_fields =
+                def_lookup.resolve_struct_fields(module, name, struct_fields, type_args);
 
             let (_, field_type) =
                 actual_fields
@@ -2222,12 +2219,9 @@ fn check_tuple_index(
             fields: struct_fields,
             type_args,
         } => {
-            let actual_fields: Vec<(String, Type)> = if struct_fields.is_empty() {
-                lookup_struct_fields(module, name, type_args, &env.definitions)
-                    .unwrap_or_else(|| struct_fields.clone())
-            } else {
-                struct_fields.clone()
-            };
+            let def_lookup = zoya_ir::DefinitionLookup::from_definitions(&env.definitions);
+            let actual_fields =
+                def_lookup.resolve_struct_fields(module, name, struct_fields, type_args);
 
             let field_name = format!("${}", index);
             let (_, field_type) = actual_fields
@@ -2518,39 +2512,6 @@ pub(crate) fn instantiate_struct_type(
         fields: resolved_fields,
     };
     (instantiation, ty)
-}
-
-/// Look up struct fields from definitions when the type carries empty fields (recursive type stub).
-fn lookup_struct_fields(
-    module: &QualifiedPath,
-    name: &str,
-    type_args: &[Type],
-    definitions: &HashMap<QualifiedPath, Definition>,
-) -> Option<Vec<(String, Type)>> {
-    let qpath = module.child(name);
-    if let Some(Definition::Struct(struct_type)) = definitions.get(&qpath) {
-        if struct_type.kind != StructTypeKind::Named {
-            return None;
-        }
-        if type_args.is_empty() || struct_type.type_var_ids.is_empty() {
-            return Some(struct_type.fields.clone());
-        }
-        // Build substitution: type_var_ids -> type_args
-        let mapping: HashMap<TypeVarId, Type> = struct_type
-            .type_var_ids
-            .iter()
-            .zip(type_args.iter())
-            .map(|(id, ty)| (*id, ty.clone()))
-            .collect();
-        return Some(
-            struct_type
-                .fields
-                .iter()
-                .map(|(n, t)| (n.clone(), substitute_type_vars(t, &mapping)))
-                .collect(),
-        );
-    }
-    None
 }
 
 /// Check if an expression is a syntactic value (safe to generalize under value restriction)

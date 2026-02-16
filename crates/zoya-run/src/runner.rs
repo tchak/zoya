@@ -1,13 +1,12 @@
-use std::collections::HashMap;
 use std::path::Path;
 
 use zoya_check::check;
 use zoya_codegen::{codegen, format_export_path};
-use zoya_ir::{CheckedPackage, Definition};
+use zoya_ir::{CheckedPackage, DefinitionLookup};
 use zoya_loader::{MemorySource, load_memory_package, load_package};
 use zoya_package::QualifiedPath;
 
-use crate::eval::{self, EnumValueFields, EvalError, TypeLookup, Value};
+use crate::eval::{self, EnumValueFields, EvalError, Value};
 
 /// Which function to invoke inside a checked package.
 enum EntryPoint {
@@ -248,11 +247,13 @@ fn interpret_test_value(value: &Value) -> Result<(), String> {
             enum_name,
             variant_name,
             fields: EnumValueFields::Tuple(_),
+            ..
         } if enum_name == "Result" && variant_name == "Ok" => Ok(()),
         Value::Enum {
             enum_name,
             variant_name,
             fields: EnumValueFields::Tuple(values),
+            ..
         } if enum_name == "Result" && variant_name == "Err" => {
             let msg = values
                 .first()
@@ -307,7 +308,7 @@ fn run_checked(
     let return_type = func_def.return_type.clone();
 
     // Build type lookup for resolving recursive type stubs
-    let type_lookup = build_type_lookup(package, deps);
+    let type_lookup = DefinitionLookup::from_packages(package, deps);
 
     // Generate single concatenated JS
     let output = codegen(package, deps);
@@ -324,38 +325,6 @@ fn run_checked(
         .with(|ctx| eval::eval_script(&ctx, &output.code, &entry_func, return_type, &type_lookup))
 }
 
-/// Build a TypeLookup from a package and its dependencies for resolving
-/// recursive type stubs during JS→Zoya value deserialization.
-fn build_type_lookup(package: &CheckedPackage, deps: &[&CheckedPackage]) -> TypeLookup {
-    let mut enums = HashMap::new();
-    let mut structs = HashMap::new();
-
-    let all_defs = deps
-        .iter()
-        .flat_map(|d| d.definitions.values())
-        .chain(package.definitions.values());
-
-    for def in all_defs {
-        match def {
-            Definition::Enum(enum_type) if !enum_type.variants.is_empty() => {
-                enums.insert(
-                    enum_type.name.clone(),
-                    (enum_type.type_var_ids.clone(), enum_type.variants.clone()),
-                );
-            }
-            Definition::Struct(struct_type) if !struct_type.fields.is_empty() => {
-                structs.insert(
-                    struct_type.name.clone(),
-                    (struct_type.type_var_ids.clone(), struct_type.fields.clone()),
-                );
-            }
-            _ => {}
-        }
-    }
-
-    TypeLookup { enums, structs }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -369,6 +338,7 @@ mod tests {
     #[test]
     fn test_interpret_result_ok_unit() {
         let value = Value::Enum {
+            module: QualifiedPath::root(),
             enum_name: "Result".to_string(),
             variant_name: "Ok".to_string(),
             fields: EnumValueFields::Tuple(vec![Value::Tuple(vec![])]),
@@ -379,6 +349,7 @@ mod tests {
     #[test]
     fn test_interpret_result_err() {
         let value = Value::Enum {
+            module: QualifiedPath::root(),
             enum_name: "Result".to_string(),
             variant_name: "Err".to_string(),
             fields: EnumValueFields::Tuple(vec![Value::String("something failed".to_string())]),
@@ -394,6 +365,7 @@ mod tests {
     #[test]
     fn test_interpret_wrong_enum_name() {
         let value = Value::Enum {
+            module: QualifiedPath::root(),
             enum_name: "Option".to_string(),
             variant_name: "Ok".to_string(),
             fields: EnumValueFields::Tuple(vec![Value::Tuple(vec![])]),

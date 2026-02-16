@@ -2,6 +2,9 @@
 
 use std::collections::{HashMap, HashSet};
 
+// Re-export substitute functions from zoya_ir so existing callers can still use them.
+pub use zoya_ir::{substitute_type_vars, substitute_variant_type_vars};
+
 use zoya_ir::{EnumVariantType, Type, TypeError, TypeScheme, TypeVarId};
 
 /// Unification context that tracks type variable bindings.
@@ -413,90 +416,6 @@ impl UnifyCtx {
         }
 
         substitute_type_vars(&scheme.ty, &mapping)
-    }
-}
-
-/// Substitute type variables in a type using a mapping (recursive).
-pub fn substitute_type_vars(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
-    match ty {
-        Type::Var(id) => mapping.get(id).cloned().unwrap_or_else(|| ty.clone()),
-        Type::List(elem) => Type::List(Box::new(substitute_type_vars(elem, mapping))),
-        Type::Set(elem) => Type::Set(Box::new(substitute_type_vars(elem, mapping))),
-        Type::Dict(key, val) => Type::Dict(
-            Box::new(substitute_type_vars(key, mapping)),
-            Box::new(substitute_type_vars(val, mapping)),
-        ),
-        Type::Tuple(elems) => Type::Tuple(
-            elems
-                .iter()
-                .map(|e| substitute_type_vars(e, mapping))
-                .collect(),
-        ),
-        Type::Function { params, ret } => Type::Function {
-            params: params
-                .iter()
-                .map(|p| substitute_type_vars(p, mapping))
-                .collect(),
-            ret: Box::new(substitute_type_vars(ret, mapping)),
-        },
-        Type::Struct {
-            module,
-            name,
-            type_args,
-            fields,
-        } => Type::Struct {
-            module: module.clone(),
-            name: name.clone(),
-            type_args: type_args
-                .iter()
-                .map(|t| substitute_type_vars(t, mapping))
-                .collect(),
-            fields: fields
-                .iter()
-                .map(|(n, t)| (n.clone(), substitute_type_vars(t, mapping)))
-                .collect(),
-        },
-        Type::Enum {
-            module,
-            name,
-            type_args,
-            variants,
-        } => Type::Enum {
-            module: module.clone(),
-            name: name.clone(),
-            type_args: type_args
-                .iter()
-                .map(|t| substitute_type_vars(t, mapping))
-                .collect(),
-            variants: variants
-                .iter()
-                .map(|(n, vt)| (n.clone(), substitute_variant_type_vars(vt, mapping)))
-                .collect(),
-        },
-        // Concrete types don't contain type vars
-        Type::Int | Type::BigInt | Type::Float | Type::Bool | Type::String => ty.clone(),
-    }
-}
-
-/// Substitute type variables in an enum variant type.
-pub fn substitute_variant_type_vars(
-    vt: &EnumVariantType,
-    mapping: &HashMap<TypeVarId, Type>,
-) -> EnumVariantType {
-    match vt {
-        EnumVariantType::Unit => EnumVariantType::Unit,
-        EnumVariantType::Tuple(types) => EnumVariantType::Tuple(
-            types
-                .iter()
-                .map(|t| substitute_type_vars(t, mapping))
-                .collect(),
-        ),
-        EnumVariantType::Struct(fields) => EnumVariantType::Struct(
-            fields
-                .iter()
-                .map(|(n, t)| (n.clone(), substitute_type_vars(t, mapping)))
-                .collect(),
-        ),
     }
 }
 

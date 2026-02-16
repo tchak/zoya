@@ -841,6 +841,7 @@ mod tests {
         assert_eq!(
             results,
             vec![ReplResult::Expression(Value::Struct {
+                module: zoya_ir::QualifiedPath::root().child("repl"),
                 name: "Point".to_string(),
                 fields: vec![
                     ("x".to_string(), Value::Int(10)),
@@ -977,6 +978,7 @@ mod tests {
         assert_eq!(
             results,
             vec![ReplResult::Expression(Value::Enum {
+                module: zoya_ir::QualifiedPath::root().child("repl"),
                 enum_name: "Color".to_string(),
                 variant_name: "Red".to_string(),
                 fields: EnumValueFields::Unit,
@@ -993,6 +995,7 @@ mod tests {
         assert_eq!(
             results,
             vec![ReplResult::Expression(Value::Enum {
+                module: zoya_ir::QualifiedPath::local("std".to_string()).child("option"),
                 enum_name: "Option".to_string(),
                 variant_name: "Some".to_string(),
                 fields: EnumValueFields::Tuple(vec![Value::Int(42)]),
