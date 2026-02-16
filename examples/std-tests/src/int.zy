@@ -1,0 +1,44 @@
+#[test]
+fn test_abs() -> () assert_eq((-5).abs(), 5)
+
+#[test]
+fn test_to_string() -> () assert_eq(42.to_string(), "42")
+
+#[test]
+fn test_to_float() -> () assert_eq(42.to_float(), 42.0)
+
+#[test]
+fn test_min() -> () assert_eq(3.min(5), 3)
+
+#[test]
+fn test_max() -> () assert_eq(3.max(5), 5)
+
+#[test]
+fn test_pow() -> () assert_eq(2.pow(10), 1024)
+
+#[test]
+fn test_clamp() -> () {
+  let _ = assert_eq(15.clamp(0, 10), 10);
+  assert_eq((-5).clamp(0, 10), 0)
+}
+
+#[test]
+fn test_signum() -> () {
+  let _ = assert_eq((-42).signum(), -1);
+  assert_eq(0.signum(), 0)
+}
+
+#[test]
+fn test_is_positive() -> () assert_eq(5.is_positive(), true)
+
+#[test]
+fn test_is_negative() -> () assert_eq((-3).is_negative(), true)
+
+#[test]
+fn test_is_zero() -> () {
+  let _ = assert_eq(0.is_zero(), true);
+  assert_eq(5.is_zero(), false)
+}
+
+#[test]
+fn test_to_bigint() -> () assert_eq(42.to_bigint(), 42n)

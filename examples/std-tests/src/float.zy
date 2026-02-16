@@ -1,0 +1,44 @@
+#[test]
+fn test_abs() -> () assert_eq((-3.15).abs(), 3.15)
+
+#[test]
+fn test_to_string() -> () assert_eq(3.15.to_string(), "3.15")
+
+#[test]
+fn test_to_int() -> () assert_eq(3.7.to_int(), 3)
+
+#[test]
+fn test_floor() -> () assert_eq(3.7.floor(), 3.0)
+
+#[test]
+fn test_ceil() -> () assert_eq(3.2.ceil(), 4.0)
+
+#[test]
+fn test_round() -> () assert_eq(3.5.round(), 4.0)
+
+#[test]
+fn test_sqrt() -> () assert_eq(9.0.sqrt(), 3.0)
+
+#[test]
+fn test_min() -> () assert_eq(3.5.min(2.5), 2.5)
+
+#[test]
+fn test_max() -> () assert_eq(3.5.max(2.5), 3.5)
+
+#[test]
+fn test_pow() -> () assert_eq(2.0.pow(3.0), 8.0)
+
+#[test]
+fn test_clamp() -> () assert_eq(15.0.clamp(0.0, 10.0), 10.0)
+
+#[test]
+fn test_signum() -> () assert_eq((-3.14).signum(), -1.0)
+
+#[test]
+fn test_is_positive() -> () assert_eq(3.14.is_positive(), true)
+
+#[test]
+fn test_is_negative() -> () assert_eq((-3.14).is_negative(), true)
+
+#[test]
+fn test_is_zero() -> () assert_eq(0.0.is_zero(), true)
