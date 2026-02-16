@@ -1,0 +1,3 @@
+pub mod string
+
+pub fn main() -> () ()

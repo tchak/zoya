@@ -22,3 +22,16 @@ fn test_examples_algorithms() {
         report.results.len()
     );
 }
+
+#[test]
+fn test_examples_std_tests() {
+    let dir = project_root().join("examples/std-tests");
+    let runner = Runner::new().test(&dir).unwrap();
+    let report = runner.run().unwrap();
+    assert!(
+        report.is_success(),
+        "{} test(s) failed out of {}",
+        report.failed(),
+        report.results.len()
+    );
+}

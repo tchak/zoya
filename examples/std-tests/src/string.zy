@@ -1,0 +1,84 @@
+#[test]
+fn test_len() -> () assert_eq("hello".len(), 5)
+
+#[test]
+fn test_is_empty() -> () {
+  let _ = assert_eq("hello".is_empty(), false);
+  assert_eq("".is_empty(), true)
+}
+
+#[test]
+fn test_contains() -> () {
+  let _ = assert_eq("hello world".contains("world"), true);
+  assert_eq("hello".contains("xyz"), false)
+}
+
+#[test]
+fn test_starts_with() -> () assert_eq("hello".starts_with("he"), true)
+
+#[test]
+fn test_ends_with() -> () assert_eq("hello".ends_with("lo"), true)
+
+#[test]
+fn test_to_uppercase() -> () assert_eq("hello".to_uppercase(), "HELLO")
+
+#[test]
+fn test_to_lowercase() -> () assert_eq("HELLO".to_lowercase(), "hello")
+
+#[test]
+fn test_trim() -> () {
+  let _ = assert_eq("  hello  ".trim(), "hello");
+  let _ = assert_eq("  hello  ".trim_start(), "hello  ");
+  assert_eq("  hello  ".trim_end(), "  hello")
+}
+
+#[test]
+fn test_replace() -> () {
+  let _ = assert_eq("hello".replace("l", "r"), "herro");
+  assert_eq("aabaa".replace("aa", "x"), "xbx")
+}
+
+#[test]
+fn test_replace_first() -> () assert_eq("hello".replace_first("l", "r"), "herlo")
+
+#[test]
+fn test_repeat() -> () assert_eq("ha".repeat(3), "hahaha")
+
+#[test]
+fn test_split() -> () assert_eq("a,b,c".split(","), ["a", "b", "c"])
+
+#[test]
+fn test_chars() -> () assert_eq("hi".chars(), ["h", "i"])
+
+#[test]
+fn test_find() -> () {
+  let _ = assert_eq("hello".find("ll"), Some(2));
+  assert_eq("hello".find("xyz"), None)
+}
+
+#[test]
+fn test_slice() -> () assert_eq("hello".slice(1, 3), "el")
+
+#[test]
+fn test_reverse() -> () assert_eq("hello".reverse(), "olleh")
+
+#[test]
+fn test_pad() -> () {
+  let _ = assert_eq("hi".pad_start(5, "."), "...hi");
+  assert_eq("hi".pad_end(5, "."), "hi...")
+}
+
+#[test]
+fn test_lines() -> () assert_eq("a\nb\nc".lines(), ["a", "b", "c"])
+
+#[test]
+fn test_to_int() -> () {
+  let _ = assert_eq("42".to_int(), Some(42));
+  assert_eq("abc".to_int(), None)
+}
+
+#[test]
+fn test_to_float() -> () {
+  let _ = assert_eq("3.14".to_float(), Some(3.14));
+  assert_eq("abc".to_float(), None)
+}
