@@ -309,6 +309,40 @@ impl JSValue {
 }
 
 #[cfg(feature = "quickjs")]
+impl<'js> rquickjs::IntoJs<'js> for JSValue {
+    fn into_js(self, ctx: &rquickjs::Ctx<'js>) -> rquickjs::Result<rquickjs::Value<'js>> {
+        match self {
+            JSValue::Int(n) => n.into_js(ctx),
+            JSValue::BigInt(n) => rquickjs::BigInt::from_i64(ctx.clone(), n)?.into_js(ctx),
+            JSValue::Float(f) => f.into_js(ctx),
+            JSValue::Bool(b) => b.into_js(ctx),
+            JSValue::String(s) => s.into_js(ctx),
+            JSValue::Array { tag, items } => {
+                let array = rquickjs::Array::new(ctx.clone())?;
+                for (i, item) in items.into_iter().enumerate() {
+                    array.set(i, item.into_js(ctx)?)?;
+                }
+                if let Some(tag) = tag {
+                    let obj = array.as_object();
+                    obj.set("$tag", tag)?;
+                }
+                array.into_js(ctx)
+            }
+            JSValue::Object { tag, fields } => {
+                let obj = rquickjs::Object::new(ctx.clone())?;
+                if let Some(tag) = tag {
+                    obj.set("$tag", tag)?;
+                }
+                for (key, val) in fields {
+                    obj.set(key, val.into_js(ctx)?)?;
+                }
+                obj.into_js(ctx)
+            }
+        }
+    }
+}
+
+#[cfg(feature = "quickjs")]
 impl<'js> rquickjs::FromJs<'js> for JSValue {
     #[allow(clippy::only_used_in_recursion)]
     fn from_js(ctx: &rquickjs::Ctx<'js>, value: rquickjs::Value<'js>) -> rquickjs::Result<Self> {
