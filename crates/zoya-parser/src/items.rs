@@ -95,6 +95,7 @@ pub(crate) fn item_parser<'a>()
         .map(
             |(((((is_pub, name), type_params), params), return_type), body)| {
                 Item::Function(FunctionDef {
+                    leading_comments: vec![],
                     attributes: vec![],
                     visibility: if is_pub.is_some() {
                         Visibility::Public
@@ -148,6 +149,7 @@ pub(crate) fn item_parser<'a>()
         )
         .map(|(((is_pub, name), type_params), kind)| {
             Item::Struct(StructDef {
+                leading_comments: vec![],
                 attributes: vec![],
                 visibility: if is_pub.is_some() {
                     Visibility::Public
@@ -205,6 +207,7 @@ pub(crate) fn item_parser<'a>()
         .then(enum_variants)
         .map(|(((is_pub, name), type_params), variants)| {
             Item::Enum(EnumDef {
+                leading_comments: vec![],
                 attributes: vec![],
                 visibility: if is_pub.is_some() {
                     Visibility::Public
@@ -227,6 +230,7 @@ pub(crate) fn item_parser<'a>()
         .then(type_annotation())
         .map(|(((is_pub, name), type_params), typ)| {
             Item::TypeAlias(TypeAliasDef {
+                leading_comments: vec![],
                 attributes: vec![],
                 visibility: if is_pub.is_some() {
                     Visibility::Public
@@ -266,9 +270,15 @@ pub(crate) fn item_parser<'a>()
         choice((self_params, no_self_params)).delimited_by(just(Token::LParen), just(Token::RParen))
     };
 
-    let impl_method = attribute_parser()
-        .repeated()
-        .collect::<Vec<_>>()
+    // Parse interleaved comments and attributes before each impl method
+    let method_preamble = choice((
+        select! { Token::LineComment(text) => MethodPreamble::Comment(text) },
+        attribute_parser().map(MethodPreamble::Attr),
+    ))
+    .repeated()
+    .collect::<Vec<MethodPreamble>>();
+
+    let impl_method = method_preamble
         .then(just(Token::Pub).or_not())
         .then_ignore(just(Token::Fn))
         .then(ident())
@@ -278,10 +288,15 @@ pub(crate) fn item_parser<'a>()
         .then(body.clone())
         .map(
             |(
-                (((((attrs, is_pub), name), method_type_params), (has_self, params)), return_type),
+                (
+                    ((((preamble, is_pub), name), method_type_params), (has_self, params)),
+                    return_type,
+                ),
                 body,
             )| {
+                let (comments, attrs) = split_method_preamble(preamble);
                 ImplMethod {
+                    leading_comments: comments,
                     attributes: attrs,
                     visibility: if is_pub.is_some() {
                         Visibility::Public
@@ -298,9 +313,14 @@ pub(crate) fn item_parser<'a>()
             },
         );
 
+    // Trailing comments after last method (before `}`) are discarded
+    let trailing_comments = select! { Token::LineComment(_text) => () }
+        .repeated()
+        .collect::<Vec<_>>();
     let impl_methods = impl_method
         .repeated()
         .collect::<Vec<_>>()
+        .then_ignore(trailing_comments)
         .delimited_by(just(Token::LBrace), just(Token::RBrace));
 
     let impl_def = just(Token::Impl)
@@ -309,6 +329,7 @@ pub(crate) fn item_parser<'a>()
         .then(impl_methods)
         .map(|((impl_type_params, target_type), methods)| {
             Item::Impl(ImplBlock {
+                leading_comments: vec![],
                 attributes: vec![],
                 type_params: impl_type_params,
                 target_type,
@@ -319,9 +340,15 @@ pub(crate) fn item_parser<'a>()
     let mod_decl = mod_decl_parser().map(Item::ModDecl);
     let use_decl = use_decl_parser().map(Item::Use);
 
-    let attributes = attribute_parser().repeated().collect::<Vec<_>>();
+    // Parse interleaved comments and attributes as a preamble before each item
+    let preamble = choice((
+        select! { Token::LineComment(text) => ItemPreamble::Comment(text) },
+        attribute_parser().map(ItemPreamble::Attr),
+    ))
+    .repeated()
+    .collect::<Vec<ItemPreamble>>();
 
-    attributes
+    preamble
         .then(choice((
             mod_decl,
             use_decl,
@@ -331,39 +358,85 @@ pub(crate) fn item_parser<'a>()
             type_alias_def,
             impl_def,
         )))
-        .map(|(attrs, item)| {
-            if attrs.is_empty() {
+        .map(|(preamble, item)| {
+            let (comments, attrs) = split_item_preamble(preamble);
+            if comments.is_empty() && attrs.is_empty() {
                 return item;
             }
             match item {
                 Item::Function(mut f) => {
+                    f.leading_comments = comments;
                     f.attributes = attrs;
                     Item::Function(f)
                 }
                 Item::Struct(mut s) => {
+                    s.leading_comments = comments;
                     s.attributes = attrs;
                     Item::Struct(s)
                 }
                 Item::Enum(mut e) => {
+                    e.leading_comments = comments;
                     e.attributes = attrs;
                     Item::Enum(e)
                 }
                 Item::TypeAlias(mut t) => {
+                    t.leading_comments = comments;
                     t.attributes = attrs;
                     Item::TypeAlias(t)
                 }
                 Item::Use(mut u) => {
+                    u.leading_comments = comments;
                     u.attributes = attrs;
                     Item::Use(u)
                 }
                 Item::Impl(mut i) => {
+                    i.leading_comments = comments;
                     i.attributes = attrs;
                     Item::Impl(i)
                 }
                 Item::ModDecl(mut m) => {
+                    m.leading_comments = comments;
                     m.attributes = attrs;
                     Item::ModDecl(m)
                 }
             }
         })
+}
+
+/// Element in the preamble before an item: either a comment or an attribute
+enum ItemPreamble {
+    Comment(String),
+    Attr(Attribute),
+}
+
+/// Split preamble into comments and attributes, preserving order
+fn split_item_preamble(preamble: Vec<ItemPreamble>) -> (Vec<String>, Vec<Attribute>) {
+    let mut comments = Vec::new();
+    let mut attrs = Vec::new();
+    for item in preamble {
+        match item {
+            ItemPreamble::Comment(text) => comments.push(text),
+            ItemPreamble::Attr(attr) => attrs.push(attr),
+        }
+    }
+    (comments, attrs)
+}
+
+/// Element in the preamble before an impl method: either a comment or an attribute
+enum MethodPreamble {
+    Comment(String),
+    Attr(Attribute),
+}
+
+/// Split method preamble into comments and attributes
+fn split_method_preamble(preamble: Vec<MethodPreamble>) -> (Vec<String>, Vec<Attribute>) {
+    let mut comments = Vec::new();
+    let mut attrs = Vec::new();
+    for item in preamble {
+        match item {
+            MethodPreamble::Comment(text) => comments.push(text),
+            MethodPreamble::Attr(attr) => attrs.push(attr),
+        }
+    }
+    (comments, attrs)
 }

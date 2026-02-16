@@ -1,27 +1,70 @@
 use super::option::Option
 
 impl String {
-    #[builtin] pub fn len(self) -> Int ()
-    pub fn is_empty(self) -> Bool { self.len() == 0 }
-    #[builtin] pub fn contains(self, needle: String) -> Bool ()
-    #[builtin] pub fn starts_with(self, prefix: String) -> Bool ()
-    #[builtin] pub fn ends_with(self, suffix: String) -> Bool ()
-    #[builtin] pub fn to_uppercase(self) -> String ()
-    #[builtin] pub fn to_lowercase(self) -> String ()
-    #[builtin] pub fn trim(self) -> String ()
-    #[builtin] pub fn trim_start(self) -> String ()
-    #[builtin] pub fn trim_end(self) -> String ()
-    #[builtin] pub fn replace(self, from: String, to: String) -> String ()
-    #[builtin] pub fn repeat(self, n: Int) -> String ()
-    #[builtin] pub fn split(self, sep: String) -> List<String> ()
-    #[builtin] pub fn chars(self) -> List<String> ()
-    #[builtin] pub fn find(self, needle: String) -> Option<Int> ()
-    #[builtin] pub fn slice(self, start: Int, end: Int) -> String ()
-    #[builtin] pub fn reverse(self) -> String ()
-    #[builtin] pub fn replace_first(self, from: String, to: String) -> String ()
-    #[builtin] pub fn pad_start(self, len: Int, fill: String) -> String ()
-    #[builtin] pub fn pad_end(self, len: Int, fill: String) -> String ()
-    pub fn lines(self) -> List<String> { self.split("\n") }
-    #[builtin] pub fn to_int(self) -> Option<Int> ()
-    #[builtin] pub fn to_float(self) -> Option<Float> ()
+  #[builtin]
+  pub fn len(self) -> Int ()
+  
+  pub fn is_empty(self) -> Bool self.len() == 0
+  
+  #[builtin]
+  pub fn contains(self, needle: String) -> Bool ()
+  
+  #[builtin]
+  pub fn starts_with(self, prefix: String) -> Bool ()
+  
+  #[builtin]
+  pub fn ends_with(self, suffix: String) -> Bool ()
+  
+  #[builtin]
+  pub fn to_uppercase(self) -> String ()
+  
+  #[builtin]
+  pub fn to_lowercase(self) -> String ()
+  
+  #[builtin]
+  pub fn trim(self) -> String ()
+  
+  #[builtin]
+  pub fn trim_start(self) -> String ()
+  
+  #[builtin]
+  pub fn trim_end(self) -> String ()
+  
+  #[builtin]
+  pub fn replace(self, from: String, to: String) -> String ()
+  
+  #[builtin]
+  pub fn repeat(self, n: Int) -> String ()
+  
+  #[builtin]
+  pub fn split(self, sep: String) -> List<String> ()
+  
+  #[builtin]
+  pub fn chars(self) -> List<String> ()
+  
+  #[builtin]
+  pub fn find(self, needle: String) -> Option<Int> ()
+  
+  #[builtin]
+  pub fn slice(self, start: Int, end: Int) -> String ()
+  
+  #[builtin]
+  pub fn reverse(self) -> String ()
+  
+  #[builtin]
+  pub fn replace_first(self, from: String, to: String) -> String ()
+  
+  #[builtin]
+  pub fn pad_start(self, len: Int, fill: String) -> String ()
+  
+  #[builtin]
+  pub fn pad_end(self, len: Int, fill: String) -> String ()
+  
+  pub fn lines(self) -> List<String> self.split("\n")
+  
+  #[builtin]
+  pub fn to_int(self) -> Option<Int> ()
+  
+  #[builtin]
+  pub fn to_float(self) -> Option<Float> ()
 }

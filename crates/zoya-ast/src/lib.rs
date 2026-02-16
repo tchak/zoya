@@ -107,6 +107,7 @@ impl Item {
 /// Impl block: `impl<T> TypeAnnotation { methods... }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImplBlock {
+    pub leading_comments: Vec<String>,
     pub attributes: Vec<Attribute>,
     pub type_params: Vec<String>,
     pub target_type: TypeAnnotation,
@@ -116,6 +117,7 @@ pub struct ImplBlock {
 /// A method or associated function inside an impl block
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImplMethod {
+    pub leading_comments: Vec<String>,
     pub attributes: Vec<Attribute>,
     pub visibility: Visibility,
     pub name: String,
@@ -140,6 +142,7 @@ pub enum StructKind {
 /// Struct definition: `[pub] struct Name<T, U> { field: Type, ... }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructDef {
+    pub leading_comments: Vec<String>,
     pub attributes: Vec<Attribute>,
     pub visibility: Visibility,
     pub name: String,
@@ -157,6 +160,7 @@ pub struct StructFieldDef {
 /// Enum definition: `[pub] enum Option<T> { None, Some(T), Move { x: Int, y: Int } }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumDef {
+    pub leading_comments: Vec<String>,
     pub attributes: Vec<Attribute>,
     pub visibility: Visibility,
     pub name: String,
@@ -185,6 +189,7 @@ pub enum EnumVariantKind {
 /// Type alias definition: `[pub] type Name<T, U> = TypeAnnotation`
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeAliasDef {
+    pub leading_comments: Vec<String>,
     pub attributes: Vec<Attribute>,
     pub visibility: Visibility,
     pub name: String,
@@ -212,6 +217,7 @@ pub enum Visibility {
 /// Function definition
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionDef {
+    pub leading_comments: Vec<String>,
     pub attributes: Vec<Attribute>,
     pub visibility: Visibility,
     pub name: String,
@@ -504,6 +510,7 @@ pub enum Stmt {
 /// Module declaration: `[pub] mod name`
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModDecl {
+    pub leading_comments: Vec<String>,
     pub attributes: Vec<Attribute>,
     pub visibility: Visibility,
     pub name: String,
@@ -512,6 +519,7 @@ pub struct ModDecl {
 /// Use declaration: `[pub] use root::foo::bar`
 #[derive(Debug, Clone, PartialEq)]
 pub struct UseDecl {
+    pub leading_comments: Vec<String>,
     pub attributes: Vec<Attribute>,
     pub visibility: Visibility,
     pub path: UsePath,

@@ -29,6 +29,24 @@ pub fn fmt_attributes(attrs: &[Attribute]) -> RcDoc<'static> {
     RcDoc::intersperse(docs, RcDoc::hardline()).append(RcDoc::hardline())
 }
 
+pub fn fmt_leading_comments(comments: &[String]) -> RcDoc<'static> {
+    if comments.is_empty() {
+        return RcDoc::nil();
+    }
+    let docs: Vec<RcDoc<'static>> = comments
+        .iter()
+        .map(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                RcDoc::text("//")
+            } else {
+                RcDoc::text(format!("// {trimmed}"))
+            }
+        })
+        .collect();
+    RcDoc::intersperse(docs, RcDoc::hardline()).append(RcDoc::hardline())
+}
+
 pub fn fmt_vis(vis: Visibility) -> RcDoc<'static> {
     match vis {
         Visibility::Public => RcDoc::text("pub "),
@@ -115,14 +133,16 @@ pub fn fmt_type_annotation(ta: &TypeAnnotation) -> RcDoc<'static> {
 // --- Mod & Use declarations ---
 
 pub fn fmt_mod_decl(m: &ModDecl) -> RcDoc<'static> {
-    fmt_attributes(&m.attributes)
+    fmt_leading_comments(&m.leading_comments)
+        .append(fmt_attributes(&m.attributes))
         .append(fmt_vis(m.visibility))
         .append(RcDoc::text("mod "))
         .append(RcDoc::text(m.name.clone()))
 }
 
 pub fn fmt_use_decl(u: &UseDecl) -> RcDoc<'static> {
-    fmt_attributes(&u.attributes)
+    fmt_leading_comments(&u.leading_comments)
+        .append(fmt_attributes(&u.attributes))
         .append(fmt_vis(u.visibility))
         .append(RcDoc::text("use "))
         .append(fmt_use_path(&u.path))
@@ -175,7 +195,8 @@ fn fmt_use_target(target: &UseTarget, has_segments: bool) -> RcDoc<'static> {
 // --- Type alias ---
 
 pub fn fmt_type_alias(ta: &TypeAliasDef) -> RcDoc<'static> {
-    fmt_attributes(&ta.attributes)
+    fmt_leading_comments(&ta.leading_comments)
+        .append(fmt_attributes(&ta.attributes))
         .append(fmt_vis(ta.visibility))
         .append(RcDoc::text("type "))
         .append(RcDoc::text(ta.name.clone()))
@@ -187,7 +208,8 @@ pub fn fmt_type_alias(ta: &TypeAliasDef) -> RcDoc<'static> {
 // --- Struct ---
 
 pub fn fmt_struct(s: &StructDef) -> RcDoc<'static> {
-    let doc = fmt_attributes(&s.attributes)
+    let doc = fmt_leading_comments(&s.leading_comments)
+        .append(fmt_attributes(&s.attributes))
         .append(fmt_vis(s.visibility))
         .append(RcDoc::text("struct "))
         .append(RcDoc::text(s.name.clone()))
@@ -223,7 +245,8 @@ fn fmt_struct_fields(fields: &[StructFieldDef]) -> RcDoc<'static> {
 // --- Enum ---
 
 pub fn fmt_enum(e: &EnumDef) -> RcDoc<'static> {
-    fmt_attributes(&e.attributes)
+    fmt_leading_comments(&e.leading_comments)
+        .append(fmt_attributes(&e.attributes))
         .append(fmt_vis(e.visibility))
         .append(RcDoc::text("enum "))
         .append(RcDoc::text(e.name.clone()))
@@ -795,7 +818,8 @@ fn fmt_expr_needs_parens_for_postfix(expr: &Expr) -> RcDoc<'static> {
 // --- Function ---
 
 pub fn fmt_function(f: &FunctionDef) -> RcDoc<'static> {
-    let sig = fmt_attributes(&f.attributes)
+    let sig = fmt_leading_comments(&f.leading_comments)
+        .append(fmt_attributes(&f.attributes))
         .append(fmt_vis(f.visibility))
         .append(RcDoc::text("fn "))
         .append(RcDoc::text(f.name.clone()))
@@ -859,7 +883,8 @@ pub fn fmt_item(item: &Item) -> RcDoc<'static> {
 }
 
 fn fmt_impl_block(i: &ImplBlock) -> RcDoc<'static> {
-    let header = fmt_attributes(&i.attributes)
+    let header = fmt_leading_comments(&i.leading_comments)
+        .append(fmt_attributes(&i.attributes))
         .append(RcDoc::text("impl"))
         .append(fmt_type_params(&i.type_params))
         .append(RcDoc::text(" "))
@@ -882,7 +907,8 @@ fn fmt_impl_block(i: &ImplBlock) -> RcDoc<'static> {
 }
 
 fn fmt_impl_method(m: &ImplMethod) -> RcDoc<'static> {
-    let sig = fmt_attributes(&m.attributes)
+    let sig = fmt_leading_comments(&m.leading_comments)
+        .append(fmt_attributes(&m.attributes))
         .append(fmt_vis(m.visibility))
         .append(RcDoc::text("fn "))
         .append(RcDoc::text(m.name.clone()))

@@ -11,6 +11,7 @@ use super::build_test_package;
 #[test]
 fn test_test_attr_on_fn_is_valid() {
     let items = vec![Item::Function(FunctionDef {
+        leading_comments: vec![],
         attributes: vec![Attribute {
             name: "test".to_string(),
             args: None,
@@ -30,6 +31,7 @@ fn test_test_attr_on_fn_is_valid() {
 #[test]
 fn test_test_attr_on_struct_is_error() {
     let items = vec![Item::Struct(StructDef {
+        leading_comments: vec![],
         attributes: vec![Attribute {
             name: "test".to_string(),
             args: None,
@@ -47,6 +49,7 @@ fn test_test_attr_on_struct_is_error() {
 #[test]
 fn test_test_attr_on_struct_error_message() {
     let items = vec![Item::Struct(StructDef {
+        leading_comments: vec![],
         attributes: vec![Attribute {
             name: "test".to_string(),
             args: None,
@@ -65,6 +68,7 @@ fn test_test_attr_on_struct_error_message() {
 #[test]
 fn test_test_attr_on_enum_is_error() {
     let items = vec![Item::Enum(zoya_ast::EnumDef {
+        leading_comments: vec![],
         attributes: vec![Attribute {
             name: "test".to_string(),
             args: None,
@@ -83,6 +87,7 @@ fn test_test_attr_on_enum_is_error() {
 #[test]
 fn test_unknown_attr_on_fn_is_silently_discarded() {
     let items = vec![Item::Function(FunctionDef {
+        leading_comments: vec![],
         attributes: vec![Attribute {
             name: "unknown".to_string(),
             args: None,
@@ -102,6 +107,7 @@ fn test_unknown_attr_on_fn_is_silently_discarded() {
 #[test]
 fn test_test_attr_with_params_is_error() {
     let items = vec![Item::Function(FunctionDef {
+        leading_comments: vec![],
         attributes: vec![Attribute {
             name: "test".to_string(),
             args: None,
@@ -124,6 +130,7 @@ fn test_test_attr_with_params_is_error() {
 #[test]
 fn test_test_attr_wrong_return_type_is_error() {
     let items = vec![Item::Function(FunctionDef {
+        leading_comments: vec![],
         attributes: vec![Attribute {
             name: "test".to_string(),
             args: None,
@@ -143,6 +150,7 @@ fn test_test_attr_wrong_return_type_is_error() {
 #[test]
 fn test_builtin_and_test_conflict_is_error() {
     let items = vec![Item::Function(FunctionDef {
+        leading_comments: vec![],
         attributes: vec![
             Attribute {
                 name: "builtin".to_string(),
@@ -168,6 +176,7 @@ fn test_builtin_and_test_conflict_is_error() {
 #[test]
 fn test_private_test_fn_appears_in_definitions() {
     let items = vec![Item::Function(FunctionDef {
+        leading_comments: vec![],
         attributes: vec![Attribute {
             name: "test".to_string(),
             args: None,
@@ -191,6 +200,7 @@ fn test_private_test_fn_appears_in_definitions() {
 #[test]
 fn test_test_fn_has_is_test_flag() {
     let items = vec![Item::Function(FunctionDef {
+        leading_comments: vec![],
         attributes: vec![Attribute {
             name: "test".to_string(),
             args: None,

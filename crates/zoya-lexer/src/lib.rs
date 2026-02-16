@@ -167,8 +167,11 @@ fn parse_string(lex: &logos::Lexer<Token>) -> Option<String> {
 
 #[derive(Logos, Debug, Clone, PartialEq)]
 #[logos(skip r"[ \t\n\r]+")]
-#[logos(skip(r"//[^\n]*", allow_greedy = true))]
 pub enum Token {
+    // Line comments — kept as tokens so the formatter can preserve them
+    #[regex(r"//[^\n]*", |lex| lex.slice()[2..].to_string(), allow_greedy = true)]
+    LineComment(String),
+
     // Keywords (must come before Ident)
     #[token("fn")]
     Fn,
@@ -359,6 +362,15 @@ pub fn lex(input: &str) -> Result<Vec<Spanned>, LexError> {
     split_dot_float(&mut tokens, input);
 
     Ok(tokens)
+}
+
+/// Remove all `LineComment` tokens from a token stream.
+/// Use this when comments are not needed (e.g., REPL, type checker).
+pub fn strip_comments(tokens: Vec<Spanned>) -> Vec<Spanned> {
+    tokens
+        .into_iter()
+        .filter(|(t, _)| !matches!(t, Token::LineComment(_)))
+        .collect()
 }
 
 /// Rewrite `Dot, Float(...)` sequences into `Dot, Int, Dot, Int`.
@@ -1163,37 +1175,62 @@ mod tests {
     #[test]
     fn test_line_comment() {
         let toks = toks("// this is a comment");
-        assert_eq!(toks, vec![]);
+        assert_eq!(
+            toks,
+            vec![Token::LineComment(" this is a comment".to_string())]
+        );
     }
 
     #[test]
     fn test_comment_after_code() {
         let toks = toks("42 // comment");
-        assert_eq!(toks, vec![Token::Int(42)]);
+        assert_eq!(
+            toks,
+            vec![Token::Int(42), Token::LineComment(" comment".to_string())]
+        );
     }
 
     #[test]
     fn test_comment_before_code() {
         let toks = toks("// comment\n42");
-        assert_eq!(toks, vec![Token::Int(42)]);
+        assert_eq!(
+            toks,
+            vec![Token::LineComment(" comment".to_string()), Token::Int(42)]
+        );
     }
 
     #[test]
     fn test_multiple_comments() {
         let toks = toks("// first\n1\n// second\n2");
-        assert_eq!(toks, vec![Token::Int(1), Token::Int(2)]);
+        assert_eq!(
+            toks,
+            vec![
+                Token::LineComment(" first".to_string()),
+                Token::Int(1),
+                Token::LineComment(" second".to_string()),
+                Token::Int(2),
+            ]
+        );
     }
 
     #[test]
     fn test_comment_with_operators() {
         let toks = toks("// + - * /");
-        assert_eq!(toks, vec![]);
+        assert_eq!(toks, vec![Token::LineComment(" + - * /".to_string())]);
     }
 
     #[test]
     fn test_empty_comment() {
         let toks = toks("//");
-        assert_eq!(toks, vec![]);
+        assert_eq!(toks, vec![Token::LineComment("".to_string())]);
+    }
+
+    #[test]
+    fn test_strip_comments() {
+        let tokens = lex("// comment\n42 // trailing").unwrap();
+        let stripped = strip_comments(tokens);
+        let toks: Vec<Token> = stripped.into_iter().map(|(t, _)| t).collect();
+        assert_eq!(toks, vec![Token::Int(42)]);
     }
 
     #[test]

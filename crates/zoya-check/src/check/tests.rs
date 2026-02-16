@@ -54,6 +54,7 @@ pub fn build_test_package(items: Vec<Item>) -> Package {
 pub fn build_test_package_with_expr(items: Vec<Item>, test_expr: Expr) -> Package {
     let mut all_items = items;
     all_items.push(Item::Function(FunctionDef {
+        leading_comments: vec![],
         attributes: vec![],
         visibility: Visibility::Public,
         name: "test_fn".to_string(),

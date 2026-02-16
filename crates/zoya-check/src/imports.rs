@@ -363,6 +363,7 @@ mod tests {
 
     fn make_use(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
         UseDecl {
+            leading_comments: vec![],
             attributes: vec![],
             visibility: Visibility::Private,
             path: UsePath {
@@ -555,6 +556,7 @@ mod tests {
 
     fn make_pub_use(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
         UseDecl {
+            leading_comments: vec![],
             attributes: vec![],
             visibility: Visibility::Public,
             path: UsePath {
@@ -635,6 +637,7 @@ mod tests {
         );
 
         let uses = vec![UseDecl {
+            leading_comments: vec![],
             attributes: vec![],
             visibility: Visibility::Private,
             path: UsePath {

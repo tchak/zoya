@@ -54,6 +54,7 @@ pub(crate) fn mod_decl_parser<'a>()
         .then_ignore(just(Token::Mod))
         .then(ident())
         .map(|(is_pub, name)| ModDecl {
+            leading_comments: vec![],
             attributes: vec![],
             visibility: if is_pub.is_some() {
                 Visibility::Public
@@ -112,6 +113,7 @@ pub(crate) fn use_decl_parser<'a>()
                 (prefix, segments)
             };
             Ok(UseDecl {
+                leading_comments: vec![],
                 attributes: vec![],
                 visibility: if is_pub.is_some() {
                     Visibility::Public

@@ -22,6 +22,25 @@ Example:
 let x = 42  // inline comment
 ```
 
+### Comment Preservation
+
+The formatter preserves line comments that appear **between top-level items** and **between methods inside `impl` blocks**. These comments are attached to the item or method that follows them and travel with it when the formatter reorders items.
+
+Comments inside function bodies, expressions, and other non-item contexts are stripped by the formatter.
+
+```zoya
+// This comment is preserved (before a top-level item)
+pub fn main() -> Int {
+    // This comment is stripped (inside a function body)
+    42
+}
+
+impl Foo {
+    // This comment is preserved (between impl methods)
+    pub fn bar(self) -> Int 1
+}
+```
+
 ## Keywords
 
 The following identifiers are reserved as keywords:

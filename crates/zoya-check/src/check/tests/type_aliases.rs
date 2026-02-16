@@ -12,6 +12,7 @@ fn test_type_alias_simple() {
     // fn get_id() -> UserId { 42 }
     let items = vec![
         Item::TypeAlias(TypeAliasDef {
+            leading_comments: vec![],
             attributes: vec![],
             visibility: Visibility::Public,
             name: "UserId".to_string(),
@@ -19,6 +20,7 @@ fn test_type_alias_simple() {
             typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
         }),
         Item::Function(FunctionDef {
+            leading_comments: vec![],
             attributes: vec![],
             visibility: Visibility::Public,
             name: "get_id".to_string(),
@@ -39,6 +41,7 @@ fn test_type_alias_generic() {
     // fn make_pair() -> Pair<Int, Bool> { (1, true) }
     let items = vec![
         Item::TypeAlias(TypeAliasDef {
+            leading_comments: vec![],
             attributes: vec![],
             visibility: Visibility::Public,
             name: "Pair".to_string(),
@@ -49,6 +52,7 @@ fn test_type_alias_generic() {
             ]),
         }),
         Item::Function(FunctionDef {
+            leading_comments: vec![],
             attributes: vec![],
             visibility: Visibility::Public,
             name: "make_pair".to_string(),
@@ -76,6 +80,7 @@ fn test_type_alias_generic() {
 fn test_type_alias_non_pascal_case_error() {
     // type userId = Int  -- should fail
     let items = vec![Item::TypeAlias(TypeAliasDef {
+        leading_comments: vec![],
         attributes: vec![],
         visibility: Visibility::Public,
         name: "userId".to_string(),
@@ -94,6 +99,7 @@ fn test_type_alias_wrong_arity_error() {
     // fn bad() -> Pair<Int> { ... }  -- should fail, needs 2 args
     let items = vec![
         Item::TypeAlias(TypeAliasDef {
+            leading_comments: vec![],
             attributes: vec![],
             visibility: Visibility::Public,
             name: "Pair".to_string(),
@@ -104,6 +110,7 @@ fn test_type_alias_wrong_arity_error() {
             ]),
         }),
         Item::Function(FunctionDef {
+            leading_comments: vec![],
             attributes: vec![],
             visibility: Visibility::Public,
             name: "bad".to_string(),

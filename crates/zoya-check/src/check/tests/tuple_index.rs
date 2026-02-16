@@ -66,6 +66,7 @@ fn test_tuple_index_on_non_tuple_error() {
 #[test]
 fn test_tuple_struct_index() {
     let items = vec![Item::Struct(StructDef {
+        leading_comments: vec![],
         attributes: vec![],
         visibility: Visibility::Public,
         name: "Pair".to_string(),
@@ -91,6 +92,7 @@ fn test_tuple_struct_index() {
 #[test]
 fn test_tuple_struct_index_out_of_bounds() {
     let items = vec![Item::Struct(StructDef {
+        leading_comments: vec![],
         attributes: vec![],
         visibility: Visibility::Public,
         name: "Wrapper".to_string(),

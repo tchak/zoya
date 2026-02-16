@@ -1,13 +1,34 @@
 impl BigInt {
-    #[builtin] pub fn abs(self) -> BigInt ()
-    #[builtin] pub fn to_string(self) -> String ()
-    #[builtin] pub fn min(self, other: BigInt) -> BigInt ()
-    #[builtin] pub fn max(self, other: BigInt) -> BigInt ()
-    #[builtin] pub fn pow(self, exp: BigInt) -> BigInt ()
-    #[builtin] pub fn clamp(self, min: BigInt, max: BigInt) -> BigInt ()
-    #[builtin] pub fn signum(self) -> BigInt ()
-    #[builtin] pub fn is_positive(self) -> Bool ()
-    #[builtin] pub fn is_negative(self) -> Bool ()
-    #[builtin] pub fn is_zero(self) -> Bool ()
-    #[builtin] pub fn to_int(self) -> Int ()
+  #[builtin]
+  pub fn abs(self) -> BigInt ()
+  
+  #[builtin]
+  pub fn to_string(self) -> String ()
+  
+  #[builtin]
+  pub fn min(self, other: BigInt) -> BigInt ()
+  
+  #[builtin]
+  pub fn max(self, other: BigInt) -> BigInt ()
+  
+  #[builtin]
+  pub fn pow(self, exp: BigInt) -> BigInt ()
+  
+  #[builtin]
+  pub fn clamp(self, min: BigInt, max: BigInt) -> BigInt ()
+  
+  #[builtin]
+  pub fn signum(self) -> BigInt ()
+  
+  #[builtin]
+  pub fn is_positive(self) -> Bool ()
+  
+  #[builtin]
+  pub fn is_negative(self) -> Bool ()
+  
+  #[builtin]
+  pub fn is_zero(self) -> Bool ()
+  
+  #[builtin]
+  pub fn to_int(self) -> Int ()
 }

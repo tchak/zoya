@@ -1,23 +1,42 @@
 use super::option::Option
 
 impl<T> List<T> {
-    #[builtin] pub fn len(self) -> Int ()
-    pub fn is_empty(self) -> Bool { self.len() == 0 }
-    #[builtin] pub fn reverse(self) -> Self ()
-    #[builtin] pub fn push(self, item: T) -> Self ()
-
-    // Higher-order methods
-    #[builtin] pub fn map<U>(self, f: T -> U) -> List<U> ()
-    #[builtin] pub fn filter(self, f: T -> Bool) -> Self ()
-    #[builtin] pub fn fold<U>(self, init: U, f: (U, T) -> U) -> U ()
-    #[builtin] pub fn filter_map<U>(self, f: T -> Option<U>) -> List<U> ()
-
-    // Accessors
-    pub fn first(self) -> Option<T> { self[0] }
-    pub fn last(self) -> Option<T> { self[-1] }
-
-    // Manipulation
-    #[builtin] pub fn truncate(self, len: Int) -> Self ()
-    #[builtin] pub fn insert(self, index: Int, value: T) -> Self ()
-    #[builtin] pub fn remove(self, index: Int) -> Self ()
+  #[builtin]
+  pub fn len(self) -> Int ()
+  
+  pub fn is_empty(self) -> Bool self.len() == 0
+  
+  #[builtin]
+  pub fn reverse(self) -> Self ()
+  
+  #[builtin]
+  pub fn push(self, item: T) -> Self ()
+  
+  // Higher-order methods
+  #[builtin]
+  pub fn map<U>(self, f: T -> U) -> List<U> ()
+  
+  #[builtin]
+  pub fn filter(self, f: T -> Bool) -> Self ()
+  
+  #[builtin]
+  pub fn fold<U>(self, init: U, f: (U, T) -> U) -> U ()
+  
+  #[builtin]
+  pub fn filter_map<U>(self, f: T -> Option<U>) -> List<U> ()
+  
+  // Accessors
+  pub fn first(self) -> Option<T> self[0]
+  
+  pub fn last(self) -> Option<T> self[-1]
+  
+  // Manipulation
+  #[builtin]
+  pub fn truncate(self, len: Int) -> Self ()
+  
+  #[builtin]
+  pub fn insert(self, index: Int, value: T) -> Self ()
+  
+  #[builtin]
+  pub fn remove(self, index: Int) -> Self ()
 }

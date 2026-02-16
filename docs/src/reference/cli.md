@@ -56,7 +56,7 @@ zoya repl .                # Start REPL with package context
 
 ### `zoya fmt [path]`
 
-Format `.zy` source files.
+Format `.zy` source files. Comments between top-level items and between `impl` methods are preserved. Comments inside function bodies and expressions are stripped.
 
 ```bash
 zoya fmt program.zy        # Format a single file

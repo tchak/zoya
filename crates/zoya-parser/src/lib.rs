@@ -1,7 +1,7 @@
 use chumsky::prelude::*;
 
 use zoya_ast::{Item, Stmt};
-use zoya_lexer::Token;
+use zoya_lexer::{Token, strip_comments};
 
 mod expressions;
 mod helpers;
@@ -81,6 +81,7 @@ fn display_token(t: &Token) -> String {
         Token::Super => "'super'".to_string(),
         Token::Impl => "'impl'".to_string(),
         Token::InterpolatedString(_) => "interpolated string".to_string(),
+        Token::LineComment(text) => format!("comment '{text}'"),
     }
 }
 
@@ -189,10 +190,79 @@ enum InputElement {
     Stmt(Box<Stmt>),
 }
 
+/// Pre-process a token stream for module parsing.
+///
+/// Keeps `LineComment` tokens at depth 0 (between top-level items) and at
+/// depth 1 inside impl blocks (between methods). Strips all other comments
+/// (inside function bodies, enum/struct bodies, expressions).
+fn prepare_tokens_for_module(tokens: Vec<zoya_lexer::Spanned>) -> Vec<zoya_lexer::Spanned> {
+    let mut result = Vec::with_capacity(tokens.len());
+    let mut depth: usize = 0;
+    // Track whether current depth-1 context is an impl block
+    let mut in_impl = false;
+    // Track whether we saw `Token::Impl` at depth 0 (to set in_impl when we enter depth 1)
+    let mut saw_impl_at_depth0 = false;
+
+    for (token, span) in tokens {
+        match &token {
+            Token::LBrace | Token::LParen | Token::LBracket => {
+                if depth == 0 && saw_impl_at_depth0 {
+                    in_impl = matches!(token, Token::LBrace);
+                    saw_impl_at_depth0 = false;
+                }
+                depth += 1;
+                result.push((token, span));
+            }
+            Token::RBrace | Token::RParen | Token::RBracket => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    in_impl = false;
+                }
+                result.push((token, span));
+            }
+            Token::Impl if depth == 0 => {
+                saw_impl_at_depth0 = true;
+                result.push((token, span));
+            }
+            Token::LineComment(_) => {
+                // Keep at depth 0 (between top-level items)
+                if depth == 0 {
+                    result.push((token, span));
+                // Keep at depth 1 inside impl blocks (between methods)
+                } else if depth == 1 && in_impl {
+                    result.push((token, span));
+                }
+                // Strip all other comments
+            }
+            _ => {
+                if depth == 0 {
+                    // Reset impl tracking if we see a non-impl token at depth 0
+                    // that starts a different item
+                    if matches!(
+                        token,
+                        Token::Fn
+                            | Token::Struct
+                            | Token::Enum
+                            | Token::Type
+                            | Token::Mod
+                            | Token::Use
+                            | Token::Pub
+                    ) {
+                        saw_impl_at_depth0 = false;
+                    }
+                }
+                result.push((token, span));
+            }
+        }
+    }
+    result
+}
+
 /// Parse REPL input: items and statements in any order.
 ///
 /// This parser handles interactive input where definitions (type, function, etc.)
 /// and statements (expressions, let bindings) can be interleaved in any order.
+/// Comments are stripped since the REPL doesn't need them.
 ///
 /// # Arguments
 /// * `tokens` - Token stream from the lexer
@@ -200,6 +270,7 @@ enum InputElement {
 /// # Returns
 /// Tuple of (items, stmts) on success, or `ParseError` with diagnostics
 pub fn parse_input(tokens: Vec<zoya_lexer::Spanned>) -> Result<(Vec<Item>, Vec<Stmt>), ParseError> {
+    let tokens = strip_comments(tokens);
     let (toks, byte_spans) = split_tokens(tokens);
 
     let element = choice((
@@ -226,6 +297,7 @@ pub fn parse_input(tokens: Vec<zoya_lexer::Spanned>) -> Result<(Vec<Item>, Vec<S
 ///
 /// Module files can declare submodules, import names, and define items (types, functions, etc.)
 /// in any order. All are returned as `Item` variants (including `Item::ModDecl`).
+/// Comments between items and between impl methods are preserved as `leading_comments`.
 ///
 /// # Arguments
 /// * `tokens` - Token stream from the lexer
@@ -233,9 +305,17 @@ pub fn parse_input(tokens: Vec<zoya_lexer::Spanned>) -> Result<(Vec<Item>, Vec<S
 /// # Returns
 /// Vec of items on success, or `ParseError`
 pub fn parse_module(tokens: Vec<zoya_lexer::Spanned>) -> Result<Vec<Item>, ParseError> {
+    let tokens = prepare_tokens_for_module(tokens);
     let (toks, byte_spans) = split_tokens(tokens);
 
-    let parser = item_parser().repeated().collect::<Vec<_>>();
+    // Parse items followed by optional trailing comments (discarded)
+    let trailing_comments = select! { Token::LineComment(_text) => () }
+        .repeated()
+        .collect::<Vec<_>>();
+    let parser = item_parser()
+        .repeated()
+        .collect::<Vec<_>>()
+        .then_ignore(trailing_comments);
 
     parse_result(parser.parse(&toks), &byte_spans)
 }
@@ -248,11 +328,13 @@ mod tests {
     use crate::expressions::expr_parser;
 
     fn parse(tokens: Vec<zoya_lexer::Spanned>) -> Result<zoya_ast::Expr, ParseError> {
+        let tokens = strip_comments(tokens);
         let (toks, byte_spans) = split_tokens(tokens);
         parse_result(expr_parser().parse(&toks), &byte_spans)
     }
 
     fn parse_item(tokens: Vec<zoya_lexer::Spanned>) -> Result<Item, ParseError> {
+        let tokens = strip_comments(tokens);
         let (toks, byte_spans) = split_tokens(tokens);
         parse_result(item_parser().parse(&toks), &byte_spans)
     }
@@ -622,6 +704,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                leading_comments: vec![],
                 attributes: vec![],
                 visibility: Visibility::Private,
                 name: "foo".to_string(),
@@ -639,6 +722,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                leading_comments: vec![],
                 attributes: vec![],
                 visibility: Visibility::Private,
                 name: "foo".to_string(),
@@ -656,6 +740,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                leading_comments: vec![],
                 attributes: vec![],
                 visibility: Visibility::Private,
                 name: "add".to_string(),
@@ -686,6 +771,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                leading_comments: vec![],
                 attributes: vec![],
                 visibility: Visibility::Private,
                 name: "identity".to_string(),
@@ -706,6 +792,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                leading_comments: vec![],
                 attributes: vec![],
                 visibility: Visibility::Private,
                 name: "pair".to_string(),
@@ -732,6 +819,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                leading_comments: vec![],
                 attributes: vec![],
                 visibility: Visibility::Private,
                 name: "double".to_string(),
@@ -1059,6 +1147,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                leading_comments: vec![],
                 attributes: vec![],
                 visibility: Visibility::Private,
                 name: "foo".to_string(),
@@ -1077,6 +1166,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                leading_comments: vec![],
                 attributes: vec![],
                 visibility: Visibility::Private,
                 name: "add".to_string(),
@@ -1117,6 +1207,7 @@ mod tests {
         assert_eq!(
             item,
             Item::Function(FunctionDef {
+                leading_comments: vec![],
                 attributes: vec![],
                 visibility: Visibility::Public,
                 name: "foo".to_string(),

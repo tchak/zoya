@@ -2,20 +2,13 @@ use super::result::Result
 
 pub enum Number { Int(Int), Float(Float) }
 
-pub enum JSON {
-    Null,
-    Bool(Bool),
-    Number(Number),
-    String(String),
-    Array(List<JSON>),
-    Object(Dict<String, JSON>),
-}
+pub enum JSON { Null, Bool(Bool), Number(Number), String(String), Array(List<JSON>), Object(Dict<String, JSON>) }
 
 pub enum ParseError { ParseError }
 
 impl JSON {
-    #[builtin]
-    pub fn to_string(self) -> String ()
+  #[builtin]
+  pub fn to_string(self) -> String ()
 }
 
 #[builtin]

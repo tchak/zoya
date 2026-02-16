@@ -1,17 +1,46 @@
 impl Float {
-    #[builtin] pub fn abs(self) -> Float ()
-    #[builtin] pub fn to_string(self) -> String ()
-    #[builtin] pub fn to_int(self) -> Int ()
-    #[builtin] pub fn floor(self) -> Float ()
-    #[builtin] pub fn ceil(self) -> Float ()
-    #[builtin] pub fn round(self) -> Float ()
-    #[builtin] pub fn sqrt(self) -> Float ()
-    #[builtin] pub fn min(self, other: Float) -> Float ()
-    #[builtin] pub fn max(self, other: Float) -> Float ()
-    #[builtin] pub fn pow(self, exp: Float) -> Float ()
-    #[builtin] pub fn clamp(self, min: Float, max: Float) -> Float ()
-    #[builtin] pub fn signum(self) -> Float ()
-    #[builtin] pub fn is_positive(self) -> Bool ()
-    #[builtin] pub fn is_negative(self) -> Bool ()
-    #[builtin] pub fn is_zero(self) -> Bool ()
+  #[builtin]
+  pub fn abs(self) -> Float ()
+  
+  #[builtin]
+  pub fn to_string(self) -> String ()
+  
+  #[builtin]
+  pub fn to_int(self) -> Int ()
+  
+  #[builtin]
+  pub fn floor(self) -> Float ()
+  
+  #[builtin]
+  pub fn ceil(self) -> Float ()
+  
+  #[builtin]
+  pub fn round(self) -> Float ()
+  
+  #[builtin]
+  pub fn sqrt(self) -> Float ()
+  
+  #[builtin]
+  pub fn min(self, other: Float) -> Float ()
+  
+  #[builtin]
+  pub fn max(self, other: Float) -> Float ()
+  
+  #[builtin]
+  pub fn pow(self, exp: Float) -> Float ()
+  
+  #[builtin]
+  pub fn clamp(self, min: Float, max: Float) -> Float ()
+  
+  #[builtin]
+  pub fn signum(self) -> Float ()
+  
+  #[builtin]
+  pub fn is_positive(self) -> Bool ()
+  
+  #[builtin]
+  pub fn is_negative(self) -> Bool ()
+  
+  #[builtin]
+  pub fn is_zero(self) -> Bool ()
 }
