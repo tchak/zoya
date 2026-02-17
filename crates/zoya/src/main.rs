@@ -19,7 +19,8 @@ enum Command {
     /// Run a file
     Run {
         /// Path to a .zy file or directory with package.toml (defaults to current directory)
-        path: Option<PathBuf>,
+        #[arg(short, long)]
+        package: Option<PathBuf>,
         /// Compilation mode (dev, test, release)
         #[arg(long, default_value = "dev")]
         mode: String,
@@ -30,12 +31,14 @@ enum Command {
     /// Start the interactive REPL
     Repl {
         /// Path to a .zy file or directory with package.toml (defaults to current directory)
-        path: Option<PathBuf>,
+        #[arg(short, long)]
+        package: Option<PathBuf>,
     },
     /// Type-check a file without executing
     Check {
         /// Path to a .zy file or directory with package.toml (defaults to current directory)
-        path: Option<PathBuf>,
+        #[arg(short, long)]
+        package: Option<PathBuf>,
         /// Compilation mode (dev, test, release)
         #[arg(long, default_value = "dev")]
         mode: String,
@@ -43,7 +46,8 @@ enum Command {
     /// Compile a file to JavaScript
     Build {
         /// Path to a .zy file or directory with package.toml (defaults to current directory)
-        path: Option<PathBuf>,
+        #[arg(short, long)]
+        package: Option<PathBuf>,
         /// Output file (overrides package.toml output)
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -54,7 +58,8 @@ enum Command {
     /// Format source files
     Fmt {
         /// Path to a .zy file or directory (defaults to current directory)
-        path: Option<PathBuf>,
+        #[arg(short, long)]
+        package: Option<PathBuf>,
         /// Check if files are formatted without writing (exit 1 if not)
         #[arg(long)]
         check: bool,
@@ -62,7 +67,8 @@ enum Command {
     /// Run tests
     Test {
         /// Path to a .zy file or directory with package.toml (defaults to current directory)
-        path: Option<PathBuf>,
+        #[arg(short, long)]
+        package: Option<PathBuf>,
     },
     /// Manage task functions
     Task {
@@ -84,7 +90,8 @@ enum TaskCommand {
     /// List all #[task] functions in a package
     List {
         /// Path to a .zy file or directory with package.toml (defaults to current directory)
-        path: Option<PathBuf>,
+        #[arg(short, long)]
+        package: Option<PathBuf>,
     },
 }
 
@@ -104,46 +111,54 @@ fn main() {
     let term = Term::stderr();
 
     match cli.command {
-        Some(Command::Run { path, mode, json }) => {
-            let path = path.unwrap_or_else(|| PathBuf::from("."));
+        Some(Command::Run {
+            package,
+            mode,
+            json,
+        }) => {
+            let path = package.unwrap_or_else(|| PathBuf::from("."));
             let mode = parse_mode(&term, &mode);
             if let Err(e) = commands::run::execute(&path, mode, json) {
                 fatal(&term, &e.to_string());
             }
         }
-        Some(Command::Repl { path }) => {
-            let path = path.unwrap_or_else(|| PathBuf::from("."));
+        Some(Command::Repl { package }) => {
+            let path = package.unwrap_or_else(|| PathBuf::from("."));
             commands::repl::execute(&path);
         }
-        Some(Command::Check { path, mode }) => {
-            let path = path.unwrap_or_else(|| PathBuf::from("."));
+        Some(Command::Check { package, mode }) => {
+            let path = package.unwrap_or_else(|| PathBuf::from("."));
             let mode = parse_mode(&term, &mode);
             if let Err(e) = commands::check::execute(&path, mode) {
                 fatal(&term, &e.to_string());
             }
         }
-        Some(Command::Build { path, output, mode }) => {
-            let path = path.unwrap_or_else(|| PathBuf::from("."));
+        Some(Command::Build {
+            package,
+            output,
+            mode,
+        }) => {
+            let path = package.unwrap_or_else(|| PathBuf::from("."));
             let mode = parse_mode(&term, &mode);
             if let Err(e) = commands::build::execute(&path, output.as_deref(), mode) {
                 fatal(&term, &e.to_string());
             }
         }
-        Some(Command::Fmt { path, check }) => {
-            let path = path.unwrap_or_else(|| PathBuf::from("."));
+        Some(Command::Fmt { package, check }) => {
+            let path = package.unwrap_or_else(|| PathBuf::from("."));
             if let Err(e) = commands::fmt::execute(&path, check) {
                 fatal(&term, &e.to_string());
             }
         }
-        Some(Command::Test { path }) => {
-            let path = path.unwrap_or_else(|| PathBuf::from("."));
+        Some(Command::Test { package }) => {
+            let path = package.unwrap_or_else(|| PathBuf::from("."));
             if let Err(e) = commands::test::execute(&path) {
                 fatal(&term, &e.to_string());
             }
         }
         Some(Command::Task { command }) => match command {
-            TaskCommand::List { path } => {
-                let path = path.unwrap_or_else(|| PathBuf::from("."));
+            TaskCommand::List { package } => {
+                let path = package.unwrap_or_else(|| PathBuf::from("."));
                 if let Err(e) = commands::task::list::execute(&path) {
                     fatal(&term, &e.to_string());
                 }

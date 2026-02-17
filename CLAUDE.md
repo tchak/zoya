@@ -72,18 +72,18 @@ crates/
 ## Commands
 
 ```bash
-cargo run -p zoya -- repl             # REPL
-cargo run -p zoya -- run file.zy    # Run file
-cargo run -p zoya -- run              # Run package in current directory
-cargo run -p zoya -- run --json       # Output result as JSON
-cargo run -p zoya -- check file.zy  # Type-check only
-cargo run -p zoya -- build file.zy  # Compile to JS
-cargo run -p zoya -- fmt              # Format current package
-cargo run -p zoya -- fmt --check      # Check formatting
-cargo run -p zoya -- test             # Run tests
-cargo run -p zoya -- new my_project   # Create new project
-cargo test --workspace                # Run all Rust tests
-cargo clippy --workspace              # Lint
+cargo run -p zoya -- repl                        # REPL
+cargo run -p zoya -- run --package file.zy       # Run file
+cargo run -p zoya -- run                         # Run package in current directory
+cargo run -p zoya -- run --json                  # Output result as JSON
+cargo run -p zoya -- check --package file.zy     # Type-check only
+cargo run -p zoya -- build --package file.zy     # Compile to JS
+cargo run -p zoya -- fmt                         # Format current package
+cargo run -p zoya -- fmt --check                 # Check formatting
+cargo run -p zoya -- test                        # Run tests
+cargo run -p zoya -- new my_project              # Create new project
+cargo test --workspace                           # Run all Rust tests
+cargo clippy --workspace                         # Lint
 ```
 
 ## Version Control
