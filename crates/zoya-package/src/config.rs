@@ -18,9 +18,6 @@ pub struct PackageConfig {
     /// Relative path to the main entry file (defaults to "src/main.zy")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub main: Option<PathBuf>,
-    /// Output directory for build artifacts (defaults to "build")
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output: Option<PathBuf>,
 }
 
 impl PackageConfig {
@@ -29,13 +26,6 @@ impl PackageConfig {
         self.main
             .clone()
             .unwrap_or_else(|| PathBuf::from("src/main.zy"))
-    }
-
-    /// Get the output directory path, using default if not specified.
-    pub fn output_path(&self) -> PathBuf {
-        self.output
-            .clone()
-            .unwrap_or_else(|| PathBuf::from("build"))
     }
 
     /// Get the module name (hyphens replaced with underscores).
@@ -155,14 +145,12 @@ mod tests {
         let config = PackageConfig {
             name: "my_project".to_string(),
             main: Some(PathBuf::from("src/main.zy")),
-            output: Some(PathBuf::from("dist")),
         };
 
         let toml = config.to_toml();
         assert!(toml.contains("[package]"));
         assert!(toml.contains("name = \"my_project\""));
         assert!(toml.contains("main = \"src/main.zy\""));
-        assert!(toml.contains("output = \"dist\""));
     }
 
     #[test]
@@ -170,14 +158,12 @@ mod tests {
         let config = PackageConfig {
             name: "my_project".to_string(),
             main: None,
-            output: None,
         };
 
         let toml = config.to_toml();
         assert!(toml.contains("[package]"));
         assert!(toml.contains("name = \"my_project\""));
         assert!(!toml.contains("main"));
-        assert!(!toml.contains("output"));
     }
 
     #[test]
@@ -217,9 +203,7 @@ name = "test_project"
         let config = PackageConfig::load_from(&config_path).unwrap();
         assert_eq!(config.name, "test_project");
         assert_eq!(config.main, None);
-        assert_eq!(config.output, None);
         assert_eq!(config.main_path(), PathBuf::from("src/main.zy"));
-        assert_eq!(config.output_path(), PathBuf::from("build"));
     }
 
     #[test]
@@ -254,7 +238,6 @@ name = "my-project"
         let config = PackageConfig::load(dir.path()).unwrap();
         assert_eq!(config.name, "my-project");
         assert_eq!(config.module_name(), "my_project");
-        assert_eq!(config.output_path(), PathBuf::from("build"));
     }
 
     #[test]
@@ -280,33 +263,14 @@ name = "Invalid Name"
         let config = PackageConfig {
             name: "test".to_string(),
             main: None,
-            output: None,
         };
         assert_eq!(config.main_path(), PathBuf::from("src/main.zy"));
 
         let config = PackageConfig {
             name: "test".to_string(),
             main: Some(PathBuf::from("lib/app.zy")),
-            output: None,
         };
         assert_eq!(config.main_path(), PathBuf::from("lib/app.zy"));
-    }
-
-    #[test]
-    fn test_output_path() {
-        let config = PackageConfig {
-            name: "my-app".to_string(),
-            main: None,
-            output: None,
-        };
-        assert_eq!(config.output_path(), PathBuf::from("build"));
-
-        let config = PackageConfig {
-            name: "my-app".to_string(),
-            main: None,
-            output: Some(PathBuf::from("dist/bundle.js")),
-        };
-        assert_eq!(config.output_path(), PathBuf::from("dist/bundle.js"));
     }
 
     #[test]
@@ -314,21 +278,18 @@ name = "Invalid Name"
         let config = PackageConfig {
             name: "my-project".to_string(),
             main: None,
-            output: None,
         };
         assert_eq!(config.module_name(), "my_project");
 
         let config = PackageConfig {
             name: "simple".to_string(),
             main: None,
-            output: None,
         };
         assert_eq!(config.module_name(), "simple");
 
         let config = PackageConfig {
             name: "foo-bar-baz".to_string(),
             main: None,
-            output: None,
         };
         assert_eq!(config.module_name(), "foo_bar_baz");
     }

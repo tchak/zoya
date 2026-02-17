@@ -47,7 +47,6 @@ fn build_multi_module_package(modules_data: Vec<(QualifiedPath, Vec<Item>)>) -> 
 
     Package {
         name: "test".to_string(),
-        output: None,
         modules,
     }
 }
@@ -246,7 +245,6 @@ fn test_duplicate_import_fails() {
 
     let pkg = Package {
         name: "test".to_string(),
-        output: None,
         modules,
     };
     let result = check(&pkg, &[]);
@@ -899,7 +897,6 @@ fn build_package_with_visibility(
 
     Package {
         name: "test".to_string(),
-        output: None,
         modules,
     }
 }

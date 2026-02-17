@@ -111,7 +111,7 @@ pub fn load_package(path: &Path, mode: Mode) -> Result<Package, LoaderError<File
         .unwrap_or_else(|| "root".to_string());
 
     let source = FsSource::from_file(path);
-    load_with_source(&source, &FilePath::new(path), name, None, mode)
+    load_with_source(&source, &FilePath::new(path), name, mode)
 }
 
 fn load_from_directory(dir: &Path, mode: Mode) -> Result<Package, LoaderError<FilePath>> {
@@ -125,7 +125,6 @@ fn load_from_directory(dir: &Path, mode: Mode) -> Result<Package, LoaderError<Fi
     let config = PackageConfig::load(dir).map_err(|e| LoaderError::ConfigError(e.to_string()))?;
     let name = config.module_name();
     let main = config.main_path();
-    let output = config.output.map(|o| dir.join(o));
     let main_path = dir.join(&main);
 
     if !main_path.exists() {
@@ -136,7 +135,7 @@ fn load_from_directory(dir: &Path, mode: Mode) -> Result<Package, LoaderError<Fi
     }
 
     let source = FsSource::from_file(&main_path);
-    load_with_source(&source, &FilePath::new(&main_path), name, output, mode)
+    load_with_source(&source, &FilePath::new(&main_path), name, mode)
 }
 
 /// Load a package from an in-memory source.
@@ -150,19 +149,17 @@ pub fn load_memory_package(
     if !source.exists(&root_path) {
         return Err(LoaderError::MissingRoot);
     }
-    load_with_source(source, &root_path, "root".to_string(), None, mode)
+    load_with_source(source, &root_path, "root".to_string(), mode)
 }
 
 fn load_with_source<S: ModuleSource>(
     source: &S,
     file_path: &S::Path,
     name: String,
-    output: Option<PathBuf>,
     mode: Mode,
 ) -> Result<Package, LoaderError<S::Path>> {
     let mut pkg = Package {
         name,
-        output,
         modules: HashMap::new(),
     };
     load_module_recursive(source, file_path, QualifiedPath::root(), &mut pkg, mode)?;
@@ -594,7 +591,6 @@ mod integration_tests {
         let tree = load_memory_package(&source, Mode::Dev).unwrap();
 
         assert_eq!(tree.name, "root");
-        assert_eq!(tree.output, None);
         assert_eq!(tree.modules.len(), 1);
         let root = tree.root().unwrap();
         assert_eq!(root.path, QualifiedPath::root());

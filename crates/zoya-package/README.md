@@ -8,7 +8,7 @@ This crate defines the core package-related types used across the Zoya compiler 
 
 - **QualifiedPath** - Qualified path to a module, definition, or variant (e.g., `root::utils::helpers`)
 - **Module** - A loaded module containing parsed items and child references with visibility
-- **Package** - The complete package of loaded modules with name and optional output path
+- **Package** - The complete package of loaded modules with name
 - **PackageConfig** - Package configuration loaded from `package.toml`
 
 ## Usage
@@ -45,7 +45,6 @@ modules.insert(QualifiedPath::root(), Module {
 });
 let pkg = Package {
     name: "my_project".to_string(),
-    output: None,
     modules,
 };
 
@@ -89,7 +88,6 @@ let toml = config.to_toml();
 [package]
 name = "my_project"            # required
 main = "src/main.zy"           # optional (default: src/main.zy)
-output = "build"               # optional (default: build)
 ```
 
 ## QualifiedPath Methods
@@ -115,7 +113,6 @@ output = "build"               # optional (default: build)
 | `load_from(path)` | Load from a specific file path |
 | `to_toml()` | Serialize to TOML string |
 | `main_path()` | Get entry file path (default: `src/main.zy`) |
-| `output_path()` | Get output directory (default: `build`) |
 | `module_name()` | Get module name (hyphens to underscores) |
 | `is_valid_name(name)` | Check if name is valid |
 | `sanitize_name(input)` | Sanitize string to valid package name |

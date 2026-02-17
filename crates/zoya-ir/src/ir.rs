@@ -317,7 +317,6 @@ impl TypedExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CheckedPackage {
     pub name: String,
-    pub output: Option<std::path::PathBuf>,
     pub items: std::collections::HashMap<QualifiedPath, TypedFunction>,
     pub definitions: std::collections::HashMap<QualifiedPath, Definition>,
     pub reexports: std::collections::HashMap<QualifiedPath, QualifiedPath>,

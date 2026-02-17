@@ -44,7 +44,6 @@ pub fn build_test_package(items: Vec<Item>) -> Package {
     modules.insert(QualifiedPath::root(), module);
     Package {
         name: "test".to_string(),
-        output: None,
         modules,
     }
 }

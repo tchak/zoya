@@ -441,11 +441,7 @@ fn build_repl_package(base_pkg: Option<&Package>, items: Vec<Item>) -> Package {
         },
     );
 
-    Package {
-        name,
-        output: None,
-        modules,
-    }
+    Package { name, modules }
 }
 
 /// Find a typed function by name in the repl submodule of the checked package.

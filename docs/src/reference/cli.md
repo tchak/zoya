@@ -47,7 +47,7 @@ zoya build --mode release -o out.js         # Build in release mode
 | Option | Description |
 |--------|-------------|
 | `-p, --package <path>` | Path to a `.zy` file or directory with `package.toml` (defaults to current directory) |
-| `-o, --output <path>` | Output file (overrides package.toml output) |
+| `-o, --output <path>` | Output directory (defaults to `build`) |
 | `--mode <mode>` | Compilation mode: `dev` (default), `test`, or `release` |
 
 ### `zoya repl`
@@ -121,14 +121,12 @@ Zoya projects use a `package.toml` file to define project settings. The configur
 [package]
 name = "my-project"
 main = "src/main.zy"
-output = "build"
 ```
 
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `name` | Yes | — | Package name. Must be lowercase alphanumeric with hyphens or underscores, starting with a letter. Reserved names (`root`, `self`, `super`, `std`, `zoya`) are not allowed. |
 | `main` | No | `src/main.zy` | Relative path to the main entry file. |
-| `output` | No | `build` | Output directory for build artifacts. |
 
 Create a new project with `zoya new`:
 
@@ -136,7 +134,7 @@ Create a new project with `zoya new`:
 zoya new my-project
 ```
 
-This generates a `package.toml` with the `name` field set and defaults for `main` and `output`.
+This generates a `package.toml` with the `name` field set and a default for `main`.
 
 ## Global Options
 

@@ -12,8 +12,6 @@ pub use config::{ConfigError, PackageConfig};
 pub use zoya_naming::RESERVED_NAMES;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
-
 use zoya_ast::{Item, Visibility};
 
 /// A qualified path: `root` is `["root"]`, `root::utils::foo` is `["root", "utils", "foo"]`
@@ -124,7 +122,6 @@ pub struct Module {
 #[derive(Debug, Clone)]
 pub struct Package {
     pub name: String,
-    pub output: Option<PathBuf>,
     pub modules: HashMap<QualifiedPath, Module>,
 }
 

@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use console::{Term, style};
 use zoya_check::check;
@@ -16,14 +16,10 @@ pub fn execute(path: &Path, output: Option<&Path>, mode: Mode) -> Result<(), Str
     let std = zoya_std::std();
     let checked_pkg = check(&pkg, &[std]).map_err(|e| e.to_string())?;
 
-    // Resolve output path: CLI arg > package.toml output > error
+    // Resolve output path: CLI arg > default "build"
     let out_path = output
         .map(|p| p.to_path_buf())
-        .or(checked_pkg.output.clone())
-        .ok_or_else(|| {
-            "no output path specified\nhint: use --output <path> or set output in package.toml"
-                .to_string()
-        })?;
+        .unwrap_or_else(|| PathBuf::from("build"));
 
     // Generate single concatenated JS
     let js_output = codegen(&checked_pkg, &[std]);
@@ -82,24 +78,27 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_no_output_errors() {
+    fn test_execute_defaults_to_build_dir() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zy");
         std::fs::write(&file, "pub fn main() -> Int { 42 }").unwrap();
 
-        let result = execute(&file, None, Mode::Dev);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("no output path"));
+        // Without --output, defaults to "build" (relative to CWD).
+        // We test this via the package test below; here just verify no error.
+        let build_dir = dir.path().join("build");
+        let result = execute(&file, Some(&build_dir), Mode::Dev);
+        assert!(result.is_ok());
+        assert!(build_dir.is_dir());
     }
 
     #[test]
-    fn test_execute_uses_package_output() {
+    fn test_execute_uses_package_default_build() {
         let dir = tempfile::tempdir().unwrap();
 
-        // Create package.toml with output (now a directory)
+        // Create package.toml without output field
         std::fs::write(
             dir.path().join("package.toml"),
-            "[package]\nname = \"test-project\"\noutput = \"build\"\n",
+            "[package]\nname = \"test-project\"\n",
         )
         .unwrap();
 
@@ -111,21 +110,24 @@ mod tests {
         )
         .unwrap();
 
-        let result = execute(dir.path(), None, Mode::Dev);
-        assert!(result.is_ok());
+        let original = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
 
-        let output_path = dir.path().join("build");
-        assert!(output_path.is_dir());
+        let result = execute(dir.path(), None, Mode::Dev);
+        std::env::set_current_dir(original).unwrap();
+
+        assert!(result.is_ok());
+        assert!(dir.path().join("build").is_dir());
     }
 
     #[test]
-    fn test_execute_cli_output_overrides_package() {
+    fn test_execute_cli_output_overrides_default() {
         let dir = tempfile::tempdir().unwrap();
 
-        // Create package.toml with output
+        // Create package.toml without output field
         std::fs::write(
             dir.path().join("package.toml"),
-            "[package]\nname = \"test-project\"\noutput = \"build\"\n",
+            "[package]\nname = \"test-project\"\n",
         )
         .unwrap();
 
@@ -141,10 +143,8 @@ mod tests {
         let result = execute(dir.path(), Some(&cli_output), Mode::Dev);
         assert!(result.is_ok());
 
-        // CLI output should be used, not package.toml output
+        // CLI output should be used, not default "build"
         assert!(cli_output.is_dir());
-        let pkg_output = dir.path().join("build");
-        assert!(!pkg_output.exists());
     }
 
     #[test]
