@@ -436,31 +436,7 @@ impl Value {
                 }
                 let resolved_fields =
                     type_lookup.resolve_struct_fields(module, name, type_fields, type_args);
-                match data {
-                    ValueData::Unit => {
-                        if !resolved_fields.is_empty() {
-                            return Err(Error::TypeMismatch {
-                                from: format!("{} (unit)", name),
-                                to: format!("{} (with fields)", type_name),
-                            });
-                        }
-                    }
-                    ValueData::Tuple(values) => {
-                        for (val, (_, field_type)) in values.iter().zip(resolved_fields.iter()) {
-                            val.check_type(field_type, type_lookup)?;
-                        }
-                    }
-                    ValueData::Struct(map) => {
-                        for (field_name, field_type) in &resolved_fields {
-                            if let Some(val) = map.get(field_name) {
-                                val.check_type(field_type, type_lookup)?;
-                            } else {
-                                return Err(Error::MissingField(field_name.clone()));
-                            }
-                        }
-                    }
-                }
-                Ok(())
+                check_value_data(data, &resolved_fields, name, type_lookup)
             }
             (
                 Value::EnumVariant {
@@ -489,29 +465,9 @@ impl Value {
                     .find(|(vname, _)| vname == variant_name)
                     .map(|(_, vt)| vt)
                     .ok_or_else(|| Error::UnknownVariant(variant_name.clone()))?;
-                match (data, variant_type) {
-                    (ValueData::Unit, EnumVariantType::Unit) => Ok(()),
-                    (ValueData::Tuple(values), EnumVariantType::Tuple(types)) => {
-                        for (val, ty) in values.iter().zip(types.iter()) {
-                            val.check_type(ty, type_lookup)?;
-                        }
-                        Ok(())
-                    }
-                    (ValueData::Struct(map), EnumVariantType::Struct(fields)) => {
-                        for (field_name, field_type) in fields {
-                            if let Some(val) = map.get(field_name) {
-                                val.check_type(field_type, type_lookup)?;
-                            } else {
-                                return Err(Error::MissingField(field_name.clone()));
-                            }
-                        }
-                        Ok(())
-                    }
-                    _ => Err(Error::TypeMismatch {
-                        from: self.type_name().to_string(),
-                        to: expected.to_string(),
-                    }),
-                }
+                let variant_fields = variant_type_to_fields(variant_type);
+                let context = format!("{}::{}", enum_name, variant_name);
+                check_value_data(data, &variant_fields, &context, type_lookup)
             }
             (_, Type::Var(_)) => Ok(()),
             (_, Type::Function { .. }) => Err(Error::UnsupportedConversion(
@@ -554,6 +510,81 @@ impl JSValue {
             JSValue::Array { .. } => "Array",
             JSValue::Object { .. } => "Object",
         }
+    }
+}
+
+fn variant_type_to_fields(variant_type: &EnumVariantType) -> Vec<(String, Type)> {
+    match variant_type {
+        EnumVariantType::Unit => vec![],
+        EnumVariantType::Tuple(types) => types
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (format!("${i}"), t.clone()))
+            .collect(),
+        EnumVariantType::Struct(fields) => fields.clone(),
+    }
+}
+
+fn check_value_data(
+    data: &ValueData,
+    expected_fields: &[(String, Type)],
+    context_name: &str,
+    type_lookup: &DefinitionLookup,
+) -> Result<(), Error> {
+    match data {
+        ValueData::Unit => {
+            if !expected_fields.is_empty() {
+                return Err(Error::TypeMismatch {
+                    from: format!("{} (unit)", context_name),
+                    to: format!("{} (with fields)", context_name),
+                });
+            }
+        }
+        ValueData::Tuple(values) => {
+            for (val, (_, field_type)) in values.iter().zip(expected_fields.iter()) {
+                val.check_type(field_type, type_lookup)?;
+            }
+        }
+        ValueData::Struct(map) => {
+            for (field_name, field_type) in expected_fields {
+                if let Some(val) = map.get(field_name) {
+                    val.check_type(field_type, type_lookup)?;
+                } else {
+                    return Err(Error::MissingField(field_name.clone()));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn convert_js_fields_to_value_data(
+    fields: &HashMap<String, JSValue>,
+    expected_fields: &[(String, Type)],
+    type_lookup: &DefinitionLookup,
+) -> Result<ValueData, Error> {
+    if expected_fields.is_empty() {
+        Ok(ValueData::Unit)
+    } else if expected_fields[0].0.starts_with('$') {
+        let mut values = Vec::with_capacity(expected_fields.len());
+        for (field_name, field_type) in expected_fields {
+            let js_field = fields
+                .get(field_name)
+                .ok_or_else(|| Error::MissingField(field_name.clone()))?;
+            let field_value = Value::from_js_value(js_field.clone(), field_type, type_lookup)?;
+            values.push(field_value);
+        }
+        Ok(ValueData::Tuple(values))
+    } else {
+        let mut map = HashMap::with_capacity(expected_fields.len());
+        for (field_name, field_type) in expected_fields {
+            let js_field = fields
+                .get(field_name)
+                .ok_or_else(|| Error::MissingField(field_name.clone()))?;
+            let field_value = Value::from_js_value(js_field.clone(), field_type, type_lookup)?;
+            map.insert(field_name.clone(), field_value);
+        }
+        Ok(ValueData::Struct(map))
     }
 }
 
@@ -800,31 +831,7 @@ impl Value {
             ) => {
                 let resolved_fields =
                     type_lookup.resolve_struct_fields(module, name, type_fields, type_args);
-                let data = if resolved_fields.is_empty() {
-                    ValueData::Unit
-                } else if resolved_fields[0].0.starts_with('$') {
-                    let mut values = Vec::with_capacity(resolved_fields.len());
-                    for (field_name, field_type) in &resolved_fields {
-                        let js_field = fields
-                            .get(field_name)
-                            .ok_or_else(|| Error::MissingField(field_name.clone()))?;
-                        let field_value =
-                            Value::from_js_value(js_field.clone(), field_type, type_lookup)?;
-                        values.push(field_value);
-                    }
-                    ValueData::Tuple(values)
-                } else {
-                    let mut map = HashMap::with_capacity(resolved_fields.len());
-                    for (field_name, field_type) in &resolved_fields {
-                        let js_field = fields
-                            .get(field_name)
-                            .ok_or_else(|| Error::MissingField(field_name.clone()))?;
-                        let field_value =
-                            Value::from_js_value(js_field.clone(), field_type, type_lookup)?;
-                        map.insert(field_name.clone(), field_value);
-                    }
-                    ValueData::Struct(map)
-                };
+                let data = convert_js_fields_to_value_data(&fields, &resolved_fields, type_lookup)?;
                 Ok(Value::Struct {
                     module: module.clone(),
                     name: name.clone(),
@@ -850,35 +857,9 @@ impl Value {
                     .find(|(vname, _)| vname == &variant_name)
                     .map(|(_, vt)| vt)
                     .ok_or_else(|| Error::UnknownVariant(variant_name.clone()))?;
-
-                let data = match variant_type {
-                    EnumVariantType::Unit => ValueData::Unit,
-                    EnumVariantType::Tuple(field_types) => {
-                        let mut values = Vec::with_capacity(field_types.len());
-                        for (i, field_type) in field_types.iter().enumerate() {
-                            let key = format!("${i}");
-                            let js_field = fields
-                                .get(&key)
-                                .ok_or_else(|| Error::MissingField(key.clone()))?;
-                            let val =
-                                Value::from_js_value(js_field.clone(), field_type, type_lookup)?;
-                            values.push(val);
-                        }
-                        ValueData::Tuple(values)
-                    }
-                    EnumVariantType::Struct(field_defs) => {
-                        let mut map = HashMap::with_capacity(field_defs.len());
-                        for (field_name, field_type) in field_defs {
-                            let js_field = fields
-                                .get(field_name)
-                                .ok_or_else(|| Error::MissingField(field_name.clone()))?;
-                            let val =
-                                Value::from_js_value(js_field.clone(), field_type, type_lookup)?;
-                            map.insert(field_name.clone(), val);
-                        }
-                        ValueData::Struct(map)
-                    }
-                };
+                let variant_fields = variant_type_to_fields(variant_type);
+                let data =
+                    convert_js_fields_to_value_data(&fields, &variant_fields, type_lookup)?;
 
                 Ok(Value::EnumVariant {
                     module: module.clone(),
