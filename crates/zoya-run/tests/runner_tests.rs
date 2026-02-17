@@ -6865,3 +6865,42 @@ fn test_private_task_fn_is_discoverable() {
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0], QualifiedPath::root().child("my_task"));
 }
+
+#[test]
+fn test_fns_returns_pub_non_test_non_task_functions() {
+    let source = r#"
+        pub fn hello() -> Int { 1 }
+        pub fn world() -> Int { 2 }
+
+        fn private_fn() -> Int { 3 }
+
+        #[test]
+        fn my_test() { () }
+
+        #[task]
+        pub fn my_task() -> Int { 4 }
+
+        pub fn main() { () }
+    "#;
+    let mem_source = MemorySource::new().with_module("root", source);
+    let package = load_memory_package(&mem_source, zoya_loader::Mode::Dev).unwrap();
+    let std = zoya_std();
+    let checked = check(&package, &[std]).unwrap();
+
+    let fns = checked.fns();
+    let fn_names: Vec<String> = fns.iter().map(|p| p.to_string()).collect();
+
+    // Includes pub non-test non-task functions
+    assert!(fn_names.contains(&"root::hello".to_string()));
+    assert!(fn_names.contains(&"root::main".to_string()));
+    assert!(fn_names.contains(&"root::world".to_string()));
+
+    // Excludes test functions
+    assert!(!fn_names.contains(&"root::my_test".to_string()));
+
+    // Excludes task functions
+    assert!(!fn_names.contains(&"root::my_task".to_string()));
+
+    // Excludes private functions (not in definitions)
+    assert!(!fn_names.contains(&"root::private_fn".to_string()));
+}

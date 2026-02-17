@@ -349,4 +349,18 @@ impl CheckedPackage {
         tasks.sort_by_key(|a| a.to_string());
         tasks
     }
+
+    /// Return sorted paths of all public, non-test, non-task functions in this package.
+    pub fn fns(&self) -> Vec<QualifiedPath> {
+        let mut fns: Vec<QualifiedPath> = self
+            .items
+            .iter()
+            .filter(|(path, func)| {
+                !func.is_test && !func.is_task && self.definitions.contains_key(path)
+            })
+            .map(|(path, _)| path.clone())
+            .collect();
+        fns.sort_by_key(|a| a.to_string());
+        fns
+    }
 }
