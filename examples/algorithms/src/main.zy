@@ -1,43 +1,12 @@
-// ── List Operations ──────────────────────────────────────────────────
-pub fn map<A, B>(list: List<A>, f: A -> B) -> List<B> {
-  match list {
-    [] => [],
-    [head, rest @ ..] => [f(head), ..map(rest, f)],
-  }
-}
-
-pub fn filter<A>(list: List<A>, pred: A -> Bool) -> List<A> {
-  match list {
-    [] => [],
-    [head, rest @ ..] => {
-      match pred(head) {
-        true => [head, ..filter(rest, pred)],
-        false => filter(rest, pred),
-      }
-    },
-  }
-}
-
-pub fn fold<A, B>(list: List<A>, init: B, f: (B, A) -> B) -> B {
-  match list {
-    [] => init,
-    [head, rest @ ..] => fold(rest, f(init, head), f),
-  }
-}
-
-pub fn take<A>(list: List<A>, n: Int) -> List<A> {
-  match n <= 0 {
+// ── Utility ─────────────────────────────────────────────────────────
+fn range(start: Int, end: Int) -> List<Int> {
+  match start >= end {
     true => [],
-    false => {
-      match list {
-        [] => [],
-        [head, rest @ ..] => [head, ..take(rest, n - 1)],
-      }
-    },
+    false => [start, ..range(start + 1, end)],
   }
 }
 
-pub fn drop<A>(list: List<A>, n: Int) -> List<A> {
+fn drop<A>(list: List<A>, n: Int) -> List<A> {
   match n <= 0 {
     true => list,
     false => {
@@ -49,21 +18,6 @@ pub fn drop<A>(list: List<A>, n: Int) -> List<A> {
   }
 }
 
-pub fn range(start: Int, end: Int) -> List<Int> {
-  match start >= end {
-    true => [],
-    false => [start, ..range(start + 1, end)],
-  }
-}
-
-pub fn zip<A, B>(left: List<A>, right: List<B>) -> List<(A, B)> {
-  match (left, right) {
-    ([], _) => [],
-    (_, []) => [],
-    ([a, rest_a @ ..], [b, rest_b @ ..]) => [(a, b), ..zip(rest_a, rest_b)],
-  }
-}
-
 // ── Sorting ─────────────────────────────────────────────────────────
 pub fn merge_sort(list: List<Int>) -> List<Int> {
   match list {
@@ -71,7 +25,7 @@ pub fn merge_sort(list: List<Int>) -> List<Int> {
     [_] => list,
     _ => {
       let mid = list.len() / 2;
-      let left = merge_sort(take(list, mid));
+      let left = merge_sort(list.truncate(mid));
       let right = merge_sort(drop(list, mid));
       merge(left, right)
     },
@@ -91,11 +45,21 @@ fn merge(left: List<Int>, right: List<Int>) -> List<Int> {
   }
 }
 
-// ── Math ────────────────────────────────────────────────────────────
+// ── Number Theory ───────────────────────────────────────────────────
 pub fn gcd(a: Int, b: Int) -> Int {
-  match b == 0 {
-    true => a,
+  match b.is_zero() {
+    true => a.abs(),
     false => gcd(b, a % b),
+  }
+}
+
+pub fn lcm(a: Int, b: Int) -> Int {
+  match a.is_zero() {
+    true => 0,
+    false => match b.is_zero() {
+      true => 0,
+      false => (a / gcd(a, b) * b).abs(),
+    },
   }
 }
 
@@ -136,28 +100,112 @@ pub fn is_prime(n: Int) -> Bool {
   }
 }
 
-// ── Tests ───────────────────────────────────────────────────────────
-#[test]
-fn test_map() -> () assert_eq(map([1, 2, 3], |x| x * 2), [2, 4, 6])
-
-#[test]
-fn test_filter() -> () assert_eq(filter([1, 2, 3, 4, 5], |x| x > 2), [3, 4, 5])
-
-#[test]
-fn test_fold_sum() -> () assert_eq(fold([1, 2, 3, 4], 0, |acc, x| acc + x), 10)
-
-#[test]
-fn test_take_and_drop() -> () {
-  let _ = assert_eq(take([1, 2, 3, 4, 5], 3), [1, 2, 3]);
-  assert_eq(drop([1, 2, 3, 4, 5], 3), [4, 5])
+pub fn primes_up_to(limit: Int) -> List<Int> {
+  range(2, limit + 1).filter(|n| is_prime(n))
 }
 
-#[test]
-fn test_range() -> () assert_eq(range(1, 5), [1, 2, 3, 4])
+// ── Numeric Sequences ───────────────────────────────────────────────
+fn collatz_go(n: Int, acc: List<Int>) -> List<Int> {
+  match n == 1 {
+    true => acc.push(1),
+    false => match n % 2 == 0 {
+      true => collatz_go(n / 2, acc.push(n)),
+      false => collatz_go(3 * n + 1, acc.push(n)),
+    },
+  }
+}
 
-#[test]
-fn test_zip() -> () assert_eq(zip([1, 2, 3], [4, 5, 6]), [(1, 4), (2, 5), (3, 6)])
+pub fn collatz(n: Int) -> List<Int> collatz_go(n, [])
 
+pub fn sum_of_digits(n: Int) -> Int {
+  n.abs().to_string().chars().filter_map(|c| c.to_int()).fold(0, |acc, d| acc + d)
+}
+
+// ── Search ──────────────────────────────────────────────────────────
+fn binary_search_go(list: List<Int>, target: Int, low: Int, high: Int) -> Option<Int> {
+  match low >= high {
+    true => None,
+    false => {
+      let mid = (low + high) / 2;
+      match list[mid] {
+        None => None,
+        Some(value) => match value == target {
+          true => Some(mid),
+          false => match value < target {
+            true => binary_search_go(list, target, mid + 1, high),
+            false => binary_search_go(list, target, low, mid),
+          },
+        },
+      }
+    },
+  }
+}
+
+pub fn binary_search(list: List<Int>, target: Int) -> Option<Int> {
+  binary_search_go(list, target, 0, list.len())
+}
+
+// ── String Algorithms ───────────────────────────────────────────────
+pub fn is_palindrome(s: String) -> Bool {
+  let lower = s.to_lowercase();
+  lower == lower.reverse()
+}
+
+fn shift_char(c: String, shift: Int) -> String {
+  let lower = "abcdefghijklmnopqrstuvwxyz";
+  let upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  match lower.find(c) {
+    Some(idx) => {
+      let new_idx = ((idx + shift) % 26 + 26) % 26;
+      lower.slice(new_idx, new_idx + 1)
+    },
+    None => match upper.find(c) {
+      Some(idx) => {
+        let new_idx = ((idx + shift) % 26 + 26) % 26;
+        upper.slice(new_idx, new_idx + 1)
+      },
+      None => c,
+    },
+  }
+}
+
+pub fn caesar_encrypt(text: String, shift: Int) -> String {
+  text.chars().map(|c| shift_char(c, shift)).fold("", |acc, c| $"{acc}{c}")
+}
+
+pub fn caesar_decrypt(text: String, shift: Int) -> String {
+  caesar_encrypt(text, 0 - shift)
+}
+
+// ── Collection Algorithms ───────────────────────────────────────────
+pub fn word_frequencies(text: String) -> Dict<String, Int> {
+  text.split(" ")
+    .filter(|w| w.is_empty() == false)
+    .map(|w| w.to_lowercase())
+    .fold(Dict::new(), |acc, word| acc.insert(word, acc.get(word).unwrap_or(0) + 1))
+}
+
+pub fn flatten<T>(lists: List<List<T>>) -> List<T> {
+  lists.fold([], |acc, list| [..acc, ..list])
+}
+
+pub fn fizzbuzz(n: Int) -> List<String> {
+  range(1, n + 1).map(|i| {
+    match (i % 3 == 0, i % 5 == 0) {
+      (true, true) => "FizzBuzz",
+      (true, false) => "Fizz",
+      (false, true) => "Buzz",
+      (false, false) => $"{i}",
+    }
+  })
+}
+
+// ── Main ────────────────────────────────────────────────────────────
+pub fn main() -> List<Int> {
+  merge_sort([38, 27, 43, 3, 9, 82, 10])
+}
+
+// ── Tests ───────────────────────────────────────────────────────────
 #[test]
 fn test_merge_sort_empty() -> () assert_eq(merge_sort([]), [])
 
@@ -172,6 +220,13 @@ fn test_gcd() -> () {
   let _ = assert_eq(gcd(12, 8), 4);
   let _ = assert_eq(gcd(54, 24), 6);
   assert_eq(gcd(7, 13), 1)
+}
+
+#[test]
+fn test_lcm() -> () {
+  let _ = assert_eq(lcm(4, 6), 12);
+  let _ = assert_eq(lcm(3, 7), 21);
+  assert_eq(lcm(0, 5), 0)
 }
 
 #[test]
@@ -198,4 +253,68 @@ fn test_is_prime() -> () {
   let _ = assert(is_prime(1) == false);
   let _ = assert(is_prime(4) == false);
   assert(is_prime(100) == false)
+}
+
+#[test]
+fn test_primes_up_to() -> () {
+  assert_eq(primes_up_to(20), [2, 3, 5, 7, 11, 13, 17, 19])
+}
+
+#[test]
+fn test_collatz() -> () {
+  let _ = assert_eq(collatz(1), [1]);
+  assert_eq(collatz(6), [6, 3, 10, 5, 16, 8, 4, 2, 1])
+}
+
+#[test]
+fn test_sum_of_digits() -> () {
+  let _ = assert_eq(sum_of_digits(123), 6);
+  let _ = assert_eq(sum_of_digits(0), 0);
+  assert_eq(sum_of_digits(-456), 15)
+}
+
+#[test]
+fn test_binary_search() -> () {
+  let sorted = [1, 3, 5, 7, 9, 11];
+  let _ = assert_eq(binary_search(sorted, 5), Some(2));
+  let _ = assert_eq(binary_search(sorted, 1), Some(0));
+  let _ = assert_eq(binary_search(sorted, 11), Some(5));
+  assert_eq(binary_search(sorted, 4), None)
+}
+
+#[test]
+fn test_is_palindrome() -> () {
+  let _ = assert(is_palindrome("racecar"));
+  let _ = assert(is_palindrome("Madam"));
+  assert(is_palindrome("hello") == false)
+}
+
+#[test]
+fn test_caesar() -> () {
+  let _ = assert_eq(caesar_encrypt("abc", 3), "def");
+  let _ = assert_eq(caesar_encrypt("xyz", 3), "abc");
+  let _ = assert_eq(caesar_encrypt("Hello, World!", 13), "Uryyb, Jbeyq!");
+  assert_eq(caesar_decrypt(caesar_encrypt("Hello, World!", 13), 13), "Hello, World!")
+}
+
+#[test]
+fn test_word_frequencies() -> () {
+  let freq = word_frequencies("the cat sat on the mat");
+  let _ = assert_eq(freq.get("the"), Some(2));
+  let _ = assert_eq(freq.get("cat"), Some(1));
+  assert_eq(freq.get("dog"), None)
+}
+
+#[test]
+fn test_flatten() -> () {
+  assert_eq(flatten([[1, 2], [3, 4], [5]]), [1, 2, 3, 4, 5])
+}
+
+#[test]
+fn test_fizzbuzz() -> () {
+  let result = fizzbuzz(15);
+  let _ = assert_eq(result[0], Some("1"));
+  let _ = assert_eq(result[2], Some("Fizz"));
+  let _ = assert_eq(result[4], Some("Buzz"));
+  assert_eq(result[14], Some("FizzBuzz"))
 }
