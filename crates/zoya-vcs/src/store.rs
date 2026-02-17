@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS commit_parents (
 );
 
 CREATE TABLE IF NOT EXISTS views (
-    view_id TEXT PRIMARY KEY
+    view_id TEXT PRIMARY KEY,
+    working_copy_commit_id TEXT NOT NULL REFERENCES commits(commit_id)
 );
 
 CREATE TABLE IF NOT EXISTS view_heads (

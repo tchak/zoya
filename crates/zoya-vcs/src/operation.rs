@@ -10,17 +10,24 @@ pub struct Operation {
     operation_id: Uuid,
     operation_type: String,
     view_id: String,
+    working_copy: Commit,
     heads: Vec<Commit>,
     timestamp: SystemTime,
 }
 
 impl Operation {
-    pub fn new(operation_id: Uuid, operation_type: String, heads: Vec<Commit>) -> Self {
-        let view_id = compute_view_id(&heads);
+    pub fn new(
+        operation_id: Uuid,
+        operation_type: String,
+        working_copy: Commit,
+        heads: Vec<Commit>,
+    ) -> Self {
+        let view_id = compute_view_id(&working_copy, &heads);
         Operation {
             operation_id,
             operation_type,
             view_id,
+            working_copy,
             heads,
             timestamp: SystemTime::now(),
         }
@@ -38,6 +45,10 @@ impl Operation {
         &self.view_id
     }
 
+    pub fn working_copy(&self) -> &Commit {
+        &self.working_copy
+    }
+
     pub fn heads(&self) -> &[Commit] {
         &self.heads
     }
@@ -47,10 +58,11 @@ impl Operation {
     }
 }
 
-fn compute_view_id(heads: &[Commit]) -> String {
+fn compute_view_id(working_copy: &Commit, heads: &[Commit]) -> String {
     let mut commit_ids: Vec<&str> = heads.iter().map(|c| c.commit_id()).collect();
     commit_ids.sort();
     let mut hasher = blake3::Hasher::new();
+    hasher.update(working_copy.commit_id().as_bytes());
     for id in &commit_ids {
         hasher.update(id.as_bytes());
     }
@@ -103,7 +115,7 @@ mod tests {
     fn test_construction() {
         let before = SystemTime::now();
         let commit = make_commit("hello", CHANGE_1);
-        let op = Operation::new(OP_1, "snapshot".to_string(), vec![commit]);
+        let op = Operation::new(OP_1, "snapshot".to_string(), commit.clone(), vec![commit]);
         let after = SystemTime::now();
 
         assert_eq!(op.operation_id(), OP_1);
@@ -116,7 +128,8 @@ mod tests {
 
     #[test]
     fn test_empty_heads() {
-        let op = Operation::new(OP_1, "init".to_string(), vec![]);
+        let wc = make_commit("wc", CHANGE_1);
+        let op = Operation::new(OP_1, "init".to_string(), wc, vec![]);
         assert!(op.heads().is_empty());
         assert!(!op.view_id().is_empty());
     }
@@ -124,7 +137,12 @@ mod tests {
     #[test]
     fn test_display() {
         let commit = make_commit("hello", CHANGE_1);
-        let op = Operation::new(OP_1, "snapshot".to_string(), vec![commit.clone()]);
+        let op = Operation::new(
+            OP_1,
+            "snapshot".to_string(),
+            commit.clone(),
+            vec![commit.clone()],
+        );
 
         let display = format!("{op}");
         let expected_view_id = op.view_id().to_string();
@@ -138,7 +156,7 @@ mod tests {
     fn test_multiple_heads() {
         let c1 = make_commit("hello", CHANGE_1);
         let c2 = make_commit("world", CHANGE_2);
-        let op = Operation::new(OP_1, "merge".to_string(), vec![c1, c2]);
+        let op = Operation::new(OP_1, "merge".to_string(), c1.clone(), vec![c1, c2]);
 
         assert_eq!(op.heads().len(), 2);
     }
@@ -148,8 +166,13 @@ mod tests {
         let c1 = make_commit("hello", CHANGE_1);
         let c2 = make_commit("world", CHANGE_2);
 
-        let op_a = Operation::new(OP_1, "snapshot".to_string(), vec![c1.clone(), c2.clone()]);
-        let op_b = Operation::new(OP_1, "snapshot".to_string(), vec![c2, c1]);
+        let op_a = Operation::new(
+            OP_1,
+            "snapshot".to_string(),
+            c1.clone(),
+            vec![c1.clone(), c2.clone()],
+        );
+        let op_b = Operation::new(OP_1, "snapshot".to_string(), c1.clone(), vec![c2, c1]);
 
         assert_eq!(op_a.view_id(), op_b.view_id());
     }
@@ -159,8 +182,33 @@ mod tests {
         let c1 = make_commit("hello", CHANGE_1);
         let c2 = make_commit("world", CHANGE_2);
 
-        let op_a = Operation::new(OP_1, "snapshot".to_string(), vec![c1]);
-        let op_b = Operation::new(OP_1, "snapshot".to_string(), vec![c2]);
+        let op_a = Operation::new(OP_1, "snapshot".to_string(), c1.clone(), vec![c1]);
+        let op_b = Operation::new(OP_1, "snapshot".to_string(), c2.clone(), vec![c2]);
+
+        assert_ne!(op_a.view_id(), op_b.view_id());
+    }
+
+    #[test]
+    fn test_working_copy_accessor() {
+        let wc = make_commit("working", CHANGE_1);
+        let head = make_commit("head", CHANGE_2);
+        let op = Operation::new(OP_1, "snapshot".to_string(), wc.clone(), vec![head]);
+
+        assert_eq!(op.working_copy(), &wc);
+    }
+
+    #[test]
+    fn test_working_copy_affects_view_id() {
+        let c1 = make_commit("hello", CHANGE_1);
+        let c2 = make_commit("world", CHANGE_2);
+
+        let op_a = Operation::new(
+            OP_1,
+            "snapshot".to_string(),
+            c1.clone(),
+            vec![c1.clone(), c2.clone()],
+        );
+        let op_b = Operation::new(OP_1, "snapshot".to_string(), c2.clone(), vec![c1, c2]);
 
         assert_ne!(op_a.view_id(), op_b.view_id());
     }
