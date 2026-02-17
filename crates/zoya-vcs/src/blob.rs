@@ -1,0 +1,69 @@
+/// A content-addressed blob storing source text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Blob {
+    id: String,
+    content: String,
+    size: usize,
+}
+
+impl Blob {
+    pub fn new(content: String) -> Self {
+        let id = blake3::hash(content.as_bytes()).to_hex().to_string();
+        let size = content.len();
+        Blob { id, content, size }
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn content(&self) -> &str {
+        &self.content
+    }
+
+    pub fn size(&self) -> usize {
+        self.size
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_deterministic_id() {
+        let a = Blob::new("hello".to_string());
+        let b = Blob::new("hello".to_string());
+        assert_eq!(a.id(), b.id());
+    }
+
+    #[test]
+    fn test_different_content_different_id() {
+        let a = Blob::new("hello".to_string());
+        let b = Blob::new("world".to_string());
+        assert_ne!(a.id(), b.id());
+    }
+
+    #[test]
+    fn test_empty_content() {
+        let blob = Blob::new(String::new());
+        assert_eq!(blob.size(), 0);
+        assert_eq!(blob.content(), "");
+        assert!(!blob.id().is_empty());
+    }
+
+    #[test]
+    fn test_hex_format() {
+        let blob = Blob::new("test".to_string());
+        assert_eq!(blob.id().len(), 64);
+        assert!(blob.id().chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_size_matches_content() {
+        let content = "hello world".to_string();
+        let blob = Blob::new(content.clone());
+        assert_eq!(blob.size(), content.len());
+        assert_eq!(blob.content(), content);
+    }
+}

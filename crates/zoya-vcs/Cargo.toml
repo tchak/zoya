@@ -1,0 +1,14 @@
+[package]
+name = "zoya-vcs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+blake3 = "1"
+zoya-ast = { path = "../zoya-ast" }
+zoya-fmt = { path = "../zoya-fmt" }
+zoya-package = { path = "../zoya-package" }
+
+[dev-dependencies]
+zoya-lexer = { path = "../zoya-lexer" }
+zoya-parser = { path = "../zoya-parser" }

@@ -1489,3 +1489,15 @@ dependencies = [
  "thiserror 2.0.18",
  "zoya-ir",
 ]
+
+[[package]]
+name = "zoya-vcs"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "zoya-ast",
+ "zoya-fmt",
+ "zoya-lexer",
+ "zoya-package",
+ "zoya-parser",
+]
