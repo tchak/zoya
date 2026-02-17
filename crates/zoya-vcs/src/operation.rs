@@ -1,3 +1,5 @@
+use std::time::SystemTime;
+
 use crate::Commit;
 
 /// An operation recording a change to the repository state.
@@ -7,6 +9,7 @@ pub struct Operation {
     operation_type: String,
     view_id: String,
     heads: Vec<Commit>,
+    timestamp: SystemTime,
 }
 
 impl Operation {
@@ -21,6 +24,7 @@ impl Operation {
             operation_type,
             view_id,
             heads,
+            timestamp: SystemTime::now(),
         }
     }
 
@@ -38,6 +42,10 @@ impl Operation {
 
     pub fn heads(&self) -> &[Commit] {
         &self.heads
+    }
+
+    pub fn timestamp(&self) -> SystemTime {
+        self.timestamp
     }
 }
 
@@ -71,6 +79,7 @@ mod tests {
 
     #[test]
     fn test_construction() {
+        let before = SystemTime::now();
         let commit = make_commit("hello", "change-1");
         let op = Operation::new(
             "op-1".to_string(),
@@ -78,11 +87,14 @@ mod tests {
             "view-1".to_string(),
             vec![commit],
         );
+        let after = SystemTime::now();
 
         assert_eq!(op.operation_id(), "op-1");
         assert_eq!(op.operation_type(), "snapshot");
         assert_eq!(op.view_id(), "view-1");
         assert_eq!(op.heads().len(), 1);
+        assert!(op.timestamp() >= before);
+        assert!(op.timestamp() <= after);
     }
 
     #[test]
