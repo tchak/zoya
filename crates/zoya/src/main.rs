@@ -98,6 +98,9 @@ enum TaskCommand {
         /// Path to a .zy file or directory with package.toml (defaults to current directory)
         #[arg(short, long)]
         package: Option<PathBuf>,
+        /// Compilation mode (dev, test, release)
+        #[arg(long, default_value = "dev")]
+        mode: String,
     },
     /// Run a #[task] function
     #[command(trailing_var_arg = true)]
@@ -110,6 +113,9 @@ enum TaskCommand {
         /// Path to a .zy file or directory with package.toml
         #[arg(short, long)]
         package: Option<PathBuf>,
+        /// Compilation mode (dev, test, release)
+        #[arg(long, default_value = "dev")]
+        mode: String,
         /// Output result as JSON
         #[arg(long)]
         json: bool,
@@ -180,9 +186,10 @@ fn main() {
             }
         }
         Some(Command::Task { command }) => match command {
-            TaskCommand::List { package } => {
+            TaskCommand::List { package, mode } => {
                 let path = package.unwrap_or_else(|| PathBuf::from("."));
-                if let Err(e) = commands::task::list::execute(&path) {
+                let mode = parse_mode(&term, &mode);
+                if let Err(e) = commands::task::list::execute(&path, mode) {
                     fatal(&term, &e.to_string());
                 }
             }
@@ -190,10 +197,12 @@ fn main() {
                 name,
                 args,
                 package,
+                mode,
                 json,
             } => {
                 let path = package.unwrap_or_else(|| PathBuf::from("."));
-                if let Err(e) = commands::task::run::execute(&path, &name, &args, json) {
+                let mode = parse_mode(&term, &mode);
+                if let Err(e) = commands::task::run::execute(&path, &name, &args, json, mode) {
                     fatal(&term, &e.to_string());
                 }
             }

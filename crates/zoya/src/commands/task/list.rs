@@ -6,11 +6,11 @@ use zoya_ir::pretty_type;
 use zoya_loader::Mode;
 
 /// List all `#[task]` functions in a Zoya package or file
-pub fn execute(path: &Path) -> Result<(), String> {
+pub fn execute(path: &Path, mode: Mode) -> Result<(), String> {
     let term = Term::stderr();
 
-    // Load and parse package in dev mode
-    let pkg = zoya_loader::load_package(path, Mode::Dev).map_err(|e| e.to_string())?;
+    // Load and parse package
+    let pkg = zoya_loader::load_package(path, mode).map_err(|e| e.to_string())?;
 
     // Type check entire package with std
     let std = zoya_std::std();
@@ -83,7 +83,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = execute(&file);
+        let result = execute(&file, Mode::Dev);
         assert!(result.is_ok());
     }
 
@@ -93,13 +93,13 @@ mod tests {
         let file = dir.path().join("test.zy");
         std::fs::write(&file, "pub fn main() -> Int { 42 }").unwrap();
 
-        let result = execute(&file);
+        let result = execute(&file, Mode::Dev);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_execute_nonexistent_file() {
-        let result = execute(Path::new("nonexistent.zy"));
+        let result = execute(Path::new("nonexistent.zy"), Mode::Dev);
         assert!(result.is_err());
     }
 

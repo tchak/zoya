@@ -7,9 +7,15 @@ use zoya_package::QualifiedPath;
 use zoya_run::{Runner, Value};
 
 /// Run a `#[task]` function with CLI arguments parsed by type
-pub fn execute(path: &Path, task_name: &str, args: &[String], json: bool) -> Result<(), String> {
+pub fn execute(
+    path: &Path,
+    task_name: &str,
+    args: &[String],
+    json: bool,
+    mode: Mode,
+) -> Result<(), String> {
     // Load and type-check
-    let pkg = zoya_loader::load_package(path, Mode::Dev).map_err(|e| e.to_string())?;
+    let pkg = zoya_loader::load_package(path, mode).map_err(|e| e.to_string())?;
     let std = zoya_std::std();
     let checked = check(&pkg, &[std]).map_err(|e| e.to_string())?;
 
@@ -104,7 +110,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = execute(&file, "add", &["1".into(), "2".into()], false);
+        let result = execute(&file, "add", &["1".into(), "2".into()], false, Mode::Dev);
         assert!(result.is_ok());
     }
 
@@ -121,7 +127,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = execute(&file, "greet", &["world".into()], false);
+        let result = execute(&file, "greet", &["world".into()], false, Mode::Dev);
         assert!(result.is_ok());
     }
 
@@ -138,7 +144,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = execute(&file, "missing", &[], false);
+        let result = execute(&file, "missing", &[], false, Mode::Dev);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not found"));
     }
@@ -156,7 +162,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = execute(&file, "add", &["1".into()], false);
+        let result = execute(&file, "add", &["1".into()], false, Mode::Dev);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("expects 2 argument(s), got 1"));
     }
@@ -174,7 +180,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = execute(&file, "double", &["abc".into()], false);
+        let result = execute(&file, "double", &["abc".into()], false, Mode::Dev);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("argument 1"));
     }
@@ -192,7 +198,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = execute(&file, "deploy", &[], false);
+        let result = execute(&file, "deploy", &[], false, Mode::Dev);
         assert!(result.is_ok());
     }
 
@@ -209,7 +215,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = execute(&file, "identity", &["true".into()], false);
+        let result = execute(&file, "identity", &["true".into()], false, Mode::Dev);
         assert!(result.is_ok());
     }
 }
