@@ -67,6 +67,11 @@ crates/
 └── zoya-value/        # Runtime value types & serialization
     └── src/
         └── lib.rs         # Value, JSValue, serde support
+packages/
+└── zoya-runtime/      # JS runtime (TypeScript, bundled with tsdown)
+    ├── src/               # TypeScript source modules
+    ├── tests/             # Vitest tests
+    └── dist/              # Built bundle (committed, used by codegen)
 ```
 
 ## Commands
@@ -84,6 +89,9 @@ cargo run -p zoya -- test                        # Run tests
 cargo run -p zoya -- new my_project              # Create new project
 cargo test --workspace                           # Run all Rust tests
 cargo clippy --workspace                         # Lint
+cd packages/zoya-runtime && npm run build        # Build JS runtime bundle
+cd packages/zoya-runtime && npm test             # Run JS runtime tests
+cd packages/zoya-runtime && npm run typecheck    # Type-check JS runtime
 ```
 
 ## Version Control

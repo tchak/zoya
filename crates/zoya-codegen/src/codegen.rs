@@ -40,29 +40,8 @@ const POW_BIGINT_CHECK_FN: &str = "$$pow_bigint";
 /// List index function name used in generated JS
 const LIST_IDX_FN: &str = "$$list_idx";
 
-/// Runtime JS: prelude helpers (error, equality, arithmetic checks, etc.)
-const PRELUDE_JS: &str = include_str!("js/prelude.js");
-
-/// Runtime JS: HAMT for Dict<K, V>
-const HAMT_JS: &str = include_str!("js/hamt.js");
-
-/// Runtime JS: Int methods
-const INT_JS: &str = include_str!("js/int.js");
-
-/// Runtime JS: BigInt methods
-const BIGINT_JS: &str = include_str!("js/bigint.js");
-
-/// Runtime JS: Float methods
-const FLOAT_JS: &str = include_str!("js/float.js");
-
-/// Runtime JS: String methods
-const STRING_JS: &str = include_str!("js/string.js");
-
-/// Runtime JS: Set methods (wraps HAMT)
-const SET_JS: &str = include_str!("js/set.js");
-
-/// Runtime JS: List methods
-const LIST_JS: &str = include_str!("js/list.js");
+/// Bundled runtime JS (built from packages/zoya-runtime)
+const RUNTIME_JS: &str = include_str!("../../../packages/zoya-runtime/dist/index.iife.js");
 
 /// Generate a single concatenated JS string for a package and all its dependencies.
 /// Returns a `CodegenOutput` containing the prelude, dep functions, and main package functions.
@@ -70,21 +49,7 @@ pub fn codegen(package: &CheckedPackage, deps: &[&CheckedPackage]) -> CodegenOut
     let mut js = String::new();
 
     // Runtime helpers
-    js.push_str(PRELUDE_JS);
-    js.push('\n');
-    js.push_str(HAMT_JS);
-    js.push('\n');
-    js.push_str(SET_JS);
-    js.push('\n');
-    js.push_str(INT_JS);
-    js.push('\n');
-    js.push_str(BIGINT_JS);
-    js.push('\n');
-    js.push_str(FLOAT_JS);
-    js.push('\n');
-    js.push_str(STRING_JS);
-    js.push('\n');
-    js.push_str(LIST_JS);
+    js.push_str(RUNTIME_JS);
     js.push('\n');
 
     // Dependency function definitions
