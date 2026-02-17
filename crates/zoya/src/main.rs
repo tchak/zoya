@@ -17,7 +17,13 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Run a file
+    #[command(trailing_var_arg = true)]
     Run {
+        /// Function name to run (defaults to "main")
+        name: Option<String>,
+        /// Arguments to pass to the function
+        #[arg(allow_hyphen_values = true)]
+        args: Vec<String>,
         /// Path to a .zy file or directory with package.toml (defaults to current directory)
         #[arg(short, long)]
         package: Option<PathBuf>,
@@ -127,13 +133,15 @@ fn main() {
 
     match cli.command {
         Some(Command::Run {
+            name,
+            args,
             package,
             mode,
             json,
         }) => {
             let path = package.unwrap_or_else(|| PathBuf::from("."));
             let mode = parse_mode(&term, &mode);
-            if let Err(e) = commands::run::execute(&path, mode, json) {
+            if let Err(e) = commands::run::execute(&path, mode, name.as_deref(), &args, json) {
                 fatal(&term, &e.to_string());
             }
         }
