@@ -326,6 +326,18 @@ pub struct CheckedPackage {
 }
 
 impl CheckedPackage {
+    /// Return sorted paths of all `#[test]` functions in this package.
+    pub fn tests(&self) -> Vec<QualifiedPath> {
+        let mut tests: Vec<QualifiedPath> = self
+            .items
+            .iter()
+            .filter(|(_, func)| func.is_test)
+            .map(|(path, _)| path.clone())
+            .collect();
+        tests.sort_by_key(|a| a.to_string());
+        tests
+    }
+
     /// Return sorted paths of all `#[task]` functions in this package.
     pub fn tasks(&self) -> Vec<QualifiedPath> {
         let mut tasks: Vec<QualifiedPath> = self

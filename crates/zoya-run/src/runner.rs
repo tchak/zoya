@@ -62,16 +62,8 @@ impl Runner {
         let checked =
             check(&package, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
 
-        let mut tests: Vec<QualifiedPath> = checked
-            .items
-            .iter()
-            .filter(|(_, func)| func.is_test)
-            .map(|(path, _)| path.clone())
-            .collect();
-        tests.sort_by_key(|a| a.to_string());
-
         Ok(TestRunner {
-            tests,
+            tests: checked.tests(),
             checked,
             std,
         })
