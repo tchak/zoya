@@ -226,9 +226,26 @@ Test functions have the following constraints:
 
 - **No parameters** — test functions must be parameterless.
 - **Return type** — test functions must return `()` (unit) or `Result`. No other return types are allowed.
-- **No `#[builtin]`** — a function cannot have both `#[builtin]` and `#[test]` attributes.
+- **No `#[builtin]` or `#[task]`** — `#[test]`, `#[builtin]`, and `#[task]` are mutually exclusive.
 
 The `#[test]` attribute is only valid on function definitions. Using it on structs, enums, type aliases, or use declarations is a type error. Using it on module declarations is a loader error — use `#[mode(test)]` instead.
+
+### Task Functions
+
+The `#[task]` attribute marks a function as externally callable. Unlike `#[test]`, task functions have no restrictions on parameters or return types, and are included in all compilation modes (dev, test, release).
+
+```zoya
+#[task]
+pub fn deploy(name: String) -> Result<String, String> {
+    // ...
+}
+```
+
+Task functions have the following constraints:
+
+- **No `#[builtin]` or `#[test]`** — `#[task]`, `#[builtin]`, and `#[test]` are mutually exclusive.
+
+The `#[task]` attribute is only valid on function definitions. Using it on structs, enums, type aliases, or use declarations is a type error. Private `#[task]` functions are exported in the checked package (like `#[test]` functions) so they can be discovered and invoked externally.
 
 ### Conditional Compilation
 

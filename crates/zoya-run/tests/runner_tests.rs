@@ -6676,3 +6676,58 @@ fn test_set_repl_display() {
         other => panic!("expected Value::Set, got {:?}", other),
     }
 }
+
+// ── Task attribute tests ─────────────────────────────────────────────
+
+#[test]
+fn test_task_fn_compiles_and_tasks_method_works() {
+    let source = r#"
+        #[task]
+        pub fn my_task() -> Int { 42 }
+
+        pub fn main() -> Int { my_task() }
+    "#;
+    let mem_source = MemorySource::new().with_module("root", source);
+    let package = load_memory_package(&mem_source, zoya_loader::Mode::Dev).unwrap();
+    let std = zoya_std();
+    let checked = check(&package, &[std]).unwrap();
+
+    // tasks() should return the task function
+    let tasks = checked.tasks();
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0], QualifiedPath::root().child("my_task"));
+
+    // The function should run normally
+    let result = Runner::new().package(&checked, [std]).run().unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_task_fn_with_params_compiles() {
+    let source = r#"
+        #[task]
+        pub fn my_task(x: Int) -> Int { x + 1 }
+
+        pub fn main() -> Int { my_task(41) }
+    "#;
+    let result = run_source(source).unwrap();
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
+fn test_private_task_fn_is_discoverable() {
+    let source = r#"
+        #[task]
+        fn my_task() -> Int { 42 }
+
+        pub fn main() { () }
+    "#;
+    let mem_source = MemorySource::new().with_module("root", source);
+    let package = load_memory_package(&mem_source, zoya_loader::Mode::Dev).unwrap();
+    let std = zoya_std();
+    let checked = check(&package, &[std]).unwrap();
+
+    let tasks = checked.tasks();
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0], QualifiedPath::root().child("my_task"));
+}

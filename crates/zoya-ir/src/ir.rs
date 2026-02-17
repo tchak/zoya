@@ -12,6 +12,7 @@ pub struct TypedFunction {
     pub return_type: Type,
     pub is_builtin: bool,
     pub is_test: bool,
+    pub is_task: bool,
 }
 
 /// Typed let binding
@@ -322,4 +323,18 @@ pub struct CheckedPackage {
     pub reexports: std::collections::HashMap<QualifiedPath, QualifiedPath>,
     /// Dependency imports: dep_name → [function paths (remapped)]
     pub imports: std::collections::HashMap<String, Vec<QualifiedPath>>,
+}
+
+impl CheckedPackage {
+    /// Return sorted paths of all `#[task]` functions in this package.
+    pub fn tasks(&self) -> Vec<QualifiedPath> {
+        let mut tasks: Vec<QualifiedPath> = self
+            .items
+            .iter()
+            .filter(|(_, func)| func.is_task)
+            .map(|(path, _)| path.clone())
+            .collect();
+        tasks.sort_by_key(|a| a.to_string());
+        tasks
+    }
 }

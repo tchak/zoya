@@ -1496,6 +1496,7 @@ mod tests {
             return_type: Type::Int,
             is_builtin: false,
             is_test: false,
+            is_task: false,
         };
         assert_eq!(
             pkg_gen.codegen_function(&func, &QualifiedPath::root().child(&func.name)),
@@ -1539,6 +1540,7 @@ mod tests {
             return_type: Type::Int,
             is_builtin: false,
             is_test: false,
+            is_task: false,
         };
         assert_eq!(
             pkg_gen.codegen_function(&func, &QualifiedPath::root().child(&func.name)),
@@ -1556,6 +1558,7 @@ mod tests {
             return_type: Type::Int,
             is_builtin: false,
             is_test: false,
+            is_task: false,
         };
         assert_eq!(
             pkg_gen.codegen_function(&func, &QualifiedPath::root().child(&func.name)),
@@ -1587,6 +1590,7 @@ mod tests {
             return_type: Type::BigInt,
             is_builtin: false,
             is_test: false,
+            is_task: false,
         };
         assert_eq!(
             pkg_gen.codegen_function(&func, &QualifiedPath::root().child(&func.name)),

@@ -145,14 +145,25 @@ fn check_function(
         typed_params.push((typed_pattern, ctx.resolve(&ty)));
     }
 
-    // Check for #[builtin] and #[test] attributes
+    // Check for #[builtin], #[test], and #[task] attributes
     let is_builtin = func.attributes.iter().any(|a| a.name == "builtin");
     let is_test = func.attributes.iter().any(|a| a.name == "test");
+    let is_task = func.attributes.iter().any(|a| a.name == "task");
 
-    // Validate: #[builtin] and #[test] are mutually exclusive
+    // Validate: #[builtin], #[test], and #[task] are mutually exclusive
     if is_builtin && is_test {
         return Err(TypeError {
             message: "a function cannot have both #[builtin] and #[test] attributes".to_string(),
+        });
+    }
+    if is_builtin && is_task {
+        return Err(TypeError {
+            message: "a function cannot have both #[builtin] and #[task] attributes".to_string(),
+        });
+    }
+    if is_test && is_task {
+        return Err(TypeError {
+            message: "a function cannot have both #[test] and #[task] attributes".to_string(),
         });
     }
 
@@ -202,6 +213,7 @@ fn check_function(
             return_type: ctx.resolve(&declared_return),
             is_builtin: true,
             is_test: false,
+            is_task: false,
         });
     }
 
@@ -258,6 +270,7 @@ fn check_function(
         return_type: ctx.resolve(&return_type),
         is_builtin: false,
         is_test,
+        is_task,
     })
 }
 
@@ -400,6 +413,7 @@ fn check_impl_method_body(
             return_type: ctx.resolve(&declared_return),
             is_builtin: true,
             is_test: false,
+            is_task: false,
         });
     }
 
@@ -443,6 +457,7 @@ fn check_impl_method_body(
         return_type: ctx.resolve(&return_type),
         is_builtin: false,
         is_test: false,
+        is_task: false,
     })
 }
 
@@ -2897,8 +2912,8 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
         }
     }
 
-    // Phase 0.7: Validate #[test] attribute usage
-    // #[test] is only valid on function definitions
+    // Phase 0.7: Validate #[test] and #[task] attribute usage
+    // #[test] and #[task] are only valid on function definitions
     for path in &module_paths {
         if let Some(module) = pkg.modules.get(path) {
             for item in &module.items {
@@ -2911,13 +2926,15 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
                     Item::Impl(i) => (&i.attributes, "impl"),
                     Item::ModDecl(_) => unreachable!("mod decls are removed by the loader"),
                 };
-                if attrs.iter().any(|a| a.name == "test") {
-                    return Err(TypeError {
-                        message: format!(
-                            "#[test] is only valid on functions, not on {} definitions",
-                            kind
-                        ),
-                    });
+                for attr_name in &["test", "task"] {
+                    if attrs.iter().any(|a| a.name == *attr_name) {
+                        return Err(TypeError {
+                            message: format!(
+                                "#[{}] is only valid on functions, not on {} definitions",
+                                attr_name, kind
+                            ),
+                        });
+                    }
                 }
             }
         }
@@ -3071,6 +3088,7 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
         .filter(|(path, def)| {
             is_externally_visible(path, def, &env.definitions)
                 || checked_items.get(path).is_some_and(|f| f.is_test)
+                || checked_items.get(path).is_some_and(|f| f.is_task)
         })
         .map(|(path, def)| (path.clone(), def.clone()))
         .collect();

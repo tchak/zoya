@@ -53,3 +53,14 @@ let block = |x| { let y = x * 2; y + 1 }
 let get_x = |Point { x, .. }| x
 let sum_pair = |(a, b)| a + b
 ```
+
+## Task Functions
+
+The `#[task]` attribute marks a function as externally callable. Unlike `#[test]`, task functions can have parameters and any return type, and are included in all compilation modes.
+
+```zoya
+#[task]
+fn deploy(name: String) -> String {
+    $"deployed: {name}"
+}
+```
