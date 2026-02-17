@@ -14,8 +14,8 @@ use crate::eval::{self, EvalError};
 enum EntryPoint {
     /// Run `main()` in the root module or a named submodule.
     Main(Option<String>),
-    /// Run an arbitrary function by its full qualified path.
-    Entry(QualifiedPath),
+    /// Run an arbitrary function by its full qualified path, with optional args.
+    Entry(QualifiedPath, Vec<Value>),
 }
 
 /// Entry point for building a run configuration.
@@ -92,9 +92,9 @@ impl<'a> PackageRunner<'a> {
         self
     }
 
-    /// Select an arbitrary function to run by its full qualified path.
-    pub fn entry(mut self, path: QualifiedPath) -> Self {
-        self.entry_point = EntryPoint::Entry(path);
+    /// Select an arbitrary function to run by its full qualified path, with args.
+    pub fn entry(mut self, path: QualifiedPath, args: Vec<Value>) -> Self {
+        self.entry_point = EntryPoint::Entry(path, args);
         self
     }
 
@@ -226,7 +226,7 @@ fn run_single_test(
     deps: &[&CheckedPackage],
     path: &QualifiedPath,
 ) -> Result<(), String> {
-    match run_checked(package, deps, &EntryPoint::Entry(path.clone())) {
+    match run_checked(package, deps, &EntryPoint::Entry(path.clone(), vec![])) {
         Ok(value) => interpret_test_value(&value),
         Err(EvalError::Panic(msg)) => Err(format!("panic: {msg}")),
         Err(EvalError::RuntimeError(msg)) => Err(format!("runtime error: {msg}")),
@@ -265,16 +265,16 @@ fn run_checked(
     deps: &[&CheckedPackage],
     entry_point: &EntryPoint,
 ) -> Result<Value, EvalError> {
-    // Resolve the function path from the entry point
-    let function_path = match entry_point {
+    // Resolve the function path and args from the entry point
+    let (function_path, args) = match entry_point {
         EntryPoint::Main(module) => {
             let module_path = match module {
                 Some(m) => QualifiedPath::root().child(m),
                 None => QualifiedPath::root(),
             };
-            module_path.child("main")
+            (module_path.child("main"), vec![])
         }
-        EntryPoint::Entry(path) => path.clone(),
+        EntryPoint::Entry(path, args) => (path.clone(), args.clone()),
     };
 
     // Find the function in the package definitions
@@ -288,14 +288,17 @@ fn run_checked(
                     let module_path = function_path.parent().unwrap_or_else(QualifiedPath::root);
                     format!("no pub fn main() found in {}", module_path)
                 }
-                EntryPoint::Entry(path) => format!("function {} not found", path),
+                EntryPoint::Entry(path, _) => format!("function {} not found", path),
             })
         })?;
 
-    if !func_def.params.is_empty() {
+    // Validate argument count
+    if func_def.params.len() != args.len() {
         return Err(EvalError::RuntimeError(format!(
-            "{}() must not take any parameters",
-            function_path.last()
+            "{}() expects {} argument(s), got {}",
+            function_path.last(),
+            func_def.params.len(),
+            args.len()
         )));
     }
 
@@ -303,6 +306,12 @@ fn run_checked(
 
     // Build type lookup for resolving recursive type stubs
     let type_lookup = DefinitionLookup::from_packages(package, deps);
+
+    // Validate each arg's type
+    for (i, (arg, param_type)) in args.iter().zip(func_def.params.iter()).enumerate() {
+        arg.check_type(param_type, &type_lookup)
+            .map_err(|e| EvalError::RuntimeError(format!("argument {} type mismatch: {}", i, e)))?;
+    }
 
     // Generate single concatenated JS
     let output = codegen(package, deps);
@@ -315,8 +324,16 @@ fn run_checked(
         eval::create_runtime().map_err(|e| EvalError::RuntimeError(e.to_string()))?;
 
     // Evaluate the script and call the entry function
-    context
-        .with(|ctx| eval::eval_script(&ctx, &output.code, &entry_func, return_type, &type_lookup))
+    context.with(|ctx| {
+        eval::eval_script(
+            &ctx,
+            &output.code,
+            &entry_func,
+            &args,
+            return_type,
+            &type_lookup,
+        )
+    })
 }
 
 #[cfg(test)]

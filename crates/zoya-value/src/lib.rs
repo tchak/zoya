@@ -363,6 +363,166 @@ impl Value {
     pub fn to_json_pretty(&self) -> String {
         serde_json::to_string_pretty(self).unwrap()
     }
+
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Value::Int(_) => "Int",
+            Value::BigInt(_) => "BigInt",
+            Value::Float(_) => "Float",
+            Value::Bool(_) => "Bool",
+            Value::String(_) => "String",
+            Value::List(_) => "List",
+            Value::Tuple(_) => "Tuple",
+            Value::Set(_) => "Set",
+            Value::Dict(_) => "Dict",
+            Value::Struct { .. } => "Struct",
+            Value::EnumVariant { .. } => "EnumVariant",
+        }
+    }
+
+    /// Validate that this value matches an expected Zoya type.
+    pub fn check_type(&self, expected: &Type, type_lookup: &DefinitionLookup) -> Result<(), Error> {
+        match (self, expected) {
+            (Value::Int(_), Type::Int) => Ok(()),
+            (Value::BigInt(_), Type::BigInt) => Ok(()),
+            (Value::Float(_), Type::Float) => Ok(()),
+            (Value::Bool(_), Type::Bool) => Ok(()),
+            (Value::String(_), Type::String) => Ok(()),
+            (Value::List(items), Type::List(elem_type)) => {
+                for item in items {
+                    item.check_type(elem_type, type_lookup)?;
+                }
+                Ok(())
+            }
+            (Value::Tuple(items), Type::Tuple(types)) => {
+                if items.len() != types.len() {
+                    return Err(Error::TypeMismatch {
+                        from: format!("Tuple({})", items.len()),
+                        to: format!("Tuple({})", types.len()),
+                    });
+                }
+                for (item, ty) in items.iter().zip(types.iter()) {
+                    item.check_type(ty, type_lookup)?;
+                }
+                Ok(())
+            }
+            (Value::Set(items), Type::Set(elem_type)) => {
+                for item in items {
+                    item.check_type(elem_type, type_lookup)?;
+                }
+                Ok(())
+            }
+            (Value::Dict(entries), Type::Dict(key_type, val_type)) => {
+                for (k, v) in entries {
+                    k.check_type(key_type, type_lookup)?;
+                    v.check_type(val_type, type_lookup)?;
+                }
+                Ok(())
+            }
+            (
+                Value::Struct { name, module, data },
+                Type::Struct {
+                    name: type_name,
+                    module: type_module,
+                    type_args,
+                    fields: type_fields,
+                },
+            ) => {
+                if name != type_name || module != type_module {
+                    return Err(Error::TypeMismatch {
+                        from: format!("{}::{}", module, name),
+                        to: format!("{}::{}", type_module, type_name),
+                    });
+                }
+                let resolved_fields =
+                    type_lookup.resolve_struct_fields(module, name, type_fields, type_args);
+                match data {
+                    ValueData::Unit => {
+                        if !resolved_fields.is_empty() {
+                            return Err(Error::TypeMismatch {
+                                from: format!("{} (unit)", name),
+                                to: format!("{} (with fields)", type_name),
+                            });
+                        }
+                    }
+                    ValueData::Tuple(values) => {
+                        for (val, (_, field_type)) in values.iter().zip(resolved_fields.iter()) {
+                            val.check_type(field_type, type_lookup)?;
+                        }
+                    }
+                    ValueData::Struct(map) => {
+                        for (field_name, field_type) in &resolved_fields {
+                            if let Some(val) = map.get(field_name) {
+                                val.check_type(field_type, type_lookup)?;
+                            } else {
+                                return Err(Error::MissingField(field_name.clone()));
+                            }
+                        }
+                    }
+                }
+                Ok(())
+            }
+            (
+                Value::EnumVariant {
+                    enum_name,
+                    variant_name,
+                    module,
+                    data,
+                },
+                Type::Enum {
+                    name: type_name,
+                    module: type_module,
+                    type_args,
+                    variants,
+                },
+            ) => {
+                if enum_name != type_name || module != type_module {
+                    return Err(Error::TypeMismatch {
+                        from: format!("{}::{}", module, enum_name),
+                        to: format!("{}::{}", type_module, type_name),
+                    });
+                }
+                let resolved_variants =
+                    type_lookup.resolve_enum_variants(module, enum_name, variants, type_args);
+                let variant_type = resolved_variants
+                    .iter()
+                    .find(|(vname, _)| vname == variant_name)
+                    .map(|(_, vt)| vt)
+                    .ok_or_else(|| Error::UnknownVariant(variant_name.clone()))?;
+                match (data, variant_type) {
+                    (ValueData::Unit, EnumVariantType::Unit) => Ok(()),
+                    (ValueData::Tuple(values), EnumVariantType::Tuple(types)) => {
+                        for (val, ty) in values.iter().zip(types.iter()) {
+                            val.check_type(ty, type_lookup)?;
+                        }
+                        Ok(())
+                    }
+                    (ValueData::Struct(map), EnumVariantType::Struct(fields)) => {
+                        for (field_name, field_type) in fields {
+                            if let Some(val) = map.get(field_name) {
+                                val.check_type(field_type, type_lookup)?;
+                            } else {
+                                return Err(Error::MissingField(field_name.clone()));
+                            }
+                        }
+                        Ok(())
+                    }
+                    _ => Err(Error::TypeMismatch {
+                        from: self.type_name().to_string(),
+                        to: expected.to_string(),
+                    }),
+                }
+            }
+            (_, Type::Var(_)) => Ok(()),
+            (_, Type::Function { .. }) => Err(Error::UnsupportedConversion(
+                "function args not supported".into(),
+            )),
+            _ => Err(Error::TypeMismatch {
+                from: self.type_name().to_string(),
+                to: expected.to_string(),
+            }),
+        }
+    }
 }
 
 /// Intermediate representation of a JavaScript value, decoupled from QuickJS runtime.
@@ -909,5 +1069,212 @@ mod tests {
         };
         let val = Value::List(vec![inner, Value::Int(42)]);
         assert_eq!(val.to_json(), r#"[{"type":"Unit"},42]"#);
+    }
+
+    // ── check_type tests ─────────────────────────────────────────────
+
+    fn empty_lookup() -> DefinitionLookup {
+        DefinitionLookup::empty()
+    }
+
+    #[test]
+    fn check_type_primitives_match() {
+        let lookup = empty_lookup();
+        assert!(Value::Int(42).check_type(&Type::Int, &lookup).is_ok());
+        assert!(Value::BigInt(1).check_type(&Type::BigInt, &lookup).is_ok());
+        assert!(Value::Float(3.14).check_type(&Type::Float, &lookup).is_ok());
+        assert!(Value::Bool(true).check_type(&Type::Bool, &lookup).is_ok());
+        assert!(
+            Value::String("hi".into())
+                .check_type(&Type::String, &lookup)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn check_type_primitives_mismatch() {
+        let lookup = empty_lookup();
+        assert!(Value::Int(42).check_type(&Type::String, &lookup).is_err());
+        assert!(
+            Value::String("hi".into())
+                .check_type(&Type::Int, &lookup)
+                .is_err()
+        );
+        assert!(Value::Bool(true).check_type(&Type::Float, &lookup).is_err());
+    }
+
+    #[test]
+    fn check_type_list_ok() {
+        let lookup = empty_lookup();
+        let val = Value::List(vec![Value::Int(1), Value::Int(2)]);
+        assert!(
+            val.check_type(&Type::List(Box::new(Type::Int)), &lookup)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn check_type_list_wrong_elem() {
+        let lookup = empty_lookup();
+        let val = Value::List(vec![Value::Int(1), Value::String("x".into())]);
+        assert!(
+            val.check_type(&Type::List(Box::new(Type::Int)), &lookup)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn check_type_tuple_ok() {
+        let lookup = empty_lookup();
+        let val = Value::Tuple(vec![Value::Int(1), Value::Bool(true)]);
+        assert!(
+            val.check_type(&Type::Tuple(vec![Type::Int, Type::Bool]), &lookup)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn check_type_tuple_wrong_length() {
+        let lookup = empty_lookup();
+        let val = Value::Tuple(vec![Value::Int(1)]);
+        assert!(
+            val.check_type(&Type::Tuple(vec![Type::Int, Type::Bool]), &lookup)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn check_type_set_ok() {
+        let lookup = empty_lookup();
+        let mut set = HashSet::new();
+        set.insert(Value::Int(1));
+        let val = Value::Set(set);
+        assert!(
+            val.check_type(&Type::Set(Box::new(Type::Int)), &lookup)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn check_type_dict_ok() {
+        let lookup = empty_lookup();
+        let mut map = HashMap::new();
+        map.insert(Value::String("a".into()), Value::Int(1));
+        let val = Value::Dict(map);
+        assert!(
+            val.check_type(
+                &Type::Dict(Box::new(Type::String), Box::new(Type::Int)),
+                &lookup
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn check_type_struct_ok() {
+        let lookup = empty_lookup();
+        let module = QualifiedPath::new(vec!["root".into()]);
+        let val = Value::Struct {
+            name: "Point".into(),
+            module: module.clone(),
+            data: ValueData::Struct({
+                let mut m = HashMap::new();
+                m.insert("x".into(), Value::Int(1));
+                m.insert("y".into(), Value::Int(2));
+                m
+            }),
+        };
+        let ty = Type::Struct {
+            module: module.clone(),
+            name: "Point".into(),
+            type_args: vec![],
+            fields: vec![("x".into(), Type::Int), ("y".into(), Type::Int)],
+        };
+        assert!(val.check_type(&ty, &lookup).is_ok());
+    }
+
+    #[test]
+    fn check_type_struct_name_mismatch() {
+        let lookup = empty_lookup();
+        let module = QualifiedPath::new(vec!["root".into()]);
+        let val = Value::Struct {
+            name: "Point".into(),
+            module: module.clone(),
+            data: ValueData::Unit,
+        };
+        let ty = Type::Struct {
+            module: module.clone(),
+            name: "Other".into(),
+            type_args: vec![],
+            fields: vec![],
+        };
+        assert!(val.check_type(&ty, &lookup).is_err());
+    }
+
+    #[test]
+    fn check_type_enum_ok() {
+        let lookup = empty_lookup();
+        let module = QualifiedPath::new(vec!["root".into()]);
+        let val = Value::EnumVariant {
+            enum_name: "Color".into(),
+            variant_name: "Red".into(),
+            module: module.clone(),
+            data: ValueData::Unit,
+        };
+        let ty = Type::Enum {
+            module: module.clone(),
+            name: "Color".into(),
+            type_args: vec![],
+            variants: vec![
+                ("Red".into(), EnumVariantType::Unit),
+                ("Green".into(), EnumVariantType::Unit),
+            ],
+        };
+        assert!(val.check_type(&ty, &lookup).is_ok());
+    }
+
+    #[test]
+    fn check_type_enum_name_mismatch() {
+        let lookup = empty_lookup();
+        let module = QualifiedPath::new(vec!["root".into()]);
+        let val = Value::EnumVariant {
+            enum_name: "Color".into(),
+            variant_name: "Red".into(),
+            module: module.clone(),
+            data: ValueData::Unit,
+        };
+        let ty = Type::Enum {
+            module: module.clone(),
+            name: "Shape".into(),
+            type_args: vec![],
+            variants: vec![],
+        };
+        assert!(val.check_type(&ty, &lookup).is_err());
+    }
+
+    #[test]
+    fn check_type_var_accepts_anything() {
+        let lookup = empty_lookup();
+        use zoya_ir::TypeVarId;
+        assert!(
+            Value::Int(42)
+                .check_type(&Type::Var(TypeVarId(0)), &lookup)
+                .is_ok()
+        );
+        assert!(
+            Value::String("hi".into())
+                .check_type(&Type::Var(TypeVarId(1)), &lookup)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn check_type_function_rejected() {
+        let lookup = empty_lookup();
+        let ty = Type::Function {
+            params: vec![Type::Int],
+            ret: Box::new(Type::Int),
+        };
+        assert!(Value::Int(42).check_type(&ty, &lookup).is_err());
     }
 }

@@ -65,7 +65,7 @@ mod tests {
         let result = execute(&file, Mode::Dev, false);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.to_string().contains("parameter"));
+        assert!(err.to_string().contains("argument(s), got 0"));
     }
 
     #[test]

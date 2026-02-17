@@ -1,4 +1,4 @@
-use rquickjs::{CatchResultExt, Context, Ctx, Runtime};
+use rquickjs::{CatchResultExt, Context, Ctx, IntoJs, Runtime};
 
 use zoya_ir::{DefinitionLookup, Type};
 use zoya_value::{JSValue, Value};
@@ -53,19 +53,38 @@ fn parse_zoya_error(msg: &str) -> Option<(&str, Option<&str>)> {
 /// Evaluate a plain JS script and call an entry function.
 ///
 /// First evaluates `code` to define all functions in the global scope,
-/// then calls `entry_func()` and converts the result to a Zoya Value.
+/// then calls `entry_func(args...)` and converts the result to a Zoya Value.
 pub(crate) fn eval_script(
     ctx: &Ctx<'_>,
     code: &str,
     entry_func: &str,
+    args: &[Value],
     result_type: Type,
     type_lookup: &DefinitionLookup,
 ) -> Result<Value, EvalError> {
     // Define all functions in global scope
     let _: rquickjs::Value = ctx.eval(code).catch(ctx).map_err(map_js_error)?;
-    // Call entry function, extract into JSValue via FromJs, then convert to Value
+
+    // Inject args as global variables
+    let globals = ctx.globals();
+    for (i, arg) in args.iter().enumerate() {
+        let js_arg: rquickjs::Value = JSValue::from(arg.clone())
+            .into_js(ctx)
+            .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+        globals
+            .set(format!("__zoya_arg{i}"), js_arg)
+            .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+    }
+
+    // Build call expression — wrap each arg in $$js_to_zoya() to convert
+    // JSValue representation back to internal Zoya representation (HAMT sets/dicts)
+    let arg_list = (0..args.len())
+        .map(|i| format!("$$js_to_zoya(__zoya_arg{i})"))
+        .collect::<Vec<_>>()
+        .join(",");
+
     let js_val: JSValue = ctx
-        .eval(format!("$$zoya_to_js({}())", entry_func))
+        .eval(format!("$$zoya_to_js({}({}))", entry_func, arg_list))
         .catch(ctx)
         .map_err(map_js_error)?;
     Value::from_js_value(js_val, &result_type, type_lookup).map_err(EvalError::from)

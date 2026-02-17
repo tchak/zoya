@@ -113,3 +113,18 @@ function $$zoya_to_js(v) {
   }
   return v;
 }
+function $$js_to_zoya(v) {
+  if (v === null || v === undefined || typeof v === 'boolean' || typeof v === 'number' || typeof v === 'string' || typeof v === 'bigint') return v;
+  if (Array.isArray(v)) {
+    if (v.$tag === "Set") return $$Set.from(v.map($$js_to_zoya));
+    if (v.$tag === "Dict") return $$Dict.from(v.map(function(e) { return [$$js_to_zoya(e[0]), $$js_to_zoya(e[1])]; }));
+    return v.map($$js_to_zoya);
+  }
+  if (typeof v === 'object') {
+    var out = {};
+    var keys = Object.keys(v);
+    for (var i = 0; i < keys.length; i++) out[keys[i]] = $$js_to_zoya(v[keys[i]]);
+    return out;
+  }
+  return v;
+}
