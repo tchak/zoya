@@ -7,7 +7,7 @@ use zoya_run::{EvalError, Runner};
 pub fn execute(path: &Path, mode: Mode, json: bool) -> Result<(), EvalError> {
     let value = Runner::new().path(path).mode(mode).run()?;
     if json {
-        println!("{}", value.to_json());
+        println!("{}", value.to_json_pretty());
     } else {
         println!("{}", value);
     }

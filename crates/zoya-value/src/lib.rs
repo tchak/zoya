@@ -359,6 +359,10 @@ impl Value {
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap()
     }
+
+    pub fn to_json_pretty(&self) -> String {
+        serde_json::to_string_pretty(self).unwrap()
+    }
 }
 
 /// Intermediate representation of a JavaScript value, decoupled from QuickJS runtime.
