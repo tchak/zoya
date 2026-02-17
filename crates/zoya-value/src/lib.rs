@@ -1,3 +1,5 @@
+mod parse;
+
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -17,6 +19,8 @@ pub enum Error {
     UnknownVariant(String),
     #[error("unsupported conversion: {0}")]
     UnsupportedConversion(String),
+    #[error("parse error: {0}")]
+    ParseError(String),
 }
 
 #[derive(Debug, Clone)]
@@ -356,6 +360,18 @@ impl serde::Serialize for Value {
 }
 
 impl Value {
+    /// Parse a CLI argument string into a typed `Value`.
+    ///
+    /// Strings are passed through raw (no quotes needed). All other types
+    /// are tokenized and parsed according to the expected type.
+    pub fn parse(
+        input: &str,
+        expected: &Type,
+        type_lookup: &DefinitionLookup,
+    ) -> Result<Value, Error> {
+        parse::parse_value(input, expected, type_lookup)
+    }
+
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap()
     }
@@ -858,8 +874,7 @@ impl Value {
                     .map(|(_, vt)| vt)
                     .ok_or_else(|| Error::UnknownVariant(variant_name.clone()))?;
                 let variant_fields = variant_type_to_fields(variant_type);
-                let data =
-                    convert_js_fields_to_value_data(&fields, &variant_fields, type_lookup)?;
+                let data = convert_js_fields_to_value_data(&fields, &variant_fields, type_lookup)?;
 
                 Ok(Value::EnumVariant {
                     module: module.clone(),

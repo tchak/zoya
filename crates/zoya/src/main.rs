@@ -93,6 +93,21 @@ enum TaskCommand {
         #[arg(short, long)]
         package: Option<PathBuf>,
     },
+    /// Run a #[task] function
+    #[command(trailing_var_arg = true)]
+    Run {
+        /// Task name (e.g., "deploy" or "utils::migrate")
+        name: String,
+        /// Arguments to pass to the task function
+        #[arg(allow_hyphen_values = true)]
+        args: Vec<String>,
+        /// Path to a .zy file or directory with package.toml
+        #[arg(short, long)]
+        package: Option<PathBuf>,
+        /// Output result as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 fn fatal(term: &Term, msg: &str) -> ! {
@@ -160,6 +175,17 @@ fn main() {
             TaskCommand::List { package } => {
                 let path = package.unwrap_or_else(|| PathBuf::from("."));
                 if let Err(e) = commands::task::list::execute(&path) {
+                    fatal(&term, &e.to_string());
+                }
+            }
+            TaskCommand::Run {
+                name,
+                args,
+                package,
+                json,
+            } => {
+                let path = package.unwrap_or_else(|| PathBuf::from("."));
+                if let Err(e) = commands::task::run::execute(&path, &name, &args, json) {
                     fatal(&term, &e.to_string());
                 }
             }

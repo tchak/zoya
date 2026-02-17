@@ -1482,6 +1482,7 @@ dependencies = [
 name = "zoya-value"
 version = "0.1.0"
 dependencies = [
+ "logos",
  "rquickjs",
  "serde",
  "serde_json",
