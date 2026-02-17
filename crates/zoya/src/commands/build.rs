@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use console::{Term, style};
 use zoya_check::check;
@@ -16,10 +16,15 @@ pub fn execute(path: &Path, output: Option<&Path>, mode: Mode) -> Result<(), Str
     let std = zoya_std::std();
     let checked_pkg = check(&pkg, &[std]).map_err(|e| e.to_string())?;
 
-    // Resolve output path: CLI arg > default "build"
+    // Resolve output path: CLI arg > default "build" relative to package dir
+    let base_dir = if path.is_dir() {
+        path.to_path_buf()
+    } else {
+        path.parent().unwrap_or(Path::new(".")).to_path_buf()
+    };
     let out_path = output
         .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("build"));
+        .unwrap_or_else(|| base_dir.join("build"));
 
     // Generate single concatenated JS
     let js_output = codegen(&checked_pkg, &[std]);
@@ -110,12 +115,7 @@ mod tests {
         )
         .unwrap();
 
-        let original = std::env::current_dir().unwrap();
-        std::env::set_current_dir(dir.path()).unwrap();
-
         let result = execute(dir.path(), None, Mode::Dev);
-        std::env::set_current_dir(original).unwrap();
-
         assert!(result.is_ok());
         assert!(dir.path().join("build").is_dir());
     }
