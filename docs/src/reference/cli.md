@@ -56,6 +56,24 @@ zoya repl                  # Start REPL
 zoya repl .                # Start REPL with package context
 ```
 
+### `zoya test [path]`
+
+Run all `#[test]` functions in a package or file. Tests are discovered automatically and executed in sorted order.
+
+```bash
+zoya test                   # Run tests in current package
+zoya test program.zy        # Run tests in a single file
+```
+
+### `zoya task list [path]`
+
+List all `#[task]` functions in a package or file. Shows each task's path and type signature.
+
+```bash
+zoya task list              # List tasks in current package
+zoya task list program.zy   # List tasks in a single file
+```
+
 ### `zoya fmt [path]`
 
 Format `.zy` source files. Comments between top-level items and between `impl` methods are preserved. Comments inside function bodies and expressions are stripped.

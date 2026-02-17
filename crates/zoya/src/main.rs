@@ -64,6 +64,11 @@ enum Command {
         /// Path to a .zy file or directory with package.toml (defaults to current directory)
         path: Option<PathBuf>,
     },
+    /// Manage task functions
+    Task {
+        #[command(subcommand)]
+        command: TaskCommand,
+    },
     /// Create a new Zoya project
     New {
         /// Path to create the project at
@@ -71,6 +76,15 @@ enum Command {
         /// Package name (defaults to directory name sanitized)
         #[arg(short, long)]
         name: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum TaskCommand {
+    /// List all #[task] functions in a package
+    List {
+        /// Path to a .zy file or directory with package.toml (defaults to current directory)
+        path: Option<PathBuf>,
     },
 }
 
@@ -127,6 +141,14 @@ fn main() {
                 fatal(&term, &e.to_string());
             }
         }
+        Some(Command::Task { command }) => match command {
+            TaskCommand::List { path } => {
+                let path = path.unwrap_or_else(|| PathBuf::from("."));
+                if let Err(e) = commands::task::list::execute(&path) {
+                    fatal(&term, &e.to_string());
+                }
+            }
+        },
         Some(Command::New { path, name }) => {
             if let Err(e) = commands::new::execute(&path, name.as_deref()) {
                 fatal(&term, &e.to_string());
