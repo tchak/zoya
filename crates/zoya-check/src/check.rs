@@ -3104,27 +3104,11 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
         .map(|(path, target)| (path.clone(), target.clone()))
         .collect();
 
-    // Build imports map: for each dep, collect function/impl method definition paths
-    let mut imports: HashMap<String, Vec<QualifiedPath>> = HashMap::new();
-    for dep in deps {
-        let mut fn_paths: Vec<QualifiedPath> = dep
-            .definitions
-            .iter()
-            .filter(|(_, def)| def.as_function().is_some() || def.as_impl_method().is_some())
-            .map(|(qpath, _)| qpath.with_root(&dep.name))
-            .collect();
-        fn_paths.sort_by_key(|a| a.to_string());
-        if !fn_paths.is_empty() {
-            imports.insert(dep.name.clone(), fn_paths);
-        }
-    }
-
     Ok(CheckedPackage {
         name: pkg.name.clone(),
         items: checked_items,
         definitions: external_definitions,
         reexports: external_reexports,
-        imports,
     })
 }
 
