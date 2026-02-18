@@ -415,25 +415,16 @@ impl Store {
     }
 
     pub fn describe(&self, commit_id: &str, message: String) -> Result<(), sqlx::Error> {
+        let view = self.view()?;
+        let working_copy_commit_id = view.working_copy().commit_id().to_string();
+        let head_ids: Vec<String> = view
+            .heads()
+            .iter()
+            .map(|c| c.commit_id().to_string())
+            .collect();
+
         self.runtime.block_on(async {
-            // 1. Load current view
-            let (view_id, working_copy_commit_id): (String, String) = sqlx::query_as(
-                "SELECT o.view_id, v.working_copy_commit_id \
-                 FROM operations o \
-                 JOIN views v ON v.view_id = o.view_id \
-                 ORDER BY o.operation_id DESC LIMIT 1",
-            )
-            .fetch_one(&self.pool)
-            .await?;
-
-            let head_rows: Vec<(String,)> =
-                sqlx::query_as("SELECT commit_id FROM view_heads WHERE view_id = ?")
-                    .bind(&view_id)
-                    .fetch_all(&self.pool)
-                    .await?;
-            let head_ids: Vec<String> = head_rows.into_iter().map(|(id,)| id).collect();
-
-            // 2. Validate commit is in view (ancestor of or equal to a head)
+            // 1. Validate commit is in view (ancestor of or equal to a head)
             let head_placeholders: String = head_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
             let check_query = format!(
                 "WITH RECURSIVE ancestors AS ( \
@@ -688,25 +679,17 @@ impl Store {
     }
 
     pub fn log(&self, n: usize) -> Result<Vec<Revision>, sqlx::Error> {
+        let view = self.view()?;
+        let working_copy_commit_id = view.working_copy().commit_id().to_string();
+        let head_set: HashSet<String> = view
+            .heads()
+            .iter()
+            .map(|c| c.commit_id().to_string())
+            .collect();
+        let view_id = view.view_id().to_string();
+
         self.runtime.block_on(async {
-            // 1. Find latest view_id, working_copy, and heads
-            let (view_id, working_copy_commit_id): (String, String) = sqlx::query_as(
-                "SELECT o.view_id, v.working_copy_commit_id \
-                 FROM operations o \
-                 JOIN views v ON v.view_id = o.view_id \
-                 ORDER BY o.operation_id DESC LIMIT 1",
-            )
-            .fetch_one(&self.pool)
-            .await?;
-
-            let head_rows: Vec<(String,)> =
-                sqlx::query_as("SELECT commit_id FROM view_heads WHERE view_id = ?")
-                    .bind(&view_id)
-                    .fetch_all(&self.pool)
-                    .await?;
-            let head_set: HashSet<String> = head_rows.into_iter().map(|(id,)| id).collect();
-
-            // 2. Recursive CTE to walk ancestor graph
+            // 1. Recursive CTE to walk ancestor graph
             let limit = (n * 2) as i64;
             let ancestor_rows: Vec<(String, String, i64, String, String)> = sqlx::query_as(
                 "WITH RECURSIVE ancestors AS ( \
@@ -830,27 +813,17 @@ impl Store {
         &self,
         query: RevisionQuery,
     ) -> Result<(Revision, Vec<Revision>), sqlx::Error> {
+        let view = self.view()?;
+        let working_copy_commit_id = view.working_copy().commit_id().to_string();
+        let head_set: HashSet<String> = view
+            .heads()
+            .iter()
+            .map(|c| c.commit_id().to_string())
+            .collect();
+        let head_placeholders: String = head_set.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+
         self.runtime.block_on(async {
-            // 1. Load current view
-            let (view_id, working_copy_commit_id): (String, String) = sqlx::query_as(
-                "SELECT o.view_id, v.working_copy_commit_id \
-                 FROM operations o \
-                 JOIN views v ON v.view_id = o.view_id \
-                 ORDER BY o.operation_id DESC LIMIT 1",
-            )
-            .fetch_one(&self.pool)
-            .await?;
-
-            let head_rows: Vec<(String,)> =
-                sqlx::query_as("SELECT commit_id FROM view_heads WHERE view_id = ?")
-                    .bind(&view_id)
-                    .fetch_all(&self.pool)
-                    .await?;
-            let head_set: HashSet<String> = head_rows.into_iter().map(|(id,)| id).collect();
-            let head_placeholders: String =
-                head_set.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-
-            // 2. Resolve query to change_id
+            // 1. Resolve query to change_id
             let resolved: Vec<(String, String)> = match query {
                 RevisionQuery::WorkingCopy => {
                     let (change_id,): (String,) =
