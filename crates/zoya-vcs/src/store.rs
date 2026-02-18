@@ -141,7 +141,12 @@ impl Store {
             let root_commit = Commit::new(change_id, &[], empty_tree, String::new());
 
             let operation_id = Uuid::now_v7();
-            let init_op = Operation::new(operation_id, "init".to_string(), root_commit, vec![]);
+            let init_op = Operation::new(
+                operation_id,
+                "init".to_string(),
+                root_commit.clone(),
+                vec![root_commit],
+            );
 
             let mut tx = self.pool.begin().await?;
             for head in init_op.heads() {
@@ -305,7 +310,7 @@ impl Store {
                 .filter_map(|id| commit_map.get(id).cloned())
                 .collect();
 
-            Ok(View::new(view_id, working_copy, heads))
+            Ok(View::new(Some(view_id), working_copy, heads))
         })
     }
 
@@ -2361,7 +2366,7 @@ mod tests {
 
         let view = store.view().unwrap();
 
-        // Working copy must be present in heads (Operation::new dedup logic ensures this)
+        // Working copy is present in heads (caller passes it explicitly)
         let head_ids: Vec<&str> = view.heads().iter().map(|c| c.commit_id()).collect();
         assert!(head_ids.contains(&view.working_copy().commit_id()));
 

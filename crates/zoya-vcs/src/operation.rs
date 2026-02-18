@@ -1,18 +1,16 @@
-use std::collections::HashSet;
 use std::time::SystemTime;
 
 use uuid::Uuid;
 
 use crate::Commit;
+use crate::view::View;
 
 /// An operation recording a change to the repository state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Operation {
     operation_id: Uuid,
     operation_type: String,
-    view_id: String,
-    working_copy: Commit,
-    heads: Vec<Commit>,
+    view: View,
     timestamp: SystemTime,
 }
 
@@ -23,21 +21,11 @@ impl Operation {
         working_copy: Commit,
         heads: Vec<Commit>,
     ) -> Self {
-        let mut seen = HashSet::new();
-        seen.insert(working_copy.clone());
-        let mut deduped = vec![working_copy.clone()];
-        for head in heads {
-            if seen.insert(head.clone()) {
-                deduped.push(head);
-            }
-        }
-        let view_id = compute_view_id(&working_copy, &deduped);
+        let view = View::new(None, working_copy, heads);
         Operation {
             operation_id,
             operation_type,
-            view_id,
-            working_copy,
-            heads: deduped,
+            view,
             timestamp: SystemTime::now(),
         }
     }
@@ -50,32 +38,25 @@ impl Operation {
         &self.operation_type
     }
 
+    pub fn view(&self) -> &View {
+        &self.view
+    }
+
     pub fn view_id(&self) -> &str {
-        &self.view_id
+        self.view.view_id()
     }
 
     pub fn working_copy(&self) -> &Commit {
-        &self.working_copy
+        self.view.working_copy()
     }
 
     pub fn heads(&self) -> &[Commit] {
-        &self.heads
+        self.view.heads()
     }
 
     pub fn timestamp(&self) -> SystemTime {
         self.timestamp
     }
-}
-
-fn compute_view_id(working_copy: &Commit, heads: &[Commit]) -> String {
-    let mut commit_ids: Vec<&str> = heads.iter().map(|c| c.commit_id()).collect();
-    commit_ids.sort();
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(working_copy.commit_id().as_bytes());
-    for id in &commit_ids {
-        hasher.update(id.as_bytes());
-    }
-    hasher.finalize().to_hex().to_string()
 }
 
 impl std::fmt::Display for Operation {
@@ -85,8 +66,8 @@ impl std::fmt::Display for Operation {
             "{} {} (view: {}, heads: {})",
             self.operation_id,
             self.operation_type,
-            self.view_id,
-            self.heads.len()
+            self.view.view_id(),
+            self.view.heads().len()
         )
     }
 }
@@ -136,12 +117,18 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_heads_includes_working_copy() {
-        let wc = make_commit("wc", CHANGE_1);
-        let op = Operation::new(OP_1, "init".to_string(), wc.clone(), vec![]);
-        assert_eq!(op.heads().len(), 1);
-        assert_eq!(op.heads()[0], wc);
-        assert!(!op.view_id().is_empty());
+    fn test_view_accessor() {
+        let commit = make_commit("hello", CHANGE_1);
+        let op = Operation::new(
+            OP_1,
+            "snapshot".to_string(),
+            commit.clone(),
+            vec![commit.clone()],
+        );
+        let view = op.view();
+        assert_eq!(view.view_id(), op.view_id());
+        assert_eq!(view.working_copy(), &commit);
+        assert_eq!(view.heads().len(), 1);
     }
 
     #[test]
@@ -166,7 +153,7 @@ mod tests {
     fn test_multiple_heads() {
         let c1 = make_commit("hello", CHANGE_1);
         let c2 = make_commit("world", CHANGE_2);
-        let op = Operation::new(OP_1, "merge".to_string(), c1.clone(), vec![c2]);
+        let op = Operation::new(OP_1, "merge".to_string(), c1.clone(), vec![c1, c2]);
 
         assert_eq!(op.heads().len(), 2);
     }
