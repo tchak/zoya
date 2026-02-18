@@ -87,7 +87,7 @@ impl Hash for Commit {
     }
 }
 
-fn compute_commit_id(
+pub(crate) fn compute_commit_id(
     parents: &[String],
     change_id: &Uuid,
     message: &str,

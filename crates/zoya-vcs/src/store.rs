@@ -1,12 +1,13 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use sqlx::SqlitePool;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection};
 use tokio::runtime::Runtime;
 use uuid::Uuid;
 
+use crate::commit::compute_commit_id;
 use crate::revision::Revision;
 use crate::{Blob, Commit, Operation, Tree};
 
@@ -296,6 +297,324 @@ impl Store {
         .await?;
 
         Ok(())
+    }
+
+    async fn save_rewritten_commit_with_tx(
+        conn: &mut SqliteConnection,
+        change_id: &str,
+        parents: &[String],
+        tree_id: &str,
+        message: &str,
+    ) -> Result<String, sqlx::Error> {
+        let timestamp = SystemTime::now();
+        let change_uuid =
+            Uuid::parse_str(change_id).map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+        let commit_id = compute_commit_id(parents, &change_uuid, message, tree_id, timestamp);
+
+        // Insert change (OR IGNORE)
+        sqlx::query("INSERT OR IGNORE INTO changes (change_id) VALUES (?)")
+            .bind(change_id)
+            .execute(&mut *conn)
+            .await?;
+
+        // Insert commit
+        let ts = timestamp
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        sqlx::query(
+            "INSERT OR IGNORE INTO commits (commit_id, change_id, timestamp, tree_id, message) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&commit_id)
+        .bind(change_id)
+        .bind(ts)
+        .bind(tree_id)
+        .bind(message)
+        .execute(&mut *conn)
+        .await?;
+
+        // Insert parent links
+        for (i, parent_id) in parents.iter().enumerate() {
+            sqlx::query(
+                "INSERT OR IGNORE INTO commit_parents (commit_id, parent_commit_id, parent_order) VALUES (?, ?, ?)",
+            )
+            .bind(&commit_id)
+            .bind(parent_id)
+            .bind(i as i32)
+            .execute(&mut *conn)
+            .await?;
+        }
+
+        Ok(commit_id)
+    }
+
+    pub fn describe(&self, commit_id: &str, message: String) -> Result<(), sqlx::Error> {
+        self.runtime.block_on(async {
+            // 1. Load current view
+            let (view_id, working_copy_commit_id): (String, String) = sqlx::query_as(
+                "SELECT o.view_id, v.working_copy_commit_id \
+                 FROM operations o \
+                 JOIN views v ON v.view_id = o.view_id \
+                 ORDER BY o.operation_id DESC LIMIT 1",
+            )
+            .fetch_one(&self.pool)
+            .await?;
+
+            let head_rows: Vec<(String,)> =
+                sqlx::query_as("SELECT commit_id FROM view_heads WHERE view_id = ?")
+                    .bind(&view_id)
+                    .fetch_all(&self.pool)
+                    .await?;
+            let head_ids: Vec<String> = head_rows.into_iter().map(|(id,)| id).collect();
+
+            // 2. Validate commit is in view (ancestor of or equal to a head)
+            let head_placeholders: String = head_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+            let check_query = format!(
+                "WITH RECURSIVE ancestors AS ( \
+                     SELECT c.commit_id \
+                     FROM commits c \
+                     WHERE c.commit_id IN ({head_placeholders}) \
+                     UNION \
+                     SELECT cp.parent_commit_id \
+                     FROM ancestors a \
+                     JOIN commit_parents cp ON cp.commit_id = a.commit_id \
+                 ) \
+                 SELECT 1 FROM ancestors WHERE commit_id = ? LIMIT 1"
+            );
+            let mut q = sqlx::query_as::<_, (i32,)>(&check_query);
+            for head_id in &head_ids {
+                q = q.bind(head_id);
+            }
+            q = q.bind(commit_id);
+            q.fetch_one(&self.pool).await.map_err(|e| match e {
+                sqlx::Error::RowNotFound => sqlx::Error::RowNotFound,
+                other => other,
+            })?;
+
+            // 3. Load target commit metadata
+            let (change_id, tree_id, existing_message): (String, String, String) = sqlx::query_as(
+                "SELECT change_id, tree_id, message FROM commits WHERE commit_id = ?",
+            )
+            .bind(commit_id)
+            .fetch_one(&self.pool)
+            .await?;
+
+            // 4. Early return if message unchanged
+            if existing_message == message {
+                return Ok(());
+            }
+
+            let parent_rows: Vec<(String, i32)> = sqlx::query_as(
+                "SELECT parent_commit_id, parent_order FROM commit_parents WHERE commit_id = ? ORDER BY parent_order",
+            )
+            .bind(commit_id)
+            .fetch_all(&self.pool)
+            .await?;
+            let target_parents: Vec<String> = parent_rows.into_iter().map(|(id, _)| id).collect();
+
+            let mut tx = self.pool.begin().await?;
+
+            // 5. Create rewritten commit with new message
+            let new_commit_id = Self::save_rewritten_commit_with_tx(
+                &mut tx,
+                &change_id,
+                &target_parents,
+                &tree_id,
+                &message,
+            )
+            .await?;
+
+            // 6. Find descendants via forward walk
+            // First, gather all ancestors in view for scoping
+            let descendant_query = format!(
+                "WITH RECURSIVE ancestors AS ( \
+                     SELECT c.commit_id \
+                     FROM commits c \
+                     WHERE c.commit_id IN ({head_placeholders}) \
+                     UNION \
+                     SELECT cp.parent_commit_id \
+                     FROM ancestors a \
+                     JOIN commit_parents cp ON cp.commit_id = a.commit_id \
+                 ) \
+                 SELECT cp.commit_id, c.change_id, c.tree_id, c.message \
+                 FROM commit_parents cp \
+                 JOIN commits c ON c.commit_id = cp.commit_id \
+                 WHERE cp.parent_commit_id = ? \
+                 AND cp.commit_id IN (SELECT commit_id FROM ancestors)"
+            );
+
+            // BFS to find all descendants
+            struct DescendantInfo {
+                commit_id: String,
+                change_id: String,
+                tree_id: String,
+                message: String,
+                parents: Vec<String>,
+            }
+
+            let mut old_to_new: HashMap<String, String> = HashMap::new();
+            old_to_new.insert(commit_id.to_string(), new_commit_id.clone());
+
+            // Collect all descendants with their info
+            let mut descendants: Vec<DescendantInfo> = Vec::new();
+            let mut descendant_set: HashSet<String> = HashSet::new();
+            let mut queue: VecDeque<String> = VecDeque::new();
+            queue.push_back(commit_id.to_string());
+
+            while let Some(parent) = queue.pop_front() {
+                // Find children of this parent within the view
+                let mut q = sqlx::query_as::<_, (String, String, String, String)>(&descendant_query);
+                for head_id in &head_ids {
+                    q = q.bind(head_id);
+                }
+                q = q.bind(&parent);
+                let children: Vec<(String, String, String, String)> = q.fetch_all(&mut *tx).await?;
+
+                for (child_id, child_change_id, child_tree_id, child_message) in children {
+                    if descendant_set.insert(child_id.clone()) {
+                        // Load this child's parents
+                        let child_parent_rows: Vec<(String, i32)> = sqlx::query_as(
+                            "SELECT parent_commit_id, parent_order FROM commit_parents WHERE commit_id = ? ORDER BY parent_order",
+                        )
+                        .bind(&child_id)
+                        .fetch_all(&mut *tx)
+                        .await?;
+                        let child_parents: Vec<String> =
+                            child_parent_rows.into_iter().map(|(id, _)| id).collect();
+
+                        descendants.push(DescendantInfo {
+                            commit_id: child_id.clone(),
+                            change_id: child_change_id,
+                            tree_id: child_tree_id,
+                            message: child_message,
+                            parents: child_parents,
+                        });
+                        queue.push_back(child_id);
+                    }
+                }
+            }
+
+            // 7. Topological sort (Kahn's algorithm)
+            if !descendants.is_empty() {
+                // Build in-degree map within descendant set
+                let desc_ids: HashSet<&str> = descendants.iter().map(|d| d.commit_id.as_str()).collect();
+                let mut in_degree: HashMap<&str, usize> = HashMap::new();
+                let mut dependents: HashMap<&str, Vec<usize>> = HashMap::new();
+
+                for (i, d) in descendants.iter().enumerate() {
+                    let deg = d
+                        .parents
+                        .iter()
+                        .filter(|p| desc_ids.contains(p.as_str()))
+                        .count();
+                    in_degree.insert(&d.commit_id, deg);
+                    for p in &d.parents {
+                        if desc_ids.contains(p.as_str()) {
+                            dependents.entry(p.as_str()).or_default().push(i);
+                        }
+                    }
+                }
+
+                let mut topo_order: Vec<usize> = Vec::new();
+                let mut ready: VecDeque<usize> = VecDeque::new();
+                for (i, d) in descendants.iter().enumerate() {
+                    if in_degree[d.commit_id.as_str()] == 0 {
+                        ready.push_back(i);
+                    }
+                }
+
+                while let Some(idx) = ready.pop_front() {
+                    topo_order.push(idx);
+                    let cid = descendants[idx].commit_id.as_str();
+                    if let Some(deps) = dependents.get(cid) {
+                        for &dep_idx in deps {
+                            let dep_cid = descendants[dep_idx].commit_id.as_str();
+                            let deg = in_degree.get_mut(dep_cid).unwrap();
+                            *deg -= 1;
+                            if *deg == 0 {
+                                ready.push_back(dep_idx);
+                            }
+                        }
+                    }
+                }
+
+                // Rewrite descendants in topological order
+                for idx in topo_order {
+                    let d = &descendants[idx];
+                    let remapped_parents: Vec<String> = d
+                        .parents
+                        .iter()
+                        .map(|p| old_to_new.get(p).cloned().unwrap_or_else(|| p.clone()))
+                        .collect();
+
+                    let new_desc_id = Self::save_rewritten_commit_with_tx(
+                        &mut tx,
+                        &d.change_id,
+                        &remapped_parents,
+                        &d.tree_id,
+                        &d.message,
+                    )
+                    .await?;
+
+                    old_to_new.insert(d.commit_id.clone(), new_desc_id);
+                }
+            }
+
+            // 8. Apply mapping to heads and working_copy, write operation directly
+            let new_working_copy = old_to_new
+                .get(&working_copy_commit_id)
+                .cloned()
+                .unwrap_or(working_copy_commit_id);
+            let new_heads: Vec<String> = head_ids
+                .iter()
+                .map(|h| old_to_new.get(h).cloned().unwrap_or_else(|| h.clone()))
+                .collect();
+
+            // Compute view_id
+            let mut sorted_heads = new_heads.clone();
+            sorted_heads.sort();
+            let mut view_hasher = blake3::Hasher::new();
+            view_hasher.update(new_working_copy.as_bytes());
+            for h in &sorted_heads {
+                view_hasher.update(h.as_bytes());
+            }
+            let new_view_id = view_hasher.finalize().to_hex().to_string();
+
+            // Insert view
+            sqlx::query("INSERT OR IGNORE INTO views (view_id, working_copy_commit_id) VALUES (?, ?)")
+                .bind(&new_view_id)
+                .bind(&new_working_copy)
+                .execute(&mut *tx)
+                .await?;
+
+            // Insert view heads
+            for head in &new_heads {
+                sqlx::query("INSERT OR IGNORE INTO view_heads (view_id, commit_id) VALUES (?, ?)")
+                    .bind(&new_view_id)
+                    .bind(head)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+
+            // Insert operation
+            let op_id = Uuid::now_v7();
+            let op_timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+            sqlx::query(
+                "INSERT INTO operations (operation_id, operation_type, view_id, timestamp) VALUES (?, ?, ?, ?)",
+            )
+            .bind(op_id.to_string())
+            .bind("describe")
+            .bind(&new_view_id)
+            .bind(op_timestamp)
+            .execute(&mut *tx)
+            .await?;
+
+            tx.commit().await?;
+            Ok(())
+        })
     }
 
     pub fn log(&self, n: usize) -> Result<Vec<Revision>, sqlx::Error> {
@@ -1049,5 +1368,189 @@ mod tests {
             .unwrap();
         assert!(!rev_root.is_head());
         assert!(!rev_root.is_working_copy());
+    }
+
+    // --- describe() tests ---
+
+    fn setup_linear_chain(store: &Store) -> (String, Commit, Commit, Commit) {
+        let root_id = get_root_commit_id(store);
+
+        let a = make_commit_with_parent("a", make_change_id(0x61), &[root_id.clone()], "commit A");
+        store.save_commit(&a).unwrap();
+
+        let b = make_commit_with_parent(
+            "b",
+            make_change_id(0x62),
+            &[a.commit_id().to_string()],
+            "commit B",
+        );
+        store.save_commit(&b).unwrap();
+
+        let c = make_commit_with_parent(
+            "c",
+            make_change_id(0x63),
+            &[b.commit_id().to_string()],
+            "commit C",
+        );
+
+        let op = Operation::new(
+            Uuid::now_v7(),
+            "snapshot".to_string(),
+            c.clone(),
+            vec![c.clone()],
+        );
+        store.save_operation(&op).unwrap();
+
+        (root_id, a, b, c)
+    }
+
+    #[test]
+    fn test_describe_changes_message() {
+        let store = Store::init_memory().unwrap();
+        let root_id = get_root_commit_id(&store);
+
+        let a = make_commit_with_parent("a", make_change_id(0x71), &[root_id], "old message");
+
+        let op = Operation::new(
+            Uuid::now_v7(),
+            "snapshot".to_string(),
+            a.clone(),
+            vec![a.clone()],
+        );
+        store.save_operation(&op).unwrap();
+
+        store
+            .describe(a.commit_id(), "new message".to_string())
+            .unwrap();
+
+        let revisions = store.log(20).unwrap();
+        let rev = revisions
+            .iter()
+            .find(|r| r.commit().message() == "new message")
+            .unwrap();
+        assert!(rev.is_head());
+        assert!(rev.is_working_copy());
+
+        // Old message should not appear
+        assert!(
+            revisions
+                .iter()
+                .all(|r| r.commit().message() != "old message")
+        );
+    }
+
+    #[test]
+    fn test_describe_no_op_same_message() {
+        let store = Store::init_memory().unwrap();
+        let root_id = get_root_commit_id(&store);
+
+        let a = make_commit_with_parent("a", make_change_id(0x71), &[root_id], "same message");
+
+        let op = Operation::new(
+            Uuid::now_v7(),
+            "snapshot".to_string(),
+            a.clone(),
+            vec![a.clone()],
+        );
+        store.save_operation(&op).unwrap();
+
+        // Count operations before
+        let (op_count_before,): (i64,) = store
+            .runtime
+            .block_on(sqlx::query_as("SELECT COUNT(*) FROM operations").fetch_one(&store.pool))
+            .unwrap();
+
+        store
+            .describe(a.commit_id(), "same message".to_string())
+            .unwrap();
+
+        // Count operations after — should be unchanged
+        let (op_count_after,): (i64,) = store
+            .runtime
+            .block_on(sqlx::query_as("SELECT COUNT(*) FROM operations").fetch_one(&store.pool))
+            .unwrap();
+        assert_eq!(op_count_before, op_count_after);
+    }
+
+    #[test]
+    fn test_describe_rewrites_descendants() {
+        let store = Store::init_memory().unwrap();
+        let (_root_id, a, b, c) = setup_linear_chain(&store);
+
+        let old_b_id = b.commit_id().to_string();
+        let old_c_id = c.commit_id().to_string();
+
+        // Describe A with a new message
+        store
+            .describe(a.commit_id(), "updated A".to_string())
+            .unwrap();
+
+        let revisions = store.log(20).unwrap();
+        let messages: Vec<&str> = revisions.iter().map(|r| r.commit().message()).collect();
+
+        // A's message should be updated
+        assert!(messages.contains(&"updated A"));
+        assert!(!messages.contains(&"commit A"));
+
+        // B and C should still have their original messages
+        assert!(messages.contains(&"commit B"));
+        assert!(messages.contains(&"commit C"));
+
+        // But B and C should have new commit_ids (they were rewritten)
+        let rev_b = revisions
+            .iter()
+            .find(|r| r.commit().message() == "commit B")
+            .unwrap();
+        assert_ne!(rev_b.commit().commit_id(), old_b_id);
+
+        let rev_c = revisions
+            .iter()
+            .find(|r| r.commit().message() == "commit C")
+            .unwrap();
+        assert_ne!(rev_c.commit().commit_id(), old_c_id);
+
+        // C should still be head and working copy
+        assert!(rev_c.is_head());
+        assert!(rev_c.is_working_copy());
+    }
+
+    #[test]
+    fn test_describe_updates_heads_and_working_copy() {
+        let store = Store::init_memory().unwrap();
+        let root_id = get_root_commit_id(&store);
+
+        let a = make_commit_with_parent("a", make_change_id(0x71), &[root_id], "head commit");
+
+        let op = Operation::new(
+            Uuid::now_v7(),
+            "snapshot".to_string(),
+            a.clone(),
+            vec![a.clone()],
+        );
+        store.save_operation(&op).unwrap();
+
+        let old_commit_id = a.commit_id().to_string();
+
+        store
+            .describe(a.commit_id(), "renamed head".to_string())
+            .unwrap();
+
+        let revisions = store.log(20).unwrap();
+        let head_rev = revisions
+            .iter()
+            .find(|r| r.commit().message() == "renamed head")
+            .unwrap();
+
+        // The head should have a new commit_id
+        assert_ne!(head_rev.commit().commit_id(), old_commit_id);
+        assert!(head_rev.is_head());
+        assert!(head_rev.is_working_copy());
+
+        // Old commit_id should not appear as a head
+        assert!(
+            revisions
+                .iter()
+                .all(|r| r.commit().commit_id() != old_commit_id)
+        );
     }
 }
