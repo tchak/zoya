@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::commit::compute_commit_id;
 use crate::revision::Revision;
+use crate::view::View;
 use crate::{Blob, Commit, Operation, Tree};
 
 pub enum RevisionQuery<'a> {
@@ -171,6 +172,140 @@ impl Store {
             Self::save_operation_with_tx(&mut tx, operation).await?;
             tx.commit().await?;
             Ok(())
+        })
+    }
+
+    pub fn view(&self) -> Result<View, sqlx::Error> {
+        self.runtime.block_on(async {
+            // 1. Load latest view_id and working_copy_commit_id
+            let (view_id, working_copy_commit_id): (String, String) = sqlx::query_as(
+                "SELECT o.view_id, v.working_copy_commit_id \
+                 FROM operations o \
+                 JOIN views v ON v.view_id = o.view_id \
+                 ORDER BY o.operation_id DESC LIMIT 1",
+            )
+            .fetch_one(&self.pool)
+            .await?;
+
+            // 2. Load head commit_ids
+            let head_rows: Vec<(String,)> =
+                sqlx::query_as("SELECT commit_id FROM view_heads WHERE view_id = ?")
+                    .bind(&view_id)
+                    .fetch_all(&self.pool)
+                    .await?;
+            let head_ids: Vec<String> = head_rows.into_iter().map(|(id,)| id).collect();
+
+            // 3. Collect all unique commit_ids
+            let mut all_ids: Vec<String> = vec![working_copy_commit_id.clone()];
+            for id in &head_ids {
+                if *id != working_copy_commit_id {
+                    all_ids.push(id.clone());
+                }
+            }
+
+            // 4. Batch-load commit metadata
+            let placeholders: String = all_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+            let query = format!(
+                "SELECT commit_id, change_id, timestamp, tree_id, message \
+                 FROM commits WHERE commit_id IN ({placeholders})"
+            );
+            let mut q = sqlx::query_as::<_, (String, String, i64, String, String)>(&query);
+            for id in &all_ids {
+                q = q.bind(id);
+            }
+            let commit_rows: Vec<(String, String, i64, String, String)> =
+                q.fetch_all(&self.pool).await?;
+
+            // 5. Batch-load parents
+            let mut parents_map: HashMap<String, Vec<(String, i32)>> = HashMap::new();
+            {
+                let query = format!(
+                    "SELECT commit_id, parent_commit_id, parent_order \
+                     FROM commit_parents WHERE commit_id IN ({placeholders}) \
+                     ORDER BY commit_id, parent_order"
+                );
+                let mut q = sqlx::query_as::<_, (String, String, i32)>(&query);
+                for id in &all_ids {
+                    q = q.bind(id);
+                }
+                let rows: Vec<(String, String, i32)> = q.fetch_all(&self.pool).await?;
+                for (commit_id, parent_commit_id, parent_order) in rows {
+                    parents_map
+                        .entry(commit_id)
+                        .or_default()
+                        .push((parent_commit_id, parent_order));
+                }
+            }
+
+            // 6. Batch-load tree blobs
+            let tree_ids: HashSet<String> = commit_rows
+                .iter()
+                .map(|(_, _, _, tid, _)| tid.clone())
+                .collect();
+            let mut tree_blobs: HashMap<String, HashMap<String, Blob>> = HashMap::new();
+            if !tree_ids.is_empty() {
+                let tree_id_vec: Vec<&String> = tree_ids.iter().collect();
+                let tree_placeholders: String = tree_id_vec
+                    .iter()
+                    .map(|_| "?")
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let query = format!(
+                    "SELECT te.tree_id, te.path, b.blob_id, b.content, b.size \
+                     FROM tree_entries te \
+                     JOIN blobs b ON b.blob_id = te.blob_id \
+                     WHERE te.tree_id IN ({tree_placeholders})"
+                );
+                let mut q = sqlx::query_as::<_, (String, String, String, String, i64)>(&query);
+                for id in &tree_id_vec {
+                    q = q.bind(*id);
+                }
+                let blob_rows: Vec<(String, String, String, String, i64)> =
+                    q.fetch_all(&self.pool).await?;
+                for (tree_id, path, _blob_id, content, _size) in blob_rows {
+                    tree_blobs
+                        .entry(tree_id)
+                        .or_default()
+                        .insert(path, Blob::new(content));
+                }
+            }
+
+            // 7. Reconstruct Commit objects
+            let mut commit_map: HashMap<String, Commit> = HashMap::new();
+            for (commit_id, change_id, timestamp, tree_id, message) in &commit_rows {
+                let change_uuid =
+                    Uuid::parse_str(change_id).map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+                let blobs = tree_blobs.get(tree_id).cloned().unwrap_or_default();
+                let tree = Tree::new(blobs);
+
+                let mut parents: Vec<(String, i32)> =
+                    parents_map.get(commit_id).cloned().unwrap_or_default();
+                parents.sort_by_key(|(_, order)| *order);
+                let parent_ids: Vec<String> = parents.into_iter().map(|(id, _)| id).collect();
+
+                let ts = UNIX_EPOCH + Duration::from_secs(*timestamp as u64);
+                let commit = Commit::restore(
+                    commit_id.clone(),
+                    change_uuid,
+                    parent_ids,
+                    tree,
+                    message.clone(),
+                    ts,
+                );
+                commit_map.insert(commit_id.clone(), commit);
+            }
+
+            // 8. Build View
+            let working_copy = commit_map
+                .get(&working_copy_commit_id)
+                .cloned()
+                .ok_or(sqlx::Error::RowNotFound)?;
+            let heads: Vec<Commit> = head_ids
+                .iter()
+                .filter_map(|id| commit_map.get(id).cloned())
+                .collect();
+
+            Ok(View::new(view_id, working_copy, heads))
         })
     }
 
@@ -2135,5 +2270,103 @@ mod tests {
             .unwrap();
         assert_eq!(rev.commit().message(), "");
         assert!(parents.is_empty());
+    }
+
+    // --- view() tests ---
+
+    #[test]
+    fn test_view_initial() {
+        let store = Store::init_memory().unwrap();
+        let view = store.view().unwrap();
+
+        // Root commit is both working copy and single head
+        assert_eq!(view.working_copy().message(), "");
+        assert!(view.working_copy().parents().is_empty());
+        assert_eq!(view.heads().len(), 1);
+        assert_eq!(view.heads()[0].commit_id(), view.working_copy().commit_id());
+        assert!(!view.view_id().is_empty());
+    }
+
+    #[test]
+    fn test_view_after_operation() {
+        let store = Store::init_memory().unwrap();
+        let root_id = get_root_commit_id(&store);
+
+        let a = make_commit_with_parent("a", make_change_id(0x91), &[root_id], "commit A");
+        let op = Operation::new(
+            Uuid::now_v7(),
+            "snapshot".to_string(),
+            a.clone(),
+            vec![a.clone()],
+        );
+        store.save_operation(&op).unwrap();
+
+        let view = store.view().unwrap();
+
+        assert_eq!(view.working_copy().commit_id(), a.commit_id());
+        assert_eq!(view.working_copy().message(), "commit A");
+        assert_eq!(view.heads().len(), 1);
+        assert_eq!(view.heads()[0].commit_id(), a.commit_id());
+        assert_eq!(view.view_id(), op.view_id());
+    }
+
+    #[test]
+    fn test_view_multiple_heads() {
+        let store = Store::init_memory().unwrap();
+        let root_id = get_root_commit_id(&store);
+
+        let a = make_commit_with_parent("a", make_change_id(0x92), &[root_id.clone()], "commit A");
+        store.save_commit(&a).unwrap();
+
+        let b = make_commit_with_parent("b", make_change_id(0x93), &[root_id], "commit B");
+        store.save_commit(&b).unwrap();
+
+        let op = Operation::new(
+            Uuid::now_v7(),
+            "snapshot".to_string(),
+            a.clone(),
+            vec![a.clone(), b.clone()],
+        );
+        store.save_operation(&op).unwrap();
+
+        let view = store.view().unwrap();
+
+        assert_eq!(view.working_copy().commit_id(), a.commit_id());
+        assert_eq!(view.heads().len(), 2);
+
+        let head_ids: Vec<&str> = view.heads().iter().map(|c| c.commit_id()).collect();
+        assert!(head_ids.contains(&a.commit_id()));
+        assert!(head_ids.contains(&b.commit_id()));
+    }
+
+    #[test]
+    fn test_view_working_copy_in_heads() {
+        let store = Store::init_memory().unwrap();
+        let root_id = get_root_commit_id(&store);
+
+        let a = make_commit_with_parent("a", make_change_id(0x94), &[root_id.clone()], "commit A");
+        store.save_commit(&a).unwrap();
+
+        let b = make_commit_with_parent("b", make_change_id(0x95), &[root_id], "commit B");
+        store.save_commit(&b).unwrap();
+
+        // Working copy is A, heads include both A and B
+        let op = Operation::new(
+            Uuid::now_v7(),
+            "snapshot".to_string(),
+            a.clone(),
+            vec![a.clone(), b.clone()],
+        );
+        store.save_operation(&op).unwrap();
+
+        let view = store.view().unwrap();
+
+        // Working copy must be present in heads (Operation::new dedup logic ensures this)
+        let head_ids: Vec<&str> = view.heads().iter().map(|c| c.commit_id()).collect();
+        assert!(head_ids.contains(&view.working_copy().commit_id()));
+
+        // Full commit data is present on working copy
+        assert_eq!(view.working_copy().message(), "commit A");
+        assert_eq!(view.working_copy().change_id(), make_change_id(0x94));
     }
 }

@@ -6,6 +6,7 @@ mod operation;
 mod revision;
 mod store;
 mod tree;
+mod view;
 
 pub use blob::Blob;
 pub use commit::Commit;
@@ -15,3 +16,4 @@ pub use operation::Operation;
 pub use revision::Revision;
 pub use store::{RevisionQuery, Store};
 pub use tree::Tree;
+pub use view::View;
