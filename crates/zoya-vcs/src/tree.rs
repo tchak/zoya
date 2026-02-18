@@ -166,6 +166,7 @@ mod tests {
     use zoya_package::{Module, Package, QualifiedPath};
 
     use super::*;
+    use crate::diff::DiffHunk;
 
     fn parse_items(source: &str) -> Vec<zoya_ast::Item> {
         let tokens = zoya_lexer::lex(source).expect("lex failed");
@@ -402,7 +403,10 @@ mod tests {
                 assert_eq!(path, "a");
                 assert_eq!(old.content(), "hello\n");
                 assert_eq!(new.content(), "hello\nworld\n");
-                assert!(diff.contains("+world"));
+                let has_insert = diff.iter().any(
+                    |h| matches!(h, DiffHunk::Different { after, .. } if after.contains("world")),
+                );
+                assert!(has_insert);
             }
             _ => panic!("expected Updated"),
         }

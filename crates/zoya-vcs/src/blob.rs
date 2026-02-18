@@ -1,3 +1,5 @@
+use crate::diff::{DiffHunk, compute_diff};
+
 /// A content-addressed blob storing source text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Blob {
@@ -25,10 +27,8 @@ impl Blob {
         self.size
     }
 
-    pub fn diff(&self, other: &Blob) -> String {
-        use similar::TextDiff;
-        let diff = TextDiff::from_lines(self.content(), other.content());
-        diff.unified_diff().context_radius(3).to_string()
+    pub fn diff(&self, other: &Blob) -> Vec<DiffHunk> {
+        compute_diff(self.content(), other.content())
     }
 }
 
@@ -69,23 +69,31 @@ mod tests {
     fn test_diff_identical() {
         let a = Blob::new("hello\nworld\n".to_string());
         let b = Blob::new("hello\nworld\n".to_string());
-        assert_eq!(a.diff(&b), "");
+        let hunks = a.diff(&b);
+        assert_eq!(hunks.len(), 1);
+        assert!(matches!(&hunks[0], DiffHunk::Matching(_)));
     }
 
     #[test]
     fn test_diff_added_lines() {
         let a = Blob::new("hello\n".to_string());
         let b = Blob::new("hello\nworld\n".to_string());
-        let diff = a.diff(&b);
-        assert!(diff.contains("+world"));
+        let hunks = a.diff(&b);
+        let has_insert = hunks
+            .iter()
+            .any(|h| matches!(h, DiffHunk::Different { after, .. } if after.contains("world")));
+        assert!(has_insert);
     }
 
     #[test]
     fn test_diff_removed_lines() {
         let a = Blob::new("hello\nworld\n".to_string());
         let b = Blob::new("hello\n".to_string());
-        let diff = a.diff(&b);
-        assert!(diff.contains("-world"));
+        let hunks = a.diff(&b);
+        let has_delete = hunks
+            .iter()
+            .any(|h| matches!(h, DiffHunk::Different { before, .. } if before.contains("world")));
+        assert!(has_delete);
     }
 
     #[test]
