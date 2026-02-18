@@ -28,6 +28,10 @@ impl Blob {
         self.size
     }
 
+    pub fn is_clean(&self) -> bool {
+        !self.content.contains("<<<<<<<\n")
+    }
+
     pub fn diff(&self, other: &Blob) -> Vec<DiffHunk> {
         compute_diff(self.content(), other.content())
     }
@@ -111,5 +115,24 @@ mod tests {
         let blob = Blob::new(content.clone());
         assert_eq!(blob.size(), content.len());
         assert_eq!(blob.content(), content);
+    }
+
+    #[test]
+    fn test_is_clean_normal_content() {
+        let blob = Blob::new("fn main() -> Int 42\n".to_string());
+        assert!(blob.is_clean());
+    }
+
+    #[test]
+    fn test_is_clean_empty() {
+        let blob = Blob::new(String::new());
+        assert!(blob.is_clean());
+    }
+
+    #[test]
+    fn test_is_clean_with_conflict_markers() {
+        let content = "a\n<<<<<<<\nours\n|||||||\nbase\n=======\ntheirs\n>>>>>>>\nc\n";
+        let blob = Blob::new(content.to_string());
+        assert!(!blob.is_clean());
     }
 }
