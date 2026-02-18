@@ -24,6 +24,12 @@ impl Blob {
     pub fn size(&self) -> usize {
         self.size
     }
+
+    pub fn diff(&self, other: &Blob) -> String {
+        use similar::TextDiff;
+        let diff = TextDiff::from_lines(self.content(), other.content());
+        diff.unified_diff().context_radius(3).to_string()
+    }
 }
 
 #[cfg(test)]
@@ -57,6 +63,29 @@ mod tests {
         let blob = Blob::new("test".to_string());
         assert_eq!(blob.id().len(), 64);
         assert!(blob.id().chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_diff_identical() {
+        let a = Blob::new("hello\nworld\n".to_string());
+        let b = Blob::new("hello\nworld\n".to_string());
+        assert_eq!(a.diff(&b), "");
+    }
+
+    #[test]
+    fn test_diff_added_lines() {
+        let a = Blob::new("hello\n".to_string());
+        let b = Blob::new("hello\nworld\n".to_string());
+        let diff = a.diff(&b);
+        assert!(diff.contains("+world"));
+    }
+
+    #[test]
+    fn test_diff_removed_lines() {
+        let a = Blob::new("hello\nworld\n".to_string());
+        let b = Blob::new("hello\n".to_string());
+        let diff = a.diff(&b);
+        assert!(diff.contains("-world"));
     }
 
     #[test]
