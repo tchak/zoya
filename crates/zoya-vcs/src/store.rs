@@ -947,6 +947,58 @@ impl Store {
         })
     }
 
+    pub fn snapshot(&self, tree: Tree) -> Result<(), sqlx::Error> {
+        let view = self.view()?;
+
+        // Early return if tree unchanged
+        if tree.id() == view.working_copy().tree_id() {
+            return Ok(());
+        }
+
+        // Assert working copy is a head
+        assert!(
+            view.heads()
+                .iter()
+                .any(|h| h.commit_id() == view.working_copy().commit_id()),
+            "snapshot requires working copy to be a head"
+        );
+
+        let wc = view.working_copy();
+        let new_commit = Commit::new(
+            wc.change_id(),
+            &wc.parents().iter().map(|p| p.to_string()).collect::<Vec<_>>(),
+            tree.id().to_string(),
+            wc.message().to_string(),
+        );
+
+        let new_heads: Vec<Commit> = view
+            .heads()
+            .iter()
+            .map(|h| {
+                if h.commit_id() == wc.commit_id() {
+                    new_commit.clone()
+                } else {
+                    h.clone()
+                }
+            })
+            .collect();
+
+        let operation = Operation::new(
+            Uuid::now_v7(),
+            "snapshot".to_string(),
+            new_commit.clone(),
+            new_heads,
+        );
+
+        self.runtime.block_on(async {
+            let mut tx = self.pool.begin().await?;
+            Self::save_commit_with_tx(&mut tx, &new_commit, Some(&tree)).await?;
+            Self::save_operation_with_tx(&mut tx, &operation).await?;
+            tx.commit().await?;
+            Ok(())
+        })
+    }
+
     pub fn parents(&self, revision: &Revision) -> Result<Vec<Revision>, sqlx::Error> {
         let view = self.view()?;
 
@@ -2277,5 +2329,176 @@ mod tests {
         // Full commit data is present on working copy
         assert_eq!(view.working_copy().message(), "commit A");
         assert_eq!(view.working_copy().change_id(), make_change_id(0x94));
+    }
+
+    // --- snapshot() tests ---
+
+    #[test]
+    fn test_snapshot_no_op_same_tree() {
+        let store = Store::init_memory().unwrap();
+        let root_id = get_root_commit_id(&store);
+
+        let (a, a_tree) =
+            make_commit_with_parent("a", make_change_id(0xB1), &[root_id], "commit A");
+        store.save_commit(&a, Some(&a_tree)).unwrap();
+
+        let op = Operation::new(
+            Uuid::now_v7(),
+            "snapshot".to_string(),
+            a.clone(),
+            vec![a.clone()],
+        );
+        store.save_operation(&op).unwrap();
+
+        // Count operations before
+        let (op_count_before,): (i64,) = store
+            .runtime
+            .block_on(sqlx::query_as("SELECT COUNT(*) FROM operations").fetch_one(&store.pool))
+            .unwrap();
+
+        // Snapshot with the same tree content
+        let same_tree = {
+            let mut blobs = HashMap::new();
+            blobs.insert("root".to_string(), Blob::new("a".to_string()));
+            Tree::new(blobs)
+        };
+        assert_eq!(same_tree.id(), a.tree_id());
+        store.snapshot(same_tree).unwrap();
+
+        // Count operations after — should be unchanged
+        let (op_count_after,): (i64,) = store
+            .runtime
+            .block_on(sqlx::query_as("SELECT COUNT(*) FROM operations").fetch_one(&store.pool))
+            .unwrap();
+        assert_eq!(op_count_before, op_count_after);
+    }
+
+    #[test]
+    fn test_snapshot_updates_tree() {
+        let store = Store::init_memory().unwrap();
+        let root_id = get_root_commit_id(&store);
+
+        let (a, a_tree) =
+            make_commit_with_parent("a", make_change_id(0xB2), &[root_id], "commit A");
+        store.save_commit(&a, Some(&a_tree)).unwrap();
+
+        let op = Operation::new(
+            Uuid::now_v7(),
+            "snapshot".to_string(),
+            a.clone(),
+            vec![a.clone()],
+        );
+        store.save_operation(&op).unwrap();
+
+        let old_change_id = a.change_id();
+
+        // Snapshot with a new tree
+        let new_tree = {
+            let mut blobs = HashMap::new();
+            blobs.insert("root".to_string(), Blob::new("b".to_string()));
+            Tree::new(blobs)
+        };
+        let new_tree_id = new_tree.id().to_string();
+        store.snapshot(new_tree).unwrap();
+
+        let view = store.view().unwrap();
+        assert_eq!(view.working_copy().tree_id(), new_tree_id);
+        assert_eq!(view.working_copy().change_id(), old_change_id);
+        assert_eq!(view.heads().len(), 1);
+        assert_eq!(
+            view.heads()[0].commit_id(),
+            view.working_copy().commit_id()
+        );
+    }
+
+    #[test]
+    fn test_snapshot_preserves_message() {
+        let store = Store::init_memory().unwrap();
+        let root_id = get_root_commit_id(&store);
+
+        let (a, a_tree) =
+            make_commit_with_parent("a", make_change_id(0xB3), &[root_id], "commit A");
+        store.save_commit(&a, Some(&a_tree)).unwrap();
+
+        let op = Operation::new(
+            Uuid::now_v7(),
+            "snapshot".to_string(),
+            a.clone(),
+            vec![a.clone()],
+        );
+        store.save_operation(&op).unwrap();
+
+        // Describe the working copy
+        store
+            .describe(RevisionQuery::WorkingCopy, "my description".to_string())
+            .unwrap();
+
+        // Snapshot with a new tree
+        let new_tree = {
+            let mut blobs = HashMap::new();
+            blobs.insert("root".to_string(), Blob::new("updated".to_string()));
+            Tree::new(blobs)
+        };
+        store.snapshot(new_tree).unwrap();
+
+        let view = store.view().unwrap();
+        assert_eq!(view.working_copy().message(), "my description");
+    }
+
+    #[test]
+    fn test_snapshot_with_multiple_heads() {
+        let store = Store::init_memory().unwrap();
+        let root_id = get_root_commit_id(&store);
+
+        let (a, a_tree) =
+            make_commit_with_parent("a", make_change_id(0xB4), &[root_id.clone()], "commit A");
+        store.save_commit(&a, Some(&a_tree)).unwrap();
+
+        let (b, b_tree) =
+            make_commit_with_parent("b", make_change_id(0xB5), &[root_id], "commit B");
+        store.save_commit(&b, Some(&b_tree)).unwrap();
+
+        // Working copy is A, both A and B are heads
+        let op = Operation::new(
+            Uuid::now_v7(),
+            "snapshot".to_string(),
+            a.clone(),
+            vec![a.clone(), b.clone()],
+        );
+        store.save_operation(&op).unwrap();
+
+        // Snapshot with a new tree
+        let new_tree = {
+            let mut blobs = HashMap::new();
+            blobs.insert("root".to_string(), Blob::new("new content".to_string()));
+            Tree::new(blobs)
+        };
+        let new_tree_id = new_tree.id().to_string();
+        store.snapshot(new_tree).unwrap();
+
+        let view = store.view().unwrap();
+
+        // Working copy should have the new tree
+        assert_eq!(view.working_copy().tree_id(), new_tree_id);
+
+        // Should still have 2 heads
+        assert_eq!(view.heads().len(), 2);
+
+        // B should be unchanged
+        let head_b = view
+            .heads()
+            .iter()
+            .find(|h| h.commit_id() == b.commit_id())
+            .expect("B should still be a head");
+        assert_eq!(head_b.tree_id(), b.tree_id());
+
+        // A should be replaced (different commit_id, same change_id)
+        let head_a = view
+            .heads()
+            .iter()
+            .find(|h| h.change_id() == a.change_id())
+            .expect("A's change should still be a head");
+        assert_ne!(head_a.commit_id(), a.commit_id());
+        assert_eq!(head_a.tree_id(), new_tree_id);
     }
 }
