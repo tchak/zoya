@@ -30,6 +30,24 @@ impl Commit {
         }
     }
 
+    pub(crate) fn restore(
+        commit_id: String,
+        change_id: Uuid,
+        parents: Vec<String>,
+        tree: Tree,
+        message: String,
+        timestamp: SystemTime,
+    ) -> Self {
+        Commit {
+            commit_id,
+            change_id,
+            parents,
+            tree,
+            message,
+            timestamp,
+        }
+    }
+
     pub fn commit_id(&self) -> &str {
         &self.commit_id
     }

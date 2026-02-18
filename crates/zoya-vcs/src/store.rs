@@ -1,13 +1,14 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, UNIX_EPOCH};
 
 use sqlx::SqlitePool;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection};
 use tokio::runtime::Runtime;
 use uuid::Uuid;
 
-use crate::{Commit, Operation, Tree};
+use crate::revision::Revision;
+use crate::{Blob, Commit, Operation, Tree};
 
 const SCHEMA_SQL: &str = r#"
 PRAGMA foreign_keys = ON;
@@ -295,6 +296,175 @@ impl Store {
         .await?;
 
         Ok(())
+    }
+
+    pub fn log(&self, n: usize) -> Result<Vec<Revision>, sqlx::Error> {
+        self.runtime.block_on(async {
+            // 1. Find latest view_id, working_copy, and heads
+            let (view_id, working_copy_commit_id): (String, String) = sqlx::query_as(
+                "SELECT o.view_id, v.working_copy_commit_id \
+                 FROM operations o \
+                 JOIN views v ON v.view_id = o.view_id \
+                 ORDER BY o.operation_id DESC LIMIT 1",
+            )
+            .fetch_one(&self.pool)
+            .await?;
+
+            let head_rows: Vec<(String,)> =
+                sqlx::query_as("SELECT commit_id FROM view_heads WHERE view_id = ?")
+                    .bind(&view_id)
+                    .fetch_all(&self.pool)
+                    .await?;
+            let head_set: HashSet<String> = head_rows.into_iter().map(|(id,)| id).collect();
+
+            // 2. Recursive CTE to walk ancestor graph
+            let limit = (n * 2) as i64;
+            let ancestor_rows: Vec<(String, String, i64, String, String)> = sqlx::query_as(
+                "WITH RECURSIVE ancestors AS ( \
+                     SELECT c.commit_id, c.change_id, c.timestamp, c.tree_id, c.message \
+                     FROM commits c \
+                     JOIN view_heads vh ON vh.commit_id = c.commit_id \
+                     WHERE vh.view_id = ? \
+                     UNION \
+                     SELECT c.commit_id, c.change_id, c.timestamp, c.tree_id, c.message \
+                     FROM ancestors a \
+                     JOIN commit_parents cp ON cp.commit_id = a.commit_id \
+                     JOIN commits c ON c.commit_id = cp.parent_commit_id \
+                 ) \
+                 SELECT * FROM ancestors ORDER BY timestamp DESC LIMIT ?",
+            )
+            .bind(&view_id)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?;
+
+            // 3. Group by change_id, take first n revisions
+            let mut revision_order: Vec<String> = Vec::new();
+            let mut grouped: HashMap<String, Vec<(String, i64, String, String)>> = HashMap::new();
+            for (commit_id, change_id, timestamp, tree_id, message) in &ancestor_rows {
+                if !grouped.contains_key(change_id) {
+                    revision_order.push(change_id.clone());
+                }
+                grouped.entry(change_id.clone()).or_default().push((
+                    commit_id.clone(),
+                    *timestamp,
+                    tree_id.clone(),
+                    message.clone(),
+                ));
+            }
+            revision_order.truncate(n);
+
+            // Collect all commit_ids and tree_ids we need
+            let mut needed_commit_ids: Vec<String> = Vec::new();
+            let mut needed_tree_ids: HashSet<String> = HashSet::new();
+            for change_id in &revision_order {
+                if let Some(commits) = grouped.get(change_id) {
+                    for (commit_id, _, tree_id, _) in commits {
+                        needed_commit_ids.push(commit_id.clone());
+                        needed_tree_ids.insert(tree_id.clone());
+                    }
+                }
+            }
+
+            // 4. Batch-load parents for needed commits
+            let mut parents_map: HashMap<String, Vec<(String, i32)>> = HashMap::new();
+            if !needed_commit_ids.is_empty() {
+                let placeholders: String = needed_commit_ids
+                    .iter()
+                    .map(|_| "?")
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let query = format!(
+                    "SELECT commit_id, parent_commit_id, parent_order \
+                     FROM commit_parents WHERE commit_id IN ({placeholders}) \
+                     ORDER BY commit_id, parent_order"
+                );
+                let mut q = sqlx::query_as::<_, (String, String, i32)>(&query);
+                for id in &needed_commit_ids {
+                    q = q.bind(id);
+                }
+                let parent_rows: Vec<(String, String, i32)> = q.fetch_all(&self.pool).await?;
+                for (commit_id, parent_commit_id, parent_order) in parent_rows {
+                    parents_map
+                        .entry(commit_id)
+                        .or_default()
+                        .push((parent_commit_id, parent_order));
+                }
+            }
+
+            // 5. Batch-load trees and blobs for needed tree_ids
+            let mut tree_blobs: HashMap<String, HashMap<String, Blob>> = HashMap::new();
+            if !needed_tree_ids.is_empty() {
+                let tree_ids: Vec<&String> = needed_tree_ids.iter().collect();
+                let placeholders: String =
+                    tree_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+                let query = format!(
+                    "SELECT te.tree_id, te.path, b.blob_id, b.content, b.size \
+                     FROM tree_entries te \
+                     JOIN blobs b ON b.blob_id = te.blob_id \
+                     WHERE te.tree_id IN ({placeholders})"
+                );
+                let mut q = sqlx::query_as::<_, (String, String, String, String, i64)>(&query);
+                for id in &tree_ids {
+                    q = q.bind(*id);
+                }
+                let blob_rows: Vec<(String, String, String, String, i64)> =
+                    q.fetch_all(&self.pool).await?;
+                for (tree_id, path, _blob_id, content, _size) in blob_rows {
+                    tree_blobs
+                        .entry(tree_id)
+                        .or_default()
+                        .insert(path, Blob::new(content));
+                }
+            }
+
+            // 6. Reconstruct: Tree → Commit → Revision
+            let mut revisions = Vec::new();
+            for change_id in &revision_order {
+                let Some(commit_entries) = grouped.get(change_id) else {
+                    continue;
+                };
+                let change_uuid =
+                    Uuid::parse_str(change_id).map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+
+                let mut commits = Vec::new();
+                let mut is_head = false;
+                let mut is_working_copy = false;
+
+                for (commit_id, timestamp, tree_id, message) in commit_entries {
+                    let blobs = tree_blobs.get(tree_id).cloned().unwrap_or_default();
+                    let tree = Tree::new(blobs);
+
+                    let mut parents: Vec<(String, i32)> =
+                        parents_map.get(commit_id).cloned().unwrap_or_default();
+                    parents.sort_by_key(|(_, order)| *order);
+                    let parent_ids: Vec<String> = parents.into_iter().map(|(id, _)| id).collect();
+
+                    let ts = UNIX_EPOCH + Duration::from_secs(*timestamp as u64);
+                    let commit = Commit::restore(
+                        commit_id.clone(),
+                        change_uuid,
+                        parent_ids,
+                        tree,
+                        message.clone(),
+                        ts,
+                    );
+
+                    if head_set.contains(commit_id) {
+                        is_head = true;
+                    }
+                    if *commit_id == working_copy_commit_id {
+                        is_working_copy = true;
+                    }
+
+                    commits.push(commit);
+                }
+
+                revisions.push(Revision::new(commits, is_head, is_working_copy));
+            }
+
+            Ok(revisions)
+        })
     }
 }
 
@@ -641,5 +811,241 @@ mod tests {
             .unwrap();
         assert_eq!(heads.len(), 1);
         assert_eq!(heads[0].0, operation.heads()[0].commit_id());
+    }
+
+    // --- log() tests ---
+
+    fn get_root_commit_id(store: &Store) -> String {
+        let (commit_id,): (String,) = store
+            .runtime
+            .block_on(
+                sqlx::query_as(
+                    "SELECT c.commit_id FROM commits c \
+                     WHERE NOT EXISTS (SELECT 1 FROM commit_parents cp WHERE cp.commit_id = c.commit_id)",
+                )
+                .fetch_one(&store.pool),
+            )
+            .unwrap();
+        commit_id
+    }
+
+    fn make_commit_with_parent(
+        content: &str,
+        change_id: Uuid,
+        parents: &[String],
+        message: &str,
+    ) -> Commit {
+        let mut blobs = HashMap::new();
+        blobs.insert("root".to_string(), Blob::new(content.to_string()));
+        let tree = Tree::new(blobs);
+        Commit::new(change_id, parents, tree, message.to_string())
+    }
+
+    fn make_change_id(byte: u8) -> Uuid {
+        Uuid::from_bytes([
+            byte, byte, byte, byte, byte, byte, byte, byte, byte, byte, byte, byte, byte, byte,
+            byte, byte,
+        ])
+    }
+
+    #[test]
+    fn test_log_empty_store() {
+        let store = Store::init_memory().unwrap();
+        let revisions = store.log(20).unwrap();
+
+        // Only the root commit (from init)
+        assert_eq!(revisions.len(), 1);
+        assert!(revisions[0].is_head());
+        assert!(revisions[0].is_working_copy());
+        assert!(!revisions[0].is_divergent());
+        assert_eq!(revisions[0].commit().message(), "");
+    }
+
+    #[test]
+    fn test_log_linear_chain() {
+        let store = Store::init_memory().unwrap();
+        let root_id = get_root_commit_id(&store);
+
+        // A → B → C
+        let a = make_commit_with_parent("a", make_change_id(0x21), &[root_id], "commit A");
+        store.save_commit(&a).unwrap();
+
+        let b = make_commit_with_parent(
+            "b",
+            make_change_id(0x22),
+            &[a.commit_id().to_string()],
+            "commit B",
+        );
+        store.save_commit(&b).unwrap();
+
+        let c = make_commit_with_parent(
+            "c",
+            make_change_id(0x23),
+            &[b.commit_id().to_string()],
+            "commit C",
+        );
+
+        // Create operation with C as head and working copy
+        let op = Operation::new(
+            Uuid::now_v7(),
+            "snapshot".to_string(),
+            c.clone(),
+            vec![c.clone()],
+        );
+        store.save_operation(&op).unwrap();
+
+        let revisions = store.log(20).unwrap();
+
+        // root + A + B + C = 4 revisions
+        assert_eq!(revisions.len(), 4);
+
+        // First revision should be the most recent (C)
+        assert_eq!(revisions[0].commit().message(), "commit C");
+        assert!(revisions[0].is_head());
+        assert!(revisions[0].is_working_copy());
+
+        // Second should be B
+        assert_eq!(revisions[1].commit().message(), "commit B");
+        assert!(!revisions[1].is_head());
+        assert!(!revisions[1].is_working_copy());
+
+        // Third should be A
+        assert_eq!(revisions[2].commit().message(), "commit A");
+        assert!(!revisions[2].is_head());
+        assert!(!revisions[2].is_working_copy());
+
+        // Fourth is root
+        assert_eq!(revisions[3].commit().message(), "");
+    }
+
+    #[test]
+    fn test_log_limit() {
+        let store = Store::init_memory().unwrap();
+        let root_id = get_root_commit_id(&store);
+
+        // Create a chain of 5 commits
+        let mut parent_id = root_id;
+        let mut last_commit = None;
+        for i in 0..5 {
+            let c = make_commit_with_parent(
+                &format!("content-{i}"),
+                make_change_id(0x30 + i),
+                &[parent_id],
+                &format!("commit {i}"),
+            );
+            store.save_commit(&c).unwrap();
+            parent_id = c.commit_id().to_string();
+            last_commit = Some(c);
+        }
+
+        let head = last_commit.unwrap();
+        let op = Operation::new(
+            Uuid::now_v7(),
+            "snapshot".to_string(),
+            head.clone(),
+            vec![head],
+        );
+        store.save_operation(&op).unwrap();
+
+        // log(3) should return only 3 revisions
+        let revisions = store.log(3).unwrap();
+        assert_eq!(revisions.len(), 3);
+
+        // They should be the 3 most recent
+        assert_eq!(revisions[0].commit().message(), "commit 4");
+        assert_eq!(revisions[1].commit().message(), "commit 3");
+        assert_eq!(revisions[2].commit().message(), "commit 2");
+    }
+
+    #[test]
+    fn test_log_merge_commit() {
+        let store = Store::init_memory().unwrap();
+        let root_id = get_root_commit_id(&store);
+
+        // Create two branches from root, then merge
+        let a = make_commit_with_parent("a", make_change_id(0x41), &[root_id.clone()], "branch A");
+        store.save_commit(&a).unwrap();
+
+        let b = make_commit_with_parent("b", make_change_id(0x42), &[root_id], "branch B");
+        store.save_commit(&b).unwrap();
+
+        let merge = make_commit_with_parent(
+            "merged",
+            make_change_id(0x43),
+            &[a.commit_id().to_string(), b.commit_id().to_string()],
+            "merge commit",
+        );
+
+        let op = Operation::new(
+            Uuid::now_v7(),
+            "snapshot".to_string(),
+            merge.clone(),
+            vec![merge],
+        );
+        store.save_operation(&op).unwrap();
+
+        let revisions = store.log(20).unwrap();
+
+        // root + A + B + merge = 4 revisions
+        assert_eq!(revisions.len(), 4);
+
+        // All ancestors should be present
+        let messages: Vec<&str> = revisions.iter().map(|r| r.commit().message()).collect();
+        assert!(messages.contains(&"merge commit"));
+        assert!(messages.contains(&"branch A"));
+        assert!(messages.contains(&"branch B"));
+        assert!(messages.contains(&""));
+
+        // Merge commit should have 2 parents
+        let merge_rev = revisions
+            .iter()
+            .find(|r| r.commit().message() == "merge commit")
+            .unwrap();
+        assert_eq!(merge_rev.commit().parents().len(), 2);
+    }
+
+    #[test]
+    fn test_log_head_and_working_copy_flags() {
+        let store = Store::init_memory().unwrap();
+        let root_id = get_root_commit_id(&store);
+
+        let a = make_commit_with_parent("a", make_change_id(0x51), &[root_id.clone()], "commit A");
+        store.save_commit(&a).unwrap();
+
+        let b = make_commit_with_parent("b", make_change_id(0x52), &[root_id], "commit B");
+        store.save_commit(&b).unwrap();
+
+        // Working copy is A, but both A and B are heads
+        let op = Operation::new(
+            Uuid::now_v7(),
+            "snapshot".to_string(),
+            a.clone(),
+            vec![a.clone(), b.clone()],
+        );
+        store.save_operation(&op).unwrap();
+
+        let revisions = store.log(20).unwrap();
+
+        let rev_a = revisions
+            .iter()
+            .find(|r| r.commit().message() == "commit A")
+            .unwrap();
+        assert!(rev_a.is_head());
+        assert!(rev_a.is_working_copy());
+
+        let rev_b = revisions
+            .iter()
+            .find(|r| r.commit().message() == "commit B")
+            .unwrap();
+        assert!(rev_b.is_head());
+        assert!(!rev_b.is_working_copy());
+
+        // Root is not a head in this view (it has descendants that are heads)
+        let rev_root = revisions
+            .iter()
+            .find(|r| r.commit().message().is_empty())
+            .unwrap();
+        assert!(!rev_root.is_head());
+        assert!(!rev_root.is_working_copy());
     }
 }
