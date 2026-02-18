@@ -1,4 +1,5 @@
 use crate::diff::{DiffHunk, compute_diff};
+use crate::merge::{self, MergeResult};
 
 /// A content-addressed blob storing source text.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,6 +30,14 @@ impl Blob {
 
     pub fn diff(&self, other: &Blob) -> Vec<DiffHunk> {
         compute_diff(self.content(), other.content())
+    }
+
+    pub fn three_way_merge(
+        base: Option<&Blob>,
+        ours: Option<&Blob>,
+        theirs: Option<&Blob>,
+    ) -> MergeResult {
+        merge::three_way_merge(base, ours, theirs)
     }
 }
 
