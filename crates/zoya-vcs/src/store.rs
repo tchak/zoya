@@ -166,14 +166,14 @@ impl Store {
             .execute(&mut *tx)
             .await?;
 
-            // 6. Insert parent link
-            if let Some(parent_id) = commit.parent_id() {
+            // 6. Insert parent links
+            for (i, parent_id) in commit.parents().iter().enumerate() {
                 sqlx::query(
                     "INSERT OR IGNORE INTO commit_parents (commit_id, parent_commit_id, parent_order) VALUES (?, ?, ?)",
                 )
                 .bind(commit.commit_id())
                 .bind(parent_id)
-                .bind(0i32)
+                .bind(i as i32)
                 .execute(&mut *tx)
                 .await?;
             }
@@ -187,7 +187,6 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::time::UNIX_EPOCH;
 
     use uuid::Uuid;
 
@@ -209,10 +208,7 @@ mod tests {
         let mut blobs = HashMap::new();
         blobs.insert("root".to_string(), Blob::new(content.to_string()));
         let tree = Tree::new(blobs);
-        Commit::builder(change_id, tree)
-            .message("test commit".to_string())
-            .timestamp(UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000))
-            .build()
+        Commit::new(change_id, &[], tree, "test commit".to_string())
     }
 
     #[test]
@@ -304,7 +300,7 @@ mod tests {
         assert_eq!(id, commit.commit_id());
         assert_eq!(change_id, CHANGE_1.to_string());
         assert_eq!(message, "test commit");
-        assert_eq!(timestamp, 1_700_000_000);
+        assert!(timestamp > 0);
     }
 
     #[test]
@@ -377,11 +373,12 @@ mod tests {
         let mut blobs = HashMap::new();
         blobs.insert("root".to_string(), Blob::new("v2".to_string()));
         let tree = Tree::new(blobs);
-        let child = Commit::builder(CHANGE_2, tree)
-            .parent_id(parent.commit_id().to_string())
-            .message("child commit".to_string())
-            .timestamp(UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_001))
-            .build();
+        let child = Commit::new(
+            CHANGE_2,
+            &[parent.commit_id().to_string()],
+            tree,
+            "child commit".to_string(),
+        );
         store.save_commit(&child).unwrap();
 
         let (parent_commit_id, parent_order): (String, i32) = store

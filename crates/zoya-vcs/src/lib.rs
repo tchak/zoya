@@ -7,7 +7,7 @@ mod store;
 mod tree;
 
 pub use blob::Blob;
-pub use commit::{Commit, CommitBuilder};
+pub use commit::Commit;
 pub use diff::{Change, DiffHunk, compute_diff};
 pub use merge::{Conflict, MergeResult, TreeMergeResult};
 pub use operation::Operation;

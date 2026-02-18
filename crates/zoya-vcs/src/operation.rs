@@ -108,7 +108,7 @@ mod tests {
         let mut blobs = HashMap::new();
         blobs.insert("root".to_string(), Blob::new(content.to_string()));
         let tree = Tree::new(blobs);
-        Commit::builder(change_id, tree).build()
+        Commit::new(change_id, &[], tree, String::new())
     }
 
     #[test]

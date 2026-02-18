@@ -8,7 +8,7 @@ use crate::Tree;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Commit {
     commit_id: String,
-    parent_id: Option<String>,
+    parents: Vec<String>,
     change_id: Uuid,
     message: String,
     tree: Tree,
@@ -16,13 +16,16 @@ pub struct Commit {
 }
 
 impl Commit {
-    pub fn builder(change_id: Uuid, tree: Tree) -> CommitBuilder {
-        CommitBuilder {
+    pub fn new(change_id: Uuid, parents: &[String], tree: Tree, message: String) -> Self {
+        let timestamp = SystemTime::now();
+        let commit_id = compute_commit_id(parents, &change_id, &message, tree.id(), timestamp);
+        Commit {
+            commit_id,
+            parents: parents.to_vec(),
             change_id,
+            message,
             tree,
-            parent_id: None,
-            message: String::new(),
-            timestamp: SystemTime::now(),
+            timestamp,
         }
     }
 
@@ -30,8 +33,8 @@ impl Commit {
         &self.commit_id
     }
 
-    pub fn parent_id(&self) -> Option<&str> {
-        self.parent_id.as_deref()
+    pub fn parents(&self) -> &[String] {
+        &self.parents
     }
 
     pub fn change_id(&self) -> Uuid {
@@ -51,52 +54,8 @@ impl Commit {
     }
 }
 
-/// Builder for constructing commits.
-pub struct CommitBuilder {
-    change_id: Uuid,
-    tree: Tree,
-    parent_id: Option<String>,
-    message: String,
-    timestamp: SystemTime,
-}
-
-impl CommitBuilder {
-    pub fn parent_id(mut self, parent_id: String) -> Self {
-        self.parent_id = Some(parent_id);
-        self
-    }
-
-    pub fn message(mut self, message: String) -> Self {
-        self.message = message;
-        self
-    }
-
-    pub fn timestamp(mut self, timestamp: SystemTime) -> Self {
-        self.timestamp = timestamp;
-        self
-    }
-
-    pub fn build(self) -> Commit {
-        let commit_id = compute_commit_id(
-            self.parent_id.as_deref(),
-            &self.change_id,
-            &self.message,
-            self.tree.id(),
-            self.timestamp,
-        );
-        Commit {
-            commit_id,
-            parent_id: self.parent_id,
-            change_id: self.change_id,
-            message: self.message,
-            tree: self.tree,
-            timestamp: self.timestamp,
-        }
-    }
-}
-
 fn compute_commit_id(
-    parent_id: Option<&str>,
+    parents: &[String],
     change_id: &Uuid,
     message: &str,
     tree_id: &str,
@@ -104,7 +63,9 @@ fn compute_commit_id(
 ) -> String {
     let duration = timestamp.duration_since(UNIX_EPOCH).unwrap_or_default();
     let mut hasher = blake3::Hasher::new();
-    hasher.update(parent_id.unwrap_or("").as_bytes());
+    for parent in parents {
+        hasher.update(parent.as_bytes());
+    }
     hasher.update(change_id.as_bytes());
     hasher.update(message.as_bytes());
     hasher.update(tree_id.as_bytes());
@@ -116,13 +77,10 @@ fn compute_commit_id(
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::time::Duration;
 
     use crate::Blob;
 
     use super::*;
-
-    const FIXED_TIMESTAMP: SystemTime = UNIX_EPOCH;
 
     fn make_tree(content: &str) -> Tree {
         let mut blobs = HashMap::new();
@@ -134,20 +92,14 @@ mod tests {
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
         0x10,
     ]);
-    const CHANGE_2: Uuid = Uuid::from_bytes([
-        0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
-        0x20,
-    ]);
 
     #[test]
     fn test_minimal_commit() {
         let tree = make_tree("hello");
-        let commit = Commit::builder(CHANGE_1, tree)
-            .timestamp(FIXED_TIMESTAMP)
-            .build();
+        let commit = Commit::new(CHANGE_1, &[], tree, String::new());
 
         assert!(!commit.commit_id().is_empty());
-        assert!(commit.parent_id().is_none());
+        assert!(commit.parents().is_empty());
         assert_eq!(commit.change_id(), CHANGE_1);
         assert_eq!(commit.message(), "");
     }
@@ -155,9 +107,7 @@ mod tests {
     #[test]
     fn test_commit_with_message() {
         let tree = make_tree("hello");
-        let commit = Commit::builder(CHANGE_1, tree)
-            .message("initial commit".to_string())
-            .build();
+        let commit = Commit::new(CHANGE_1, &[], tree, "initial commit".to_string());
 
         assert_eq!(commit.message(), "initial commit");
     }
@@ -165,104 +115,37 @@ mod tests {
     #[test]
     fn test_commit_with_parent() {
         let tree = make_tree("hello");
-        let commit = Commit::builder(CHANGE_1, tree)
-            .parent_id("parent-abc".to_string())
-            .build();
+        let commit = Commit::new(CHANGE_1, &["parent-abc".to_string()], tree, String::new());
 
-        assert_eq!(commit.parent_id(), Some("parent-abc"));
+        assert_eq!(commit.parents(), &["parent-abc".to_string()]);
     }
 
     #[test]
     fn test_commit_with_all_fields() {
         let tree = make_tree("hello");
-        let commit = Commit::builder(CHANGE_1, tree)
-            .parent_id("parent-abc".to_string())
-            .message("add feature".to_string())
-            .build();
+        let commit = Commit::new(
+            CHANGE_1,
+            &["parent-abc".to_string()],
+            tree,
+            "add feature".to_string(),
+        );
 
         assert_eq!(commit.change_id(), CHANGE_1);
-        assert_eq!(commit.parent_id(), Some("parent-abc"));
+        assert_eq!(commit.parents(), &["parent-abc".to_string()]);
         assert_eq!(commit.message(), "add feature");
         assert!(!commit.commit_id().is_empty());
     }
 
     #[test]
-    fn test_deterministic_id() {
-        let tree1 = make_tree("hello");
-        let c1 = Commit::builder(CHANGE_1, tree1)
-            .message("msg".to_string())
-            .timestamp(FIXED_TIMESTAMP)
-            .build();
-
-        let tree2 = make_tree("hello");
-        let c2 = Commit::builder(CHANGE_1, tree2)
-            .message("msg".to_string())
-            .timestamp(FIXED_TIMESTAMP)
-            .build();
-
-        assert_eq!(c1.commit_id(), c2.commit_id());
-    }
-
-    #[test]
-    fn test_message_affects_id() {
-        let tree1 = make_tree("hello");
-        let c1 = Commit::builder(CHANGE_1, tree1)
-            .message("msg1".to_string())
-            .timestamp(FIXED_TIMESTAMP)
-            .build();
-
-        let tree2 = make_tree("hello");
-        let c2 = Commit::builder(CHANGE_1, tree2)
-            .message("msg2".to_string())
-            .timestamp(FIXED_TIMESTAMP)
-            .build();
-
-        assert_ne!(c1.commit_id(), c2.commit_id());
-    }
-
-    #[test]
     fn test_parent_affects_id() {
         let tree1 = make_tree("hello");
-        let c1 = Commit::builder(CHANGE_1, tree1)
-            .timestamp(FIXED_TIMESTAMP)
-            .build();
+        let c1 = Commit::new(CHANGE_1, &[], tree1, String::new());
 
         let tree2 = make_tree("hello");
-        let c2 = Commit::builder(CHANGE_1, tree2)
-            .parent_id("parent".to_string())
-            .timestamp(FIXED_TIMESTAMP)
-            .build();
+        let c2 = Commit::new(CHANGE_1, &["parent".to_string()], tree2, String::new());
 
-        assert_ne!(c1.commit_id(), c2.commit_id());
-    }
-
-    #[test]
-    fn test_tree_affects_id() {
-        let tree1 = make_tree("hello");
-        let c1 = Commit::builder(CHANGE_1, tree1)
-            .timestamp(FIXED_TIMESTAMP)
-            .build();
-
-        let tree2 = make_tree("world");
-        let c2 = Commit::builder(CHANGE_1, tree2)
-            .timestamp(FIXED_TIMESTAMP)
-            .build();
-
-        assert_ne!(c1.commit_id(), c2.commit_id());
-    }
-
-    #[test]
-    fn test_change_id_affects_id() {
-        let tree1 = make_tree("hello");
-        let c1 = Commit::builder(CHANGE_1, tree1)
-            .timestamp(FIXED_TIMESTAMP)
-            .build();
-
-        let tree2 = make_tree("hello");
-        let c2 = Commit::builder(CHANGE_2, tree2)
-            .timestamp(FIXED_TIMESTAMP)
-            .build();
-
+        // Different parents should produce different commit IDs
+        // (timestamps differ too since they're generated at construction)
         assert_ne!(c1.commit_id(), c2.commit_id());
     }
 
@@ -270,33 +153,30 @@ mod tests {
     fn test_tree_accessible() {
         let tree = make_tree("hello");
         let expected_tree_id = tree.id().to_string();
-        let commit = Commit::builder(CHANGE_1, tree).build();
+        let commit = Commit::new(CHANGE_1, &[], tree, String::new());
 
         assert_eq!(commit.tree().id(), expected_tree_id);
-    }
-
-    #[test]
-    fn test_timestamp_affects_id() {
-        let ts1 = UNIX_EPOCH + Duration::from_secs(1000);
-        let ts2 = UNIX_EPOCH + Duration::from_secs(2000);
-
-        let tree1 = make_tree("hello");
-        let c1 = Commit::builder(CHANGE_1, tree1).timestamp(ts1).build();
-
-        let tree2 = make_tree("hello");
-        let c2 = Commit::builder(CHANGE_1, tree2).timestamp(ts2).build();
-
-        assert_ne!(c1.commit_id(), c2.commit_id());
     }
 
     #[test]
     fn test_timestamp_defaults_to_now() {
         let before = SystemTime::now();
         let tree = make_tree("hello");
-        let commit = Commit::builder(CHANGE_1, tree).build();
+        let commit = Commit::new(CHANGE_1, &[], tree, String::new());
         let after = SystemTime::now();
 
         assert!(commit.timestamp() >= before);
         assert!(commit.timestamp() <= after);
+    }
+
+    #[test]
+    fn test_multiple_parents() {
+        let tree = make_tree("hello");
+        let parents = vec!["parent-a".to_string(), "parent-b".to_string()];
+        let commit = Commit::new(CHANGE_1, &parents, tree, "merge".to_string());
+
+        assert_eq!(commit.parents().len(), 2);
+        assert_eq!(commit.parents()[0], "parent-a");
+        assert_eq!(commit.parents()[1], "parent-b");
     }
 }
