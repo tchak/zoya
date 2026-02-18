@@ -414,7 +414,9 @@ impl Store {
         Ok(())
     }
 
-    pub fn describe(&self, commit_id: &str, message: String) -> Result<(), sqlx::Error> {
+    pub fn describe(&self, query: RevisionQuery, message: String) -> Result<(), sqlx::Error> {
+        let (resolved, _) = self.revision(query)?;
+        let commit_id = resolved.commit().commit_id();
         let view = self.view()?;
         let working_copy_commit_id = view.working_copy().commit_id().to_string();
         let head_ids: Vec<String> = view
@@ -424,31 +426,9 @@ impl Store {
             .collect();
 
         self.runtime.block_on(async {
-            // 1. Validate commit is in view (ancestor of or equal to a head)
             let head_placeholders: String = head_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-            let check_query = format!(
-                "WITH RECURSIVE ancestors AS ( \
-                     SELECT c.commit_id \
-                     FROM commits c \
-                     WHERE c.commit_id IN ({head_placeholders}) \
-                     UNION \
-                     SELECT cp.parent_commit_id \
-                     FROM ancestors a \
-                     JOIN commit_parents cp ON cp.commit_id = a.commit_id \
-                 ) \
-                 SELECT 1 FROM ancestors WHERE commit_id = ? LIMIT 1"
-            );
-            let mut q = sqlx::query_as::<_, (i32,)>(&check_query);
-            for head_id in &head_ids {
-                q = q.bind(head_id);
-            }
-            q = q.bind(commit_id);
-            q.fetch_one(&self.pool).await.map_err(|e| match e {
-                sqlx::Error::RowNotFound => sqlx::Error::RowNotFound,
-                other => other,
-            })?;
 
-            // 3. Load target commit metadata
+            // Load target commit metadata
             let (change_id, tree_id, existing_message): (String, String, String) = sqlx::query_as(
                 "SELECT change_id, tree_id, message FROM commits WHERE commit_id = ?",
             )
@@ -809,7 +789,7 @@ impl Store {
             Ok(revisions)
         })
     }
-    pub fn find_revision(
+    pub fn revision(
         &self,
         query: RevisionQuery,
     ) -> Result<(Revision, Vec<Revision>), sqlx::Error> {
@@ -1744,7 +1724,7 @@ mod tests {
         store.save_operation(&op).unwrap();
 
         store
-            .describe(a.commit_id(), "new message".to_string())
+            .describe(RevisionQuery::CommitId(a.commit_id()), "new message".to_string())
             .unwrap();
 
         let revisions = store.log(20).unwrap();
@@ -1787,7 +1767,7 @@ mod tests {
             .unwrap();
 
         store
-            .describe(a.commit_id(), "same message".to_string())
+            .describe(RevisionQuery::CommitId(a.commit_id()), "same message".to_string())
             .unwrap();
 
         // Count operations after — should be unchanged
@@ -1808,7 +1788,7 @@ mod tests {
 
         // Describe A with a new message
         store
-            .describe(a.commit_id(), "updated A".to_string())
+            .describe(RevisionQuery::CommitId(a.commit_id()), "updated A".to_string())
             .unwrap();
 
         let revisions = store.log(20).unwrap();
@@ -1860,7 +1840,7 @@ mod tests {
         let old_commit_id = a.commit_id().to_string();
 
         store
-            .describe(a.commit_id(), "renamed head".to_string())
+            .describe(RevisionQuery::CommitId(a.commit_id()), "renamed head".to_string())
             .unwrap();
 
         let revisions = store.log(20).unwrap();
@@ -1882,10 +1862,10 @@ mod tests {
         );
     }
 
-    // --- find_revision() tests ---
+    // --- revision() tests ---
 
     #[test]
-    fn test_find_revision_working_copy() {
+    fn test_revision_working_copy() {
         let store = Store::init_memory().unwrap();
         let root_id = get_root_commit_id(&store);
 
@@ -1901,7 +1881,7 @@ mod tests {
         );
         store.save_operation(&op).unwrap();
 
-        let (rev, parents) = store.find_revision(RevisionQuery::WorkingCopy).unwrap();
+        let (rev, parents) = store.revision(RevisionQuery::WorkingCopy).unwrap();
         assert_eq!(rev.commit().message(), "commit A");
         assert!(rev.is_working_copy());
         assert!(rev.is_head());
@@ -1912,7 +1892,7 @@ mod tests {
     }
 
     #[test]
-    fn test_find_revision_by_commit_id() {
+    fn test_revision_by_commit_id() {
         let store = Store::init_memory().unwrap();
         let root_id = get_root_commit_id(&store);
 
@@ -1929,14 +1909,14 @@ mod tests {
         store.save_operation(&op).unwrap();
 
         let (rev, _) = store
-            .find_revision(RevisionQuery::CommitId(a.commit_id()))
+            .revision(RevisionQuery::CommitId(a.commit_id()))
             .unwrap();
         assert_eq!(rev.commit().commit_id(), a.commit_id());
         assert_eq!(rev.commit().message(), "commit A");
     }
 
     #[test]
-    fn test_find_revision_by_commit_id_prefix() {
+    fn test_revision_by_commit_id_prefix() {
         let store = Store::init_memory().unwrap();
         let root_id = get_root_commit_id(&store);
 
@@ -1955,13 +1935,13 @@ mod tests {
         // Use first 8 characters as prefix
         let prefix = &a.commit_id()[..8];
         let (rev, _) = store
-            .find_revision(RevisionQuery::CommitId(prefix))
+            .revision(RevisionQuery::CommitId(prefix))
             .unwrap();
         assert_eq!(rev.commit().commit_id(), a.commit_id());
     }
 
     #[test]
-    fn test_find_revision_by_change_id() {
+    fn test_revision_by_change_id() {
         let store = Store::init_memory().unwrap();
         let root_id = get_root_commit_id(&store);
 
@@ -1978,14 +1958,14 @@ mod tests {
         store.save_operation(&op).unwrap();
 
         let (rev, _) = store
-            .find_revision(RevisionQuery::ChangeId(&change.to_string()))
+            .revision(RevisionQuery::ChangeId(&change.to_string()))
             .unwrap();
         assert_eq!(rev.change_id(), change);
         assert_eq!(rev.commit().message(), "commit A");
     }
 
     #[test]
-    fn test_find_revision_by_change_id_prefix() {
+    fn test_revision_by_change_id_prefix() {
         let store = Store::init_memory().unwrap();
         let root_id = get_root_commit_id(&store);
 
@@ -2003,13 +1983,13 @@ mod tests {
 
         // change_id = "85858585-8585-8585-8585-858585858585", prefix "8585"
         let (rev, _) = store
-            .find_revision(RevisionQuery::ChangeId("8585"))
+            .revision(RevisionQuery::ChangeId("8585"))
             .unwrap();
         assert_eq!(rev.change_id(), change);
     }
 
     #[test]
-    fn test_find_revision_ambiguous_prefix() {
+    fn test_revision_ambiguous_prefix() {
         let store = Store::init_memory().unwrap();
         let root_id = get_root_commit_id(&store);
 
@@ -2031,7 +2011,7 @@ mod tests {
         store.save_operation(&op).unwrap();
 
         // Prefix "f" matches both change_ids
-        let result = store.find_revision(RevisionQuery::ChangeId("f"));
+        let result = store.revision(RevisionQuery::ChangeId("f"));
         assert!(result.is_err());
         match result.unwrap_err() {
             sqlx::Error::Protocol(msg) => assert_eq!(msg, "ambiguous prefix"),
@@ -2040,16 +2020,16 @@ mod tests {
     }
 
     #[test]
-    fn test_find_revision_not_found() {
+    fn test_revision_not_found() {
         let store = Store::init_memory().unwrap();
 
-        let result = store.find_revision(RevisionQuery::CommitId("nonexistent"));
+        let result = store.revision(RevisionQuery::CommitId("nonexistent"));
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), sqlx::Error::RowNotFound));
     }
 
     #[test]
-    fn test_find_revision_parents() {
+    fn test_revision_parents() {
         let store = Store::init_memory().unwrap();
         let root_id = get_root_commit_id(&store);
 
@@ -2083,7 +2063,7 @@ mod tests {
         store.save_operation(&op).unwrap();
 
         let (rev, parents) = store
-            .find_revision(RevisionQuery::CommitId(c.commit_id()))
+            .revision(RevisionQuery::CommitId(c.commit_id()))
             .unwrap();
         assert_eq!(rev.commit().message(), "commit C");
 
@@ -2093,12 +2073,12 @@ mod tests {
     }
 
     #[test]
-    fn test_find_revision_root_has_no_parents() {
+    fn test_revision_root_has_no_parents() {
         let store = Store::init_memory().unwrap();
         let root_id = get_root_commit_id(&store);
 
         let (rev, parents) = store
-            .find_revision(RevisionQuery::CommitId(&root_id))
+            .revision(RevisionQuery::CommitId(&root_id))
             .unwrap();
         assert_eq!(rev.commit().message(), "");
         assert!(parents.is_empty());
