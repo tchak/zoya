@@ -170,7 +170,18 @@ impl Store {
         conn: &mut SqliteConnection,
         commit: &Commit,
     ) -> Result<(), sqlx::Error> {
-        // 1. Check if tree already exists (blobs and entries must exist too)
+        // 1. Check if commit already exists — if so, everything is already saved
+        let (commit_exists,): (bool,) =
+            sqlx::query_as("SELECT EXISTS(SELECT 1 FROM commits WHERE commit_id = ?)")
+                .bind(commit.commit_id())
+                .fetch_one(&mut *conn)
+                .await?;
+
+        if commit_exists {
+            return Ok(());
+        }
+
+        // 2. Check if tree already exists (blobs and entries must exist too)
         let (tree_exists,): (bool,) =
             sqlx::query_as("SELECT EXISTS(SELECT 1 FROM trees WHERE tree_id = ?)")
                 .bind(commit.tree().id())
@@ -178,7 +189,7 @@ impl Store {
                 .await?;
 
         if !tree_exists {
-            // 2. Insert blobs
+            // 3. Insert blobs
             for blob in commit.tree().blobs().values() {
                 sqlx::query(
                     "INSERT OR IGNORE INTO blobs (blob_id, content, size) VALUES (?, ?, ?)",
@@ -190,13 +201,13 @@ impl Store {
                 .await?;
             }
 
-            // 3. Insert tree
+            // 4. Insert tree
             sqlx::query("INSERT OR IGNORE INTO trees (tree_id) VALUES (?)")
                 .bind(commit.tree().id())
                 .execute(&mut *conn)
                 .await?;
 
-            // 4. Insert tree entries
+            // 5. Insert tree entries
             for (path, blob) in commit.tree().blobs() {
                 sqlx::query(
                     "INSERT OR IGNORE INTO tree_entries (tree_id, path, blob_id) VALUES (?, ?, ?)",
@@ -209,13 +220,13 @@ impl Store {
             }
         }
 
-        // 5. Insert change
+        // 6. Insert change
         sqlx::query("INSERT OR IGNORE INTO changes (change_id) VALUES (?)")
             .bind(commit.change_id().to_string())
             .execute(&mut *conn)
             .await?;
 
-        // 6. Insert commit
+        // 7. Insert commit
         let timestamp = commit
             .timestamp()
             .duration_since(UNIX_EPOCH)
@@ -232,7 +243,7 @@ impl Store {
         .execute(&mut *conn)
         .await?;
 
-        // 7. Insert parent links
+        // 8. Insert parent links
         for (i, parent_id) in commit.parents().iter().enumerate() {
             sqlx::query(
                 "INSERT OR IGNORE INTO commit_parents (commit_id, parent_commit_id, parent_order) VALUES (?, ?, ?)",
