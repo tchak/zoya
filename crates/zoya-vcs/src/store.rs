@@ -635,12 +635,6 @@ impl Store {
 
     pub fn log(&self, n: usize) -> Result<Vec<Revision>, sqlx::Error> {
         let view = self.view()?;
-        let working_copy_commit_id = view.working_copy().commit_id().to_string();
-        let head_set: HashSet<String> = view
-            .heads()
-            .iter()
-            .map(|c| c.commit_id().to_string())
-            .collect();
         let view_id = view.view_id().to_string();
 
         self.runtime.block_on(async {
@@ -727,8 +721,6 @@ impl Store {
                     Uuid::parse_str(change_id).map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
 
                 let mut commits = Vec::new();
-                let mut is_head = false;
-                let mut is_working_copy = false;
 
                 for (commit_id, timestamp, tree_id, message) in commit_entries {
                     let mut parents: Vec<(String, i32)> =
@@ -746,36 +738,24 @@ impl Store {
                         ts,
                     );
 
-                    if head_set.contains(commit_id) {
-                        is_head = true;
-                    }
-                    if *commit_id == working_copy_commit_id {
-                        is_working_copy = true;
-                    }
-
                     commits.push(commit);
                 }
 
-                commits.sort_by_key(|c| !head_set.contains(c.commit_id()));
-
-                revisions.push(Revision::new(commits, is_head, is_working_copy));
+                revisions.push(Revision::new(commits, &view));
             }
 
             Ok(revisions)
         })
     }
-    pub fn revision(
-        &self,
-        query: RevisionQuery,
-    ) -> Result<(Revision, Vec<Revision>), sqlx::Error> {
+    pub fn revision(&self, query: RevisionQuery) -> Result<(Revision, Vec<Revision>), sqlx::Error> {
         let view = self.view()?;
         let working_copy_commit_id = view.working_copy().commit_id().to_string();
-        let head_set: HashSet<String> = view
+        let head_ids: Vec<String> = view
             .heads()
             .iter()
             .map(|c| c.commit_id().to_string())
             .collect();
-        let head_placeholders: String = head_set.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+        let head_placeholders: String = head_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
 
         self.runtime.block_on(async {
             // 1. Resolve query to change_id
@@ -804,7 +784,7 @@ impl Store {
                          WHERE commit_id LIKE ? || '%'"
                     );
                     let mut q = sqlx::query_as::<_, (String, String)>(&query_str);
-                    for head_id in &head_set {
+                    for head_id in &head_ids {
                         q = q.bind(head_id);
                     }
                     q = q.bind(prefix);
@@ -826,7 +806,7 @@ impl Store {
                          WHERE change_id LIKE ? || '%'"
                     );
                     let mut q = sqlx::query_as::<_, (String, String)>(&query_str);
-                    for head_id in &head_set {
+                    for head_id in &head_ids {
                         q = q.bind(head_id);
                     }
                     q = q.bind(prefix);
@@ -863,7 +843,7 @@ impl Store {
                  AND c.commit_id IN (SELECT commit_id FROM ancestors)"
             );
             let mut q = sqlx::query_as::<_, (String, i64, String, String)>(&all_query);
-            for head_id in &head_set {
+            for head_id in &head_ids {
                 q = q.bind(head_id);
             }
             q = q.bind(&change_id);
@@ -898,8 +878,6 @@ impl Store {
             let change_uuid =
                 Uuid::parse_str(&change_id).map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
             let mut commits = Vec::new();
-            let mut is_head = false;
-            let mut is_working_copy = false;
             let mut all_parent_ids: Vec<String> = Vec::new();
 
             for (commit_id, timestamp, tree_id, message) in &commit_rows {
@@ -922,18 +900,10 @@ impl Store {
                     ts,
                 );
 
-                if head_set.contains(commit_id) {
-                    is_head = true;
-                }
-                if *commit_id == working_copy_commit_id {
-                    is_working_copy = true;
-                }
-
                 commits.push(commit);
             }
 
-            commits.sort_by_key(|c| !head_set.contains(c.commit_id()));
-            let revision = Revision::new(commits, is_head, is_working_copy);
+            let revision = Revision::new(commits, &view);
 
             // 4. Load parent revisions
             let parent_commit_id_set: HashSet<String> = all_parent_ids
@@ -1004,8 +974,6 @@ impl Store {
                         .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
 
                     let mut p_commits = Vec::new();
-                    let mut p_is_head = false;
-                    let mut p_is_wc = false;
 
                     for (cid, ts, tid, msg) in entries {
                         let mut parents: Vec<(String, i32)> =
@@ -1024,18 +992,10 @@ impl Store {
                             timestamp,
                         );
 
-                        if head_set.contains(cid) {
-                            p_is_head = true;
-                        }
-                        if *cid == working_copy_commit_id {
-                            p_is_wc = true;
-                        }
-
                         p_commits.push(commit);
                     }
 
-                    p_commits.sort_by_key(|c| !head_set.contains(c.commit_id()));
-                    parent_revisions.push(Revision::new(p_commits, p_is_head, p_is_wc));
+                    parent_revisions.push(Revision::new(p_commits, &view));
                 }
             }
 
@@ -1699,7 +1659,10 @@ mod tests {
         store.save_operation(&op).unwrap();
 
         store
-            .describe(RevisionQuery::CommitId(a.commit_id()), "new message".to_string())
+            .describe(
+                RevisionQuery::CommitId(a.commit_id()),
+                "new message".to_string(),
+            )
             .unwrap();
 
         let revisions = store.log(20).unwrap();
@@ -1742,7 +1705,10 @@ mod tests {
             .unwrap();
 
         store
-            .describe(RevisionQuery::CommitId(a.commit_id()), "same message".to_string())
+            .describe(
+                RevisionQuery::CommitId(a.commit_id()),
+                "same message".to_string(),
+            )
             .unwrap();
 
         // Count operations after — should be unchanged
@@ -1763,7 +1729,10 @@ mod tests {
 
         // Describe A with a new message
         store
-            .describe(RevisionQuery::CommitId(a.commit_id()), "updated A".to_string())
+            .describe(
+                RevisionQuery::CommitId(a.commit_id()),
+                "updated A".to_string(),
+            )
             .unwrap();
 
         let revisions = store.log(20).unwrap();
@@ -1815,7 +1784,10 @@ mod tests {
         let old_commit_id = a.commit_id().to_string();
 
         store
-            .describe(RevisionQuery::CommitId(a.commit_id()), "renamed head".to_string())
+            .describe(
+                RevisionQuery::CommitId(a.commit_id()),
+                "renamed head".to_string(),
+            )
             .unwrap();
 
         let revisions = store.log(20).unwrap();
@@ -1909,9 +1881,7 @@ mod tests {
 
         // Use first 8 characters as prefix
         let prefix = &a.commit_id()[..8];
-        let (rev, _) = store
-            .revision(RevisionQuery::CommitId(prefix))
-            .unwrap();
+        let (rev, _) = store.revision(RevisionQuery::CommitId(prefix)).unwrap();
         assert_eq!(rev.commit().commit_id(), a.commit_id());
     }
 
@@ -1957,9 +1927,7 @@ mod tests {
         store.save_operation(&op).unwrap();
 
         // change_id = "85858585-8585-8585-8585-858585858585", prefix "8585"
-        let (rev, _) = store
-            .revision(RevisionQuery::ChangeId("8585"))
-            .unwrap();
+        let (rev, _) = store.revision(RevisionQuery::ChangeId("8585")).unwrap();
         assert_eq!(rev.change_id(), change);
     }
 
@@ -2052,9 +2020,7 @@ mod tests {
         let store = Store::init_memory().unwrap();
         let root_id = get_root_commit_id(&store);
 
-        let (rev, parents) = store
-            .revision(RevisionQuery::CommitId(&root_id))
-            .unwrap();
+        let (rev, parents) = store.revision(RevisionQuery::CommitId(&root_id)).unwrap();
         assert_eq!(rev.commit().message(), "");
         assert!(parents.is_empty());
     }

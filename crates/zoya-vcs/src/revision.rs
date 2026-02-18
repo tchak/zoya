@@ -1,6 +1,7 @@
 use uuid::Uuid;
 
 use crate::Commit;
+use crate::view::View;
 
 /// A revision groups one or more commits sharing the same `change_id`.
 /// Multiple commits indicate divergence.
@@ -12,8 +13,15 @@ pub struct Revision {
 }
 
 impl Revision {
-    pub(crate) fn new(commits: Vec<Commit>, is_head: bool, is_working_copy: bool) -> Self {
+    pub(crate) fn new(mut commits: Vec<Commit>, view: &View) -> Self {
         debug_assert!(!commits.is_empty());
+        let is_head = commits
+            .iter()
+            .any(|c| view.heads().iter().any(|h| h.commit_id() == c.commit_id()));
+        let is_working_copy = commits
+            .iter()
+            .any(|c| c.commit_id() == view.working_copy().commit_id());
+        commits.sort_by_key(|c| !view.heads().iter().any(|h| h.commit_id() == c.commit_id()));
         Revision {
             commits,
             is_head,
