@@ -4,6 +4,7 @@ use zoya_package::Package;
 
 use crate::Blob;
 use crate::diff::Change;
+use crate::merge::{self, TreeMergeResult};
 
 /// A content-addressed tree mapping paths to blobs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,6 +37,14 @@ impl Tree {
 
     pub fn len(&self) -> usize {
         self.blobs.len()
+    }
+
+    pub fn three_way_merge(
+        base: Option<&Tree>,
+        ours: Option<&Tree>,
+        theirs: Option<&Tree>,
+    ) -> TreeMergeResult {
+        merge::three_way_merge_trees(base, ours, theirs)
     }
 
     pub fn diff(&self, other: &Tree) -> Vec<Change> {
