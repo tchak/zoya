@@ -115,32 +115,44 @@ impl Store {
         self.runtime.block_on(async {
             let mut tx = self.pool.begin().await?;
 
-            // 1. Insert blobs
-            for blob in commit.tree().blobs().values() {
-                sqlx::query("INSERT OR IGNORE INTO blobs (blob_id, content, size) VALUES (?, ?, ?)")
+            // 1. Check if tree already exists (blobs and entries must exist too)
+            let (tree_exists,): (bool,) = sqlx::query_as(
+                "SELECT EXISTS(SELECT 1 FROM trees WHERE tree_id = ?)",
+            )
+            .bind(commit.tree().id())
+            .fetch_one(&mut *tx)
+            .await?;
+
+            if !tree_exists {
+                // 2. Insert blobs
+                for blob in commit.tree().blobs().values() {
+                    sqlx::query(
+                        "INSERT OR IGNORE INTO blobs (blob_id, content, size) VALUES (?, ?, ?)",
+                    )
                     .bind(blob.id())
                     .bind(blob.content())
                     .bind(blob.size() as i64)
                     .execute(&mut *tx)
                     .await?;
-            }
+                }
 
-            // 2. Insert tree
-            sqlx::query("INSERT OR IGNORE INTO trees (tree_id) VALUES (?)")
-                .bind(commit.tree().id())
-                .execute(&mut *tx)
-                .await?;
+                // 3. Insert tree
+                sqlx::query("INSERT OR IGNORE INTO trees (tree_id) VALUES (?)")
+                    .bind(commit.tree().id())
+                    .execute(&mut *tx)
+                    .await?;
 
-            // 3. Insert tree entries
-            for (path, blob) in commit.tree().blobs() {
-                sqlx::query(
-                    "INSERT OR IGNORE INTO tree_entries (tree_id, path, blob_id) VALUES (?, ?, ?)",
-                )
-                .bind(commit.tree().id())
-                .bind(path)
-                .bind(blob.id())
-                .execute(&mut *tx)
-                .await?;
+                // 4. Insert tree entries
+                for (path, blob) in commit.tree().blobs() {
+                    sqlx::query(
+                        "INSERT OR IGNORE INTO tree_entries (tree_id, path, blob_id) VALUES (?, ?, ?)",
+                    )
+                    .bind(commit.tree().id())
+                    .bind(path)
+                    .bind(blob.id())
+                    .execute(&mut *tx)
+                    .await?;
+                }
             }
 
             // 4. Insert change
