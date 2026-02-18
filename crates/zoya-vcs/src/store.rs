@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, UNIX_EPOCH};
 
 use sqlx::SqlitePool;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection};
@@ -460,7 +460,6 @@ impl Store {
                 tree_id.clone(),
                 message.clone(),
             );
-            let new_commit_id = new_commit.commit_id().to_string();
             Self::save_commit_with_tx(&mut tx, &new_commit, None).await?;
 
             // 6. Find descendants via forward walk
@@ -491,8 +490,8 @@ impl Store {
                 parents: Vec<String>,
             }
 
-            let mut old_to_new: HashMap<String, String> = HashMap::new();
-            old_to_new.insert(commit_id.to_string(), new_commit_id.clone());
+            let mut old_to_new: HashMap<String, Commit> = HashMap::new();
+            old_to_new.insert(commit_id.to_string(), new_commit.clone());
 
             // Collect all descendants with their info
             let mut descendants: Vec<DescendantInfo> = Vec::new();
@@ -583,7 +582,12 @@ impl Store {
                     let remapped_parents: Vec<String> = d
                         .parents
                         .iter()
-                        .map(|p| old_to_new.get(p).cloned().unwrap_or_else(|| p.clone()))
+                        .map(|p| {
+                            old_to_new
+                                .get(p)
+                                .map(|c| c.commit_id().to_string())
+                                .unwrap_or_else(|| p.clone())
+                        })
                         .collect();
 
                     let desc_change_uuid = Uuid::parse_str(&d.change_id)
@@ -594,64 +598,35 @@ impl Store {
                         d.tree_id.clone(),
                         d.message.clone(),
                     );
-                    let new_desc_id = new_desc_commit.commit_id().to_string();
                     Self::save_commit_with_tx(&mut tx, &new_desc_commit, None).await?;
 
-                    old_to_new.insert(d.commit_id.clone(), new_desc_id);
+                    old_to_new.insert(d.commit_id.clone(), new_desc_commit);
                 }
             }
 
-            // 8. Apply mapping to heads and working_copy, write operation directly
+            // 8. Apply mapping to heads and working_copy, create operation
             let new_working_copy = old_to_new
                 .get(&working_copy_commit_id)
                 .cloned()
-                .unwrap_or(working_copy_commit_id);
-            let new_heads: Vec<String> = head_ids
+                .unwrap_or_else(|| view.working_copy().clone());
+            let new_heads: Vec<Commit> = view
+                .heads()
                 .iter()
-                .map(|h| old_to_new.get(h).cloned().unwrap_or_else(|| h.clone()))
+                .map(|h| {
+                    old_to_new
+                        .get(h.commit_id())
+                        .cloned()
+                        .unwrap_or_else(|| h.clone())
+                })
                 .collect();
 
-            // Compute view_id
-            let mut sorted_heads = new_heads.clone();
-            sorted_heads.sort();
-            let mut view_hasher = blake3::Hasher::new();
-            view_hasher.update(new_working_copy.as_bytes());
-            for h in &sorted_heads {
-                view_hasher.update(h.as_bytes());
-            }
-            let new_view_id = view_hasher.finalize().to_hex().to_string();
-
-            // Insert view
-            sqlx::query("INSERT OR IGNORE INTO views (view_id, working_copy_commit_id) VALUES (?, ?)")
-                .bind(&new_view_id)
-                .bind(&new_working_copy)
-                .execute(&mut *tx)
-                .await?;
-
-            // Insert view heads
-            for head in &new_heads {
-                sqlx::query("INSERT OR IGNORE INTO view_heads (view_id, commit_id) VALUES (?, ?)")
-                    .bind(&new_view_id)
-                    .bind(head)
-                    .execute(&mut *tx)
-                    .await?;
-            }
-
-            // Insert operation
-            let op_id = Uuid::now_v7();
-            let op_timestamp = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs() as i64;
-            sqlx::query(
-                "INSERT INTO operations (operation_id, operation_type, view_id, timestamp) VALUES (?, ?, ?, ?)",
-            )
-            .bind(op_id.to_string())
-            .bind("describe")
-            .bind(&new_view_id)
-            .bind(op_timestamp)
-            .execute(&mut *tx)
-            .await?;
+            let operation = Operation::new(
+                Uuid::now_v7(),
+                "describe".to_string(),
+                new_working_copy,
+                new_heads,
+            );
+            Self::save_operation_with_tx(&mut tx, &operation).await?;
 
             tx.commit().await?;
             Ok(())
