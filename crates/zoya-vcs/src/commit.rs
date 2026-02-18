@@ -1,3 +1,4 @@
+use std::hash::{Hash, Hasher};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use uuid::Uuid;
@@ -5,7 +6,7 @@ use uuid::Uuid;
 use crate::Tree;
 
 /// A content-addressed commit pointing to a tree snapshot.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Commit {
     commit_id: String,
     parents: Vec<String>,
@@ -51,6 +52,20 @@ impl Commit {
 
     pub fn timestamp(&self) -> SystemTime {
         self.timestamp
+    }
+}
+
+impl PartialEq for Commit {
+    fn eq(&self, other: &Self) -> bool {
+        self.commit_id == other.commit_id
+    }
+}
+
+impl Eq for Commit {}
+
+impl Hash for Commit {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.commit_id.hash(state);
     }
 }
 

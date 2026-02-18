@@ -132,15 +132,9 @@ impl Store {
             let root_commit = Commit::new(change_id, &[], empty_tree, String::new());
 
             let operation_id = Uuid::now_v7();
-            let init_op = Operation::new(
-                operation_id,
-                "init".to_string(),
-                root_commit.clone(),
-                vec![root_commit],
-            );
+            let init_op = Operation::new(operation_id, "init".to_string(), root_commit, vec![]);
 
             let mut tx = self.pool.begin().await?;
-            Self::save_commit_with_tx(&mut tx, init_op.working_copy()).await?;
             for head in init_op.heads() {
                 Self::save_commit_with_tx(&mut tx, head).await?;
             }
@@ -163,7 +157,6 @@ impl Store {
     pub fn save_operation(&self, operation: &Operation) -> Result<(), sqlx::Error> {
         self.runtime.block_on(async {
             let mut tx = self.pool.begin().await?;
-            Self::save_commit_with_tx(&mut tx, operation.working_copy()).await?;
             for head in operation.heads() {
                 Self::save_commit_with_tx(&mut tx, head).await?;
             }

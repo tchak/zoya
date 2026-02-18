@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::time::SystemTime;
 
 use uuid::Uuid;
@@ -22,13 +23,21 @@ impl Operation {
         working_copy: Commit,
         heads: Vec<Commit>,
     ) -> Self {
-        let view_id = compute_view_id(&working_copy, &heads);
+        let mut seen = HashSet::new();
+        seen.insert(working_copy.clone());
+        let mut deduped = vec![working_copy.clone()];
+        for head in heads {
+            if seen.insert(head.clone()) {
+                deduped.push(head);
+            }
+        }
+        let view_id = compute_view_id(&working_copy, &deduped);
         Operation {
             operation_id,
             operation_type,
             view_id,
             working_copy,
-            heads,
+            heads: deduped,
             timestamp: SystemTime::now(),
         }
     }
@@ -127,10 +136,11 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_heads() {
+    fn test_empty_heads_includes_working_copy() {
         let wc = make_commit("wc", CHANGE_1);
-        let op = Operation::new(OP_1, "init".to_string(), wc, vec![]);
-        assert!(op.heads().is_empty());
+        let op = Operation::new(OP_1, "init".to_string(), wc.clone(), vec![]);
+        assert_eq!(op.heads().len(), 1);
+        assert_eq!(op.heads()[0], wc);
         assert!(!op.view_id().is_empty());
     }
 
@@ -156,7 +166,7 @@ mod tests {
     fn test_multiple_heads() {
         let c1 = make_commit("hello", CHANGE_1);
         let c2 = make_commit("world", CHANGE_2);
-        let op = Operation::new(OP_1, "merge".to_string(), c1.clone(), vec![c1, c2]);
+        let op = Operation::new(OP_1, "merge".to_string(), c1.clone(), vec![c2]);
 
         assert_eq!(op.heads().len(), 2);
     }
