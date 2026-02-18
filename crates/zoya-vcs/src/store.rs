@@ -11,6 +11,12 @@ use crate::commit::compute_commit_id;
 use crate::revision::Revision;
 use crate::{Blob, Commit, Operation, Tree};
 
+pub enum RevisionQuery<'a> {
+    WorkingCopy,
+    ChangeId(&'a str),
+    CommitId(&'a str),
+}
+
 const SCHEMA_SQL: &str = r#"
 PRAGMA foreign_keys = ON;
 
@@ -787,6 +793,366 @@ impl Store {
             Ok(revisions)
         })
     }
+    pub fn find_revision(
+        &self,
+        query: RevisionQuery,
+    ) -> Result<(Revision, Vec<Revision>), sqlx::Error> {
+        self.runtime.block_on(async {
+            // 1. Load current view
+            let (view_id, working_copy_commit_id): (String, String) = sqlx::query_as(
+                "SELECT o.view_id, v.working_copy_commit_id \
+                 FROM operations o \
+                 JOIN views v ON v.view_id = o.view_id \
+                 ORDER BY o.operation_id DESC LIMIT 1",
+            )
+            .fetch_one(&self.pool)
+            .await?;
+
+            let head_rows: Vec<(String,)> =
+                sqlx::query_as("SELECT commit_id FROM view_heads WHERE view_id = ?")
+                    .bind(&view_id)
+                    .fetch_all(&self.pool)
+                    .await?;
+            let head_set: HashSet<String> = head_rows.into_iter().map(|(id,)| id).collect();
+            let head_placeholders: String =
+                head_set.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+
+            // 2. Resolve query to change_id
+            let resolved: Vec<(String, String)> = match query {
+                RevisionQuery::WorkingCopy => {
+                    let (change_id,): (String,) =
+                        sqlx::query_as("SELECT change_id FROM commits WHERE commit_id = ?")
+                            .bind(&working_copy_commit_id)
+                            .fetch_one(&self.pool)
+                            .await?;
+                    vec![(working_copy_commit_id.clone(), change_id)]
+                }
+                RevisionQuery::CommitId(prefix) => {
+                    let query_str = format!(
+                        "WITH RECURSIVE ancestors AS ( \
+                             SELECT c.commit_id, c.change_id \
+                             FROM commits c \
+                             WHERE c.commit_id IN ({head_placeholders}) \
+                             UNION \
+                             SELECT c.commit_id, c.change_id \
+                             FROM ancestors a \
+                             JOIN commit_parents cp ON cp.commit_id = a.commit_id \
+                             JOIN commits c ON c.commit_id = cp.parent_commit_id \
+                         ) \
+                         SELECT commit_id, change_id FROM ancestors \
+                         WHERE commit_id LIKE ? || '%'"
+                    );
+                    let mut q = sqlx::query_as::<_, (String, String)>(&query_str);
+                    for head_id in &head_set {
+                        q = q.bind(head_id);
+                    }
+                    q = q.bind(prefix);
+                    q.fetch_all(&self.pool).await?
+                }
+                RevisionQuery::ChangeId(prefix) => {
+                    let query_str = format!(
+                        "WITH RECURSIVE ancestors AS ( \
+                             SELECT c.commit_id, c.change_id \
+                             FROM commits c \
+                             WHERE c.commit_id IN ({head_placeholders}) \
+                             UNION \
+                             SELECT c.commit_id, c.change_id \
+                             FROM ancestors a \
+                             JOIN commit_parents cp ON cp.commit_id = a.commit_id \
+                             JOIN commits c ON c.commit_id = cp.parent_commit_id \
+                         ) \
+                         SELECT commit_id, change_id FROM ancestors \
+                         WHERE change_id LIKE ? || '%'"
+                    );
+                    let mut q = sqlx::query_as::<_, (String, String)>(&query_str);
+                    for head_id in &head_set {
+                        q = q.bind(head_id);
+                    }
+                    q = q.bind(prefix);
+                    q.fetch_all(&self.pool).await?
+                }
+            };
+
+            if resolved.is_empty() {
+                return Err(sqlx::Error::RowNotFound);
+            }
+
+            let distinct_change_ids: HashSet<&str> =
+                resolved.iter().map(|(_, cid)| cid.as_str()).collect();
+            if distinct_change_ids.len() > 1 {
+                return Err(sqlx::Error::Protocol("ambiguous prefix".to_string()));
+            }
+
+            let change_id = resolved[0].1.clone();
+
+            // 3. Find all commits with this change_id in the ancestor graph
+            let all_query = format!(
+                "WITH RECURSIVE ancestors AS ( \
+                     SELECT c.commit_id \
+                     FROM commits c \
+                     WHERE c.commit_id IN ({head_placeholders}) \
+                     UNION \
+                     SELECT cp.parent_commit_id \
+                     FROM ancestors a \
+                     JOIN commit_parents cp ON cp.commit_id = a.commit_id \
+                 ) \
+                 SELECT c.commit_id, c.timestamp, c.tree_id, c.message \
+                 FROM commits c \
+                 WHERE c.change_id = ? \
+                 AND c.commit_id IN (SELECT commit_id FROM ancestors)"
+            );
+            let mut q = sqlx::query_as::<_, (String, i64, String, String)>(&all_query);
+            for head_id in &head_set {
+                q = q.bind(head_id);
+            }
+            q = q.bind(&change_id);
+            let commit_rows: Vec<(String, i64, String, String)> = q.fetch_all(&self.pool).await?;
+
+            let commit_ids: Vec<String> = commit_rows.iter().map(|(id, ..)| id.clone()).collect();
+
+            // Batch-load parents
+            let mut parents_map: HashMap<String, Vec<(String, i32)>> = HashMap::new();
+            if !commit_ids.is_empty() {
+                let placeholders: String = commit_ids
+                    .iter()
+                    .map(|_| "?")
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let query = format!(
+                    "SELECT commit_id, parent_commit_id, parent_order \
+                     FROM commit_parents WHERE commit_id IN ({placeholders}) \
+                     ORDER BY commit_id, parent_order"
+                );
+                let mut q = sqlx::query_as::<_, (String, String, i32)>(&query);
+                for id in &commit_ids {
+                    q = q.bind(id);
+                }
+                let rows: Vec<(String, String, i32)> = q.fetch_all(&self.pool).await?;
+                for (cid, pid, order) in rows {
+                    parents_map.entry(cid).or_default().push((pid, order));
+                }
+            }
+
+            // Batch-load tree blobs
+            let tree_ids: HashSet<String> = commit_rows
+                .iter()
+                .map(|(_, _, tid, _)| tid.clone())
+                .collect();
+            let mut tree_blobs: HashMap<String, HashMap<String, Blob>> = HashMap::new();
+            if !tree_ids.is_empty() {
+                let tree_id_vec: Vec<&String> = tree_ids.iter().collect();
+                let placeholders: String = tree_id_vec
+                    .iter()
+                    .map(|_| "?")
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let query = format!(
+                    "SELECT te.tree_id, te.path, b.blob_id, b.content, b.size \
+                     FROM tree_entries te \
+                     JOIN blobs b ON b.blob_id = te.blob_id \
+                     WHERE te.tree_id IN ({placeholders})"
+                );
+                let mut q = sqlx::query_as::<_, (String, String, String, String, i64)>(&query);
+                for id in &tree_id_vec {
+                    q = q.bind(*id);
+                }
+                let blob_rows: Vec<(String, String, String, String, i64)> =
+                    q.fetch_all(&self.pool).await?;
+                for (tree_id, path, _blob_id, content, _size) in blob_rows {
+                    tree_blobs
+                        .entry(tree_id)
+                        .or_default()
+                        .insert(path, Blob::new(content));
+                }
+            }
+
+            // Reconstruct commits
+            let change_uuid =
+                Uuid::parse_str(&change_id).map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+            let mut commits = Vec::new();
+            let mut is_head = false;
+            let mut is_working_copy = false;
+            let mut all_parent_ids: Vec<String> = Vec::new();
+
+            for (commit_id, timestamp, tree_id, message) in &commit_rows {
+                let blobs = tree_blobs.get(tree_id).cloned().unwrap_or_default();
+                let tree = Tree::new(blobs);
+
+                let mut parents: Vec<(String, i32)> =
+                    parents_map.get(commit_id).cloned().unwrap_or_default();
+                parents.sort_by_key(|(_, order)| *order);
+                let parent_ids: Vec<String> = parents.into_iter().map(|(id, _)| id).collect();
+
+                for pid in &parent_ids {
+                    all_parent_ids.push(pid.clone());
+                }
+
+                let ts = UNIX_EPOCH + Duration::from_secs(*timestamp as u64);
+                let commit = Commit::restore(
+                    commit_id.clone(),
+                    change_uuid,
+                    parent_ids,
+                    tree,
+                    message.clone(),
+                    ts,
+                );
+
+                if head_set.contains(commit_id) {
+                    is_head = true;
+                }
+                if *commit_id == working_copy_commit_id {
+                    is_working_copy = true;
+                }
+
+                commits.push(commit);
+            }
+
+            commits.sort_by_key(|c| !head_set.contains(c.commit_id()));
+            let revision = Revision::new(commits, is_head, is_working_copy);
+
+            // 4. Load parent revisions
+            let parent_commit_id_set: HashSet<String> = all_parent_ids
+                .into_iter()
+                .filter(|pid| !commit_ids.contains(pid))
+                .collect();
+
+            let mut parent_revisions = Vec::new();
+            if !parent_commit_id_set.is_empty() {
+                let parent_commit_ids: Vec<String> = parent_commit_id_set.into_iter().collect();
+                let placeholders: String = parent_commit_ids
+                    .iter()
+                    .map(|_| "?")
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                // Load parent commit data
+                let query = format!(
+                    "SELECT commit_id, change_id, timestamp, tree_id, message \
+                     FROM commits WHERE commit_id IN ({placeholders})"
+                );
+                let mut q = sqlx::query_as::<_, (String, String, i64, String, String)>(&query);
+                for id in &parent_commit_ids {
+                    q = q.bind(id);
+                }
+                let parent_rows: Vec<(String, String, i64, String, String)> =
+                    q.fetch_all(&self.pool).await?;
+
+                // Load parents of parent commits
+                let mut pp_map: HashMap<String, Vec<(String, i32)>> = HashMap::new();
+                {
+                    let query = format!(
+                        "SELECT commit_id, parent_commit_id, parent_order \
+                         FROM commit_parents WHERE commit_id IN ({placeholders}) \
+                         ORDER BY commit_id, parent_order"
+                    );
+                    let mut q = sqlx::query_as::<_, (String, String, i32)>(&query);
+                    for id in &parent_commit_ids {
+                        q = q.bind(id);
+                    }
+                    let rows: Vec<(String, String, i32)> = q.fetch_all(&self.pool).await?;
+                    for (cid, pid, order) in rows {
+                        pp_map.entry(cid).or_default().push((pid, order));
+                    }
+                }
+
+                // Load tree blobs for parent commits
+                let p_tree_ids: HashSet<String> = parent_rows
+                    .iter()
+                    .map(|(_, _, _, tid, _)| tid.clone())
+                    .collect();
+                let mut p_tree_blobs: HashMap<String, HashMap<String, Blob>> = HashMap::new();
+                if !p_tree_ids.is_empty() {
+                    let tree_id_vec: Vec<&String> = p_tree_ids.iter().collect();
+                    let placeholders: String = tree_id_vec
+                        .iter()
+                        .map(|_| "?")
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let query = format!(
+                        "SELECT te.tree_id, te.path, b.blob_id, b.content, b.size \
+                         FROM tree_entries te \
+                         JOIN blobs b ON b.blob_id = te.blob_id \
+                         WHERE te.tree_id IN ({placeholders})"
+                    );
+                    let mut q = sqlx::query_as::<_, (String, String, String, String, i64)>(&query);
+                    for id in &tree_id_vec {
+                        q = q.bind(*id);
+                    }
+                    let blob_rows: Vec<(String, String, String, String, i64)> =
+                        q.fetch_all(&self.pool).await?;
+                    for (tree_id, path, _blob_id, content, _size) in blob_rows {
+                        p_tree_blobs
+                            .entry(tree_id)
+                            .or_default()
+                            .insert(path, Blob::new(content));
+                    }
+                }
+
+                // Group by change_id and build parent revisions
+                let mut grouped: HashMap<String, Vec<(String, i64, String, String)>> =
+                    HashMap::new();
+                let mut change_order: Vec<String> = Vec::new();
+                for (cid, change_id, ts, tid, msg) in &parent_rows {
+                    if !grouped.contains_key(change_id) {
+                        change_order.push(change_id.clone());
+                    }
+                    grouped.entry(change_id.clone()).or_default().push((
+                        cid.clone(),
+                        *ts,
+                        tid.clone(),
+                        msg.clone(),
+                    ));
+                }
+
+                for p_change_id in &change_order {
+                    let Some(entries) = grouped.get(p_change_id) else {
+                        continue;
+                    };
+                    let p_change_uuid = Uuid::parse_str(p_change_id)
+                        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+
+                    let mut p_commits = Vec::new();
+                    let mut p_is_head = false;
+                    let mut p_is_wc = false;
+
+                    for (cid, ts, tid, msg) in entries {
+                        let blobs = p_tree_blobs.get(tid).cloned().unwrap_or_default();
+                        let tree = Tree::new(blobs);
+
+                        let mut parents: Vec<(String, i32)> =
+                            pp_map.get(cid).cloned().unwrap_or_default();
+                        parents.sort_by_key(|(_, order)| *order);
+                        let parent_ids: Vec<String> =
+                            parents.into_iter().map(|(id, _)| id).collect();
+
+                        let timestamp = UNIX_EPOCH + Duration::from_secs(*ts as u64);
+                        let commit = Commit::restore(
+                            cid.clone(),
+                            p_change_uuid,
+                            parent_ids,
+                            tree,
+                            msg.clone(),
+                            timestamp,
+                        );
+
+                        if head_set.contains(cid) {
+                            p_is_head = true;
+                        }
+                        if *cid == working_copy_commit_id {
+                            p_is_wc = true;
+                        }
+
+                        p_commits.push(commit);
+                    }
+
+                    p_commits.sort_by_key(|c| !head_set.contains(c.commit_id()));
+                    parent_revisions.push(Revision::new(p_commits, p_is_head, p_is_wc));
+                }
+            }
+
+            Ok((revision, parent_revisions))
+        })
+    }
 }
 
 #[cfg(test)]
@@ -1552,5 +1918,222 @@ mod tests {
                 .iter()
                 .all(|r| r.commit().commit_id() != old_commit_id)
         );
+    }
+
+    // --- find_revision() tests ---
+
+    #[test]
+    fn test_find_revision_working_copy() {
+        let store = Store::init_memory().unwrap();
+        let root_id = get_root_commit_id(&store);
+
+        let a = make_commit_with_parent("a", make_change_id(0x81), &[root_id.clone()], "commit A");
+        store.save_commit(&a).unwrap();
+
+        let op = Operation::new(
+            Uuid::now_v7(),
+            "snapshot".to_string(),
+            a.clone(),
+            vec![a.clone()],
+        );
+        store.save_operation(&op).unwrap();
+
+        let (rev, parents) = store.find_revision(RevisionQuery::WorkingCopy).unwrap();
+        assert_eq!(rev.commit().message(), "commit A");
+        assert!(rev.is_working_copy());
+        assert!(rev.is_head());
+
+        // Parent should be root
+        assert_eq!(parents.len(), 1);
+        assert_eq!(parents[0].commit().message(), "");
+    }
+
+    #[test]
+    fn test_find_revision_by_commit_id() {
+        let store = Store::init_memory().unwrap();
+        let root_id = get_root_commit_id(&store);
+
+        let a = make_commit_with_parent("a", make_change_id(0x82), &[root_id], "commit A");
+        store.save_commit(&a).unwrap();
+
+        let op = Operation::new(
+            Uuid::now_v7(),
+            "snapshot".to_string(),
+            a.clone(),
+            vec![a.clone()],
+        );
+        store.save_operation(&op).unwrap();
+
+        let (rev, _) = store
+            .find_revision(RevisionQuery::CommitId(a.commit_id()))
+            .unwrap();
+        assert_eq!(rev.commit().commit_id(), a.commit_id());
+        assert_eq!(rev.commit().message(), "commit A");
+    }
+
+    #[test]
+    fn test_find_revision_by_commit_id_prefix() {
+        let store = Store::init_memory().unwrap();
+        let root_id = get_root_commit_id(&store);
+
+        let a = make_commit_with_parent("a", make_change_id(0x83), &[root_id], "commit A");
+        store.save_commit(&a).unwrap();
+
+        let op = Operation::new(
+            Uuid::now_v7(),
+            "snapshot".to_string(),
+            a.clone(),
+            vec![a.clone()],
+        );
+        store.save_operation(&op).unwrap();
+
+        // Use first 8 characters as prefix
+        let prefix = &a.commit_id()[..8];
+        let (rev, _) = store
+            .find_revision(RevisionQuery::CommitId(prefix))
+            .unwrap();
+        assert_eq!(rev.commit().commit_id(), a.commit_id());
+    }
+
+    #[test]
+    fn test_find_revision_by_change_id() {
+        let store = Store::init_memory().unwrap();
+        let root_id = get_root_commit_id(&store);
+
+        let change = make_change_id(0x84);
+        let a = make_commit_with_parent("a", change, &[root_id], "commit A");
+        store.save_commit(&a).unwrap();
+
+        let op = Operation::new(
+            Uuid::now_v7(),
+            "snapshot".to_string(),
+            a.clone(),
+            vec![a.clone()],
+        );
+        store.save_operation(&op).unwrap();
+
+        let (rev, _) = store
+            .find_revision(RevisionQuery::ChangeId(&change.to_string()))
+            .unwrap();
+        assert_eq!(rev.change_id(), change);
+        assert_eq!(rev.commit().message(), "commit A");
+    }
+
+    #[test]
+    fn test_find_revision_by_change_id_prefix() {
+        let store = Store::init_memory().unwrap();
+        let root_id = get_root_commit_id(&store);
+
+        let change = make_change_id(0x85);
+        let a = make_commit_with_parent("a", change, &[root_id], "commit A");
+        store.save_commit(&a).unwrap();
+
+        let op = Operation::new(
+            Uuid::now_v7(),
+            "snapshot".to_string(),
+            a.clone(),
+            vec![a.clone()],
+        );
+        store.save_operation(&op).unwrap();
+
+        // change_id = "85858585-8585-8585-8585-858585858585", prefix "8585"
+        let (rev, _) = store
+            .find_revision(RevisionQuery::ChangeId("8585"))
+            .unwrap();
+        assert_eq!(rev.change_id(), change);
+    }
+
+    #[test]
+    fn test_find_revision_ambiguous_prefix() {
+        let store = Store::init_memory().unwrap();
+        let root_id = get_root_commit_id(&store);
+
+        // Two commits with change_ids sharing prefix "fa"
+        let change_a = make_change_id(0xFA);
+        let change_b = make_change_id(0xFB);
+        let a = make_commit_with_parent("a", change_a, &[root_id.clone()], "commit A");
+        store.save_commit(&a).unwrap();
+
+        let b = make_commit_with_parent("b", change_b, &[root_id], "commit B");
+        store.save_commit(&b).unwrap();
+
+        let op = Operation::new(
+            Uuid::now_v7(),
+            "snapshot".to_string(),
+            a.clone(),
+            vec![a.clone(), b.clone()],
+        );
+        store.save_operation(&op).unwrap();
+
+        // Prefix "f" matches both change_ids
+        let result = store.find_revision(RevisionQuery::ChangeId("f"));
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            sqlx::Error::Protocol(msg) => assert_eq!(msg, "ambiguous prefix"),
+            other => panic!("expected Protocol error, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_find_revision_not_found() {
+        let store = Store::init_memory().unwrap();
+
+        let result = store.find_revision(RevisionQuery::CommitId("nonexistent"));
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), sqlx::Error::RowNotFound));
+    }
+
+    #[test]
+    fn test_find_revision_parents() {
+        let store = Store::init_memory().unwrap();
+        let root_id = get_root_commit_id(&store);
+
+        // A → B → C
+        let a = make_commit_with_parent("a", make_change_id(0x86), &[root_id], "commit A");
+        store.save_commit(&a).unwrap();
+
+        let b = make_commit_with_parent(
+            "b",
+            make_change_id(0x87),
+            &[a.commit_id().to_string()],
+            "commit B",
+        );
+        store.save_commit(&b).unwrap();
+
+        let c = make_commit_with_parent(
+            "c",
+            make_change_id(0x88),
+            &[b.commit_id().to_string()],
+            "commit C",
+        );
+
+        let op = Operation::new(
+            Uuid::now_v7(),
+            "snapshot".to_string(),
+            c.clone(),
+            vec![c.clone()],
+        );
+        store.save_operation(&op).unwrap();
+
+        let (rev, parents) = store
+            .find_revision(RevisionQuery::CommitId(c.commit_id()))
+            .unwrap();
+        assert_eq!(rev.commit().message(), "commit C");
+
+        // C's parent is B
+        assert_eq!(parents.len(), 1);
+        assert_eq!(parents[0].commit().message(), "commit B");
+    }
+
+    #[test]
+    fn test_find_revision_root_has_no_parents() {
+        let store = Store::init_memory().unwrap();
+        let root_id = get_root_commit_id(&store);
+
+        let (rev, parents) = store
+            .find_revision(RevisionQuery::CommitId(&root_id))
+            .unwrap();
+        assert_eq!(rev.commit().message(), "");
+        assert!(parents.is_empty());
     }
 }

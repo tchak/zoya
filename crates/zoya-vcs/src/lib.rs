@@ -13,5 +13,5 @@ pub use diff::{Change, DiffHunk, compute_diff};
 pub use merge::{Conflict, MergeResult, TreeMergeResult};
 pub use operation::Operation;
 pub use revision::Revision;
-pub use store::Store;
+pub use store::{RevisionQuery, Store};
 pub use tree::Tree;
