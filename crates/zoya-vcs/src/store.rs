@@ -7,10 +7,9 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection};
 use tokio::runtime::Runtime;
 use uuid::Uuid;
 
-use crate::commit::compute_commit_id;
 use crate::revision::Revision;
 use crate::view::View;
-use crate::{Blob, Commit, Operation, Tree};
+use crate::{Commit, Operation, Tree};
 
 pub enum RevisionQuery<'a> {
     WorkingCopy,
@@ -138,7 +137,8 @@ impl Store {
 
             let empty_tree = Tree::new(HashMap::new());
             let change_id = Uuid::now_v7();
-            let root_commit = Commit::new(change_id, &[], empty_tree, String::new());
+            let root_commit =
+                Commit::new(change_id, &[], empty_tree.id().to_string(), String::new());
 
             let operation_id = Uuid::now_v7();
             let init_op = Operation::new(
@@ -149,9 +149,7 @@ impl Store {
             );
 
             let mut tx = self.pool.begin().await?;
-            for head in init_op.heads() {
-                Self::save_commit_with_tx(&mut tx, head).await?;
-            }
+            Self::save_commit_with_tx(&mut tx, init_op.working_copy(), Some(&empty_tree)).await?;
             Self::save_operation_with_tx(&mut tx, &init_op).await?;
             tx.commit().await?;
 
@@ -159,10 +157,10 @@ impl Store {
         })
     }
 
-    pub fn save_commit(&self, commit: &Commit) -> Result<(), sqlx::Error> {
+    pub fn save_commit(&self, commit: &Commit, tree: Option<&Tree>) -> Result<(), sqlx::Error> {
         self.runtime.block_on(async {
             let mut tx = self.pool.begin().await?;
-            Self::save_commit_with_tx(&mut tx, commit).await?;
+            Self::save_commit_with_tx(&mut tx, commit, tree).await?;
             tx.commit().await?;
             Ok(())
         })
@@ -172,7 +170,7 @@ impl Store {
         self.runtime.block_on(async {
             let mut tx = self.pool.begin().await?;
             for head in operation.heads() {
-                Self::save_commit_with_tx(&mut tx, head).await?;
+                Self::save_commit_with_tx(&mut tx, head, None).await?;
             }
             Self::save_operation_with_tx(&mut tx, operation).await?;
             tx.commit().await?;
@@ -242,46 +240,11 @@ impl Store {
                 }
             }
 
-            // 6. Batch-load tree blobs
-            let tree_ids: HashSet<String> = commit_rows
-                .iter()
-                .map(|(_, _, _, tid, _)| tid.clone())
-                .collect();
-            let mut tree_blobs: HashMap<String, HashMap<String, Blob>> = HashMap::new();
-            if !tree_ids.is_empty() {
-                let tree_id_vec: Vec<&String> = tree_ids.iter().collect();
-                let tree_placeholders: String = tree_id_vec
-                    .iter()
-                    .map(|_| "?")
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let query = format!(
-                    "SELECT te.tree_id, te.path, b.blob_id, b.content, b.size \
-                     FROM tree_entries te \
-                     JOIN blobs b ON b.blob_id = te.blob_id \
-                     WHERE te.tree_id IN ({tree_placeholders})"
-                );
-                let mut q = sqlx::query_as::<_, (String, String, String, String, i64)>(&query);
-                for id in &tree_id_vec {
-                    q = q.bind(*id);
-                }
-                let blob_rows: Vec<(String, String, String, String, i64)> =
-                    q.fetch_all(&self.pool).await?;
-                for (tree_id, path, _blob_id, content, _size) in blob_rows {
-                    tree_blobs
-                        .entry(tree_id)
-                        .or_default()
-                        .insert(path, Blob::new(content));
-                }
-            }
-
-            // 7. Reconstruct Commit objects
+            // 6. Reconstruct Commit objects
             let mut commit_map: HashMap<String, Commit> = HashMap::new();
             for (commit_id, change_id, timestamp, tree_id, message) in &commit_rows {
                 let change_uuid =
                     Uuid::parse_str(change_id).map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-                let blobs = tree_blobs.get(tree_id).cloned().unwrap_or_default();
-                let tree = Tree::new(blobs);
 
                 let mut parents: Vec<(String, i32)> =
                     parents_map.get(commit_id).cloned().unwrap_or_default();
@@ -293,7 +256,7 @@ impl Store {
                     commit_id.clone(),
                     change_uuid,
                     parent_ids,
-                    tree,
+                    tree_id.clone(),
                     message.clone(),
                     ts,
                 );
@@ -317,6 +280,7 @@ impl Store {
     async fn save_commit_with_tx(
         conn: &mut SqliteConnection,
         commit: &Commit,
+        tree: Option<&Tree>,
     ) -> Result<(), sqlx::Error> {
         // 1. Check if commit already exists — if so, everything is already saved
         let (commit_exists,): (bool,) =
@@ -329,42 +293,47 @@ impl Store {
             return Ok(());
         }
 
-        // 2. Check if tree already exists (blobs and entries must exist too)
-        let (tree_exists,): (bool,) =
-            sqlx::query_as("SELECT EXISTS(SELECT 1 FROM trees WHERE tree_id = ?)")
-                .bind(commit.tree().id())
-                .fetch_one(&mut *conn)
-                .await?;
+        // 2. Save tree data if provided
+        if let Some(tree) = tree {
+            debug_assert_eq!(tree.id(), commit.tree_id());
 
-        if !tree_exists {
-            // 3. Insert blobs
-            for blob in commit.tree().blobs().values() {
-                sqlx::query(
-                    "INSERT OR IGNORE INTO blobs (blob_id, content, size) VALUES (?, ?, ?)",
-                )
-                .bind(blob.id())
-                .bind(blob.content())
-                .bind(blob.size() as i64)
-                .execute(&mut *conn)
-                .await?;
-            }
+            // Check if tree already exists (blobs and entries must exist too)
+            let (tree_exists,): (bool,) =
+                sqlx::query_as("SELECT EXISTS(SELECT 1 FROM trees WHERE tree_id = ?)")
+                    .bind(tree.id())
+                    .fetch_one(&mut *conn)
+                    .await?;
 
-            // 4. Insert tree
-            sqlx::query("INSERT OR IGNORE INTO trees (tree_id) VALUES (?)")
-                .bind(commit.tree().id())
-                .execute(&mut *conn)
-                .await?;
+            if !tree_exists {
+                // 3. Insert blobs
+                for blob in tree.blobs().values() {
+                    sqlx::query(
+                        "INSERT OR IGNORE INTO blobs (blob_id, content, size) VALUES (?, ?, ?)",
+                    )
+                    .bind(blob.id())
+                    .bind(blob.content())
+                    .bind(blob.size() as i64)
+                    .execute(&mut *conn)
+                    .await?;
+                }
 
-            // 5. Insert tree entries
-            for (path, blob) in commit.tree().blobs() {
-                sqlx::query(
-                    "INSERT OR IGNORE INTO tree_entries (tree_id, path, blob_id) VALUES (?, ?, ?)",
-                )
-                .bind(commit.tree().id())
-                .bind(path)
-                .bind(blob.id())
-                .execute(&mut *conn)
-                .await?;
+                // 4. Insert tree
+                sqlx::query("INSERT OR IGNORE INTO trees (tree_id) VALUES (?)")
+                    .bind(tree.id())
+                    .execute(&mut *conn)
+                    .await?;
+
+                // 5. Insert tree entries
+                for (path, blob) in tree.blobs() {
+                    sqlx::query(
+                        "INSERT OR IGNORE INTO tree_entries (tree_id, path, blob_id) VALUES (?, ?, ?)",
+                    )
+                    .bind(tree.id())
+                    .bind(path)
+                    .bind(blob.id())
+                    .execute(&mut *conn)
+                    .await?;
+                }
             }
         }
 
@@ -386,7 +355,7 @@ impl Store {
         .bind(commit.commit_id())
         .bind(commit.change_id().to_string())
         .bind(timestamp)
-        .bind(commit.tree().id())
+        .bind(commit.tree_id())
         .bind(commit.message())
         .execute(&mut *conn)
         .await?;
@@ -443,55 +412,6 @@ impl Store {
         .await?;
 
         Ok(())
-    }
-
-    async fn save_rewritten_commit_with_tx(
-        conn: &mut SqliteConnection,
-        change_id: &str,
-        parents: &[String],
-        tree_id: &str,
-        message: &str,
-    ) -> Result<String, sqlx::Error> {
-        let timestamp = SystemTime::now();
-        let change_uuid =
-            Uuid::parse_str(change_id).map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-        let commit_id = compute_commit_id(parents, &change_uuid, message, tree_id, timestamp);
-
-        // Insert change (OR IGNORE)
-        sqlx::query("INSERT OR IGNORE INTO changes (change_id) VALUES (?)")
-            .bind(change_id)
-            .execute(&mut *conn)
-            .await?;
-
-        // Insert commit
-        let ts = timestamp
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-        sqlx::query(
-            "INSERT OR IGNORE INTO commits (commit_id, change_id, timestamp, tree_id, message) VALUES (?, ?, ?, ?, ?)",
-        )
-        .bind(&commit_id)
-        .bind(change_id)
-        .bind(ts)
-        .bind(tree_id)
-        .bind(message)
-        .execute(&mut *conn)
-        .await?;
-
-        // Insert parent links
-        for (i, parent_id) in parents.iter().enumerate() {
-            sqlx::query(
-                "INSERT OR IGNORE INTO commit_parents (commit_id, parent_commit_id, parent_order) VALUES (?, ?, ?)",
-            )
-            .bind(&commit_id)
-            .bind(parent_id)
-            .bind(i as i32)
-            .execute(&mut *conn)
-            .await?;
-        }
-
-        Ok(commit_id)
     }
 
     pub fn describe(&self, commit_id: &str, message: String) -> Result<(), sqlx::Error> {
@@ -561,14 +481,16 @@ impl Store {
             let mut tx = self.pool.begin().await?;
 
             // 5. Create rewritten commit with new message
-            let new_commit_id = Self::save_rewritten_commit_with_tx(
-                &mut tx,
-                &change_id,
+            let change_uuid =
+                Uuid::parse_str(&change_id).map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+            let new_commit = Commit::new(
+                change_uuid,
                 &target_parents,
-                &tree_id,
-                &message,
-            )
-            .await?;
+                tree_id.clone(),
+                message.clone(),
+            );
+            let new_commit_id = new_commit.commit_id().to_string();
+            Self::save_commit_with_tx(&mut tx, &new_commit, None).await?;
 
             // 6. Find descendants via forward walk
             // First, gather all ancestors in view for scoping
@@ -693,14 +615,16 @@ impl Store {
                         .map(|p| old_to_new.get(p).cloned().unwrap_or_else(|| p.clone()))
                         .collect();
 
-                    let new_desc_id = Self::save_rewritten_commit_with_tx(
-                        &mut tx,
-                        &d.change_id,
+                    let desc_change_uuid = Uuid::parse_str(&d.change_id)
+                        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+                    let new_desc_commit = Commit::new(
+                        desc_change_uuid,
                         &remapped_parents,
-                        &d.tree_id,
-                        &d.message,
-                    )
-                    .await?;
+                        d.tree_id.clone(),
+                        d.message.clone(),
+                    );
+                    let new_desc_id = new_desc_commit.commit_id().to_string();
+                    Self::save_commit_with_tx(&mut tx, &new_desc_commit, None).await?;
 
                     old_to_new.insert(d.commit_id.clone(), new_desc_id);
                 }
@@ -819,14 +743,12 @@ impl Store {
             }
             revision_order.truncate(n);
 
-            // Collect all commit_ids and tree_ids we need
+            // Collect all commit_ids we need
             let mut needed_commit_ids: Vec<String> = Vec::new();
-            let mut needed_tree_ids: HashSet<String> = HashSet::new();
             for change_id in &revision_order {
                 if let Some(commits) = grouped.get(change_id) {
-                    for (commit_id, _, tree_id, _) in commits {
+                    for (commit_id, _, _, _) in commits {
                         needed_commit_ids.push(commit_id.clone());
-                        needed_tree_ids.insert(tree_id.clone());
                     }
                 }
             }
@@ -857,33 +779,7 @@ impl Store {
                 }
             }
 
-            // 5. Batch-load trees and blobs for needed tree_ids
-            let mut tree_blobs: HashMap<String, HashMap<String, Blob>> = HashMap::new();
-            if !needed_tree_ids.is_empty() {
-                let tree_ids: Vec<&String> = needed_tree_ids.iter().collect();
-                let placeholders: String =
-                    tree_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-                let query = format!(
-                    "SELECT te.tree_id, te.path, b.blob_id, b.content, b.size \
-                     FROM tree_entries te \
-                     JOIN blobs b ON b.blob_id = te.blob_id \
-                     WHERE te.tree_id IN ({placeholders})"
-                );
-                let mut q = sqlx::query_as::<_, (String, String, String, String, i64)>(&query);
-                for id in &tree_ids {
-                    q = q.bind(*id);
-                }
-                let blob_rows: Vec<(String, String, String, String, i64)> =
-                    q.fetch_all(&self.pool).await?;
-                for (tree_id, path, _blob_id, content, _size) in blob_rows {
-                    tree_blobs
-                        .entry(tree_id)
-                        .or_default()
-                        .insert(path, Blob::new(content));
-                }
-            }
-
-            // 6. Reconstruct: Tree → Commit → Revision
+            // 5. Reconstruct Commit → Revision
             let mut revisions = Vec::new();
             for change_id in &revision_order {
                 let Some(commit_entries) = grouped.get(change_id) else {
@@ -897,9 +793,6 @@ impl Store {
                 let mut is_working_copy = false;
 
                 for (commit_id, timestamp, tree_id, message) in commit_entries {
-                    let blobs = tree_blobs.get(tree_id).cloned().unwrap_or_default();
-                    let tree = Tree::new(blobs);
-
                     let mut parents: Vec<(String, i32)> =
                         parents_map.get(commit_id).cloned().unwrap_or_default();
                     parents.sort_by_key(|(_, order)| *order);
@@ -910,7 +803,7 @@ impl Store {
                         commit_id.clone(),
                         change_uuid,
                         parent_ids,
-                        tree,
+                        tree_id.clone(),
                         message.clone(),
                         ts,
                     );
@@ -1073,39 +966,6 @@ impl Store {
                 }
             }
 
-            // Batch-load tree blobs
-            let tree_ids: HashSet<String> = commit_rows
-                .iter()
-                .map(|(_, _, tid, _)| tid.clone())
-                .collect();
-            let mut tree_blobs: HashMap<String, HashMap<String, Blob>> = HashMap::new();
-            if !tree_ids.is_empty() {
-                let tree_id_vec: Vec<&String> = tree_ids.iter().collect();
-                let placeholders: String = tree_id_vec
-                    .iter()
-                    .map(|_| "?")
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let query = format!(
-                    "SELECT te.tree_id, te.path, b.blob_id, b.content, b.size \
-                     FROM tree_entries te \
-                     JOIN blobs b ON b.blob_id = te.blob_id \
-                     WHERE te.tree_id IN ({placeholders})"
-                );
-                let mut q = sqlx::query_as::<_, (String, String, String, String, i64)>(&query);
-                for id in &tree_id_vec {
-                    q = q.bind(*id);
-                }
-                let blob_rows: Vec<(String, String, String, String, i64)> =
-                    q.fetch_all(&self.pool).await?;
-                for (tree_id, path, _blob_id, content, _size) in blob_rows {
-                    tree_blobs
-                        .entry(tree_id)
-                        .or_default()
-                        .insert(path, Blob::new(content));
-                }
-            }
-
             // Reconstruct commits
             let change_uuid =
                 Uuid::parse_str(&change_id).map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
@@ -1115,9 +975,6 @@ impl Store {
             let mut all_parent_ids: Vec<String> = Vec::new();
 
             for (commit_id, timestamp, tree_id, message) in &commit_rows {
-                let blobs = tree_blobs.get(tree_id).cloned().unwrap_or_default();
-                let tree = Tree::new(blobs);
-
                 let mut parents: Vec<(String, i32)> =
                     parents_map.get(commit_id).cloned().unwrap_or_default();
                 parents.sort_by_key(|(_, order)| *order);
@@ -1132,7 +989,7 @@ impl Store {
                     commit_id.clone(),
                     change_uuid,
                     parent_ids,
-                    tree,
+                    tree_id.clone(),
                     message.clone(),
                     ts,
                 );
@@ -1195,39 +1052,6 @@ impl Store {
                     }
                 }
 
-                // Load tree blobs for parent commits
-                let p_tree_ids: HashSet<String> = parent_rows
-                    .iter()
-                    .map(|(_, _, _, tid, _)| tid.clone())
-                    .collect();
-                let mut p_tree_blobs: HashMap<String, HashMap<String, Blob>> = HashMap::new();
-                if !p_tree_ids.is_empty() {
-                    let tree_id_vec: Vec<&String> = p_tree_ids.iter().collect();
-                    let placeholders: String = tree_id_vec
-                        .iter()
-                        .map(|_| "?")
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    let query = format!(
-                        "SELECT te.tree_id, te.path, b.blob_id, b.content, b.size \
-                         FROM tree_entries te \
-                         JOIN blobs b ON b.blob_id = te.blob_id \
-                         WHERE te.tree_id IN ({placeholders})"
-                    );
-                    let mut q = sqlx::query_as::<_, (String, String, String, String, i64)>(&query);
-                    for id in &tree_id_vec {
-                        q = q.bind(*id);
-                    }
-                    let blob_rows: Vec<(String, String, String, String, i64)> =
-                        q.fetch_all(&self.pool).await?;
-                    for (tree_id, path, _blob_id, content, _size) in blob_rows {
-                        p_tree_blobs
-                            .entry(tree_id)
-                            .or_default()
-                            .insert(path, Blob::new(content));
-                    }
-                }
-
                 // Group by change_id and build parent revisions
                 let mut grouped: HashMap<String, Vec<(String, i64, String, String)>> =
                     HashMap::new();
@@ -1256,9 +1080,6 @@ impl Store {
                     let mut p_is_wc = false;
 
                     for (cid, ts, tid, msg) in entries {
-                        let blobs = p_tree_blobs.get(tid).cloned().unwrap_or_default();
-                        let tree = Tree::new(blobs);
-
                         let mut parents: Vec<(String, i32)> =
                             pp_map.get(cid).cloned().unwrap_or_default();
                         parents.sort_by_key(|(_, order)| *order);
@@ -1270,7 +1091,7 @@ impl Store {
                             cid.clone(),
                             p_change_uuid,
                             parent_ids,
-                            tree,
+                            tid.clone(),
                             msg.clone(),
                             timestamp,
                         );
@@ -1315,11 +1136,17 @@ mod tests {
         0x20,
     ]);
 
-    fn make_commit(content: &str, change_id: Uuid) -> Commit {
+    fn make_commit(content: &str, change_id: Uuid) -> (Commit, Tree) {
         let mut blobs = HashMap::new();
         blobs.insert("root".to_string(), Blob::new(content.to_string()));
         let tree = Tree::new(blobs);
-        Commit::new(change_id, &[], tree, "test commit".to_string())
+        let commit = Commit::new(
+            change_id,
+            &[],
+            tree.id().to_string(),
+            "test commit".to_string(),
+        );
+        (commit, tree)
     }
 
     #[test]
@@ -1474,9 +1301,9 @@ mod tests {
     #[test]
     fn test_save_commit() {
         let store = Store::init_memory().unwrap();
-        let commit = make_commit("hello world", CHANGE_1);
+        let (commit, tree) = make_commit("hello world", CHANGE_1);
 
-        store.save_commit(&commit).unwrap();
+        store.save_commit(&commit, Some(&tree)).unwrap();
 
         let (id, change_id, message, timestamp): (String, String, String, i64) = store
             .runtime
@@ -1498,10 +1325,10 @@ mod tests {
     #[test]
     fn test_save_commit_idempotent() {
         let store = Store::init_memory().unwrap();
-        let commit = make_commit("hello world", CHANGE_1);
+        let (commit, tree) = make_commit("hello world", CHANGE_1);
 
-        store.save_commit(&commit).unwrap();
-        store.save_commit(&commit).unwrap();
+        store.save_commit(&commit, Some(&tree)).unwrap();
+        store.save_commit(&commit, Some(&tree)).unwrap();
 
         // 1 root commit + 1 user commit = 2
         let (count,): (i64,) = store
@@ -1515,9 +1342,9 @@ mod tests {
     #[test]
     fn test_save_commit_stores_blobs() {
         let store = Store::init_memory().unwrap();
-        let commit = make_commit("hello world", CHANGE_1);
+        let (commit, tree) = make_commit("hello world", CHANGE_1);
 
-        store.save_commit(&commit).unwrap();
+        store.save_commit(&commit, Some(&tree)).unwrap();
 
         let (blob_id, content, size): (String, String, i64) = store
             .runtime
@@ -1528,7 +1355,7 @@ mod tests {
             )
             .unwrap();
 
-        let expected_blob = commit.tree().get("root").unwrap();
+        let expected_blob = tree.get("root").unwrap();
         assert_eq!(blob_id, expected_blob.id());
         assert_eq!(content, "hello world");
         assert_eq!(size, 11);
@@ -1537,41 +1364,41 @@ mod tests {
     #[test]
     fn test_save_commit_stores_tree_entries() {
         let store = Store::init_memory().unwrap();
-        let commit = make_commit("hello world", CHANGE_1);
+        let (commit, tree) = make_commit("hello world", CHANGE_1);
 
-        store.save_commit(&commit).unwrap();
+        store.save_commit(&commit, Some(&tree)).unwrap();
 
         let (tree_id, path, blob_id): (String, String, String) = store
             .runtime
             .block_on(
                 sqlx::query_as("SELECT tree_id, path, blob_id FROM tree_entries WHERE tree_id = ?")
-                    .bind(commit.tree().id())
+                    .bind(tree.id())
                     .fetch_one(&store.pool),
             )
             .unwrap();
 
-        assert_eq!(tree_id, commit.tree().id());
+        assert_eq!(tree_id, tree.id());
         assert_eq!(path, "root");
-        assert_eq!(blob_id, commit.tree().get("root").unwrap().id());
+        assert_eq!(blob_id, tree.get("root").unwrap().id());
     }
 
     #[test]
     fn test_save_commit_with_parent() {
         let store = Store::init_memory().unwrap();
 
-        let parent = make_commit("v1", CHANGE_1);
-        store.save_commit(&parent).unwrap();
+        let (parent, parent_tree) = make_commit("v1", CHANGE_1);
+        store.save_commit(&parent, Some(&parent_tree)).unwrap();
 
         let mut blobs = HashMap::new();
         blobs.insert("root".to_string(), Blob::new("v2".to_string()));
-        let tree = Tree::new(blobs);
+        let child_tree = Tree::new(blobs);
         let child = Commit::new(
             CHANGE_2,
             &[parent.commit_id().to_string()],
-            tree,
+            child_tree.id().to_string(),
             "child commit".to_string(),
         );
-        store.save_commit(&child).unwrap();
+        store.save_commit(&child, Some(&child_tree)).unwrap();
 
         let (parent_commit_id, parent_order): (String, i32) = store
             .runtime
@@ -1592,7 +1419,8 @@ mod tests {
     fn test_save_operation() {
         let store = Store::init_memory().unwrap();
 
-        let commit = make_commit("hello world", CHANGE_1);
+        let (commit, tree) = make_commit("hello world", CHANGE_1);
+        store.save_commit(&commit, Some(&tree)).unwrap();
         let op_id = Uuid::from_bytes([
             0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae,
             0xaf, 0xb0,
@@ -1661,11 +1489,17 @@ mod tests {
         change_id: Uuid,
         parents: &[String],
         message: &str,
-    ) -> Commit {
+    ) -> (Commit, Tree) {
         let mut blobs = HashMap::new();
         blobs.insert("root".to_string(), Blob::new(content.to_string()));
         let tree = Tree::new(blobs);
-        Commit::new(change_id, parents, tree, message.to_string())
+        let commit = Commit::new(
+            change_id,
+            parents,
+            tree.id().to_string(),
+            message.to_string(),
+        );
+        (commit, tree)
     }
 
     fn make_change_id(byte: u8) -> Uuid {
@@ -1694,23 +1528,25 @@ mod tests {
         let root_id = get_root_commit_id(&store);
 
         // A → B → C
-        let a = make_commit_with_parent("a", make_change_id(0x21), &[root_id], "commit A");
-        store.save_commit(&a).unwrap();
+        let (a, a_tree) =
+            make_commit_with_parent("a", make_change_id(0x21), &[root_id], "commit A");
+        store.save_commit(&a, Some(&a_tree)).unwrap();
 
-        let b = make_commit_with_parent(
+        let (b, b_tree) = make_commit_with_parent(
             "b",
             make_change_id(0x22),
             &[a.commit_id().to_string()],
             "commit B",
         );
-        store.save_commit(&b).unwrap();
+        store.save_commit(&b, Some(&b_tree)).unwrap();
 
-        let c = make_commit_with_parent(
+        let (c, c_tree) = make_commit_with_parent(
             "c",
             make_change_id(0x23),
             &[b.commit_id().to_string()],
             "commit C",
         );
+        store.save_commit(&c, Some(&c_tree)).unwrap();
 
         // Create operation with C as head and working copy
         let op = Operation::new(
@@ -1754,13 +1590,13 @@ mod tests {
         let mut parent_id = root_id;
         let mut last_commit = None;
         for i in 0..5 {
-            let c = make_commit_with_parent(
+            let (c, c_tree) = make_commit_with_parent(
                 &format!("content-{i}"),
                 make_change_id(0x30 + i),
                 &[parent_id],
                 &format!("commit {i}"),
             );
-            store.save_commit(&c).unwrap();
+            store.save_commit(&c, Some(&c_tree)).unwrap();
             parent_id = c.commit_id().to_string();
             last_commit = Some(c);
         }
@@ -1790,18 +1626,21 @@ mod tests {
         let root_id = get_root_commit_id(&store);
 
         // Create two branches from root, then merge
-        let a = make_commit_with_parent("a", make_change_id(0x41), &[root_id.clone()], "branch A");
-        store.save_commit(&a).unwrap();
+        let (a, a_tree) =
+            make_commit_with_parent("a", make_change_id(0x41), &[root_id.clone()], "branch A");
+        store.save_commit(&a, Some(&a_tree)).unwrap();
 
-        let b = make_commit_with_parent("b", make_change_id(0x42), &[root_id], "branch B");
-        store.save_commit(&b).unwrap();
+        let (b, b_tree) =
+            make_commit_with_parent("b", make_change_id(0x42), &[root_id], "branch B");
+        store.save_commit(&b, Some(&b_tree)).unwrap();
 
-        let merge = make_commit_with_parent(
+        let (merge, merge_tree) = make_commit_with_parent(
             "merged",
             make_change_id(0x43),
             &[a.commit_id().to_string(), b.commit_id().to_string()],
             "merge commit",
         );
+        store.save_commit(&merge, Some(&merge_tree)).unwrap();
 
         let op = Operation::new(
             Uuid::now_v7(),
@@ -1836,11 +1675,13 @@ mod tests {
         let store = Store::init_memory().unwrap();
         let root_id = get_root_commit_id(&store);
 
-        let a = make_commit_with_parent("a", make_change_id(0x51), &[root_id.clone()], "commit A");
-        store.save_commit(&a).unwrap();
+        let (a, a_tree) =
+            make_commit_with_parent("a", make_change_id(0x51), &[root_id.clone()], "commit A");
+        store.save_commit(&a, Some(&a_tree)).unwrap();
 
-        let b = make_commit_with_parent("b", make_change_id(0x52), &[root_id], "commit B");
-        store.save_commit(&b).unwrap();
+        let (b, b_tree) =
+            make_commit_with_parent("b", make_change_id(0x52), &[root_id], "commit B");
+        store.save_commit(&b, Some(&b_tree)).unwrap();
 
         // Working copy is A, but both A and B are heads
         let op = Operation::new(
@@ -1881,23 +1722,25 @@ mod tests {
     fn setup_linear_chain(store: &Store) -> (String, Commit, Commit, Commit) {
         let root_id = get_root_commit_id(store);
 
-        let a = make_commit_with_parent("a", make_change_id(0x61), &[root_id.clone()], "commit A");
-        store.save_commit(&a).unwrap();
+        let (a, a_tree) =
+            make_commit_with_parent("a", make_change_id(0x61), &[root_id.clone()], "commit A");
+        store.save_commit(&a, Some(&a_tree)).unwrap();
 
-        let b = make_commit_with_parent(
+        let (b, b_tree) = make_commit_with_parent(
             "b",
             make_change_id(0x62),
             &[a.commit_id().to_string()],
             "commit B",
         );
-        store.save_commit(&b).unwrap();
+        store.save_commit(&b, Some(&b_tree)).unwrap();
 
-        let c = make_commit_with_parent(
+        let (c, c_tree) = make_commit_with_parent(
             "c",
             make_change_id(0x63),
             &[b.commit_id().to_string()],
             "commit C",
         );
+        store.save_commit(&c, Some(&c_tree)).unwrap();
 
         let op = Operation::new(
             Uuid::now_v7(),
@@ -1915,7 +1758,9 @@ mod tests {
         let store = Store::init_memory().unwrap();
         let root_id = get_root_commit_id(&store);
 
-        let a = make_commit_with_parent("a", make_change_id(0x71), &[root_id], "old message");
+        let (a, a_tree) =
+            make_commit_with_parent("a", make_change_id(0x71), &[root_id], "old message");
+        store.save_commit(&a, Some(&a_tree)).unwrap();
 
         let op = Operation::new(
             Uuid::now_v7(),
@@ -1950,7 +1795,9 @@ mod tests {
         let store = Store::init_memory().unwrap();
         let root_id = get_root_commit_id(&store);
 
-        let a = make_commit_with_parent("a", make_change_id(0x71), &[root_id], "same message");
+        let (a, a_tree) =
+            make_commit_with_parent("a", make_change_id(0x71), &[root_id], "same message");
+        store.save_commit(&a, Some(&a_tree)).unwrap();
 
         let op = Operation::new(
             Uuid::now_v7(),
@@ -2025,7 +1872,9 @@ mod tests {
         let store = Store::init_memory().unwrap();
         let root_id = get_root_commit_id(&store);
 
-        let a = make_commit_with_parent("a", make_change_id(0x71), &[root_id], "head commit");
+        let (a, a_tree) =
+            make_commit_with_parent("a", make_change_id(0x71), &[root_id], "head commit");
+        store.save_commit(&a, Some(&a_tree)).unwrap();
 
         let op = Operation::new(
             Uuid::now_v7(),
@@ -2067,8 +1916,9 @@ mod tests {
         let store = Store::init_memory().unwrap();
         let root_id = get_root_commit_id(&store);
 
-        let a = make_commit_with_parent("a", make_change_id(0x81), &[root_id.clone()], "commit A");
-        store.save_commit(&a).unwrap();
+        let (a, a_tree) =
+            make_commit_with_parent("a", make_change_id(0x81), &[root_id.clone()], "commit A");
+        store.save_commit(&a, Some(&a_tree)).unwrap();
 
         let op = Operation::new(
             Uuid::now_v7(),
@@ -2093,8 +1943,9 @@ mod tests {
         let store = Store::init_memory().unwrap();
         let root_id = get_root_commit_id(&store);
 
-        let a = make_commit_with_parent("a", make_change_id(0x82), &[root_id], "commit A");
-        store.save_commit(&a).unwrap();
+        let (a, a_tree) =
+            make_commit_with_parent("a", make_change_id(0x82), &[root_id], "commit A");
+        store.save_commit(&a, Some(&a_tree)).unwrap();
 
         let op = Operation::new(
             Uuid::now_v7(),
@@ -2116,8 +1967,9 @@ mod tests {
         let store = Store::init_memory().unwrap();
         let root_id = get_root_commit_id(&store);
 
-        let a = make_commit_with_parent("a", make_change_id(0x83), &[root_id], "commit A");
-        store.save_commit(&a).unwrap();
+        let (a, a_tree) =
+            make_commit_with_parent("a", make_change_id(0x83), &[root_id], "commit A");
+        store.save_commit(&a, Some(&a_tree)).unwrap();
 
         let op = Operation::new(
             Uuid::now_v7(),
@@ -2141,8 +1993,8 @@ mod tests {
         let root_id = get_root_commit_id(&store);
 
         let change = make_change_id(0x84);
-        let a = make_commit_with_parent("a", change, &[root_id], "commit A");
-        store.save_commit(&a).unwrap();
+        let (a, a_tree) = make_commit_with_parent("a", change, &[root_id], "commit A");
+        store.save_commit(&a, Some(&a_tree)).unwrap();
 
         let op = Operation::new(
             Uuid::now_v7(),
@@ -2165,8 +2017,8 @@ mod tests {
         let root_id = get_root_commit_id(&store);
 
         let change = make_change_id(0x85);
-        let a = make_commit_with_parent("a", change, &[root_id], "commit A");
-        store.save_commit(&a).unwrap();
+        let (a, a_tree) = make_commit_with_parent("a", change, &[root_id], "commit A");
+        store.save_commit(&a, Some(&a_tree)).unwrap();
 
         let op = Operation::new(
             Uuid::now_v7(),
@@ -2191,11 +2043,11 @@ mod tests {
         // Two commits with change_ids sharing prefix "fa"
         let change_a = make_change_id(0xFA);
         let change_b = make_change_id(0xFB);
-        let a = make_commit_with_parent("a", change_a, &[root_id.clone()], "commit A");
-        store.save_commit(&a).unwrap();
+        let (a, a_tree) = make_commit_with_parent("a", change_a, &[root_id.clone()], "commit A");
+        store.save_commit(&a, Some(&a_tree)).unwrap();
 
-        let b = make_commit_with_parent("b", change_b, &[root_id], "commit B");
-        store.save_commit(&b).unwrap();
+        let (b, b_tree) = make_commit_with_parent("b", change_b, &[root_id], "commit B");
+        store.save_commit(&b, Some(&b_tree)).unwrap();
 
         let op = Operation::new(
             Uuid::now_v7(),
@@ -2229,23 +2081,25 @@ mod tests {
         let root_id = get_root_commit_id(&store);
 
         // A → B → C
-        let a = make_commit_with_parent("a", make_change_id(0x86), &[root_id], "commit A");
-        store.save_commit(&a).unwrap();
+        let (a, a_tree) =
+            make_commit_with_parent("a", make_change_id(0x86), &[root_id], "commit A");
+        store.save_commit(&a, Some(&a_tree)).unwrap();
 
-        let b = make_commit_with_parent(
+        let (b, b_tree) = make_commit_with_parent(
             "b",
             make_change_id(0x87),
             &[a.commit_id().to_string()],
             "commit B",
         );
-        store.save_commit(&b).unwrap();
+        store.save_commit(&b, Some(&b_tree)).unwrap();
 
-        let c = make_commit_with_parent(
+        let (c, c_tree) = make_commit_with_parent(
             "c",
             make_change_id(0x88),
             &[b.commit_id().to_string()],
             "commit C",
         );
+        store.save_commit(&c, Some(&c_tree)).unwrap();
 
         let op = Operation::new(
             Uuid::now_v7(),
@@ -2297,7 +2151,9 @@ mod tests {
         let store = Store::init_memory().unwrap();
         let root_id = get_root_commit_id(&store);
 
-        let a = make_commit_with_parent("a", make_change_id(0x91), &[root_id], "commit A");
+        let (a, a_tree) =
+            make_commit_with_parent("a", make_change_id(0x91), &[root_id], "commit A");
+        store.save_commit(&a, Some(&a_tree)).unwrap();
         let op = Operation::new(
             Uuid::now_v7(),
             "snapshot".to_string(),
@@ -2320,11 +2176,13 @@ mod tests {
         let store = Store::init_memory().unwrap();
         let root_id = get_root_commit_id(&store);
 
-        let a = make_commit_with_parent("a", make_change_id(0x92), &[root_id.clone()], "commit A");
-        store.save_commit(&a).unwrap();
+        let (a, a_tree) =
+            make_commit_with_parent("a", make_change_id(0x92), &[root_id.clone()], "commit A");
+        store.save_commit(&a, Some(&a_tree)).unwrap();
 
-        let b = make_commit_with_parent("b", make_change_id(0x93), &[root_id], "commit B");
-        store.save_commit(&b).unwrap();
+        let (b, b_tree) =
+            make_commit_with_parent("b", make_change_id(0x93), &[root_id], "commit B");
+        store.save_commit(&b, Some(&b_tree)).unwrap();
 
         let op = Operation::new(
             Uuid::now_v7(),
@@ -2349,11 +2207,13 @@ mod tests {
         let store = Store::init_memory().unwrap();
         let root_id = get_root_commit_id(&store);
 
-        let a = make_commit_with_parent("a", make_change_id(0x94), &[root_id.clone()], "commit A");
-        store.save_commit(&a).unwrap();
+        let (a, a_tree) =
+            make_commit_with_parent("a", make_change_id(0x94), &[root_id.clone()], "commit A");
+        store.save_commit(&a, Some(&a_tree)).unwrap();
 
-        let b = make_commit_with_parent("b", make_change_id(0x95), &[root_id], "commit B");
-        store.save_commit(&b).unwrap();
+        let (b, b_tree) =
+            make_commit_with_parent("b", make_change_id(0x95), &[root_id], "commit B");
+        store.save_commit(&b, Some(&b_tree)).unwrap();
 
         // Working copy is A, heads include both A and B
         let op = Operation::new(
