@@ -460,6 +460,8 @@ impl Store {
                     commits.push(commit);
                 }
 
+                commits.sort_by_key(|c| !head_set.contains(c.commit_id()));
+
                 revisions.push(Revision::new(commits, is_head, is_working_copy));
             }
 
