@@ -13,6 +13,7 @@ fn build_std() -> Result<CheckedPackage, String> {
         .with_module("bigint", include_str!("std/bigint.zy"))
         .with_module("dict", include_str!("std/dict.zy"))
         .with_module("float", include_str!("std/float.zy"))
+        .with_module("http", include_str!("std/http.zy"))
         .with_module("int", include_str!("std/int.zy"))
         .with_module("io", include_str!("std/io.zy"))
         .with_module("json", include_str!("std/json.zy"))
@@ -588,6 +589,84 @@ mod tests {
             pkg.definitions.contains_key(&path),
             "Set should be re-exported in prelude module"
         );
+    }
+
+    #[test]
+    fn test_std_has_http_module() {
+        let pkg = std();
+        let http_path = QualifiedPath::root().child("http");
+        assert!(
+            pkg.definitions.contains_key(&http_path),
+            "http module should exist"
+        );
+    }
+
+    #[test]
+    fn test_std_has_method_enum() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("http").child("Method");
+        let def = pkg.definitions.get(&path).expect("Method definition");
+        assert!(matches!(def, Definition::Enum(_)));
+    }
+
+    #[test]
+    fn test_std_has_method_variants() {
+        let pkg = std();
+        let method_path = QualifiedPath::root().child("http").child("Method");
+        for name in &["Get", "Post", "Put", "Patch", "Delete", "Head", "Options"] {
+            let path = method_path.child(name);
+            assert!(
+                pkg.definitions.contains_key(&path),
+                "{} variant should exist in Method enum",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn test_std_has_body_enum() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("http").child("Body");
+        let def = pkg.definitions.get(&path).expect("Body definition");
+        assert!(matches!(def, Definition::Enum(_)));
+    }
+
+    #[test]
+    fn test_std_has_body_variants() {
+        let pkg = std();
+        let body_path = QualifiedPath::root().child("http").child("Body");
+        for name in &["Text", "Json"] {
+            let path = body_path.child(name);
+            assert!(
+                pkg.definitions.contains_key(&path),
+                "{} variant should exist in Body enum",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn test_std_has_request_struct() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("http").child("Request");
+        let def = pkg.definitions.get(&path).expect("Request definition");
+        assert!(matches!(def, Definition::Struct(_)));
+    }
+
+    #[test]
+    fn test_std_has_response_struct() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("http").child("Response");
+        let def = pkg.definitions.get(&path).expect("Response definition");
+        assert!(matches!(def, Definition::Struct(_)));
+    }
+
+    #[test]
+    fn test_std_has_headers_type_alias() {
+        let pkg = std();
+        let path = QualifiedPath::root().child("http").child("Headers");
+        let def = pkg.definitions.get(&path).expect("Headers definition");
+        assert!(matches!(def, Definition::TypeAlias(_)));
     }
 
     #[test]

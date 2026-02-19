@@ -1,6 +1,7 @@
 pub mod bigint
 pub mod dict
 pub mod float
+pub mod http
 pub mod int
 pub mod io
 pub mod json

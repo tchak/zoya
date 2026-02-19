@@ -1,0 +1,12 @@
+use super::json::JSON
+use super::option::Option
+
+pub type Headers = Dict<String, String>
+
+pub enum Method { Get, Post, Put, Patch, Delete, Head, Options }
+
+pub enum Body { Text(String), Json(JSON) }
+
+pub struct Request { url: String, method: Method, body: Option<Body>, headers: Headers }
+
+pub struct Response { body: Option<Body>, status: Int, headers: Headers }

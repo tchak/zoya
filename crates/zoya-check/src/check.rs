@@ -2953,6 +2953,34 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
         }
     }
 
+    // Early import pass (pre-types): resolve internal imports that target
+    // type names registered in Pass 1.  This ensures that cross-module type
+    // references (e.g., `use super::json::JSON`) are available when enum
+    // variants and struct fields are resolved in Pass 2.
+    // Imports that fail (e.g., targeting not-yet-registered items) are
+    // silently skipped — they will be retried below.
+    for path in &module_paths {
+        if let Some(module) = pkg.modules.get(path) {
+            for item in &module.items {
+                if let Item::Use(u) = item
+                    && u.visibility == zoya_ast::Visibility::Private
+                    && !matches!(u.path.prefix, zoya_ast::PathPrefix::Package(_))
+                    && let Ok(item_imports) = resolve_module_imports(
+                        std::slice::from_ref(u),
+                        path,
+                        &env.definitions,
+                        &env.reexports,
+                    )
+                {
+                    env.imports
+                        .entry(path.clone())
+                        .or_default()
+                        .extend(item_imports);
+                }
+            }
+        }
+    }
+
     // Pass 2: Resolve struct fields, enum variants, type aliases
     for path in &module_paths {
         if let Some(module) = pkg.modules.get(path) {
@@ -2960,12 +2988,13 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
         }
     }
 
-    // Early import pass: resolve internal imports that target types.
-    // This runs before function signatures are registered (Pass 3) so that
-    // `use super::result::Result` etc. are available in type annotations.
-    // Each use is resolved individually; imports that fail (e.g., targeting
-    // not-yet-registered functions) are silently skipped — they will be
-    // resolved in the full import pass after Pass 3.
+    // Early import pass (post-types): resolve internal imports that target
+    // fully resolved types.  This runs before function signatures are
+    // registered (Pass 3) so that `use super::result::Result` etc. are
+    // available in type annotations.  Each use is resolved individually;
+    // imports that fail (e.g., targeting not-yet-registered functions) are
+    // silently skipped — they will be resolved in the full import pass
+    // after Pass 3.
     for path in &module_paths {
         if let Some(module) = pkg.modules.get(path) {
             for item in &module.items {
@@ -3183,6 +3212,16 @@ fn resolve_type_definitions(
     env: &mut TypeEnv,
     ctx: &mut UnifyCtx,
 ) -> Result<(), TypeError> {
+    // Register type aliases first so they are available in struct fields
+    // and enum variants within the same module.
+    for item in items {
+        if let Item::TypeAlias(def) = item {
+            let qualified_path = current_module.child(&def.name);
+            let alias_type = type_alias_from_def(def, current_module, env, ctx)?;
+            env.register(qualified_path, Definition::TypeAlias(alias_type));
+        }
+    }
+
     // Resolve struct field types
     for item in items {
         if let Item::Struct(def) = item {
@@ -3205,15 +3244,6 @@ fn resolve_type_definitions(
                     Definition::EnumVariant(enum_type.clone(), variant.clone()),
                 );
             }
-        }
-    }
-
-    // Register type aliases
-    for item in items {
-        if let Item::TypeAlias(def) = item {
-            let qualified_path = current_module.child(&def.name);
-            let alias_type = type_alias_from_def(def, current_module, env, ctx)?;
-            env.register(qualified_path, Definition::TypeAlias(alias_type));
         }
     }
 

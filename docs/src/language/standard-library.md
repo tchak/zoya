@@ -446,6 +446,84 @@ use std::io::println
 println("Hello from std::io!")
 ```
 
+## `std::http`
+
+Types for representing HTTP requests and responses. Must be imported explicitly.
+
+### `Headers`
+
+Type alias for `Dict<String, String>`.
+
+### `Method`
+
+Represents an HTTP method.
+
+| Variant | Description |
+|---------|-------------|
+| `Get` | HTTP GET |
+| `Post` | HTTP POST |
+| `Put` | HTTP PUT |
+| `Patch` | HTTP PATCH |
+| `Delete` | HTTP DELETE |
+| `Head` | HTTP HEAD |
+| `Options` | HTTP OPTIONS |
+
+### `Body`
+
+Represents an HTTP body, either plain text or JSON.
+
+| Variant | Description |
+|---------|-------------|
+| `Text(String)` | Plain text body |
+| `Json(JSON)` | JSON body (uses `JSON` from `std::json`) |
+
+### `Request`
+
+Represents an HTTP request.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `url` | `String` | The request URL |
+| `method` | `Method` | The HTTP method |
+| `body` | `Option<Body>` | Optional request body |
+| `headers` | `Headers` | Request headers |
+
+### `Response`
+
+Represents an HTTP response.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `body` | `Option<Body>` | Optional response body |
+| `status` | `Int` | HTTP status code |
+| `headers` | `Headers` | Response headers |
+
+```zoya
+use std::http::{Request, Response, Method, Body, Headers}
+use std::json::JSON
+
+let headers = Dict::from([("Content-Type", "application/json")])
+
+let request = Request {
+    url: "https://api.example.com/data",
+    method: Method::Get,
+    body: None,
+    headers: headers,
+}
+
+let response = Response {
+    body: Some(Body::Json(JSON::String("hello"))),
+    status: 200,
+    headers: Dict::new(),
+}
+
+match response.body {
+    Some(Body::Json(json)) => json.to_string(),
+    Some(Body::Text(text)) => text,
+    None => "",
+}
+```
+
 ## `std::json`
 
 Types for representing arbitrary JSON data structures. Must be imported explicitly.
