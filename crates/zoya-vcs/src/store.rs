@@ -177,58 +177,15 @@ impl Store {
                 }
             }
 
-            // 4. Batch-load commit metadata
-            let placeholders: String = all_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-            let query = format!(
-                "SELECT commit_id, change_id, timestamp, tree_id, message \
-                 FROM commits WHERE commit_id IN ({placeholders})"
-            );
-            let mut q = sqlx::query_as::<_, (String, String, i64, String, String)>(&query);
-            for id in &all_ids {
-                q = q.bind(id);
-            }
-            let commit_rows: Vec<(String, String, i64, String, String)> =
-                q.fetch_all(&self.pool).await?;
-
-            // 5. Batch-load parents
-            let mut parents_map: HashMap<String, Vec<(String, i32)>> = HashMap::new();
-            {
-                let query = format!(
-                    "SELECT commit_id, parent_commit_id, parent_order \
-                     FROM commit_parents WHERE commit_id IN ({placeholders}) \
-                     ORDER BY commit_id, parent_order"
-                );
-                let mut q = sqlx::query_as::<_, (String, String, i32)>(&query);
-                for id in &all_ids {
-                    q = q.bind(id);
-                }
-                let rows: Vec<(String, String, i32)> = q.fetch_all(&self.pool).await?;
-                for (commit_id, parent_commit_id, parent_order) in rows {
-                    parents_map
-                        .entry(commit_id)
-                        .or_default()
-                        .push((parent_commit_id, parent_order));
-                }
-            }
-
-            // 6. Reconstruct Commit objects
-            let mut commit_map: HashMap<String, Commit> = HashMap::new();
-            for (commit_id, change_id, timestamp, tree_id, message) in &commit_rows {
-                let mut parents: Vec<(String, i32)> =
-                    parents_map.get(commit_id).cloned().unwrap_or_default();
-                parents.sort_by_key(|(_, order)| *order);
-                let parent_ids: Vec<String> = parents.into_iter().map(|(id, _)| id).collect();
-
-                let commit = Commit::restore(
-                    commit_id.clone(),
-                    change_id.clone(),
-                    parent_ids,
-                    tree_id.clone(),
-                    message.clone(),
-                    *timestamp as u64,
-                );
-                commit_map.insert(commit_id.clone(), commit);
-            }
+            // 4. Batch-load commits
+            let all_refs: Vec<&str> = all_ids.iter().map(|s| s.as_str()).collect();
+            let mut conn = self.pool.acquire().await?;
+            let commits = find_commits(&mut conn, &all_refs).await?;
+            drop(conn);
+            let commit_map: HashMap<String, Commit> = commits
+                .into_iter()
+                .map(|c| (c.commit_id().to_string(), c))
+                .collect();
 
             // 8. Build View
             let working_copy = commit_map
@@ -349,42 +306,37 @@ impl Store {
             .collect();
 
         self.runtime.block_on(async {
-            let head_placeholders: String = head_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+            let head_placeholders: String =
+                head_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
 
-            // Load target commit metadata
-            let (change_id, tree_id, existing_message): (String, String, String) = sqlx::query_as(
-                "SELECT change_id, tree_id, message FROM commits WHERE commit_id = ?",
-            )
-            .bind(commit_id)
-            .fetch_one(&self.pool)
-            .await?;
+            // Load target commit
+            let mut conn = self.pool.acquire().await?;
+            let target_commits = find_commits(&mut conn, &[commit_id]).await?;
+            drop(conn);
+            let target = target_commits
+                .into_iter()
+                .next()
+                .ok_or(sqlx::Error::RowNotFound)?;
 
             // 4. Early return if message unchanged
-            if existing_message == message {
+            if target.message() == message {
                 return Ok(view.working_copy().clone());
             }
 
-            let parent_rows: Vec<(String, i32)> = sqlx::query_as(
-                "SELECT parent_commit_id, parent_order FROM commit_parents WHERE commit_id = ? ORDER BY parent_order",
-            )
-            .bind(commit_id)
-            .fetch_all(&self.pool)
-            .await?;
-            let target_parents: Vec<String> = parent_rows.into_iter().map(|(id, _)| id).collect();
-
             let mut tx = self.pool.begin().await?;
+            let target_parents: Vec<String> =
+                target.parents().iter().map(|p| p.to_string()).collect();
 
             // 5. Create rewritten commit with new message
             let new_commit = Commit::new(
-                change_id,
+                target.change_id().to_string(),
                 &target_parents,
-                tree_id.clone(),
+                target.tree_id().to_string(),
                 message.clone(),
             );
             Self::save_commit_with_tx(&mut tx, &new_commit, None).await?;
 
             // 6. Find descendants via forward walk
-            // First, gather all ancestors in view for scoping
             let descendant_query = format!(
                 "WITH RECURSIVE ancestors AS ( \
                      SELECT c.commit_id \
@@ -395,79 +347,55 @@ impl Store {
                      FROM ancestors a \
                      JOIN commit_parents cp ON cp.commit_id = a.commit_id \
                  ) \
-                 SELECT cp.commit_id, c.change_id, c.tree_id, c.message \
+                 SELECT cp.commit_id \
                  FROM commit_parents cp \
-                 JOIN commits c ON c.commit_id = cp.commit_id \
                  WHERE cp.parent_commit_id = ? \
                  AND cp.commit_id IN (SELECT commit_id FROM ancestors)"
             );
 
-            // BFS to find all descendants
-            struct DescendantInfo {
-                commit_id: String,
-                change_id: String,
-                tree_id: String,
-                message: String,
-                parents: Vec<String>,
-            }
-
             let mut old_to_new: HashMap<String, Commit> = HashMap::new();
             old_to_new.insert(commit_id.to_string(), new_commit.clone());
 
-            // Collect all descendants with their info
-            let mut descendants: Vec<DescendantInfo> = Vec::new();
+            // BFS to collect descendant IDs
+            let mut descendant_ids: Vec<String> = Vec::new();
             let mut descendant_set: HashSet<String> = HashSet::new();
             let mut queue: VecDeque<String> = VecDeque::new();
             queue.push_back(commit_id.to_string());
 
             while let Some(parent) = queue.pop_front() {
-                // Find children of this parent within the view
-                let mut q = sqlx::query_as::<_, (String, String, String, String)>(&descendant_query);
+                let mut q = sqlx::query_as::<_, (String,)>(&descendant_query);
                 for head_id in &head_ids {
                     q = q.bind(head_id);
                 }
                 q = q.bind(&parent);
-                let children: Vec<(String, String, String, String)> = q.fetch_all(&mut *tx).await?;
+                let children: Vec<(String,)> = q.fetch_all(&mut *tx).await?;
 
-                for (child_id, child_change_id, child_tree_id, child_message) in children {
+                for (child_id,) in children {
                     if descendant_set.insert(child_id.clone()) {
-                        // Load this child's parents
-                        let child_parent_rows: Vec<(String, i32)> = sqlx::query_as(
-                            "SELECT parent_commit_id, parent_order FROM commit_parents WHERE commit_id = ? ORDER BY parent_order",
-                        )
-                        .bind(&child_id)
-                        .fetch_all(&mut *tx)
-                        .await?;
-                        let child_parents: Vec<String> =
-                            child_parent_rows.into_iter().map(|(id, _)| id).collect();
-
-                        descendants.push(DescendantInfo {
-                            commit_id: child_id.clone(),
-                            change_id: child_change_id,
-                            tree_id: child_tree_id,
-                            message: child_message,
-                            parents: child_parents,
-                        });
+                        descendant_ids.push(child_id.clone());
                         queue.push_back(child_id);
                     }
                 }
             }
 
+            // Load all descendant commits
+            let desc_refs: Vec<&str> = descendant_ids.iter().map(|s| s.as_str()).collect();
+            let descendants = find_commits(&mut tx, &desc_refs).await?;
+
             // 7. Topological sort (Kahn's algorithm)
             if !descendants.is_empty() {
-                // Build in-degree map within descendant set
-                let desc_ids: HashSet<&str> = descendants.iter().map(|d| d.commit_id.as_str()).collect();
+                let desc_ids: HashSet<&str> = descendants.iter().map(|d| d.commit_id()).collect();
                 let mut in_degree: HashMap<&str, usize> = HashMap::new();
                 let mut dependents: HashMap<&str, Vec<usize>> = HashMap::new();
 
                 for (i, d) in descendants.iter().enumerate() {
                     let deg = d
-                        .parents
+                        .parents()
                         .iter()
                         .filter(|p| desc_ids.contains(p.as_str()))
                         .count();
-                    in_degree.insert(&d.commit_id, deg);
-                    for p in &d.parents {
+                    in_degree.insert(d.commit_id(), deg);
+                    for p in d.parents() {
                         if desc_ids.contains(p.as_str()) {
                             dependents.entry(p.as_str()).or_default().push(i);
                         }
@@ -477,17 +405,17 @@ impl Store {
                 let mut topo_order: Vec<usize> = Vec::new();
                 let mut ready: VecDeque<usize> = VecDeque::new();
                 for (i, d) in descendants.iter().enumerate() {
-                    if in_degree[d.commit_id.as_str()] == 0 {
+                    if in_degree[d.commit_id()] == 0 {
                         ready.push_back(i);
                     }
                 }
 
                 while let Some(idx) = ready.pop_front() {
                     topo_order.push(idx);
-                    let cid = descendants[idx].commit_id.as_str();
+                    let cid = descendants[idx].commit_id();
                     if let Some(deps) = dependents.get(cid) {
                         for &dep_idx in deps {
-                            let dep_cid = descendants[dep_idx].commit_id.as_str();
+                            let dep_cid = descendants[dep_idx].commit_id();
                             let deg = in_degree.get_mut(dep_cid).unwrap();
                             *deg -= 1;
                             if *deg == 0 {
@@ -501,25 +429,25 @@ impl Store {
                 for idx in topo_order {
                     let d = &descendants[idx];
                     let remapped_parents: Vec<String> = d
-                        .parents
+                        .parents()
                         .iter()
                         .map(|p| {
                             old_to_new
-                                .get(p)
+                                .get(p.as_str())
                                 .map(|c| c.commit_id().to_string())
                                 .unwrap_or_else(|| p.clone())
                         })
                         .collect();
 
                     let new_desc_commit = Commit::new(
-                        d.change_id.clone(),
+                        d.change_id().to_string(),
                         &remapped_parents,
-                        d.tree_id.clone(),
-                        d.message.clone(),
+                        d.tree_id().to_string(),
+                        d.message().to_string(),
                     );
                     Self::save_commit_with_tx(&mut tx, &new_desc_commit, None).await?;
 
-                    old_to_new.insert(d.commit_id.clone(), new_desc_commit);
+                    old_to_new.insert(d.commit_id().to_string(), new_desc_commit);
                 }
             }
 
@@ -540,8 +468,10 @@ impl Store {
                 .collect();
 
             let new_wc_id = new_working_copy.commit_id().to_string();
-            let new_head_ids: Vec<String> =
-                new_heads.iter().map(|h| h.commit_id().to_string()).collect();
+            let new_head_ids: Vec<String> = new_heads
+                .iter()
+                .map(|h| h.commit_id().to_string())
+                .collect();
             let new_head_refs: Vec<&str> = new_head_ids.iter().map(|s| s.as_str()).collect();
             save_operation_with_tx(&mut tx, "describe", &new_wc_id, &new_head_refs).await?;
 
@@ -637,75 +567,39 @@ impl Store {
             }
             revision_order.truncate(n);
 
-            // Collect all commit_ids we need
-            let mut needed_commit_ids: Vec<String> = Vec::new();
-            for change_id in &revision_order {
-                if let Some(commits) = grouped.get(change_id) {
-                    for (commit_id, _, _, _) in commits {
-                        needed_commit_ids.push(commit_id.clone());
-                    }
-                }
-            }
+            // Collect all commit_ids we need and load them
+            let needed_ids: Vec<&str> = revision_order
+                .iter()
+                .flat_map(|cid| grouped.get(cid).into_iter().flatten())
+                .map(|(commit_id, ..)| commit_id.as_str())
+                .collect();
+            let mut conn = self.pool.acquire().await?;
+            let loaded = find_commits(&mut conn, &needed_ids).await?;
+            drop(conn);
+            let mut commit_map: HashMap<String, Commit> = loaded
+                .into_iter()
+                .map(|c| (c.commit_id().to_string(), c))
+                .collect();
 
-            // 4. Batch-load parents for needed commits
-            let mut parents_map: HashMap<String, Vec<(String, i32)>> = HashMap::new();
-            if !needed_commit_ids.is_empty() {
-                let placeholders: String = needed_commit_ids
-                    .iter()
-                    .map(|_| "?")
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let query = format!(
-                    "SELECT commit_id, parent_commit_id, parent_order \
-                     FROM commit_parents WHERE commit_id IN ({placeholders}) \
-                     ORDER BY commit_id, parent_order"
-                );
-                let mut q = sqlx::query_as::<_, (String, String, i32)>(&query);
-                for id in &needed_commit_ids {
-                    q = q.bind(id);
-                }
-                let parent_rows: Vec<(String, String, i32)> = q.fetch_all(&self.pool).await?;
-                for (commit_id, parent_commit_id, parent_order) in parent_rows {
-                    parents_map
-                        .entry(commit_id)
-                        .or_default()
-                        .push((parent_commit_id, parent_order));
-                }
-            }
-
-            // 5. Reconstruct Commit → Revision
+            // 5. Build Revisions
             let mut revisions = Vec::new();
             for change_id in &revision_order {
-                let Some(commit_entries) = grouped.get(change_id) else {
+                let Some(entries) = grouped.get(change_id) else {
                     continue;
                 };
-
-                let mut commits = Vec::new();
-
-                for (commit_id, timestamp, tree_id, message) in commit_entries {
-                    let mut parents: Vec<(String, i32)> =
-                        parents_map.get(commit_id).cloned().unwrap_or_default();
-                    parents.sort_by_key(|(_, order)| *order);
-                    let parent_ids: Vec<String> = parents.into_iter().map(|(id, _)| id).collect();
-
-                    let commit = Commit::restore(
-                        commit_id.clone(),
-                        change_id.clone(),
-                        parent_ids,
-                        tree_id.clone(),
-                        message.clone(),
-                        *timestamp as u64,
-                    );
-
-                    commits.push(commit);
+                let commits: Vec<Commit> = entries
+                    .iter()
+                    .filter_map(|(id, ..)| commit_map.remove(id))
+                    .collect();
+                if !commits.is_empty() {
+                    revisions.push(Revision::new(commits, &view));
                 }
-
-                revisions.push(Revision::new(commits, &view));
             }
 
             Ok(revisions)
         })
     }
+
     pub fn revision(&self, query: RevisionQuery) -> Result<Revision, sqlx::Error> {
         let view = self.view()?;
         let working_copy_commit_id = view.working_copy().commit_id().to_string();
@@ -789,49 +683,9 @@ impl Store {
 
             let commit_ids: Vec<String> = commit_rows.iter().map(|(id, ..)| id.clone()).collect();
 
-            // Batch-load parents
-            let mut parents_map: HashMap<String, Vec<(String, i32)>> = HashMap::new();
-            if !commit_ids.is_empty() {
-                let placeholders: String = commit_ids
-                    .iter()
-                    .map(|_| "?")
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let query = format!(
-                    "SELECT commit_id, parent_commit_id, parent_order \
-                     FROM commit_parents WHERE commit_id IN ({placeholders}) \
-                     ORDER BY commit_id, parent_order"
-                );
-                let mut q = sqlx::query_as::<_, (String, String, i32)>(&query);
-                for id in &commit_ids {
-                    q = q.bind(id);
-                }
-                let rows: Vec<(String, String, i32)> = q.fetch_all(&self.pool).await?;
-                for (cid, pid, order) in rows {
-                    parents_map.entry(cid).or_default().push((pid, order));
-                }
-            }
-
-            // Reconstruct commits
-            let mut commits = Vec::new();
-
-            for (commit_id, timestamp, tree_id, message) in &commit_rows {
-                let mut parents: Vec<(String, i32)> =
-                    parents_map.get(commit_id).cloned().unwrap_or_default();
-                parents.sort_by_key(|(_, order)| *order);
-                let parent_ids: Vec<String> = parents.into_iter().map(|(id, _)| id).collect();
-
-                let commit = Commit::restore(
-                    commit_id.clone(),
-                    change_id.clone(),
-                    parent_ids,
-                    tree_id.clone(),
-                    message.clone(),
-                    *timestamp as u64,
-                );
-
-                commits.push(commit);
-            }
+            let id_refs: Vec<&str> = commit_ids.iter().map(|s| s.as_str()).collect();
+            let mut conn = self.pool.acquire().await?;
+            let commits = find_commits(&mut conn, &id_refs).await?;
 
             Ok(Revision::new(commits, &view))
         })
@@ -912,89 +766,93 @@ impl Store {
         }
 
         self.runtime.block_on(async {
-            let placeholders: String = parent_commit_ids
-                .iter()
-                .map(|_| "?")
-                .collect::<Vec<_>>()
-                .join(", ");
+            let parent_refs: Vec<&str> = parent_commit_ids.iter().map(|s| s.as_str()).collect();
+            let mut conn = self.pool.acquire().await?;
+            let commits = find_commits(&mut conn, &parent_refs).await?;
 
-            // Load parent commit data
-            let query = format!(
-                "SELECT commit_id, change_id, timestamp, tree_id, message \
-                 FROM commits WHERE commit_id IN ({placeholders})"
-            );
-            let mut q = sqlx::query_as::<_, (String, String, i64, String, String)>(&query);
-            for id in &parent_commit_ids {
-                q = q.bind(id);
-            }
-            let parent_rows: Vec<(String, String, i64, String, String)> =
-                q.fetch_all(&self.pool).await?;
-
-            // Load parents of parent commits
-            let mut pp_map: HashMap<String, Vec<(String, i32)>> = HashMap::new();
-            {
-                let query = format!(
-                    "SELECT commit_id, parent_commit_id, parent_order \
-                     FROM commit_parents WHERE commit_id IN ({placeholders}) \
-                     ORDER BY commit_id, parent_order"
-                );
-                let mut q = sqlx::query_as::<_, (String, String, i32)>(&query);
-                for id in &parent_commit_ids {
-                    q = q.bind(id);
-                }
-                let rows: Vec<(String, String, i32)> = q.fetch_all(&self.pool).await?;
-                for (cid, pid, order) in rows {
-                    pp_map.entry(cid).or_default().push((pid, order));
-                }
-            }
-
-            // Group by change_id and build parent revisions
-            let mut grouped: HashMap<String, Vec<(String, i64, String, String)>> = HashMap::new();
+            let mut grouped: HashMap<String, Vec<Commit>> = HashMap::new();
             let mut change_order: Vec<String> = Vec::new();
-            for (cid, change_id, ts, tid, msg) in &parent_rows {
-                if !grouped.contains_key(change_id) {
-                    change_order.push(change_id.clone());
+            for commit in commits {
+                let cid = commit.change_id().to_string();
+                if !grouped.contains_key(&cid) {
+                    change_order.push(cid.clone());
                 }
-                grouped.entry(change_id.clone()).or_default().push((
-                    cid.clone(),
-                    *ts,
-                    tid.clone(),
-                    msg.clone(),
-                ));
+                grouped.entry(cid).or_default().push(commit);
             }
 
-            let mut parent_revisions = Vec::new();
-            for p_change_id in &change_order {
-                let Some(entries) = grouped.get(p_change_id) else {
-                    continue;
-                };
-
-                let mut p_commits = Vec::new();
-
-                for (cid, ts, tid, msg) in entries {
-                    let mut parents: Vec<(String, i32)> =
-                        pp_map.get(cid).cloned().unwrap_or_default();
-                    parents.sort_by_key(|(_, order)| *order);
-                    let parent_ids: Vec<String> = parents.into_iter().map(|(id, _)| id).collect();
-
-                    let commit = Commit::restore(
-                        cid.clone(),
-                        p_change_id.clone(),
-                        parent_ids,
-                        tid.clone(),
-                        msg.clone(),
-                        *ts as u64,
-                    );
-
-                    p_commits.push(commit);
-                }
-
-                parent_revisions.push(Revision::new(p_commits, &view));
-            }
-
-            Ok(parent_revisions)
+            let revisions = change_order
+                .into_iter()
+                .filter_map(|cid| grouped.remove(&cid).map(|c| Revision::new(c, &view)))
+                .collect();
+            Ok(revisions)
         })
     }
+}
+
+async fn find_commits(
+    conn: &mut SqliteConnection,
+    commit_ids: &[&str],
+) -> Result<Vec<Commit>, sqlx::Error> {
+    if commit_ids.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let placeholders: String = commit_ids
+        .iter()
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    // Query 1: commit metadata
+    let query = format!(
+        "SELECT commit_id, change_id, timestamp, tree_id, message \
+         FROM commits WHERE commit_id IN ({placeholders})"
+    );
+    let mut q = sqlx::query_as::<_, (String, String, i64, String, String)>(&query);
+    for id in commit_ids {
+        q = q.bind(id);
+    }
+    let commit_rows: Vec<(String, String, i64, String, String)> = q.fetch_all(&mut *conn).await?;
+
+    // Query 2: parents
+    let mut parents_map: HashMap<String, Vec<(String, i32)>> = HashMap::new();
+    {
+        let query = format!(
+            "SELECT commit_id, parent_commit_id, parent_order \
+             FROM commit_parents WHERE commit_id IN ({placeholders}) \
+             ORDER BY commit_id, parent_order"
+        );
+        let mut q = sqlx::query_as::<_, (String, String, i32)>(&query);
+        for id in commit_ids {
+            q = q.bind(id);
+        }
+        let rows: Vec<(String, String, i32)> = q.fetch_all(&mut *conn).await?;
+        for (commit_id, parent_commit_id, parent_order) in rows {
+            parents_map
+                .entry(commit_id)
+                .or_default()
+                .push((parent_commit_id, parent_order));
+        }
+    }
+
+    // Reconstruct Commit objects
+    let mut commits = Vec::new();
+    for (commit_id, change_id, timestamp, tree_id, message) in commit_rows {
+        let mut parents: Vec<(String, i32)> = parents_map.remove(&commit_id).unwrap_or_default();
+        parents.sort_by_key(|(_, order)| *order);
+        let parent_ids: Vec<String> = parents.into_iter().map(|(id, _)| id).collect();
+
+        commits.push(Commit::restore(
+            commit_id,
+            change_id,
+            parent_ids,
+            tree_id,
+            message,
+            timestamp as u64,
+        ));
+    }
+
+    Ok(commits)
 }
 
 async fn save_operation_with_tx(
