@@ -614,12 +614,10 @@ impl Store {
             // 1. Resolve query to change_id
             let resolved: Vec<(String, String)> = match query {
                 RevisionQuery::WorkingCopy => {
-                    let (change_id,): (String,) =
-                        sqlx::query_as("SELECT change_id FROM commits WHERE commit_id = ?")
-                            .bind(&working_copy_commit_id)
-                            .fetch_one(&self.pool)
-                            .await?;
-                    vec![(working_copy_commit_id.clone(), change_id)]
+                    vec![(
+                        working_copy_commit_id.clone(),
+                        view.working_copy().change_id().to_string(),
+                    )]
                 }
                 RevisionQuery::Id(prefix) => {
                     let query_str = format!(
