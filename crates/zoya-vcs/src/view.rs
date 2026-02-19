@@ -13,7 +13,7 @@ impl View {
         assert!(!heads.is_empty(), "heads must not be empty");
         let view_id = view_id.unwrap_or_else(|| {
             let head_ids: Vec<&str> = heads.iter().map(|c| c.commit_id()).collect();
-            compute_view_id(working_copy.commit_id(), &head_ids)
+            crate::utils::compute_view_id(working_copy.commit_id(), &head_ids)
         });
         View {
             view_id,
@@ -33,15 +33,4 @@ impl View {
     pub fn heads(&self) -> &[Commit] {
         &self.heads
     }
-}
-
-pub(crate) fn compute_view_id(working_copy_commit_id: &str, head_commit_ids: &[&str]) -> String {
-    let mut sorted_ids: Vec<&str> = head_commit_ids.to_vec();
-    sorted_ids.sort();
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(working_copy_commit_id.as_bytes());
-    for id in &sorted_ids {
-        hasher.update(id.as_bytes());
-    }
-    hasher.finalize().to_hex().to_string()
 }

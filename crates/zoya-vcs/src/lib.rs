@@ -5,6 +5,7 @@ mod merge;
 mod revision;
 mod store;
 mod tree;
+pub mod utils;
 mod view;
 
 pub use blob::Blob;

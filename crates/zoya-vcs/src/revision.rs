@@ -1,5 +1,3 @@
-use uuid::Uuid;
-
 use crate::Commit;
 use crate::view::View;
 
@@ -29,7 +27,7 @@ impl Revision {
         }
     }
 
-    pub fn change_id(&self) -> Uuid {
+    pub fn change_id(&self) -> &str {
         self.commits[0].change_id()
     }
 

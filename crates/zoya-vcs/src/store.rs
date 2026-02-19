@@ -1,13 +1,12 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
-use std::time::{Duration, UNIX_EPOCH};
 
 use sqlx::SqlitePool;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection};
 use tokio::runtime::Runtime;
-use uuid::Uuid;
 
 use crate::revision::Revision;
+use crate::utils;
 use crate::view::View;
 use crate::{Commit, Tree};
 
@@ -136,7 +135,7 @@ impl Store {
             }
 
             let empty_tree = Tree::new(HashMap::new());
-            let change_id = Uuid::now_v7();
+            let change_id = utils::generate_change_id();
             let root_commit =
                 Commit::new(change_id, &[], empty_tree.id().to_string(), String::new());
 
@@ -216,22 +215,18 @@ impl Store {
             // 6. Reconstruct Commit objects
             let mut commit_map: HashMap<String, Commit> = HashMap::new();
             for (commit_id, change_id, timestamp, tree_id, message) in &commit_rows {
-                let change_uuid =
-                    Uuid::parse_str(change_id).map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-
                 let mut parents: Vec<(String, i32)> =
                     parents_map.get(commit_id).cloned().unwrap_or_default();
                 parents.sort_by_key(|(_, order)| *order);
                 let parent_ids: Vec<String> = parents.into_iter().map(|(id, _)| id).collect();
 
-                let ts = UNIX_EPOCH + Duration::from_secs(*timestamp as u64);
                 let commit = Commit::restore(
                     commit_id.clone(),
-                    change_uuid,
+                    change_id.clone(),
                     parent_ids,
                     tree_id.clone(),
                     message.clone(),
-                    ts,
+                    *timestamp as u64,
                 );
                 commit_map.insert(commit_id.clone(), commit);
             }
@@ -312,22 +307,17 @@ impl Store {
 
         // 6. Insert change
         sqlx::query("INSERT OR IGNORE INTO changes (change_id) VALUES (?)")
-            .bind(commit.change_id().to_string())
+            .bind(commit.change_id())
             .execute(&mut *conn)
             .await?;
 
         // 7. Insert commit
-        let timestamp = commit
-            .timestamp()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
         sqlx::query(
             "INSERT OR IGNORE INTO commits (commit_id, change_id, timestamp, tree_id, message) VALUES (?, ?, ?, ?, ?)",
         )
         .bind(commit.commit_id())
-        .bind(commit.change_id().to_string())
-        .bind(timestamp)
+        .bind(commit.change_id())
+        .bind(commit.timestamp() as i64)
         .bind(commit.tree_id())
         .bind(commit.message())
         .execute(&mut *conn)
@@ -386,10 +376,8 @@ impl Store {
             let mut tx = self.pool.begin().await?;
 
             // 5. Create rewritten commit with new message
-            let change_uuid =
-                Uuid::parse_str(&change_id).map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
             let new_commit = Commit::new(
-                change_uuid,
+                change_id,
                 &target_parents,
                 tree_id.clone(),
                 message.clone(),
@@ -524,10 +512,8 @@ impl Store {
                         })
                         .collect();
 
-                    let desc_change_uuid = Uuid::parse_str(&d.change_id)
-                        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
                     let new_desc_commit = Commit::new(
-                        desc_change_uuid,
+                        d.change_id.clone(),
                         &remapped_parents,
                         d.tree_id.clone(),
                         d.message.clone(),
@@ -571,7 +557,7 @@ impl Store {
         let view = self.view()?;
 
         let new_commit = Commit::new(
-            Uuid::now_v7(),
+            utils::generate_change_id(),
             &[resolved.commit().commit_id().to_string()],
             resolved.commit().tree_id().to_string(),
             String::new(),
@@ -694,8 +680,6 @@ impl Store {
                 let Some(commit_entries) = grouped.get(change_id) else {
                     continue;
                 };
-                let change_uuid =
-                    Uuid::parse_str(change_id).map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
 
                 let mut commits = Vec::new();
 
@@ -705,14 +689,13 @@ impl Store {
                     parents.sort_by_key(|(_, order)| *order);
                     let parent_ids: Vec<String> = parents.into_iter().map(|(id, _)| id).collect();
 
-                    let ts = UNIX_EPOCH + Duration::from_secs(*timestamp as u64);
                     let commit = Commit::restore(
                         commit_id.clone(),
-                        change_uuid,
+                        change_id.clone(),
                         parent_ids,
                         tree_id.clone(),
                         message.clone(),
-                        ts,
+                        *timestamp as u64,
                     );
 
                     commits.push(commit);
@@ -852,8 +835,6 @@ impl Store {
             }
 
             // Reconstruct commits
-            let change_uuid =
-                Uuid::parse_str(&change_id).map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
             let mut commits = Vec::new();
 
             for (commit_id, timestamp, tree_id, message) in &commit_rows {
@@ -862,14 +843,13 @@ impl Store {
                 parents.sort_by_key(|(_, order)| *order);
                 let parent_ids: Vec<String> = parents.into_iter().map(|(id, _)| id).collect();
 
-                let ts = UNIX_EPOCH + Duration::from_secs(*timestamp as u64);
                 let commit = Commit::restore(
                     commit_id.clone(),
-                    change_uuid,
+                    change_id.clone(),
                     parent_ids,
                     tree_id.clone(),
                     message.clone(),
-                    ts,
+                    *timestamp as u64,
                 );
 
                 commits.push(commit);
@@ -897,7 +877,7 @@ impl Store {
 
         let wc = view.working_copy();
         let new_commit = Commit::new(
-            wc.change_id(),
+            wc.change_id().to_string(),
             &wc.parents()
                 .iter()
                 .map(|p| p.to_string())
@@ -1010,8 +990,6 @@ impl Store {
                 let Some(entries) = grouped.get(p_change_id) else {
                     continue;
                 };
-                let p_change_uuid = Uuid::parse_str(p_change_id)
-                    .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
 
                 let mut p_commits = Vec::new();
 
@@ -1021,14 +999,13 @@ impl Store {
                     parents.sort_by_key(|(_, order)| *order);
                     let parent_ids: Vec<String> = parents.into_iter().map(|(id, _)| id).collect();
 
-                    let timestamp = UNIX_EPOCH + Duration::from_secs(*ts as u64);
                     let commit = Commit::restore(
                         cid.clone(),
-                        p_change_uuid,
+                        p_change_id.clone(),
                         parent_ids,
                         tid.clone(),
                         msg.clone(),
-                        timestamp,
+                        *ts as u64,
                     );
 
                     p_commits.push(commit);
@@ -1048,11 +1025,8 @@ async fn save_operation_with_tx(
     working_copy_commit_id: &str,
     head_commit_ids: &[&str],
 ) -> Result<(), sqlx::Error> {
-    let view_id = crate::view::compute_view_id(working_copy_commit_id, head_commit_ids);
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
+    let view_id = utils::compute_view_id(working_copy_commit_id, head_commit_ids);
+    let timestamp = utils::timestamp() as i64;
 
     // 1. Insert view
     sqlx::query("INSERT OR IGNORE INTO views (view_id, working_copy_commit_id) VALUES (?, ?)")
@@ -1565,7 +1539,7 @@ mod tests {
         let change_id = wc.change_id().to_string();
 
         let rev = store.revision(RevisionQuery::ChangeId(&change_id)).unwrap();
-        assert_eq!(rev.change_id().to_string(), change_id);
+        assert_eq!(rev.change_id(), change_id);
         assert_eq!(rev.commit().message(), "commit A");
     }
 
@@ -1581,7 +1555,7 @@ mod tests {
         // Use first 12 characters as prefix (long enough to avoid ambiguity with v7 UUIDs)
         let prefix = &change_id[..12];
         let rev = store.revision(RevisionQuery::ChangeId(prefix)).unwrap();
-        assert_eq!(rev.change_id().to_string(), change_id);
+        assert_eq!(rev.change_id(), change_id);
     }
 
     #[test]
@@ -1787,7 +1761,8 @@ mod tests {
         let old_change_id = store
             .revision(RevisionQuery::WorkingCopy)
             .unwrap()
-            .change_id();
+            .change_id()
+            .to_string();
 
         // Snapshot with a new tree
         let new_tree = make_tree("b");
@@ -1821,7 +1796,7 @@ mod tests {
         // Create commit A
         create_commit(&store, "a", "commit A");
         let rev_a = store.revision(RevisionQuery::WorkingCopy).unwrap();
-        let a_change_id = rev_a.change_id();
+        let a_change_id = rev_a.change_id().to_string();
         let a_parents = store.parents(&rev_a).unwrap();
         let root_change = a_parents[0].change_id().to_string();
 
