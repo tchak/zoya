@@ -221,6 +221,27 @@ mod tests {
     }
 
     #[test]
+    fn test_annotation_with_string_arg() {
+        let result = format_source("#[name(\"hello\")] fn foo() 42");
+        assert_eq!(result, "#[name(\"hello\")]\nfn foo() 42\n");
+    }
+
+    #[test]
+    fn test_annotation_with_mixed_args() {
+        let result = format_source("#[name(foo, \"bar\")] fn foo() 42");
+        assert_eq!(result, "#[name(foo, \"bar\")]\nfn foo() 42\n");
+    }
+
+    #[test]
+    fn test_annotation_with_string_arg_idempotent() {
+        let source = "#[name(\"hello\")]\nfn foo() 42";
+        let result = format_source(source);
+        assert_eq!(result, "#[name(\"hello\")]\nfn foo() 42\n");
+        let result2 = format_source(&result);
+        assert_eq!(result, result2);
+    }
+
+    #[test]
     fn test_annotation_with_args_idempotent() {
         let source = "#[mode(test, foo)]\nfn foo() 42";
         let result = format_source(source);

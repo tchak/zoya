@@ -1,8 +1,8 @@
 use chumsky::prelude::*;
 
 use zoya_ast::{
-    Attribute, EnumDef, EnumVariant, EnumVariantKind, Expr, FunctionDef, ImplBlock, ImplMethod,
-    Item, Param, StructDef, StructFieldDef, StructKind, TypeAliasDef, Visibility,
+    Attribute, AttributeArg, EnumDef, EnumVariant, EnumVariantKind, Expr, FunctionDef, ImplBlock,
+    ImplMethod, Item, Param, StructDef, StructFieldDef, StructKind, TypeAliasDef, Visibility,
 };
 use zoya_lexer::Token;
 
@@ -14,10 +14,14 @@ use crate::types::type_annotation;
 
 pub(crate) fn attribute_parser<'a>()
 -> impl Parser<'a, &'a [Token], Attribute, extra::Err<Rich<'a, Token>>> + Clone {
-    let args = ident()
+    let arg = choice((
+        ident().map(AttributeArg::Identifier),
+        select! { Token::String(s) => AttributeArg::String(s) },
+    ));
+    let args = arg
         .separated_by(just(Token::Comma))
         .allow_trailing()
-        .collect::<Vec<String>>()
+        .collect::<Vec<AttributeArg>>()
         .delimited_by(just(Token::LParen), just(Token::RParen))
         .or_not();
 

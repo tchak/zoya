@@ -1,10 +1,10 @@
 use pretty::RcDoc;
 use zoya_ast::{
-    Attribute, BinOp, EnumDef, EnumVariant, EnumVariantKind, Expr, FunctionDef, ImplBlock,
-    ImplMethod, Item, LambdaParam, LetBinding, ListElement, ListPattern, MatchArm, ModDecl, Param,
-    Path, PathPrefix, Pattern, StringPart, StructDef, StructFieldDef, StructFieldPattern,
-    StructKind, TupleElement, TuplePattern, TypeAliasDef, TypeAnnotation, UnaryOp, UseDecl,
-    UsePath, UseTarget, Visibility,
+    Attribute, AttributeArg, BinOp, EnumDef, EnumVariant, EnumVariantKind, Expr, FunctionDef,
+    ImplBlock, ImplMethod, Item, LambdaParam, LetBinding, ListElement, ListPattern, MatchArm,
+    ModDecl, Param, Path, PathPrefix, Pattern, StringPart, StructDef, StructFieldDef,
+    StructFieldPattern, StructKind, TupleElement, TuplePattern, TypeAliasDef, TypeAnnotation,
+    UnaryOp, UseDecl, UsePath, UseTarget, Visibility,
 };
 
 const INDENT: isize = 2;
@@ -21,7 +21,16 @@ pub fn fmt_attributes(attrs: &[Attribute]) -> RcDoc<'static> {
             let text = match &a.args {
                 None => format!("#[{}]", a.name),
                 Some(args) if args.is_empty() => format!("#[{}()]", a.name),
-                Some(args) => format!("#[{}({})]", a.name, args.join(", ")),
+                Some(args) => {
+                    let formatted: Vec<String> = args
+                        .iter()
+                        .map(|arg| match arg {
+                            AttributeArg::Identifier(s) => s.clone(),
+                            AttributeArg::String(s) => format!("\"{}\"", s),
+                        })
+                        .collect();
+                    format!("#[{}({})]", a.name, formatted.join(", "))
+                }
             };
             RcDoc::text(text)
         })

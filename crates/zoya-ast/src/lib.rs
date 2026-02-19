@@ -197,11 +197,18 @@ pub struct TypeAliasDef {
     pub typ: TypeAnnotation,
 }
 
+/// An argument in an attribute: either an identifier or a string literal
+#[derive(Debug, Clone, PartialEq)]
+pub enum AttributeArg {
+    Identifier(String),
+    String(String),
+}
+
 /// An annotation: `#[name]` or `#[name(args...)]`
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attribute {
     pub name: String,
-    pub args: Option<Vec<String>>,
+    pub args: Option<Vec<AttributeArg>>,
 }
 
 /// Visibility of an item

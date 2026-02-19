@@ -682,7 +682,7 @@ mod tests {
         );
     }
 
-    use zoya_ast::{FunctionDef, Item, Param, Pattern, TypeAnnotation, Visibility};
+    use zoya_ast::{AttributeArg, FunctionDef, Item, Param, Pattern, TypeAnnotation, Visibility};
 
     fn parse_item_str(input: &str) -> Result<Item, ParseError> {
         let tokens = lex(input).expect("lexing failed");
@@ -2812,7 +2812,10 @@ mod tests {
             panic!("expected function")
         };
         assert_eq!(f.attributes[0].name, "mode");
-        assert_eq!(f.attributes[0].args, Some(vec!["test".to_string()]));
+        assert_eq!(
+            f.attributes[0].args,
+            Some(vec![AttributeArg::Identifier("test".to_string())])
+        );
     }
 
     #[test]
@@ -2824,7 +2827,10 @@ mod tests {
         assert_eq!(f.attributes[0].name, "mode");
         assert_eq!(
             f.attributes[0].args,
-            Some(vec!["test".to_string(), "foo".to_string()])
+            Some(vec![
+                AttributeArg::Identifier("test".to_string()),
+                AttributeArg::Identifier("foo".to_string()),
+            ])
         );
     }
 
@@ -2837,7 +2843,39 @@ mod tests {
         assert_eq!(f.attributes[0].name, "mode");
         assert_eq!(
             f.attributes[0].args,
-            Some(vec!["test".to_string(), "foo".to_string()])
+            Some(vec![
+                AttributeArg::Identifier("test".to_string()),
+                AttributeArg::Identifier("foo".to_string()),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_parse_annotation_string_arg() {
+        let item = parse_item_str("#[name(\"hello\")] fn foo() 42").unwrap();
+        let Item::Function(f) = item else {
+            panic!("expected function")
+        };
+        assert_eq!(f.attributes[0].name, "name");
+        assert_eq!(
+            f.attributes[0].args,
+            Some(vec![AttributeArg::String("hello".to_string())])
+        );
+    }
+
+    #[test]
+    fn test_parse_annotation_mixed_args() {
+        let item = parse_item_str("#[name(foo, \"bar\")] fn foo() 42").unwrap();
+        let Item::Function(f) = item else {
+            panic!("expected function")
+        };
+        assert_eq!(f.attributes[0].name, "name");
+        assert_eq!(
+            f.attributes[0].args,
+            Some(vec![
+                AttributeArg::Identifier("foo".to_string()),
+                AttributeArg::String("bar".to_string()),
+            ])
         );
     }
 

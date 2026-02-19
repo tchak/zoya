@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Display};
 use std::path::{Path, PathBuf};
 
-use zoya_ast::Attribute;
+use zoya_ast::{Attribute, AttributeArg};
 
 // Re-export module types from zoya-package
 pub use zoya_package::{ConfigError, PackageConfig};
@@ -171,9 +171,10 @@ fn is_test_only(attrs: &[Attribute]) -> bool {
     attrs.iter().any(|a| {
         a.name == "test"
             || (a.name == "mode"
-                && a.args
-                    .as_ref()
-                    .is_some_and(|args| args.iter().any(|arg| arg == "test")))
+                && a.args.as_ref().is_some_and(|args| {
+                    args.iter()
+                        .any(|arg| matches!(arg, AttributeArg::Identifier(s) if s == "test"))
+                }))
     })
 }
 

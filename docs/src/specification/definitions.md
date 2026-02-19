@@ -128,7 +128,8 @@ fn helper() -> Internal {        // OK: private function returning private type
 ```
 function_def ::= attribute* visibility 'fn' identifier type_params? '(' params? ')' ('->' type)? body
 attribute      ::= '#[' identifier attribute_args? ']'
-attribute_args ::= '(' (identifier (',' identifier)* ','?)? ')'
+attribute_args ::= '(' (attribute_arg (',' attribute_arg)* ','?)? ')'
+attribute_arg  ::= identifier | string_literal
 type_params  ::= '<' identifier (',' identifier)* '>'
 params       ::= param (',' param)* ','?
 param        ::= pattern ':' type
