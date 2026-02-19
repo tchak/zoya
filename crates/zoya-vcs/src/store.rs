@@ -12,8 +12,7 @@ use crate::{Commit, Tree};
 
 pub enum RevisionQuery<'a> {
     WorkingCopy,
-    ChangeId(&'a str),
-    CommitId(&'a str),
+    Id(&'a str),
 }
 
 const SCHEMA_SQL: &str = r#"
@@ -728,7 +727,7 @@ impl Store {
                             .await?;
                     vec![(working_copy_commit_id.clone(), change_id)]
                 }
-                RevisionQuery::CommitId(prefix) => {
+                RevisionQuery::Id(prefix) => {
                     let query_str = format!(
                         "WITH RECURSIVE ancestors AS ( \
                              SELECT c.commit_id, c.change_id \
@@ -741,34 +740,13 @@ impl Store {
                              JOIN commits c ON c.commit_id = cp.parent_commit_id \
                          ) \
                          SELECT commit_id, change_id FROM ancestors \
-                         WHERE commit_id LIKE ? || '%'"
+                         WHERE commit_id LIKE ? || '%' OR change_id LIKE ? || '%'"
                     );
                     let mut q = sqlx::query_as::<_, (String, String)>(&query_str);
                     for head_id in &head_ids {
                         q = q.bind(head_id);
                     }
                     q = q.bind(prefix);
-                    q.fetch_all(&self.pool).await?
-                }
-                RevisionQuery::ChangeId(prefix) => {
-                    let query_str = format!(
-                        "WITH RECURSIVE ancestors AS ( \
-                             SELECT c.commit_id, c.change_id \
-                             FROM commits c \
-                             WHERE c.commit_id IN ({head_placeholders}) \
-                             UNION \
-                             SELECT c.commit_id, c.change_id \
-                             FROM ancestors a \
-                             JOIN commit_parents cp ON cp.commit_id = a.commit_id \
-                             JOIN commits c ON c.commit_id = cp.parent_commit_id \
-                         ) \
-                         SELECT commit_id, change_id FROM ancestors \
-                         WHERE change_id LIKE ? || '%'"
-                    );
-                    let mut q = sqlx::query_as::<_, (String, String)>(&query_str);
-                    for head_id in &head_ids {
-                        q = q.bind(head_id);
-                    }
                     q = q.bind(prefix);
                     q.fetch_all(&self.pool).await?
                 }
@@ -1312,12 +1290,7 @@ mod tests {
         let a_parents = store.parents(&rev_a).unwrap();
         let root_change = a_parents[0].change_id().to_string();
 
-        create_commit_on(
-            &store,
-            RevisionQuery::ChangeId(&root_change),
-            "b",
-            "commit B",
-        );
+        create_commit_on(&store, RevisionQuery::Id(&root_change), "b", "commit B");
 
         let revisions = store.log(20).unwrap();
 
@@ -1346,7 +1319,7 @@ mod tests {
         let wc = store.revision(RevisionQuery::WorkingCopy).unwrap();
         store
             .describe(
-                RevisionQuery::CommitId(wc.commit().commit_id()),
+                RevisionQuery::Id(wc.commit().commit_id()),
                 "new message".to_string(),
             )
             .unwrap();
@@ -1382,7 +1355,7 @@ mod tests {
         let wc = store.revision(RevisionQuery::WorkingCopy).unwrap();
         store
             .describe(
-                RevisionQuery::CommitId(wc.commit().commit_id()),
+                RevisionQuery::Id(wc.commit().commit_id()),
                 "same message".to_string(),
             )
             .unwrap();
@@ -1414,7 +1387,7 @@ mod tests {
 
         // Describe A with a new message
         store
-            .describe(RevisionQuery::ChangeId(&a_change), "updated A".to_string())
+            .describe(RevisionQuery::Id(&a_change), "updated A".to_string())
             .unwrap();
 
         let revisions = store.log(20).unwrap();
@@ -1457,7 +1430,7 @@ mod tests {
 
         store
             .describe(
-                RevisionQuery::CommitId(wc.commit().commit_id()),
+                RevisionQuery::Id(wc.commit().commit_id()),
                 "renamed head".to_string(),
             )
             .unwrap();
@@ -1509,7 +1482,7 @@ mod tests {
         let wc = store.revision(RevisionQuery::WorkingCopy).unwrap();
         let commit_id = wc.commit().commit_id().to_string();
 
-        let rev = store.revision(RevisionQuery::CommitId(&commit_id)).unwrap();
+        let rev = store.revision(RevisionQuery::Id(&commit_id)).unwrap();
         assert_eq!(rev.commit().commit_id(), commit_id);
         assert_eq!(rev.commit().message(), "commit A");
     }
@@ -1525,7 +1498,7 @@ mod tests {
 
         // Use first 8 characters as prefix
         let prefix = &commit_id[..8];
-        let rev = store.revision(RevisionQuery::CommitId(prefix)).unwrap();
+        let rev = store.revision(RevisionQuery::Id(prefix)).unwrap();
         assert_eq!(rev.commit().commit_id(), commit_id);
     }
 
@@ -1538,7 +1511,7 @@ mod tests {
         let wc = store.revision(RevisionQuery::WorkingCopy).unwrap();
         let change_id = wc.change_id().to_string();
 
-        let rev = store.revision(RevisionQuery::ChangeId(&change_id)).unwrap();
+        let rev = store.revision(RevisionQuery::Id(&change_id)).unwrap();
         assert_eq!(rev.change_id(), change_id);
         assert_eq!(rev.commit().message(), "commit A");
     }
@@ -1554,7 +1527,7 @@ mod tests {
 
         // Use first 12 characters as prefix (long enough to avoid ambiguity with v7 UUIDs)
         let prefix = &change_id[..12];
-        let rev = store.revision(RevisionQuery::ChangeId(prefix)).unwrap();
+        let rev = store.revision(RevisionQuery::Id(prefix)).unwrap();
         assert_eq!(rev.change_id(), change_id);
     }
 
@@ -1562,7 +1535,7 @@ mod tests {
     fn test_revision_not_found() {
         let store = Store::init_memory().unwrap();
 
-        let result = store.revision(RevisionQuery::CommitId("nonexistent"));
+        let result = store.revision(RevisionQuery::Id("nonexistent"));
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), sqlx::Error::RowNotFound));
     }
@@ -1593,7 +1566,7 @@ mod tests {
         let view = store.view().unwrap();
         let root_id = view.working_copy().commit_id().to_string();
 
-        let rev = store.revision(RevisionQuery::CommitId(&root_id)).unwrap();
+        let rev = store.revision(RevisionQuery::Id(&root_id)).unwrap();
         assert_eq!(rev.commit().message(), "");
         let parents = store.parents(&rev).unwrap();
         assert!(parents.is_empty());
@@ -1638,12 +1611,7 @@ mod tests {
         let root_change = a_parents[0].change_id().to_string();
 
         // Create commit B on root (second branch)
-        create_commit_on(
-            &store,
-            RevisionQuery::ChangeId(&root_change),
-            "b",
-            "commit B",
-        );
+        create_commit_on(&store, RevisionQuery::Id(&root_change), "b", "commit B");
 
         let view = store.view().unwrap();
 
@@ -1691,7 +1659,7 @@ mod tests {
         create_commit(&store, "c", "commit C");
 
         // C is working copy and head; A is not a head
-        store.new(RevisionQuery::ChangeId(&a_change)).unwrap();
+        store.new(RevisionQuery::Id(&a_change)).unwrap();
 
         let rev = store.revision(RevisionQuery::WorkingCopy).unwrap();
         assert_eq!(rev.commit().message(), "");
@@ -1801,12 +1769,7 @@ mod tests {
         let root_change = a_parents[0].change_id().to_string();
 
         // Create commit B on root (second branch)
-        create_commit_on(
-            &store,
-            RevisionQuery::ChangeId(&root_change),
-            "b",
-            "commit B",
-        );
+        create_commit_on(&store, RevisionQuery::Id(&root_change), "b", "commit B");
         let rev_b = store.revision(RevisionQuery::WorkingCopy).unwrap();
         let b_commit_id = rev_b.commit().commit_id().to_string();
 
