@@ -5,6 +5,8 @@ use imara_diff::intern::InternedInput;
 use imara_diff::sources::lines_with_terminator;
 use imara_diff::{Algorithm, Sink, diff};
 
+use zoya_package::QualifiedPath;
+
 use crate::{Blob, Tree};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,7 +31,7 @@ impl MergeResult {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TreeMergeResult {
     pub tree: Tree,
-    pub conflicts: HashMap<String, Vec<Conflict>>,
+    pub conflicts: HashMap<QualifiedPath, Vec<Conflict>>,
 }
 
 impl TreeMergeResult {
@@ -47,7 +49,8 @@ pub fn three_way_merge_trees(
     ours: Option<&Tree>,
     theirs: Option<&Tree>,
 ) -> TreeMergeResult {
-    let mut all_paths: std::collections::BTreeSet<&String> = std::collections::BTreeSet::new();
+    let mut all_paths: std::collections::BTreeSet<&QualifiedPath> =
+        std::collections::BTreeSet::new();
     if let Some(t) = base {
         all_paths.extend(t.blobs().keys());
     }
@@ -418,10 +421,14 @@ mod tests {
         Blob::new(content.to_string())
     }
 
+    fn path(name: &str) -> QualifiedPath {
+        QualifiedPath::new(vec![name.to_string()])
+    }
+
     fn tree(entries: &[(&str, &str)]) -> Tree {
         let blobs = entries
             .iter()
-            .map(|(path, content)| (path.to_string(), blob(content)))
+            .map(|(p, content)| (path(p), blob(content)))
             .collect();
         Tree::new(blobs)
     }
@@ -662,7 +669,7 @@ mod tests {
         let ours = tree(&[("a", "hello\n")]);
         let result = three_way_merge_trees(None, Some(&ours), None);
         assert!(result.is_clean());
-        assert_eq!(result.tree.get("a").unwrap().content(), "hello\n");
+        assert_eq!(result.tree.get(&path("a")).unwrap().content(), "hello\n");
     }
 
     #[test]
@@ -670,7 +677,7 @@ mod tests {
         let theirs = tree(&[("a", "hello\n")]);
         let result = three_way_merge_trees(None, None, Some(&theirs));
         assert!(result.is_clean());
-        assert_eq!(result.tree.get("a").unwrap().content(), "hello\n");
+        assert_eq!(result.tree.get(&path("a")).unwrap().content(), "hello\n");
     }
 
     #[test]
@@ -688,8 +695,8 @@ mod tests {
         let result = three_way_merge_trees(None, Some(&ours), Some(&theirs));
         assert!(result.is_clean());
         assert_eq!(result.tree.len(), 2);
-        assert_eq!(result.tree.get("a").unwrap().content(), "alpha\n");
-        assert_eq!(result.tree.get("b").unwrap().content(), "beta\n");
+        assert_eq!(result.tree.get(&path("a")).unwrap().content(), "alpha\n");
+        assert_eq!(result.tree.get(&path("b")).unwrap().content(), "beta\n");
     }
 
     #[test]
@@ -698,7 +705,7 @@ mod tests {
         let theirs = tree(&[("a", "hello\n")]);
         let result = three_way_merge_trees(None, Some(&ours), Some(&theirs));
         assert!(result.is_clean());
-        assert_eq!(result.tree.get("a").unwrap().content(), "hello\n");
+        assert_eq!(result.tree.get(&path("a")).unwrap().content(), "hello\n");
     }
 
     #[test]
@@ -707,8 +714,8 @@ mod tests {
         let theirs = tree(&[("a", "theirs\n")]);
         let result = three_way_merge_trees(None, Some(&ours), Some(&theirs));
         assert!(!result.is_clean());
-        assert!(result.conflicts.contains_key("a"));
-        assert_eq!(result.conflicts["a"].len(), 1);
+        assert!(result.conflicts.contains_key(&path("a")));
+        assert_eq!(result.conflicts[&path("a")].len(), 1);
     }
 
     #[test]
@@ -718,8 +725,14 @@ mod tests {
         let theirs = tree(&[("a", "a\n"), ("b", "b-modified\n")]);
         let result = three_way_merge_trees(Some(&base), Some(&ours), Some(&theirs));
         assert!(result.is_clean());
-        assert_eq!(result.tree.get("a").unwrap().content(), "a-modified\n");
-        assert_eq!(result.tree.get("b").unwrap().content(), "b-modified\n");
+        assert_eq!(
+            result.tree.get(&path("a")).unwrap().content(),
+            "a-modified\n"
+        );
+        assert_eq!(
+            result.tree.get(&path("b")).unwrap().content(),
+            "b-modified\n"
+        );
     }
 
     #[test]
@@ -729,7 +742,10 @@ mod tests {
         let theirs = tree(&[("f", "a\nb\nc\ny\n")]); // changed line 4
         let result = three_way_merge_trees(Some(&base), Some(&ours), Some(&theirs));
         assert!(result.is_clean());
-        assert_eq!(result.tree.get("f").unwrap().content(), "x\nb\nc\ny\n");
+        assert_eq!(
+            result.tree.get(&path("f")).unwrap().content(),
+            "x\nb\nc\ny\n"
+        );
     }
 
     #[test]
@@ -739,9 +755,9 @@ mod tests {
         let theirs = tree(&[("f", "a\ny\nc\n")]); // changed line 2 to y
         let result = three_way_merge_trees(Some(&base), Some(&ours), Some(&theirs));
         assert!(!result.is_clean());
-        assert!(result.conflicts.contains_key("f"));
-        assert_eq!(result.conflicts["f"][0].ours, "x\n");
-        assert_eq!(result.conflicts["f"][0].theirs, "y\n");
+        assert!(result.conflicts.contains_key(&path("f")));
+        assert_eq!(result.conflicts[&path("f")][0].ours, "x\n");
+        assert_eq!(result.conflicts[&path("f")][0].theirs, "y\n");
     }
 
     #[test]
@@ -751,8 +767,8 @@ mod tests {
         let theirs = tree(&[("b", "keep\n")]); // deleted a
         let result = three_way_merge_trees(Some(&base), Some(&ours), Some(&theirs));
         assert!(result.is_clean());
-        assert!(result.tree.get("a").is_none());
-        assert_eq!(result.tree.get("b").unwrap().content(), "keep\n");
+        assert!(result.tree.get(&path("a")).is_none());
+        assert_eq!(result.tree.get(&path("b")).unwrap().content(), "keep\n");
     }
 
     #[test]
@@ -762,9 +778,9 @@ mod tests {
         let theirs = tree(&[]); // deleted
         let result = three_way_merge_trees(Some(&base), Some(&ours), Some(&theirs));
         assert!(!result.is_clean());
-        assert!(result.conflicts.contains_key("a"));
+        assert!(result.conflicts.contains_key(&path("a")));
         // File should still be in the tree (conflict keeps it)
-        assert!(result.tree.get("a").is_some());
+        assert!(result.tree.get(&path("a")).is_some());
     }
 
     #[test]
@@ -792,21 +808,27 @@ mod tests {
         let result = three_way_merge_trees(Some(&base), Some(&ours), Some(&theirs));
 
         // clean merge worked
-        assert_eq!(result.tree.get("clean").unwrap().content(), "x\nb\nc\ny\n");
+        assert_eq!(
+            result.tree.get(&path("clean")).unwrap().content(),
+            "x\nb\nc\ny\n"
+        );
         // conflict file exists with conflict
-        assert!(result.conflicts.contains_key("conflict"));
-        assert!(result.tree.get("conflict").is_some());
+        assert!(result.conflicts.contains_key(&path("conflict")));
+        assert!(result.tree.get(&path("conflict")).is_some());
         // deleted file is gone
-        assert!(result.tree.get("delete_me").is_none());
+        assert!(result.tree.get(&path("delete_me")).is_none());
         // unchanged file preserved
-        assert_eq!(result.tree.get("unchanged").unwrap().content(), "same\n");
+        assert_eq!(
+            result.tree.get(&path("unchanged")).unwrap().content(),
+            "same\n"
+        );
         // both new files present
         assert_eq!(
-            result.tree.get("new_ours").unwrap().content(),
+            result.tree.get(&path("new_ours")).unwrap().content(),
             "added by ours\n"
         );
         assert_eq!(
-            result.tree.get("new_theirs").unwrap().content(),
+            result.tree.get(&path("new_theirs")).unwrap().content(),
             "added by theirs\n"
         );
         // Only one conflict

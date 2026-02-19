@@ -302,7 +302,7 @@ impl Store {
                         "INSERT OR IGNORE INTO tree_entries (tree_id, path, blob_id) VALUES (?, ?, ?)",
                     )
                     .bind(tree.id())
-                    .bind(path)
+                    .bind(path.to_string())
                     .bind(blob.id())
                     .execute(&mut *conn)
                     .await?;
@@ -1089,6 +1089,8 @@ async fn save_operation_with_tx(
 mod tests {
     use std::collections::HashMap;
 
+    use zoya_package::QualifiedPath;
+
     use crate::Blob;
     use crate::Tree;
 
@@ -1096,7 +1098,7 @@ mod tests {
 
     fn make_tree(content: &str) -> Tree {
         let mut blobs = HashMap::new();
-        blobs.insert("main.zy".to_string(), Blob::new(content.to_string()));
+        blobs.insert(QualifiedPath::root(), Blob::new(content.to_string()));
         Tree::new(blobs)
     }
 

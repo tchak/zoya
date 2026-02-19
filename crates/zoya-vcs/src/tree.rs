@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use zoya_package::Package;
+use zoya_package::{Package, QualifiedPath};
 
 use crate::Blob;
 use crate::diff::Change;
@@ -10,11 +10,11 @@ use crate::merge::{self, TreeMergeResult};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tree {
     id: String,
-    blobs: HashMap<String, Blob>,
+    blobs: HashMap<QualifiedPath, Blob>,
 }
 
 impl Tree {
-    pub fn new(blobs: HashMap<String, Blob>) -> Self {
+    pub fn new(blobs: HashMap<QualifiedPath, Blob>) -> Self {
         let id = compute_tree_id(&blobs);
         Tree { id, blobs }
     }
@@ -23,11 +23,11 @@ impl Tree {
         &self.id
     }
 
-    pub fn blobs(&self) -> &HashMap<String, Blob> {
+    pub fn blobs(&self) -> &HashMap<QualifiedPath, Blob> {
         &self.blobs
     }
 
-    pub fn get(&self, path: &str) -> Option<&Blob> {
+    pub fn get(&self, path: &QualifiedPath) -> Option<&Blob> {
         self.blobs.get(path)
     }
 
@@ -48,11 +48,11 @@ impl Tree {
     }
 
     pub fn diff(&self, other: &Tree) -> Vec<Change> {
-        let self_paths: HashSet<&String> = self.blobs.keys().collect();
-        let other_paths: HashSet<&String> = other.blobs.keys().collect();
+        let self_paths: HashSet<&QualifiedPath> = self.blobs.keys().collect();
+        let other_paths: HashSet<&QualifiedPath> = other.blobs.keys().collect();
 
-        let mut added: Vec<(String, Blob)> = Vec::new();
-        let mut removed: Vec<(String, Blob)> = Vec::new();
+        let mut added: Vec<(QualifiedPath, Blob)> = Vec::new();
+        let mut removed: Vec<(QualifiedPath, Blob)> = Vec::new();
         let mut changes: Vec<Change> = Vec::new();
 
         // Paths in other but not self → Added candidates
@@ -128,13 +128,13 @@ impl Tree {
     }
 }
 
-fn compute_tree_id(blobs: &HashMap<String, Blob>) -> String {
+fn compute_tree_id(blobs: &HashMap<QualifiedPath, Blob>) -> String {
     let mut entries: Vec<_> = blobs.iter().collect();
-    entries.sort_by_key(|(path, _)| path.as_str());
+    entries.sort_by_key(|(path, _)| *path);
 
     let mut hasher = blake3::Hasher::new();
     for (path, blob) in entries {
-        hasher.update(path.as_bytes());
+        hasher.update(path.to_string().as_bytes());
         hasher.update(blob.id().as_bytes());
     }
     hasher.finalize().to_hex().to_string()
@@ -147,7 +147,7 @@ impl From<Package> for Tree {
             .into_iter()
             .map(|(path, module)| {
                 let content = zoya_fmt::fmt(module.items);
-                (path.to_string(), Blob::new(content))
+                (path, Blob::new(content))
             })
             .collect();
         Tree::new(blobs)
@@ -161,7 +161,7 @@ impl From<&Package> for Tree {
             .iter()
             .map(|(path, module)| {
                 let content = zoya_fmt::fmt(module.items.clone());
-                (path.to_string(), Blob::new(content))
+                (path.clone(), Blob::new(content))
             })
             .collect();
         Tree::new(blobs)
@@ -177,6 +177,10 @@ mod tests {
     use super::*;
     use crate::diff::DiffHunk;
 
+    fn path(name: &str) -> QualifiedPath {
+        QualifiedPath::new(vec![name.to_string()])
+    }
+
     fn parse_items(source: &str) -> Vec<zoya_ast::Item> {
         let tokens = zoya_lexer::lex(source).expect("lex failed");
         zoya_parser::parse_module(tokens).expect("parse failed")
@@ -185,13 +189,13 @@ mod tests {
     #[test]
     fn test_deterministic_id() {
         let mut blobs = HashMap::new();
-        blobs.insert("a".to_string(), Blob::new("hello".to_string()));
-        blobs.insert("b".to_string(), Blob::new("world".to_string()));
+        blobs.insert(path("a"), Blob::new("hello".to_string()));
+        blobs.insert(path("b"), Blob::new("world".to_string()));
         let tree1 = Tree::new(blobs);
 
         let mut blobs = HashMap::new();
-        blobs.insert("a".to_string(), Blob::new("hello".to_string()));
-        blobs.insert("b".to_string(), Blob::new("world".to_string()));
+        blobs.insert(path("a"), Blob::new("hello".to_string()));
+        blobs.insert(path("b"), Blob::new("world".to_string()));
         let tree2 = Tree::new(blobs);
 
         assert_eq!(tree1.id(), tree2.id());
@@ -200,13 +204,13 @@ mod tests {
     #[test]
     fn test_insertion_order_independence() {
         let mut blobs1 = HashMap::new();
-        blobs1.insert("a".to_string(), Blob::new("hello".to_string()));
-        blobs1.insert("b".to_string(), Blob::new("world".to_string()));
+        blobs1.insert(path("a"), Blob::new("hello".to_string()));
+        blobs1.insert(path("b"), Blob::new("world".to_string()));
         let tree1 = Tree::new(blobs1);
 
         let mut blobs2 = HashMap::new();
-        blobs2.insert("b".to_string(), Blob::new("world".to_string()));
-        blobs2.insert("a".to_string(), Blob::new("hello".to_string()));
+        blobs2.insert(path("b"), Blob::new("world".to_string()));
+        blobs2.insert(path("a"), Blob::new("hello".to_string()));
         let tree2 = Tree::new(blobs2);
 
         assert_eq!(tree1.id(), tree2.id());
@@ -215,11 +219,11 @@ mod tests {
     #[test]
     fn test_content_change_affects_id() {
         let mut blobs1 = HashMap::new();
-        blobs1.insert("a".to_string(), Blob::new("hello".to_string()));
+        blobs1.insert(path("a"), Blob::new("hello".to_string()));
         let tree1 = Tree::new(blobs1);
 
         let mut blobs2 = HashMap::new();
-        blobs2.insert("a".to_string(), Blob::new("world".to_string()));
+        blobs2.insert(path("a"), Blob::new("world".to_string()));
         let tree2 = Tree::new(blobs2);
 
         assert_ne!(tree1.id(), tree2.id());
@@ -228,11 +232,11 @@ mod tests {
     #[test]
     fn test_path_change_affects_id() {
         let mut blobs1 = HashMap::new();
-        blobs1.insert("a".to_string(), Blob::new("hello".to_string()));
+        blobs1.insert(path("a"), Blob::new("hello".to_string()));
         let tree1 = Tree::new(blobs1);
 
         let mut blobs2 = HashMap::new();
-        blobs2.insert("b".to_string(), Blob::new("hello".to_string()));
+        blobs2.insert(path("b"), Blob::new("hello".to_string()));
         let tree2 = Tree::new(blobs2);
 
         assert_ne!(tree1.id(), tree2.id());
@@ -249,11 +253,11 @@ mod tests {
     #[test]
     fn test_get() {
         let mut blobs = HashMap::new();
-        blobs.insert("a".to_string(), Blob::new("hello".to_string()));
+        blobs.insert(path("a"), Blob::new("hello".to_string()));
         let tree = Tree::new(blobs);
 
-        assert!(tree.get("a").is_some());
-        assert!(tree.get("b").is_none());
+        assert!(tree.get(&path("a")).is_some());
+        assert!(tree.get(&path("b")).is_none());
     }
 
     #[test]
@@ -277,7 +281,7 @@ mod tests {
         let tree = Tree::from(package);
         assert_eq!(tree.len(), 1);
 
-        let blob = tree.get("root").expect("root blob missing");
+        let blob = tree.get(&QualifiedPath::root()).expect("root blob missing");
         assert_eq!(blob.content(), "pub fn main() -> Int 42\n");
     }
 
@@ -314,8 +318,8 @@ mod tests {
 
         let tree = Tree::from(package);
         assert_eq!(tree.len(), 2);
-        assert!(tree.get("root").is_some());
-        assert!(tree.get("root::utils").is_some());
+        assert!(tree.get(&QualifiedPath::root()).is_some());
+        assert!(tree.get(&QualifiedPath::root().child("utils")).is_some());
     }
 
     #[test]
@@ -337,7 +341,7 @@ mod tests {
         };
 
         let tree = Tree::from(package);
-        let blob = tree.get("root").expect("root blob missing");
+        let blob = tree.get(&QualifiedPath::root()).expect("root blob missing");
         // Formatter produces canonical output
         assert_eq!(
             blob.content(),
@@ -348,7 +352,7 @@ mod tests {
     #[test]
     fn test_diff_no_changes() {
         let mut blobs = HashMap::new();
-        blobs.insert("a".to_string(), Blob::new("hello".to_string()));
+        blobs.insert(path("a"), Blob::new("hello".to_string()));
         let tree1 = Tree::new(blobs.clone());
         let tree2 = Tree::new(blobs);
         assert!(tree1.diff(&tree2).is_empty());
@@ -358,14 +362,14 @@ mod tests {
     fn test_diff_added_file() {
         let tree1 = Tree::new(HashMap::new());
         let mut blobs = HashMap::new();
-        blobs.insert("a".to_string(), Blob::new("hello".to_string()));
+        blobs.insert(path("a"), Blob::new("hello".to_string()));
         let tree2 = Tree::new(blobs);
 
         let changes = tree1.diff(&tree2);
         assert_eq!(changes.len(), 1);
         match &changes[0] {
             Change::Added { path, blob } => {
-                assert_eq!(path, "a");
+                assert_eq!(*path, self::path("a"));
                 assert_eq!(blob.content(), "hello");
             }
             _ => panic!("expected Added"),
@@ -375,7 +379,7 @@ mod tests {
     #[test]
     fn test_diff_removed_file() {
         let mut blobs = HashMap::new();
-        blobs.insert("a".to_string(), Blob::new("hello".to_string()));
+        blobs.insert(path("a"), Blob::new("hello".to_string()));
         let tree1 = Tree::new(blobs);
         let tree2 = Tree::new(HashMap::new());
 
@@ -383,7 +387,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         match &changes[0] {
             Change::Removed { path, blob } => {
-                assert_eq!(path, "a");
+                assert_eq!(*path, self::path("a"));
                 assert_eq!(blob.content(), "hello");
             }
             _ => panic!("expected Removed"),
@@ -393,11 +397,11 @@ mod tests {
     #[test]
     fn test_diff_updated_file() {
         let mut blobs1 = HashMap::new();
-        blobs1.insert("a".to_string(), Blob::new("hello\n".to_string()));
+        blobs1.insert(path("a"), Blob::new("hello\n".to_string()));
         let tree1 = Tree::new(blobs1);
 
         let mut blobs2 = HashMap::new();
-        blobs2.insert("a".to_string(), Blob::new("hello\nworld\n".to_string()));
+        blobs2.insert(path("a"), Blob::new("hello\nworld\n".to_string()));
         let tree2 = Tree::new(blobs2);
 
         let changes = tree1.diff(&tree2);
@@ -409,7 +413,7 @@ mod tests {
                 new,
                 diff,
             } => {
-                assert_eq!(path, "a");
+                assert_eq!(*path, self::path("a"));
                 assert_eq!(old.content(), "hello\n");
                 assert_eq!(new.content(), "hello\nworld\n");
                 let has_insert = diff.iter().any(
@@ -424,11 +428,11 @@ mod tests {
     #[test]
     fn test_diff_renamed_file() {
         let mut blobs1 = HashMap::new();
-        blobs1.insert("old.zy".to_string(), Blob::new("content".to_string()));
+        blobs1.insert(path("old_zy"), Blob::new("content".to_string()));
         let tree1 = Tree::new(blobs1);
 
         let mut blobs2 = HashMap::new();
-        blobs2.insert("new.zy".to_string(), Blob::new("content".to_string()));
+        blobs2.insert(path("new_zy"), Blob::new("content".to_string()));
         let tree2 = Tree::new(blobs2);
 
         let changes = tree1.diff(&tree2);
@@ -439,8 +443,8 @@ mod tests {
                 new_path,
                 blob,
             } => {
-                assert_eq!(old_path, "old.zy");
-                assert_eq!(new_path, "new.zy");
+                assert_eq!(*old_path, self::path("old_zy"));
+                assert_eq!(*new_path, self::path("new_zy"));
                 assert_eq!(blob.content(), "content");
             }
             _ => panic!("expected Renamed"),
@@ -450,17 +454,17 @@ mod tests {
     #[test]
     fn test_diff_mixed_changes() {
         let mut blobs1 = HashMap::new();
-        blobs1.insert("keep".to_string(), Blob::new("same\n".to_string()));
-        blobs1.insert("modify".to_string(), Blob::new("old\n".to_string()));
-        blobs1.insert("remove".to_string(), Blob::new("gone".to_string()));
-        blobs1.insert("rename_old".to_string(), Blob::new("moved".to_string()));
+        blobs1.insert(path("keep"), Blob::new("same\n".to_string()));
+        blobs1.insert(path("modify"), Blob::new("old\n".to_string()));
+        blobs1.insert(path("remove"), Blob::new("gone".to_string()));
+        blobs1.insert(path("rename_old"), Blob::new("moved".to_string()));
         let tree1 = Tree::new(blobs1);
 
         let mut blobs2 = HashMap::new();
-        blobs2.insert("keep".to_string(), Blob::new("same\n".to_string()));
-        blobs2.insert("modify".to_string(), Blob::new("new\n".to_string()));
-        blobs2.insert("add".to_string(), Blob::new("fresh".to_string()));
-        blobs2.insert("rename_new".to_string(), Blob::new("moved".to_string()));
+        blobs2.insert(path("keep"), Blob::new("same\n".to_string()));
+        blobs2.insert(path("modify"), Blob::new("new\n".to_string()));
+        blobs2.insert(path("add"), Blob::new("fresh".to_string()));
+        blobs2.insert(path("rename_new"), Blob::new("moved".to_string()));
         let tree2 = Tree::new(blobs2);
 
         let changes = tree1.diff(&tree2);
@@ -468,14 +472,14 @@ mod tests {
 
         let has_added = changes
             .iter()
-            .any(|c| matches!(c, Change::Added { path, .. } if path == "add"));
+            .any(|c| matches!(c, Change::Added { path, .. } if *path == self::path("add")));
         let has_removed = changes
             .iter()
-            .any(|c| matches!(c, Change::Removed { path, .. } if path == "remove"));
+            .any(|c| matches!(c, Change::Removed { path, .. } if *path == self::path("remove")));
         let has_updated = changes
             .iter()
-            .any(|c| matches!(c, Change::Updated { path, .. } if path == "modify"));
-        let has_renamed = changes.iter().any(|c| matches!(c, Change::Renamed { old_path, new_path, .. } if old_path == "rename_old" && new_path == "rename_new"));
+            .any(|c| matches!(c, Change::Updated { path, .. } if *path == self::path("modify")));
+        let has_renamed = changes.iter().any(|c| matches!(c, Change::Renamed { old_path, new_path, .. } if *old_path == self::path("rename_old") && *new_path == self::path("rename_new")));
 
         assert!(has_added, "missing Added");
         assert!(has_removed, "missing Removed");

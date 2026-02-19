@@ -109,13 +109,15 @@ pub(crate) fn compute_commit_id(
 mod tests {
     use std::collections::HashMap;
 
+    use zoya_package::QualifiedPath;
+
     use crate::{Blob, Tree};
 
     use super::*;
 
     fn make_tree_id(content: &str) -> String {
         let mut blobs = HashMap::new();
-        blobs.insert("root".to_string(), Blob::new(content.to_string()));
+        blobs.insert(QualifiedPath::root(), Blob::new(content.to_string()));
         Tree::new(blobs).id().to_string()
     }
 

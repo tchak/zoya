@@ -76,6 +76,8 @@ impl std::fmt::Display for Operation {
 mod tests {
     use std::collections::HashMap;
 
+    use zoya_package::QualifiedPath;
+
     use crate::{Blob, Tree};
 
     use super::*;
@@ -96,7 +98,7 @@ mod tests {
 
     fn make_commit(content: &str, change_id: Uuid) -> Commit {
         let mut blobs = HashMap::new();
-        blobs.insert("root".to_string(), Blob::new(content.to_string()));
+        blobs.insert(QualifiedPath::root(), Blob::new(content.to_string()));
         let tree = Tree::new(blobs);
         Commit::new(change_id, &[], tree.id().to_string(), String::new())
     }

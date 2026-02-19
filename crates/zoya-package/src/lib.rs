@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use zoya_ast::{Item, Visibility};
 
 /// A qualified path: `root` is `["root"]`, `root::utils::foo` is `["root", "utils", "foo"]`
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct QualifiedPath(Vec<String>);
 
 impl QualifiedPath {

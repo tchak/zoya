@@ -3,6 +3,8 @@ use std::ops::Range;
 use imara_diff::sources::lines_with_terminator;
 use imara_diff::{Algorithm, Sink, diff, intern::InternedInput};
 
+use zoya_package::QualifiedPath;
+
 use crate::Blob;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,22 +16,22 @@ pub enum DiffHunk {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Change {
     Added {
-        path: String,
+        path: QualifiedPath,
         blob: Blob,
     },
     Removed {
-        path: String,
+        path: QualifiedPath,
         blob: Blob,
     },
     Updated {
-        path: String,
+        path: QualifiedPath,
         old: Blob,
         new: Blob,
         diff: Vec<DiffHunk>,
     },
     Renamed {
-        old_path: String,
-        new_path: String,
+        old_path: QualifiedPath,
+        new_path: QualifiedPath,
         blob: Blob,
     },
 }
