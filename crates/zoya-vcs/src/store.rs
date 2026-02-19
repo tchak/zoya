@@ -337,7 +337,7 @@ impl Store {
         Ok(())
     }
 
-    pub fn describe(&self, query: RevisionQuery, message: String) -> Result<(), sqlx::Error> {
+    pub fn describe(&self, query: RevisionQuery, message: String) -> Result<Commit, sqlx::Error> {
         let resolved = self.revision(query)?;
         let commit_id = resolved.commit().commit_id();
         let view = self.view()?;
@@ -361,7 +361,7 @@ impl Store {
 
             // 4. Early return if message unchanged
             if existing_message == message {
-                return Ok(());
+                return Ok(view.working_copy().clone());
             }
 
             let parent_rows: Vec<(String, i32)> = sqlx::query_as(
@@ -546,12 +546,12 @@ impl Store {
             save_operation_with_tx(&mut tx, "describe", &new_wc_id, &new_head_refs).await?;
 
             tx.commit().await?;
-            Ok(())
+            Ok(new_working_copy)
         })
     }
 
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(&self, query: RevisionQuery) -> Result<(), sqlx::Error> {
+    pub fn new(&self, query: RevisionQuery) -> Result<Commit, sqlx::Error> {
         let resolved = self.revision(query)?;
         let view = self.view()?;
 
@@ -591,7 +591,7 @@ impl Store {
             Self::save_commit_with_tx(&mut tx, &new_commit, None).await?;
             save_operation_with_tx(&mut tx, "new", &new_commit_id, &head_refs).await?;
             tx.commit().await?;
-            Ok(())
+            Ok(new_commit)
         })
     }
 
@@ -837,12 +837,12 @@ impl Store {
         })
     }
 
-    pub fn snapshot(&self, tree: Tree) -> Result<(), sqlx::Error> {
+    pub fn snapshot(&self, tree: Tree) -> Result<Commit, sqlx::Error> {
         let view = self.view()?;
 
         // Early return if tree unchanged
         if tree.id() == view.working_copy().tree_id() {
-            return Ok(());
+            return Ok(view.working_copy().clone());
         }
 
         // Assert working copy is a head
@@ -884,7 +884,7 @@ impl Store {
             Self::save_commit_with_tx(&mut tx, &new_commit, Some(&tree)).await?;
             save_operation_with_tx(&mut tx, "snapshot", &new_commit_id, &head_refs).await?;
             tx.commit().await?;
-            Ok(())
+            Ok(new_commit)
         })
     }
 
