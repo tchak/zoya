@@ -662,6 +662,20 @@ mod tests {
     }
 
     #[test]
+    fn test_std_has_response_ok_method() {
+        let pkg = std();
+        let path = QualifiedPath::root()
+            .child("http")
+            .child("Response")
+            .child("ok");
+        let def = pkg
+            .definitions
+            .get(&path)
+            .expect("Response::ok definition");
+        assert!(matches!(def, Definition::ImplMethod(_)));
+    }
+
+    #[test]
     fn test_std_has_headers_type_alias() {
         let pkg = std();
         let path = QualifiedPath::root().child("http").child("Headers");

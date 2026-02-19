@@ -1,3 +1,4 @@
+use super::dict::Dict
 use super::json::JSON
 use super::option::Option
 
@@ -10,3 +11,9 @@ pub enum Body { Text(String), Json(JSON) }
 pub struct Request { url: String, method: Method, body: Option<Body>, headers: Headers }
 
 pub struct Response { body: Option<Body>, status: Int, headers: Headers }
+
+impl Response {
+  pub fn ok(body: Option<Body>) -> Response {
+    Response { body: body, status: 200, headers: Dict::new() }
+  }
+}

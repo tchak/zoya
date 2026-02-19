@@ -498,6 +498,12 @@ Represents an HTTP response.
 | `status` | `Int` | HTTP status code |
 | `headers` | `Headers` | Response headers |
 
+#### Methods
+
+| Method | Description |
+|--------|-------------|
+| `Response::ok(body: Option<Body>) -> Response` | Create a 200 response with empty headers |
+
 ```zoya
 use std::http::{Request, Response, Method, Body, Headers}
 use std::json::JSON
@@ -511,6 +517,10 @@ let request = Request {
     headers: headers,
 }
 
+// Using the convenience constructor
+let response = Response::ok(Some(Body::Text("hello")))
+
+// Or constructing directly
 let response = Response {
     body: Some(Body::Json(JSON::String("hello"))),
     status: 200,
