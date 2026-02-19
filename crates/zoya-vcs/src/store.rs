@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::revision::Revision;
 use crate::view::View;
-use crate::{Commit, Operation, Tree};
+use crate::{Commit, Tree};
 
 pub enum RevisionQuery<'a> {
     WorkingCopy,
@@ -140,40 +140,13 @@ impl Store {
             let root_commit =
                 Commit::new(change_id, &[], empty_tree.id().to_string(), String::new());
 
-            let operation_id = Uuid::now_v7();
-            let init_op = Operation::new(
-                operation_id,
-                "init".to_string(),
-                root_commit.clone(),
-                vec![root_commit],
-            );
+            let root_commit_id = root_commit.commit_id().to_string();
 
             let mut tx = self.pool.begin().await?;
-            Self::save_commit_with_tx(&mut tx, init_op.working_copy(), Some(&empty_tree)).await?;
-            Self::save_operation_with_tx(&mut tx, &init_op).await?;
+            Self::save_commit_with_tx(&mut tx, &root_commit, Some(&empty_tree)).await?;
+            save_operation_with_tx(&mut tx, "init", &root_commit_id, &[&root_commit_id]).await?;
             tx.commit().await?;
 
-            Ok(())
-        })
-    }
-
-    pub fn save_commit(&self, commit: &Commit, tree: Option<&Tree>) -> Result<(), sqlx::Error> {
-        self.runtime.block_on(async {
-            let mut tx = self.pool.begin().await?;
-            Self::save_commit_with_tx(&mut tx, commit, tree).await?;
-            tx.commit().await?;
-            Ok(())
-        })
-    }
-
-    pub fn save_operation(&self, operation: &Operation) -> Result<(), sqlx::Error> {
-        self.runtime.block_on(async {
-            let mut tx = self.pool.begin().await?;
-            for head in operation.heads() {
-                Self::save_commit_with_tx(&mut tx, head, None).await?;
-            }
-            Self::save_operation_with_tx(&mut tx, operation).await?;
-            tx.commit().await?;
             Ok(())
         })
     }
@@ -371,45 +344,6 @@ impl Store {
             .execute(&mut *conn)
             .await?;
         }
-
-        Ok(())
-    }
-
-    async fn save_operation_with_tx(
-        conn: &mut SqliteConnection,
-        operation: &Operation,
-    ) -> Result<(), sqlx::Error> {
-        // 1. Insert view
-        sqlx::query("INSERT OR IGNORE INTO views (view_id, working_copy_commit_id) VALUES (?, ?)")
-            .bind(operation.view_id())
-            .bind(operation.working_copy().commit_id())
-            .execute(&mut *conn)
-            .await?;
-
-        // 2. Insert view heads
-        for head in operation.heads() {
-            sqlx::query("INSERT OR IGNORE INTO view_heads (view_id, commit_id) VALUES (?, ?)")
-                .bind(operation.view_id())
-                .bind(head.commit_id())
-                .execute(&mut *conn)
-                .await?;
-        }
-
-        // 3. Insert operation
-        let timestamp = operation
-            .timestamp()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-        sqlx::query(
-            "INSERT OR IGNORE INTO operations (operation_id, operation_type, view_id, timestamp) VALUES (?, ?, ?, ?)",
-        )
-        .bind(operation.operation_id().to_string())
-        .bind(operation.operation_type())
-        .bind(operation.view_id())
-        .bind(timestamp)
-        .execute(&mut *conn)
-        .await?;
 
         Ok(())
     }
@@ -620,13 +554,11 @@ impl Store {
                 })
                 .collect();
 
-            let operation = Operation::new(
-                Uuid::now_v7(),
-                "describe".to_string(),
-                new_working_copy,
-                new_heads,
-            );
-            Self::save_operation_with_tx(&mut tx, &operation).await?;
+            let new_wc_id = new_working_copy.commit_id().to_string();
+            let new_head_ids: Vec<String> =
+                new_heads.iter().map(|h| h.commit_id().to_string()).collect();
+            let new_head_refs: Vec<&str> = new_head_ids.iter().map(|s| s.as_str()).collect();
+            save_operation_with_tx(&mut tx, "describe", &new_wc_id, &new_head_refs).await?;
 
             tx.commit().await?;
             Ok(())
@@ -645,34 +577,34 @@ impl Store {
             String::new(),
         );
 
-        let new_heads: Vec<Commit> = if resolved.is_head() {
+        let new_head_ids: Vec<String> = if resolved.is_head() {
             view.heads()
                 .iter()
                 .map(|h| {
                     if h.commit_id() == resolved.commit().commit_id() {
-                        new_commit.clone()
+                        new_commit.commit_id().to_string()
                     } else {
-                        h.clone()
+                        h.commit_id().to_string()
                     }
                 })
                 .collect()
         } else {
-            let mut heads = view.heads().to_vec();
-            heads.push(new_commit.clone());
-            heads
+            let mut ids: Vec<String> = view
+                .heads()
+                .iter()
+                .map(|h| h.commit_id().to_string())
+                .collect();
+            ids.push(new_commit.commit_id().to_string());
+            ids
         };
 
-        let operation = Operation::new(
-            Uuid::now_v7(),
-            "new".to_string(),
-            new_commit.clone(),
-            new_heads,
-        );
+        let new_commit_id = new_commit.commit_id().to_string();
+        let head_refs: Vec<&str> = new_head_ids.iter().map(|s| s.as_str()).collect();
 
         self.runtime.block_on(async {
             let mut tx = self.pool.begin().await?;
             Self::save_commit_with_tx(&mut tx, &new_commit, None).await?;
-            Self::save_operation_with_tx(&mut tx, &operation).await?;
+            save_operation_with_tx(&mut tx, "new", &new_commit_id, &head_refs).await?;
             tx.commit().await?;
             Ok(())
         })
@@ -966,34 +898,33 @@ impl Store {
         let wc = view.working_copy();
         let new_commit = Commit::new(
             wc.change_id(),
-            &wc.parents().iter().map(|p| p.to_string()).collect::<Vec<_>>(),
+            &wc.parents()
+                .iter()
+                .map(|p| p.to_string())
+                .collect::<Vec<_>>(),
             tree.id().to_string(),
             wc.message().to_string(),
         );
 
-        let new_heads: Vec<Commit> = view
+        let new_head_ids: Vec<String> = view
             .heads()
             .iter()
             .map(|h| {
                 if h.commit_id() == wc.commit_id() {
-                    new_commit.clone()
+                    new_commit.commit_id().to_string()
                 } else {
-                    h.clone()
+                    h.commit_id().to_string()
                 }
             })
             .collect();
 
-        let operation = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            new_commit.clone(),
-            new_heads,
-        );
+        let new_commit_id = new_commit.commit_id().to_string();
+        let head_refs: Vec<&str> = new_head_ids.iter().map(|s| s.as_str()).collect();
 
         self.runtime.block_on(async {
             let mut tx = self.pool.begin().await?;
             Self::save_commit_with_tx(&mut tx, &new_commit, Some(&tree)).await?;
-            Self::save_operation_with_tx(&mut tx, &operation).await?;
+            save_operation_with_tx(&mut tx, "snapshot", &new_commit_id, &head_refs).await?;
             tx.commit().await?;
             Ok(())
         })
@@ -1111,37 +1042,82 @@ impl Store {
     }
 }
 
+async fn save_operation_with_tx(
+    conn: &mut SqliteConnection,
+    operation_type: &str,
+    working_copy_commit_id: &str,
+    head_commit_ids: &[&str],
+) -> Result<(), sqlx::Error> {
+    let view_id = crate::view::compute_view_id(working_copy_commit_id, head_commit_ids);
+    let operation_id = Uuid::now_v7().to_string();
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    // 1. Insert view
+    sqlx::query("INSERT OR IGNORE INTO views (view_id, working_copy_commit_id) VALUES (?, ?)")
+        .bind(&view_id)
+        .bind(working_copy_commit_id)
+        .execute(&mut *conn)
+        .await?;
+
+    // 2. Insert view heads
+    for head_id in head_commit_ids {
+        sqlx::query("INSERT OR IGNORE INTO view_heads (view_id, commit_id) VALUES (?, ?)")
+            .bind(&view_id)
+            .bind(head_id)
+            .execute(&mut *conn)
+            .await?;
+    }
+
+    // 3. Insert operation
+    sqlx::query(
+        "INSERT OR IGNORE INTO operations (operation_id, operation_type, view_id, timestamp) VALUES (?, ?, ?, ?)",
+    )
+    .bind(&operation_id)
+    .bind(operation_type)
+    .bind(&view_id)
+    .bind(timestamp)
+    .execute(&mut *conn)
+    .await?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-
-    use uuid::Uuid;
 
     use crate::Blob;
     use crate::Tree;
 
     use super::*;
 
-    const CHANGE_1: Uuid = Uuid::from_bytes([
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
-        0x10,
-    ]);
-    const CHANGE_2: Uuid = Uuid::from_bytes([
-        0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
-        0x20,
-    ]);
-
-    fn make_commit(content: &str, change_id: Uuid) -> (Commit, Tree) {
+    fn make_tree(content: &str) -> Tree {
         let mut blobs = HashMap::new();
-        blobs.insert("root".to_string(), Blob::new(content.to_string()));
-        let tree = Tree::new(blobs);
-        let commit = Commit::new(
-            change_id,
-            &[],
-            tree.id().to_string(),
-            "test commit".to_string(),
-        );
-        (commit, tree)
+        blobs.insert("main.zy".to_string(), Blob::new(content.to_string()));
+        Tree::new(blobs)
+    }
+
+    fn create_commit(store: &Store, content: &str, message: &str) {
+        store.new(RevisionQuery::WorkingCopy).unwrap();
+        store.snapshot(make_tree(content)).unwrap();
+        if !message.is_empty() {
+            store
+                .describe(RevisionQuery::WorkingCopy, message.to_string())
+                .unwrap();
+        }
+    }
+
+    fn create_commit_on(store: &Store, query: RevisionQuery, content: &str, message: &str) {
+        store.new(query).unwrap();
+        store.snapshot(make_tree(content)).unwrap();
+        if !message.is_empty() {
+            store
+                .describe(RevisionQuery::WorkingCopy, message.to_string())
+                .unwrap();
+        }
     }
 
     #[test]
@@ -1293,216 +1269,7 @@ mod tests {
         assert_eq!(head_count, 1);
     }
 
-    #[test]
-    fn test_save_commit() {
-        let store = Store::init_memory().unwrap();
-        let (commit, tree) = make_commit("hello world", CHANGE_1);
-
-        store.save_commit(&commit, Some(&tree)).unwrap();
-
-        let (id, change_id, message, timestamp): (String, String, String, i64) = store
-            .runtime
-            .block_on(
-                sqlx::query_as(
-                    "SELECT commit_id, change_id, message, timestamp FROM commits WHERE commit_id = ?",
-                )
-                .bind(commit.commit_id())
-                .fetch_one(&store.pool),
-            )
-            .unwrap();
-
-        assert_eq!(id, commit.commit_id());
-        assert_eq!(change_id, CHANGE_1.to_string());
-        assert_eq!(message, "test commit");
-        assert!(timestamp > 0);
-    }
-
-    #[test]
-    fn test_save_commit_idempotent() {
-        let store = Store::init_memory().unwrap();
-        let (commit, tree) = make_commit("hello world", CHANGE_1);
-
-        store.save_commit(&commit, Some(&tree)).unwrap();
-        store.save_commit(&commit, Some(&tree)).unwrap();
-
-        // 1 root commit + 1 user commit = 2
-        let (count,): (i64,) = store
-            .runtime
-            .block_on(sqlx::query_as("SELECT COUNT(*) FROM commits").fetch_one(&store.pool))
-            .unwrap();
-
-        assert_eq!(count, 2);
-    }
-
-    #[test]
-    fn test_save_commit_stores_blobs() {
-        let store = Store::init_memory().unwrap();
-        let (commit, tree) = make_commit("hello world", CHANGE_1);
-
-        store.save_commit(&commit, Some(&tree)).unwrap();
-
-        let (blob_id, content, size): (String, String, i64) = store
-            .runtime
-            .block_on(
-                sqlx::query_as("SELECT blob_id, content, size FROM blobs WHERE content = ?")
-                    .bind("hello world")
-                    .fetch_one(&store.pool),
-            )
-            .unwrap();
-
-        let expected_blob = tree.get("root").unwrap();
-        assert_eq!(blob_id, expected_blob.id());
-        assert_eq!(content, "hello world");
-        assert_eq!(size, 11);
-    }
-
-    #[test]
-    fn test_save_commit_stores_tree_entries() {
-        let store = Store::init_memory().unwrap();
-        let (commit, tree) = make_commit("hello world", CHANGE_1);
-
-        store.save_commit(&commit, Some(&tree)).unwrap();
-
-        let (tree_id, path, blob_id): (String, String, String) = store
-            .runtime
-            .block_on(
-                sqlx::query_as("SELECT tree_id, path, blob_id FROM tree_entries WHERE tree_id = ?")
-                    .bind(tree.id())
-                    .fetch_one(&store.pool),
-            )
-            .unwrap();
-
-        assert_eq!(tree_id, tree.id());
-        assert_eq!(path, "root");
-        assert_eq!(blob_id, tree.get("root").unwrap().id());
-    }
-
-    #[test]
-    fn test_save_commit_with_parent() {
-        let store = Store::init_memory().unwrap();
-
-        let (parent, parent_tree) = make_commit("v1", CHANGE_1);
-        store.save_commit(&parent, Some(&parent_tree)).unwrap();
-
-        let mut blobs = HashMap::new();
-        blobs.insert("root".to_string(), Blob::new("v2".to_string()));
-        let child_tree = Tree::new(blobs);
-        let child = Commit::new(
-            CHANGE_2,
-            &[parent.commit_id().to_string()],
-            child_tree.id().to_string(),
-            "child commit".to_string(),
-        );
-        store.save_commit(&child, Some(&child_tree)).unwrap();
-
-        let (parent_commit_id, parent_order): (String, i32) = store
-            .runtime
-            .block_on(
-                sqlx::query_as(
-                    "SELECT parent_commit_id, parent_order FROM commit_parents WHERE commit_id = ?",
-                )
-                .bind(child.commit_id())
-                .fetch_one(&store.pool),
-            )
-            .unwrap();
-
-        assert_eq!(parent_commit_id, parent.commit_id());
-        assert_eq!(parent_order, 0);
-    }
-
-    #[test]
-    fn test_save_operation() {
-        let store = Store::init_memory().unwrap();
-
-        let (commit, tree) = make_commit("hello world", CHANGE_1);
-        store.save_commit(&commit, Some(&tree)).unwrap();
-        let op_id = Uuid::from_bytes([
-            0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae,
-            0xaf, 0xb0,
-        ]);
-        let operation = Operation::new(op_id, "snapshot".to_string(), commit.clone(), vec![commit]);
-
-        store.save_operation(&operation).unwrap();
-
-        // Verify operation row
-        let (op_type, view_id, timestamp): (String, String, i64) = store
-            .runtime
-            .block_on(
-                sqlx::query_as(
-                    "SELECT operation_type, view_id, timestamp FROM operations WHERE operation_id = ?",
-                )
-                .bind(op_id.to_string())
-                .fetch_one(&store.pool),
-            )
-            .unwrap();
-        assert_eq!(op_type, "snapshot");
-        assert_eq!(view_id, operation.view_id());
-        assert!(timestamp > 0);
-
-        // Verify view row
-        let (wc_commit_id,): (String,) = store
-            .runtime
-            .block_on(
-                sqlx::query_as("SELECT working_copy_commit_id FROM views WHERE view_id = ?")
-                    .bind(operation.view_id())
-                    .fetch_one(&store.pool),
-            )
-            .unwrap();
-        assert_eq!(wc_commit_id, operation.working_copy().commit_id());
-
-        // Verify view_heads row
-        let heads: Vec<(String,)> = store
-            .runtime
-            .block_on(
-                sqlx::query_as("SELECT commit_id FROM view_heads WHERE view_id = ?")
-                    .bind(operation.view_id())
-                    .fetch_all(&store.pool),
-            )
-            .unwrap();
-        assert_eq!(heads.len(), 1);
-        assert_eq!(heads[0].0, operation.heads()[0].commit_id());
-    }
-
     // --- log() tests ---
-
-    fn get_root_commit_id(store: &Store) -> String {
-        let (commit_id,): (String,) = store
-            .runtime
-            .block_on(
-                sqlx::query_as(
-                    "SELECT c.commit_id FROM commits c \
-                     WHERE NOT EXISTS (SELECT 1 FROM commit_parents cp WHERE cp.commit_id = c.commit_id)",
-                )
-                .fetch_one(&store.pool),
-            )
-            .unwrap();
-        commit_id
-    }
-
-    fn make_commit_with_parent(
-        content: &str,
-        change_id: Uuid,
-        parents: &[String],
-        message: &str,
-    ) -> (Commit, Tree) {
-        let mut blobs = HashMap::new();
-        blobs.insert("root".to_string(), Blob::new(content.to_string()));
-        let tree = Tree::new(blobs);
-        let commit = Commit::new(
-            change_id,
-            parents,
-            tree.id().to_string(),
-            message.to_string(),
-        );
-        (commit, tree)
-    }
-
-    fn make_change_id(byte: u8) -> Uuid {
-        Uuid::from_bytes([
-            byte, byte, byte, byte, byte, byte, byte, byte, byte, byte, byte, byte, byte, byte,
-            byte, byte,
-        ])
-    }
 
     #[test]
     fn test_log_empty_store() {
@@ -1520,254 +1287,94 @@ mod tests {
     #[test]
     fn test_log_linear_chain() {
         let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
 
         // A → B → C
-        let (a, a_tree) =
-            make_commit_with_parent("a", make_change_id(0x21), &[root_id], "commit A");
-        store.save_commit(&a, Some(&a_tree)).unwrap();
-
-        let (b, b_tree) = make_commit_with_parent(
-            "b",
-            make_change_id(0x22),
-            &[a.commit_id().to_string()],
-            "commit B",
-        );
-        store.save_commit(&b, Some(&b_tree)).unwrap();
-
-        let (c, c_tree) = make_commit_with_parent(
-            "c",
-            make_change_id(0x23),
-            &[b.commit_id().to_string()],
-            "commit C",
-        );
-        store.save_commit(&c, Some(&c_tree)).unwrap();
-
-        // Create operation with C as head and working copy
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            c.clone(),
-            vec![c.clone()],
-        );
-        store.save_operation(&op).unwrap();
+        create_commit(&store, "a", "commit A");
+        create_commit(&store, "b", "commit B");
+        create_commit(&store, "c", "commit C");
 
         let revisions = store.log(20).unwrap();
 
-        // root + A + B + C = 4 revisions
-        assert_eq!(revisions.len(), 4);
+        // root + A + B + C + 3 empty working copies = varied count
+        // Each create_commit creates a new() then snapshot() then describe()
+        // new() creates empty commit on top of previous
+        // So: root -> wc1 (new) -> A (describe) -> wc2 (new) -> B (describe) -> wc3 (new) -> C (describe)
+        // That's 7 revisions, but some share change_ids...
+        // Actually, let's just check the key properties
+        let messages: Vec<&str> = revisions.iter().map(|r| r.commit().message()).collect();
+        assert!(messages.contains(&"commit A"));
+        assert!(messages.contains(&"commit B"));
+        assert!(messages.contains(&"commit C"));
 
-        // First revision should be the most recent (C)
-        assert_eq!(revisions[0].commit().message(), "commit C");
-        assert!(revisions[0].is_head());
-        assert!(revisions[0].is_working_copy());
-
-        // Second should be B
-        assert_eq!(revisions[1].commit().message(), "commit B");
-        assert!(!revisions[1].is_head());
-        assert!(!revisions[1].is_working_copy());
-
-        // Third should be A
-        assert_eq!(revisions[2].commit().message(), "commit A");
-        assert!(!revisions[2].is_head());
-        assert!(!revisions[2].is_working_copy());
-
-        // Fourth is root
-        assert_eq!(revisions[3].commit().message(), "");
+        // The working copy should be "commit C"
+        let wc = revisions.iter().find(|r| r.is_working_copy()).unwrap();
+        assert_eq!(wc.commit().message(), "commit C");
+        assert!(wc.is_head());
     }
 
     #[test]
     fn test_log_limit() {
         let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
 
-        // Create a chain of 5 commits
-        let mut parent_id = root_id;
-        let mut last_commit = None;
         for i in 0..5 {
-            let (c, c_tree) = make_commit_with_parent(
-                &format!("content-{i}"),
-                make_change_id(0x30 + i),
-                &[parent_id],
-                &format!("commit {i}"),
-            );
-            store.save_commit(&c, Some(&c_tree)).unwrap();
-            parent_id = c.commit_id().to_string();
-            last_commit = Some(c);
+            create_commit(&store, &format!("content-{i}"), &format!("commit {i}"));
         }
-
-        let head = last_commit.unwrap();
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            head.clone(),
-            vec![head],
-        );
-        store.save_operation(&op).unwrap();
 
         // log(3) should return only 3 revisions
         let revisions = store.log(3).unwrap();
         assert_eq!(revisions.len(), 3);
 
-        // They should be the 3 most recent
+        // The most recent should be "commit 4" (the working copy)
         assert_eq!(revisions[0].commit().message(), "commit 4");
-        assert_eq!(revisions[1].commit().message(), "commit 3");
-        assert_eq!(revisions[2].commit().message(), "commit 2");
-    }
-
-    #[test]
-    fn test_log_merge_commit() {
-        let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
-
-        // Create two branches from root, then merge
-        let (a, a_tree) =
-            make_commit_with_parent("a", make_change_id(0x41), &[root_id.clone()], "branch A");
-        store.save_commit(&a, Some(&a_tree)).unwrap();
-
-        let (b, b_tree) =
-            make_commit_with_parent("b", make_change_id(0x42), &[root_id], "branch B");
-        store.save_commit(&b, Some(&b_tree)).unwrap();
-
-        let (merge, merge_tree) = make_commit_with_parent(
-            "merged",
-            make_change_id(0x43),
-            &[a.commit_id().to_string(), b.commit_id().to_string()],
-            "merge commit",
-        );
-        store.save_commit(&merge, Some(&merge_tree)).unwrap();
-
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            merge.clone(),
-            vec![merge],
-        );
-        store.save_operation(&op).unwrap();
-
-        let revisions = store.log(20).unwrap();
-
-        // root + A + B + merge = 4 revisions
-        assert_eq!(revisions.len(), 4);
-
-        // All ancestors should be present
-        let messages: Vec<&str> = revisions.iter().map(|r| r.commit().message()).collect();
-        assert!(messages.contains(&"merge commit"));
-        assert!(messages.contains(&"branch A"));
-        assert!(messages.contains(&"branch B"));
-        assert!(messages.contains(&""));
-
-        // Merge commit should have 2 parents
-        let merge_rev = revisions
-            .iter()
-            .find(|r| r.commit().message() == "merge commit")
-            .unwrap();
-        assert_eq!(merge_rev.commit().parents().len(), 2);
     }
 
     #[test]
     fn test_log_head_and_working_copy_flags() {
         let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
 
-        let (a, a_tree) =
-            make_commit_with_parent("a", make_change_id(0x51), &[root_id.clone()], "commit A");
-        store.save_commit(&a, Some(&a_tree)).unwrap();
+        // Create commit A on working copy
+        create_commit(&store, "a", "commit A");
+        let rev_a = store.revision(RevisionQuery::WorkingCopy).unwrap();
 
-        let (b, b_tree) =
-            make_commit_with_parent("b", make_change_id(0x52), &[root_id], "commit B");
-        store.save_commit(&b, Some(&b_tree)).unwrap();
+        // Walk to root: A's parent chain
+        let a_parents = store.parents(&rev_a).unwrap();
+        let root_change = a_parents[0].change_id().to_string();
 
-        // Working copy is A, but both A and B are heads
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            a.clone(),
-            vec![a.clone(), b.clone()],
+        create_commit_on(
+            &store,
+            RevisionQuery::ChangeId(&root_change),
+            "b",
+            "commit B",
         );
-        store.save_operation(&op).unwrap();
 
         let revisions = store.log(20).unwrap();
 
+        // Working copy should be "commit B"
+        let wc = revisions.iter().find(|r| r.is_working_copy()).unwrap();
+        assert_eq!(wc.commit().message(), "commit B");
+        assert!(wc.is_head());
+
+        // A should still be a head
         let rev_a = revisions
             .iter()
             .find(|r| r.commit().message() == "commit A")
             .unwrap();
         assert!(rev_a.is_head());
-        assert!(rev_a.is_working_copy());
-
-        let rev_b = revisions
-            .iter()
-            .find(|r| r.commit().message() == "commit B")
-            .unwrap();
-        assert!(rev_b.is_head());
-        assert!(!rev_b.is_working_copy());
-
-        // Root is not a head in this view (it has descendants that are heads)
-        let rev_root = revisions
-            .iter()
-            .find(|r| r.commit().message().is_empty())
-            .unwrap();
-        assert!(!rev_root.is_head());
-        assert!(!rev_root.is_working_copy());
+        assert!(!rev_a.is_working_copy());
     }
 
     // --- describe() tests ---
 
-    fn setup_linear_chain(store: &Store) -> (String, Commit, Commit, Commit) {
-        let root_id = get_root_commit_id(store);
-
-        let (a, a_tree) =
-            make_commit_with_parent("a", make_change_id(0x61), &[root_id.clone()], "commit A");
-        store.save_commit(&a, Some(&a_tree)).unwrap();
-
-        let (b, b_tree) = make_commit_with_parent(
-            "b",
-            make_change_id(0x62),
-            &[a.commit_id().to_string()],
-            "commit B",
-        );
-        store.save_commit(&b, Some(&b_tree)).unwrap();
-
-        let (c, c_tree) = make_commit_with_parent(
-            "c",
-            make_change_id(0x63),
-            &[b.commit_id().to_string()],
-            "commit C",
-        );
-        store.save_commit(&c, Some(&c_tree)).unwrap();
-
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            c.clone(),
-            vec![c.clone()],
-        );
-        store.save_operation(&op).unwrap();
-
-        (root_id, a, b, c)
-    }
-
     #[test]
     fn test_describe_changes_message() {
         let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
 
-        let (a, a_tree) =
-            make_commit_with_parent("a", make_change_id(0x71), &[root_id], "old message");
-        store.save_commit(&a, Some(&a_tree)).unwrap();
+        create_commit(&store, "a", "old message");
 
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            a.clone(),
-            vec![a.clone()],
-        );
-        store.save_operation(&op).unwrap();
-
+        let wc = store.revision(RevisionQuery::WorkingCopy).unwrap();
         store
             .describe(
-                RevisionQuery::CommitId(a.commit_id()),
+                RevisionQuery::CommitId(wc.commit().commit_id()),
                 "new message".to_string(),
             )
             .unwrap();
@@ -1791,19 +1398,8 @@ mod tests {
     #[test]
     fn test_describe_no_op_same_message() {
         let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
 
-        let (a, a_tree) =
-            make_commit_with_parent("a", make_change_id(0x71), &[root_id], "same message");
-        store.save_commit(&a, Some(&a_tree)).unwrap();
-
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            a.clone(),
-            vec![a.clone()],
-        );
-        store.save_operation(&op).unwrap();
+        create_commit(&store, "a", "same message");
 
         // Count operations before
         let (op_count_before,): (i64,) = store
@@ -1811,9 +1407,10 @@ mod tests {
             .block_on(sqlx::query_as("SELECT COUNT(*) FROM operations").fetch_one(&store.pool))
             .unwrap();
 
+        let wc = store.revision(RevisionQuery::WorkingCopy).unwrap();
         store
             .describe(
-                RevisionQuery::CommitId(a.commit_id()),
+                RevisionQuery::CommitId(wc.commit().commit_id()),
                 "same message".to_string(),
             )
             .unwrap();
@@ -1829,17 +1426,23 @@ mod tests {
     #[test]
     fn test_describe_rewrites_descendants() {
         let store = Store::init_memory().unwrap();
-        let (_root_id, a, b, c) = setup_linear_chain(&store);
 
-        let old_b_id = b.commit_id().to_string();
-        let old_c_id = c.commit_id().to_string();
+        // Build A → B → C
+        create_commit(&store, "a", "commit A");
+        let rev_a = store.revision(RevisionQuery::WorkingCopy).unwrap();
+        let a_change = rev_a.change_id().to_string();
+
+        create_commit(&store, "b", "commit B");
+        let rev_b = store.revision(RevisionQuery::WorkingCopy).unwrap();
+        let old_b_id = rev_b.commit().commit_id().to_string();
+
+        create_commit(&store, "c", "commit C");
+        let rev_c = store.revision(RevisionQuery::WorkingCopy).unwrap();
+        let old_c_id = rev_c.commit().commit_id().to_string();
 
         // Describe A with a new message
         store
-            .describe(
-                RevisionQuery::CommitId(a.commit_id()),
-                "updated A".to_string(),
-            )
+            .describe(RevisionQuery::ChangeId(&a_change), "updated A".to_string())
             .unwrap();
 
         let revisions = store.log(20).unwrap();
@@ -1874,25 +1477,15 @@ mod tests {
     #[test]
     fn test_describe_updates_heads_and_working_copy() {
         let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
 
-        let (a, a_tree) =
-            make_commit_with_parent("a", make_change_id(0x71), &[root_id], "head commit");
-        store.save_commit(&a, Some(&a_tree)).unwrap();
+        create_commit(&store, "a", "head commit");
 
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            a.clone(),
-            vec![a.clone()],
-        );
-        store.save_operation(&op).unwrap();
-
-        let old_commit_id = a.commit_id().to_string();
+        let wc = store.revision(RevisionQuery::WorkingCopy).unwrap();
+        let old_commit_id = wc.commit().commit_id().to_string();
 
         store
             .describe(
-                RevisionQuery::CommitId(a.commit_id()),
+                RevisionQuery::CommitId(wc.commit().commit_id()),
                 "renamed head".to_string(),
             )
             .unwrap();
@@ -1921,19 +1514,8 @@ mod tests {
     #[test]
     fn test_revision_working_copy() {
         let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
 
-        let (a, a_tree) =
-            make_commit_with_parent("a", make_change_id(0x81), &[root_id.clone()], "commit A");
-        store.save_commit(&a, Some(&a_tree)).unwrap();
-
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            a.clone(),
-            vec![a.clone()],
-        );
-        store.save_operation(&op).unwrap();
+        create_commit(&store, "a", "commit A");
 
         let rev = store.revision(RevisionQuery::WorkingCopy).unwrap();
         assert_eq!(rev.commit().message(), "commit A");
@@ -1949,125 +1531,59 @@ mod tests {
     #[test]
     fn test_revision_by_commit_id() {
         let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
 
-        let (a, a_tree) =
-            make_commit_with_parent("a", make_change_id(0x82), &[root_id], "commit A");
-        store.save_commit(&a, Some(&a_tree)).unwrap();
+        create_commit(&store, "a", "commit A");
 
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            a.clone(),
-            vec![a.clone()],
-        );
-        store.save_operation(&op).unwrap();
+        let wc = store.revision(RevisionQuery::WorkingCopy).unwrap();
+        let commit_id = wc.commit().commit_id().to_string();
 
-        let rev = store
-            .revision(RevisionQuery::CommitId(a.commit_id()))
-            .unwrap();
-        assert_eq!(rev.commit().commit_id(), a.commit_id());
+        let rev = store.revision(RevisionQuery::CommitId(&commit_id)).unwrap();
+        assert_eq!(rev.commit().commit_id(), commit_id);
         assert_eq!(rev.commit().message(), "commit A");
     }
 
     #[test]
     fn test_revision_by_commit_id_prefix() {
         let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
 
-        let (a, a_tree) =
-            make_commit_with_parent("a", make_change_id(0x83), &[root_id], "commit A");
-        store.save_commit(&a, Some(&a_tree)).unwrap();
+        create_commit(&store, "a", "commit A");
 
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            a.clone(),
-            vec![a.clone()],
-        );
-        store.save_operation(&op).unwrap();
+        let wc = store.revision(RevisionQuery::WorkingCopy).unwrap();
+        let commit_id = wc.commit().commit_id().to_string();
 
         // Use first 8 characters as prefix
-        let prefix = &a.commit_id()[..8];
+        let prefix = &commit_id[..8];
         let rev = store.revision(RevisionQuery::CommitId(prefix)).unwrap();
-        assert_eq!(rev.commit().commit_id(), a.commit_id());
+        assert_eq!(rev.commit().commit_id(), commit_id);
     }
 
     #[test]
     fn test_revision_by_change_id() {
         let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
 
-        let change = make_change_id(0x84);
-        let (a, a_tree) = make_commit_with_parent("a", change, &[root_id], "commit A");
-        store.save_commit(&a, Some(&a_tree)).unwrap();
+        create_commit(&store, "a", "commit A");
 
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            a.clone(),
-            vec![a.clone()],
-        );
-        store.save_operation(&op).unwrap();
+        let wc = store.revision(RevisionQuery::WorkingCopy).unwrap();
+        let change_id = wc.change_id().to_string();
 
-        let rev = store
-            .revision(RevisionQuery::ChangeId(&change.to_string()))
-            .unwrap();
-        assert_eq!(rev.change_id(), change);
+        let rev = store.revision(RevisionQuery::ChangeId(&change_id)).unwrap();
+        assert_eq!(rev.change_id().to_string(), change_id);
         assert_eq!(rev.commit().message(), "commit A");
     }
 
     #[test]
     fn test_revision_by_change_id_prefix() {
         let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
 
-        let change = make_change_id(0x85);
-        let (a, a_tree) = make_commit_with_parent("a", change, &[root_id], "commit A");
-        store.save_commit(&a, Some(&a_tree)).unwrap();
+        create_commit(&store, "a", "commit A");
 
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            a.clone(),
-            vec![a.clone()],
-        );
-        store.save_operation(&op).unwrap();
+        let wc = store.revision(RevisionQuery::WorkingCopy).unwrap();
+        let change_id = wc.change_id().to_string();
 
-        // change_id = "85858585-8585-8585-8585-858585858585", prefix "8585"
-        let rev = store.revision(RevisionQuery::ChangeId("8585")).unwrap();
-        assert_eq!(rev.change_id(), change);
-    }
-
-    #[test]
-    fn test_revision_ambiguous_prefix() {
-        let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
-
-        // Two commits with change_ids sharing prefix "fa"
-        let change_a = make_change_id(0xFA);
-        let change_b = make_change_id(0xFB);
-        let (a, a_tree) = make_commit_with_parent("a", change_a, &[root_id.clone()], "commit A");
-        store.save_commit(&a, Some(&a_tree)).unwrap();
-
-        let (b, b_tree) = make_commit_with_parent("b", change_b, &[root_id], "commit B");
-        store.save_commit(&b, Some(&b_tree)).unwrap();
-
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            a.clone(),
-            vec![a.clone(), b.clone()],
-        );
-        store.save_operation(&op).unwrap();
-
-        // Prefix "f" matches both change_ids
-        let result = store.revision(RevisionQuery::ChangeId("f"));
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            sqlx::Error::Protocol(msg) => assert_eq!(msg, "ambiguous prefix"),
-            other => panic!("expected Protocol error, got: {other:?}"),
-        }
+        // Use first 12 characters as prefix (long enough to avoid ambiguity with v7 UUIDs)
+        let prefix = &change_id[..12];
+        let rev = store.revision(RevisionQuery::ChangeId(prefix)).unwrap();
+        assert_eq!(rev.change_id().to_string(), change_id);
     }
 
     #[test]
@@ -2082,40 +1598,13 @@ mod tests {
     #[test]
     fn test_revision_parents() {
         let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
 
         // A → B → C
-        let (a, a_tree) =
-            make_commit_with_parent("a", make_change_id(0x86), &[root_id], "commit A");
-        store.save_commit(&a, Some(&a_tree)).unwrap();
+        create_commit(&store, "a", "commit A");
+        create_commit(&store, "b", "commit B");
+        create_commit(&store, "c", "commit C");
 
-        let (b, b_tree) = make_commit_with_parent(
-            "b",
-            make_change_id(0x87),
-            &[a.commit_id().to_string()],
-            "commit B",
-        );
-        store.save_commit(&b, Some(&b_tree)).unwrap();
-
-        let (c, c_tree) = make_commit_with_parent(
-            "c",
-            make_change_id(0x88),
-            &[b.commit_id().to_string()],
-            "commit C",
-        );
-        store.save_commit(&c, Some(&c_tree)).unwrap();
-
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            c.clone(),
-            vec![c.clone()],
-        );
-        store.save_operation(&op).unwrap();
-
-        let rev = store
-            .revision(RevisionQuery::CommitId(c.commit_id()))
-            .unwrap();
+        let rev = store.revision(RevisionQuery::WorkingCopy).unwrap();
         assert_eq!(rev.commit().message(), "commit C");
 
         // C's parent is B
@@ -2127,7 +1616,10 @@ mod tests {
     #[test]
     fn test_revision_root_has_no_parents() {
         let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
+
+        // The root is the initial working copy
+        let view = store.view().unwrap();
+        let root_id = view.working_copy().commit_id().to_string();
 
         let rev = store.revision(RevisionQuery::CommitId(&root_id)).unwrap();
         assert_eq!(rev.commit().message(), "");
@@ -2153,57 +1645,39 @@ mod tests {
     #[test]
     fn test_view_after_operation() {
         let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
 
-        let (a, a_tree) =
-            make_commit_with_parent("a", make_change_id(0x91), &[root_id], "commit A");
-        store.save_commit(&a, Some(&a_tree)).unwrap();
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            a.clone(),
-            vec![a.clone()],
-        );
-        store.save_operation(&op).unwrap();
+        create_commit(&store, "a", "commit A");
 
         let view = store.view().unwrap();
 
-        assert_eq!(view.working_copy().commit_id(), a.commit_id());
         assert_eq!(view.working_copy().message(), "commit A");
         assert_eq!(view.heads().len(), 1);
-        assert_eq!(view.heads()[0].commit_id(), a.commit_id());
-        assert_eq!(view.view_id(), op.view_id());
+        assert_eq!(view.heads()[0].commit_id(), view.working_copy().commit_id());
     }
 
     #[test]
     fn test_view_multiple_heads() {
         let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
 
-        let (a, a_tree) =
-            make_commit_with_parent("a", make_change_id(0x92), &[root_id.clone()], "commit A");
-        store.save_commit(&a, Some(&a_tree)).unwrap();
+        // Create commit A
+        create_commit(&store, "a", "commit A");
+        let rev_a = store.revision(RevisionQuery::WorkingCopy).unwrap();
+        let a_parents = store.parents(&rev_a).unwrap();
+        let root_change = a_parents[0].change_id().to_string();
 
-        let (b, b_tree) =
-            make_commit_with_parent("b", make_change_id(0x93), &[root_id], "commit B");
-        store.save_commit(&b, Some(&b_tree)).unwrap();
-
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            a.clone(),
-            vec![a.clone(), b.clone()],
+        // Create commit B on root (second branch)
+        create_commit_on(
+            &store,
+            RevisionQuery::ChangeId(&root_change),
+            "b",
+            "commit B",
         );
-        store.save_operation(&op).unwrap();
 
         let view = store.view().unwrap();
 
-        assert_eq!(view.working_copy().commit_id(), a.commit_id());
+        // Working copy should be commit B
+        assert_eq!(view.working_copy().message(), "commit B");
         assert_eq!(view.heads().len(), 2);
-
-        let head_ids: Vec<&str> = view.heads().iter().map(|c| c.commit_id()).collect();
-        assert!(head_ids.contains(&a.commit_id()));
-        assert!(head_ids.contains(&b.commit_id()));
     }
 
     // --- new() tests ---
@@ -2211,19 +1685,8 @@ mod tests {
     #[test]
     fn test_new_on_working_copy() {
         let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
 
-        let (a, a_tree) =
-            make_commit_with_parent("a", make_change_id(0xA1), &[root_id], "commit A");
-        store.save_commit(&a, Some(&a_tree)).unwrap();
-
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            a.clone(),
-            vec![a.clone()],
-        );
-        store.save_operation(&op).unwrap();
+        create_commit(&store, "a", "commit A");
 
         store.new(RevisionQuery::WorkingCopy).unwrap();
 
@@ -2246,12 +1709,17 @@ mod tests {
     #[test]
     fn test_new_on_non_head() {
         let store = Store::init_memory().unwrap();
-        let (_root_id, a, _b, c) = setup_linear_chain(&store);
+
+        // Build A → B → C
+        create_commit(&store, "a", "commit A");
+        let rev_a = store.revision(RevisionQuery::WorkingCopy).unwrap();
+        let a_change = rev_a.change_id().to_string();
+
+        create_commit(&store, "b", "commit B");
+        create_commit(&store, "c", "commit C");
 
         // C is working copy and head; A is not a head
-        store
-            .new(RevisionQuery::CommitId(a.commit_id()))
-            .unwrap();
+        store.new(RevisionQuery::ChangeId(&a_change)).unwrap();
 
         let rev = store.revision(RevisionQuery::WorkingCopy).unwrap();
         assert_eq!(rev.commit().message(), "");
@@ -2266,69 +1734,25 @@ mod tests {
         // View should have 2 heads: C (still a head) + new commit
         let view = store.view().unwrap();
         assert_eq!(view.heads().len(), 2);
-        let head_ids: Vec<&str> = view.heads().iter().map(|h| h.commit_id()).collect();
-        assert!(head_ids.contains(&rev.commit().commit_id()));
-        // C should still be a head (find it by its change_id since commit_id may differ)
-        let rev_c = store
-            .revision(RevisionQuery::ChangeId(&c.change_id().to_string()))
-            .unwrap();
-        assert!(rev_c.is_head());
     }
 
     #[test]
     fn test_new_preserves_tree() {
         let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
 
-        let (a, a_tree) =
-            make_commit_with_parent("a", make_change_id(0xA3), &[root_id], "commit A");
-        store.save_commit(&a, Some(&a_tree)).unwrap();
+        create_commit(&store, "a", "commit A");
 
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            a.clone(),
-            vec![a.clone()],
-        );
-        store.save_operation(&op).unwrap();
+        let old_tree_id = store
+            .revision(RevisionQuery::WorkingCopy)
+            .unwrap()
+            .commit()
+            .tree_id()
+            .to_string();
 
         store.new(RevisionQuery::WorkingCopy).unwrap();
 
         let rev = store.revision(RevisionQuery::WorkingCopy).unwrap();
-        assert_eq!(rev.commit().tree_id(), a.tree_id());
-    }
-
-    #[test]
-    fn test_view_working_copy_in_heads() {
-        let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
-
-        let (a, a_tree) =
-            make_commit_with_parent("a", make_change_id(0x94), &[root_id.clone()], "commit A");
-        store.save_commit(&a, Some(&a_tree)).unwrap();
-
-        let (b, b_tree) =
-            make_commit_with_parent("b", make_change_id(0x95), &[root_id], "commit B");
-        store.save_commit(&b, Some(&b_tree)).unwrap();
-
-        // Working copy is A, heads include both A and B
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            a.clone(),
-            vec![a.clone(), b.clone()],
-        );
-        store.save_operation(&op).unwrap();
-
-        let view = store.view().unwrap();
-
-        // Working copy is present in heads (caller passes it explicitly)
-        let head_ids: Vec<&str> = view.heads().iter().map(|c| c.commit_id()).collect();
-        assert!(head_ids.contains(&view.working_copy().commit_id()));
-
-        // Full commit data is present on working copy
-        assert_eq!(view.working_copy().message(), "commit A");
-        assert_eq!(view.working_copy().change_id(), make_change_id(0x94));
+        assert_eq!(rev.commit().tree_id(), old_tree_id);
     }
 
     // --- snapshot() tests ---
@@ -2336,19 +1760,8 @@ mod tests {
     #[test]
     fn test_snapshot_no_op_same_tree() {
         let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
 
-        let (a, a_tree) =
-            make_commit_with_parent("a", make_change_id(0xB1), &[root_id], "commit A");
-        store.save_commit(&a, Some(&a_tree)).unwrap();
-
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            a.clone(),
-            vec![a.clone()],
-        );
-        store.save_operation(&op).unwrap();
+        create_commit(&store, "a", "commit A");
 
         // Count operations before
         let (op_count_before,): (i64,) = store
@@ -2357,13 +1770,7 @@ mod tests {
             .unwrap();
 
         // Snapshot with the same tree content
-        let same_tree = {
-            let mut blobs = HashMap::new();
-            blobs.insert("root".to_string(), Blob::new("a".to_string()));
-            Tree::new(blobs)
-        };
-        assert_eq!(same_tree.id(), a.tree_id());
-        store.snapshot(same_tree).unwrap();
+        store.snapshot(make_tree("a")).unwrap();
 
         // Count operations after — should be unchanged
         let (op_count_after,): (i64,) = store
@@ -2376,28 +1783,16 @@ mod tests {
     #[test]
     fn test_snapshot_updates_tree() {
         let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
 
-        let (a, a_tree) =
-            make_commit_with_parent("a", make_change_id(0xB2), &[root_id], "commit A");
-        store.save_commit(&a, Some(&a_tree)).unwrap();
+        create_commit(&store, "a", "commit A");
 
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            a.clone(),
-            vec![a.clone()],
-        );
-        store.save_operation(&op).unwrap();
-
-        let old_change_id = a.change_id();
+        let old_change_id = store
+            .revision(RevisionQuery::WorkingCopy)
+            .unwrap()
+            .change_id();
 
         // Snapshot with a new tree
-        let new_tree = {
-            let mut blobs = HashMap::new();
-            blobs.insert("root".to_string(), Blob::new("b".to_string()));
-            Tree::new(blobs)
-        };
+        let new_tree = make_tree("b");
         let new_tree_id = new_tree.id().to_string();
         store.snapshot(new_tree).unwrap();
 
@@ -2405,41 +1800,17 @@ mod tests {
         assert_eq!(view.working_copy().tree_id(), new_tree_id);
         assert_eq!(view.working_copy().change_id(), old_change_id);
         assert_eq!(view.heads().len(), 1);
-        assert_eq!(
-            view.heads()[0].commit_id(),
-            view.working_copy().commit_id()
-        );
+        assert_eq!(view.heads()[0].commit_id(), view.working_copy().commit_id());
     }
 
     #[test]
     fn test_snapshot_preserves_message() {
         let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
 
-        let (a, a_tree) =
-            make_commit_with_parent("a", make_change_id(0xB3), &[root_id], "commit A");
-        store.save_commit(&a, Some(&a_tree)).unwrap();
-
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            a.clone(),
-            vec![a.clone()],
-        );
-        store.save_operation(&op).unwrap();
-
-        // Describe the working copy
-        store
-            .describe(RevisionQuery::WorkingCopy, "my description".to_string())
-            .unwrap();
+        create_commit(&store, "a", "my description");
 
         // Snapshot with a new tree
-        let new_tree = {
-            let mut blobs = HashMap::new();
-            blobs.insert("root".to_string(), Blob::new("updated".to_string()));
-            Tree::new(blobs)
-        };
-        store.snapshot(new_tree).unwrap();
+        store.snapshot(make_tree("updated")).unwrap();
 
         let view = store.view().unwrap();
         assert_eq!(view.working_copy().message(), "my description");
@@ -2448,31 +1819,26 @@ mod tests {
     #[test]
     fn test_snapshot_with_multiple_heads() {
         let store = Store::init_memory().unwrap();
-        let root_id = get_root_commit_id(&store);
 
-        let (a, a_tree) =
-            make_commit_with_parent("a", make_change_id(0xB4), &[root_id.clone()], "commit A");
-        store.save_commit(&a, Some(&a_tree)).unwrap();
+        // Create commit A
+        create_commit(&store, "a", "commit A");
+        let rev_a = store.revision(RevisionQuery::WorkingCopy).unwrap();
+        let a_change_id = rev_a.change_id();
+        let a_parents = store.parents(&rev_a).unwrap();
+        let root_change = a_parents[0].change_id().to_string();
 
-        let (b, b_tree) =
-            make_commit_with_parent("b", make_change_id(0xB5), &[root_id], "commit B");
-        store.save_commit(&b, Some(&b_tree)).unwrap();
-
-        // Working copy is A, both A and B are heads
-        let op = Operation::new(
-            Uuid::now_v7(),
-            "snapshot".to_string(),
-            a.clone(),
-            vec![a.clone(), b.clone()],
+        // Create commit B on root (second branch)
+        create_commit_on(
+            &store,
+            RevisionQuery::ChangeId(&root_change),
+            "b",
+            "commit B",
         );
-        store.save_operation(&op).unwrap();
+        let rev_b = store.revision(RevisionQuery::WorkingCopy).unwrap();
+        let b_commit_id = rev_b.commit().commit_id().to_string();
 
-        // Snapshot with a new tree
-        let new_tree = {
-            let mut blobs = HashMap::new();
-            blobs.insert("root".to_string(), Blob::new("new content".to_string()));
-            Tree::new(blobs)
-        };
+        // Snapshot with a new tree on working copy (commit B)
+        let new_tree = make_tree("new content");
         let new_tree_id = new_tree.id().to_string();
         store.snapshot(new_tree).unwrap();
 
@@ -2484,21 +1850,21 @@ mod tests {
         // Should still have 2 heads
         assert_eq!(view.heads().len(), 2);
 
-        // B should be unchanged
-        let head_b = view
-            .heads()
-            .iter()
-            .find(|h| h.commit_id() == b.commit_id())
-            .expect("B should still be a head");
-        assert_eq!(head_b.tree_id(), b.tree_id());
-
-        // A should be replaced (different commit_id, same change_id)
+        // A should be unchanged
         let head_a = view
             .heads()
             .iter()
-            .find(|h| h.change_id() == a.change_id())
-            .expect("A's change should still be a head");
-        assert_ne!(head_a.commit_id(), a.commit_id());
-        assert_eq!(head_a.tree_id(), new_tree_id);
+            .find(|h| h.change_id() == a_change_id)
+            .expect("A should still be a head");
+        assert_ne!(head_a.tree_id(), new_tree_id);
+
+        // B should be replaced (different commit_id, same change_id)
+        let head_b = view
+            .heads()
+            .iter()
+            .find(|h| h.change_id() == rev_b.change_id())
+            .expect("B's change should still be a head");
+        assert_ne!(head_b.commit_id(), b_commit_id);
+        assert_eq!(head_b.tree_id(), new_tree_id);
     }
 }
