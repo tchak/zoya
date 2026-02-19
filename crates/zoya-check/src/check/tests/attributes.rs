@@ -216,7 +216,7 @@ fn test_test_fn_has_is_test_flag() {
     let checked = check(&pkg, &[]).unwrap();
     let path = QualifiedPath::root().child("test_something");
     let func = checked.items.get(&path).unwrap();
-    assert!(func.is_test);
+    assert_eq!(func.kind, zoya_ir::FunctionKind::Test);
 }
 
 #[test]
@@ -376,7 +376,7 @@ fn test_task_fn_has_is_task_flag() {
     let checked = check(&pkg, &[]).unwrap();
     let path = QualifiedPath::root().child("my_task");
     let func = checked.items.get(&path).unwrap();
-    assert!(func.is_task);
+    assert_eq!(func.kind, zoya_ir::FunctionKind::Task);
 }
 
 #[test]

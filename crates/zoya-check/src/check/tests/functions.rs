@@ -2,7 +2,7 @@ use zoya_ast::{
     Attribute, BinOp, Expr, FunctionDef, Item, MatchArm, Param, Path, Pattern, TypeAnnotation,
     Visibility,
 };
-use zoya_ir::{Definition, FunctionType, QualifiedPath, Type};
+use zoya_ir::{Definition, FunctionKind, FunctionType, QualifiedPath, Type};
 
 use crate::check::{TypeEnv, check, check_expr, check_function};
 use crate::definition::function_type_from_def;
@@ -763,6 +763,6 @@ fn test_builtin_valid_in_std() {
     let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx, "std");
     assert!(result.is_ok());
     let typed = result.unwrap();
-    assert!(typed.is_builtin);
+    assert_eq!(typed.kind, FunctionKind::Builtin);
     assert_eq!(typed.return_type, Type::Int);
 }

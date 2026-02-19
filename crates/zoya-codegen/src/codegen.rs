@@ -1,7 +1,7 @@
 use zoya_ast::{BinOp, UnaryOp};
 use zoya_ir::{
-    CheckedPackage, QualifiedPath, Type, TypedEnumConstructFields, TypedExpr, TypedFunction,
-    TypedListElement, TypedMatchArm, TypedPattern, TypedStringPart,
+    CheckedPackage, FunctionKind, QualifiedPath, Type, TypedEnumConstructFields, TypedExpr,
+    TypedFunction, TypedListElement, TypedMatchArm, TypedPattern, TypedStringPart,
 };
 
 /// Output of code generation containing JS code and content hash
@@ -875,7 +875,7 @@ impl<'a> PackageCodegen<'a> {
     }
 
     fn codegen_function(&self, func: &TypedFunction, path: &QualifiedPath) -> String {
-        if func.is_builtin {
+        if func.kind == FunctionKind::Builtin {
             return self.codegen_builtin_function(func, path);
         }
 
@@ -1459,9 +1459,7 @@ mod tests {
                 ty: Type::Int,
             },
             return_type: Type::Int,
-            is_builtin: false,
-            is_test: false,
-            is_task: false,
+            kind: FunctionKind::Regular,
         };
         assert_eq!(
             pkg_gen.codegen_function(&func, &QualifiedPath::root().child(&func.name)),
@@ -1503,9 +1501,7 @@ mod tests {
                 ty: Type::Int,
             },
             return_type: Type::Int,
-            is_builtin: false,
-            is_test: false,
-            is_task: false,
+            kind: FunctionKind::Regular,
         };
         assert_eq!(
             pkg_gen.codegen_function(&func, &QualifiedPath::root().child(&func.name)),
@@ -1521,9 +1517,7 @@ mod tests {
             params: vec![],
             body: TypedExpr::Int(42),
             return_type: Type::Int,
-            is_builtin: false,
-            is_test: false,
-            is_task: false,
+            kind: FunctionKind::Regular,
         };
         assert_eq!(
             pkg_gen.codegen_function(&func, &QualifiedPath::root().child(&func.name)),
@@ -1553,9 +1547,7 @@ mod tests {
                 ty: Type::BigInt,
             },
             return_type: Type::BigInt,
-            is_builtin: false,
-            is_test: false,
-            is_task: false,
+            kind: FunctionKind::Regular,
         };
         assert_eq!(
             pkg_gen.codegen_function(&func, &QualifiedPath::root().child(&func.name)),

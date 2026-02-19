@@ -3,6 +3,16 @@ use zoya_package::QualifiedPath;
 
 use crate::types::{Definition, Type};
 
+/// The kind of a function definition
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FunctionKind {
+    #[default]
+    Regular,
+    Builtin,
+    Test,
+    Task,
+}
+
 /// Typed function definition
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedFunction {
@@ -10,9 +20,7 @@ pub struct TypedFunction {
     pub params: Vec<(TypedPattern, Type)>,
     pub body: TypedExpr,
     pub return_type: Type,
-    pub is_builtin: bool,
-    pub is_test: bool,
-    pub is_task: bool,
+    pub kind: FunctionKind,
 }
 
 /// Typed let binding
@@ -328,7 +336,7 @@ impl CheckedPackage {
         let mut tests: Vec<QualifiedPath> = self
             .items
             .iter()
-            .filter(|(_, func)| func.is_test)
+            .filter(|(_, func)| func.kind == FunctionKind::Test)
             .map(|(path, _)| path.clone())
             .collect();
         tests.sort_by_key(|a| a.to_string());
@@ -340,7 +348,7 @@ impl CheckedPackage {
         let mut tasks: Vec<QualifiedPath> = self
             .items
             .iter()
-            .filter(|(_, func)| func.is_task)
+            .filter(|(_, func)| func.kind == FunctionKind::Task)
             .map(|(path, _)| path.clone())
             .collect();
         tasks.sort_by_key(|a| a.to_string());
@@ -353,7 +361,8 @@ impl CheckedPackage {
             .items
             .iter()
             .filter(|(path, func)| {
-                !func.is_test && !func.is_task && self.definitions.contains_key(path)
+                matches!(func.kind, FunctionKind::Regular | FunctionKind::Builtin)
+                    && self.definitions.contains_key(path)
             })
             .map(|(path, _)| path.clone())
             .collect();

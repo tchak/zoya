@@ -5,10 +5,10 @@ use zoya_ast::{
     StringPart, StructKind, TupleElement, TypeAnnotation, UnaryOp, UseDecl, UseTarget,
 };
 use zoya_ir::{
-    CheckedPackage, Definition, EnumType, EnumVariantType, FunctionType, ImplMethodType,
-    ModuleType, QualifiedPath, StructType, StructTypeKind, Type, TypeAliasType, TypeError,
-    TypeScheme, TypeVarId, TypedEnumConstructFields, TypedExpr, TypedFunction, TypedListElement,
-    TypedStringPart, Visibility,
+    CheckedPackage, Definition, EnumType, EnumVariantType, FunctionKind, FunctionType,
+    ImplMethodType, ModuleType, QualifiedPath, StructType, StructTypeKind, Type, TypeAliasType,
+    TypeError, TypeScheme, TypeVarId, TypedEnumConstructFields, TypedExpr, TypedFunction,
+    TypedListElement, TypedStringPart, Visibility,
 };
 use zoya_package::Package;
 
@@ -146,35 +146,44 @@ fn check_function(
     }
 
     // Check for #[builtin], #[test], and #[task] attributes
-    let is_builtin = func.attributes.iter().any(|a| a.name == "builtin");
-    let is_test = func.attributes.iter().any(|a| a.name == "test");
-    let is_task = func.attributes.iter().any(|a| a.name == "task");
-
-    // Validate: #[builtin], #[test], and #[task] are mutually exclusive
-    if is_builtin && is_test {
-        return Err(TypeError {
-            message: "a function cannot have both #[builtin] and #[test] attributes".to_string(),
-        });
-    }
-    if is_builtin && is_task {
-        return Err(TypeError {
-            message: "a function cannot have both #[builtin] and #[task] attributes".to_string(),
-        });
-    }
-    if is_test && is_task {
-        return Err(TypeError {
-            message: "a function cannot have both #[test] and #[task] attributes".to_string(),
-        });
-    }
+    let kind = {
+        let is_builtin = func.attributes.iter().any(|a| a.name == "builtin");
+        let is_test = func.attributes.iter().any(|a| a.name == "test");
+        let is_task = func.attributes.iter().any(|a| a.name == "task");
+        match (is_builtin, is_test, is_task) {
+            (false, false, false) => FunctionKind::Regular,
+            (true, false, false) => FunctionKind::Builtin,
+            (false, true, false) => FunctionKind::Test,
+            (false, false, true) => FunctionKind::Task,
+            (true, true, _) => {
+                return Err(TypeError {
+                    message: "a function cannot have both #[builtin] and #[test] attributes"
+                        .to_string(),
+                });
+            }
+            (true, false, true) => {
+                return Err(TypeError {
+                    message: "a function cannot have both #[builtin] and #[task] attributes"
+                        .to_string(),
+                });
+            }
+            (false, true, true) => {
+                return Err(TypeError {
+                    message: "a function cannot have both #[test] and #[task] attributes"
+                        .to_string(),
+                });
+            }
+        }
+    };
 
     // Validate: #[test] functions cannot have parameters
-    if is_test && !func.params.is_empty() {
+    if kind == FunctionKind::Test && !func.params.is_empty() {
         return Err(TypeError {
             message: format!("#[test] function '{}' cannot have parameters", func.name),
         });
     }
 
-    if is_builtin {
+    if kind == FunctionKind::Builtin {
         // Validate: only allowed in std package
         if package_name != "std" {
             return Err(TypeError {
@@ -211,9 +220,7 @@ fn check_function(
             params: typed_params,
             body: typed_body,
             return_type: ctx.resolve(&declared_return),
-            is_builtin: true,
-            is_test: false,
-            is_task: false,
+            kind: FunctionKind::Builtin,
         });
     }
 
@@ -246,7 +253,7 @@ fn check_function(
     };
 
     // Validate: #[test] functions must return () or Result
-    if is_test {
+    if kind == FunctionKind::Test {
         let resolved = ctx.resolve(&return_type);
         let valid = match &resolved {
             Type::Tuple(elems) if elems.is_empty() => true,
@@ -268,9 +275,7 @@ fn check_function(
         params: typed_params,
         body: typed_body,
         return_type: ctx.resolve(&return_type),
-        is_builtin: false,
-        is_test,
-        is_task,
+        kind,
     })
 }
 
@@ -411,9 +416,7 @@ fn check_impl_method_body(
             params: typed_params,
             body: typed_body,
             return_type: ctx.resolve(&declared_return),
-            is_builtin: true,
-            is_test: false,
-            is_task: false,
+            kind: FunctionKind::Builtin,
         });
     }
 
@@ -455,9 +458,7 @@ fn check_impl_method_body(
         params: typed_params,
         body: typed_body,
         return_type: ctx.resolve(&return_type),
-        is_builtin: false,
-        is_test: false,
-        is_task: false,
+        kind: FunctionKind::Regular,
     })
 }
 
@@ -3087,8 +3088,9 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
         .iter()
         .filter(|(path, def)| {
             is_externally_visible(path, def, &env.definitions)
-                || checked_items.get(path).is_some_and(|f| f.is_test)
-                || checked_items.get(path).is_some_and(|f| f.is_task)
+                || checked_items
+                    .get(path)
+                    .is_some_and(|f| matches!(f.kind, FunctionKind::Test | FunctionKind::Task))
         })
         .map(|(path, def)| (path.clone(), def.clone()))
         .collect();
