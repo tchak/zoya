@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS view_heads (
 );
 
 CREATE TABLE IF NOT EXISTS operations (
-    operation_id TEXT PRIMARY KEY,
+    operation_id INTEGER PRIMARY KEY AUTOINCREMENT,
     operation_type TEXT NOT NULL,
     view_id TEXT NOT NULL REFERENCES views(view_id),
     timestamp INTEGER NOT NULL
@@ -1049,7 +1049,6 @@ async fn save_operation_with_tx(
     head_commit_ids: &[&str],
 ) -> Result<(), sqlx::Error> {
     let view_id = crate::view::compute_view_id(working_copy_commit_id, head_commit_ids);
-    let operation_id = Uuid::now_v7().to_string();
     let timestamp = std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -1072,15 +1071,12 @@ async fn save_operation_with_tx(
     }
 
     // 3. Insert operation
-    sqlx::query(
-        "INSERT OR IGNORE INTO operations (operation_id, operation_type, view_id, timestamp) VALUES (?, ?, ?, ?)",
-    )
-    .bind(&operation_id)
-    .bind(operation_type)
-    .bind(&view_id)
-    .bind(timestamp)
-    .execute(&mut *conn)
-    .await?;
+    sqlx::query("INSERT INTO operations (operation_type, view_id, timestamp) VALUES (?, ?, ?)")
+        .bind(operation_type)
+        .bind(&view_id)
+        .bind(timestamp)
+        .execute(&mut *conn)
+        .await?;
 
     Ok(())
 }
