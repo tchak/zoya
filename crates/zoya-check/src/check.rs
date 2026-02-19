@@ -1,14 +1,15 @@
 use std::collections::{HashMap, HashSet};
 
 use zoya_ast::{
-    BinOp, Expr, FunctionDef, ImplBlock, ImplMethod, Item, LetBinding, ListElement, MatchArm, Path,
-    StringPart, StructKind, TupleElement, TypeAnnotation, UnaryOp, UseDecl, UseTarget,
+    AttributeArg, BinOp, Expr, FunctionDef, ImplBlock, ImplMethod, Item, LetBinding, ListElement,
+    MatchArm, Path, StringPart, StructKind, TupleElement, TypeAnnotation, UnaryOp, UseDecl,
+    UseTarget,
 };
 use zoya_ir::{
-    CheckedPackage, Definition, EnumType, EnumVariantType, FunctionKind, FunctionType,
-    ImplMethodType, ModuleType, QualifiedPath, StructType, StructTypeKind, Type, TypeAliasType,
-    TypeError, TypeScheme, TypeVarId, TypedEnumConstructFields, TypedExpr, TypedFunction,
-    TypedListElement, TypedStringPart, Visibility,
+    CheckedPackage, Definition, EnumType, EnumVariantType, FunctionKind, FunctionType, HttpMethod,
+    ImplMethodType, ModuleType, Pathname, QualifiedPath, StructType, StructTypeKind, Type,
+    TypeAliasType, TypeError, TypeScheme, TypeVarId, TypedEnumConstructFields, TypedExpr,
+    TypedFunction, TypedListElement, TypedStringPart, Visibility,
 };
 use zoya_package::Package;
 
@@ -145,34 +146,85 @@ fn check_function(
         typed_params.push((typed_pattern, ctx.resolve(&ty)));
     }
 
-    // Check for #[builtin], #[test], and #[task] attributes
+    // Check for #[builtin], #[test], #[task], and HTTP method attributes
     let kind = {
         let is_builtin = func.attributes.iter().any(|a| a.name == "builtin");
         let is_test = func.attributes.iter().any(|a| a.name == "test");
         let is_task = func.attributes.iter().any(|a| a.name == "task");
-        match (is_builtin, is_test, is_task) {
-            (false, false, false) => FunctionKind::Regular,
-            (true, false, false) => FunctionKind::Builtin,
-            (false, true, false) => FunctionKind::Test,
-            (false, false, true) => FunctionKind::Task,
-            (true, true, _) => {
-                return Err(TypeError {
-                    message: "a function cannot have both #[builtin] and #[test] attributes"
-                        .to_string(),
-                });
-            }
-            (true, false, true) => {
-                return Err(TypeError {
-                    message: "a function cannot have both #[builtin] and #[task] attributes"
-                        .to_string(),
-                });
-            }
-            (false, true, true) => {
-                return Err(TypeError {
-                    message: "a function cannot have both #[test] and #[task] attributes"
-                        .to_string(),
-                });
-            }
+        let http_attr = func
+            .attributes
+            .iter()
+            .find_map(|a| HttpMethod::from_attr_name(&a.name).map(|method| (method, a)));
+
+        let mut special_names: Vec<&str> = Vec::new();
+        if is_builtin {
+            special_names.push("builtin");
+        }
+        if is_test {
+            special_names.push("test");
+        }
+        if is_task {
+            special_names.push("task");
+        }
+        if let Some((method, _)) = &http_attr {
+            special_names.push(method.attr_name());
+        }
+
+        if special_names.len() > 1 {
+            return Err(TypeError {
+                message: format!(
+                    "a function cannot have both #[{}] and #[{}] attributes",
+                    special_names[0], special_names[1]
+                ),
+            });
+        }
+
+        if is_builtin {
+            FunctionKind::Builtin
+        } else if is_test {
+            FunctionKind::Test
+        } else if is_task {
+            FunctionKind::Task
+        } else if let Some((method, attr)) = http_attr {
+            let pathname_str = match &attr.args {
+                Some(args) if args.len() == 1 => match &args[0] {
+                    AttributeArg::String(s) => s.clone(),
+                    AttributeArg::Identifier(_) => {
+                        return Err(TypeError {
+                            message: format!(
+                                "#[{}] attribute requires a string path argument, e.g., #[{}(\"/path\")]",
+                                method.attr_name(),
+                                method.attr_name()
+                            ),
+                        });
+                    }
+                },
+                Some(_) => {
+                    return Err(TypeError {
+                        message: format!(
+                            "#[{}] attribute requires exactly one string path argument",
+                            method.attr_name()
+                        ),
+                    });
+                }
+                None => {
+                    return Err(TypeError {
+                        message: format!(
+                            "#[{}] attribute requires a path argument, e.g., #[{}(\"/path\")]",
+                            method.attr_name(),
+                            method.attr_name()
+                        ),
+                    });
+                }
+            };
+
+            let pathname = Pathname::new(&pathname_str).map_err(|e| TypeError {
+                message: format!("#[{}] attribute: {}", method.attr_name(), e),
+            })?;
+
+            FunctionKind::Http(method, pathname)
+        } else {
+            FunctionKind::Regular
         }
     };
 
@@ -181,6 +233,37 @@ fn check_function(
         return Err(TypeError {
             message: format!("#[test] function '{}' cannot have parameters", func.name),
         });
+    }
+
+    // Validate: HTTP route functions can have at most 1 parameter of type Request
+    if let FunctionKind::Http(ref method, _) = kind {
+        if func.params.len() > 1 {
+            return Err(TypeError {
+                message: format!(
+                    "#[{}] function '{}' can have at most 1 parameter (of type Request)",
+                    method.attr_name(),
+                    func.name
+                ),
+            });
+        }
+        if func.params.len() == 1 {
+            let param_type = &typed_params[0].1;
+            let resolved_param = ctx.resolve(param_type);
+            let is_request = matches!(
+                &resolved_param,
+                Type::Struct { module, name, .. } if name == "Request" && module.to_string() == "std::http"
+            );
+            if !is_request {
+                return Err(TypeError {
+                    message: format!(
+                        "#[{}] function '{}' parameter must be of type Request (from std::http), but got {}",
+                        method.attr_name(),
+                        func.name,
+                        resolved_param
+                    ),
+                });
+            }
+        }
     }
 
     if kind == FunctionKind::Builtin {
@@ -265,6 +348,25 @@ fn check_function(
                 message: format!(
                     "#[test] function '{}' must return () or Result, but returns {}",
                     func.name, resolved
+                ),
+            });
+        }
+    }
+
+    // Validate: HTTP route functions must return Response
+    if let FunctionKind::Http(ref method, _) = kind {
+        let resolved = ctx.resolve(&return_type);
+        let is_response = matches!(
+            &resolved,
+            Type::Struct { module, name, .. } if name == "Response" && module.to_string() == "std::http"
+        );
+        if !is_response {
+            return Err(TypeError {
+                message: format!(
+                    "#[{}] function '{}' must return Response (from std::http), but returns {}",
+                    method.attr_name(),
+                    func.name,
+                    resolved
                 ),
             });
         }
@@ -2913,8 +3015,8 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
         }
     }
 
-    // Phase 0.7: Validate #[test] and #[task] attribute usage
-    // #[test] and #[task] are only valid on function definitions
+    // Phase 0.7: Validate #[test], #[task], and HTTP method attribute usage
+    // These are only valid on function definitions
     for path in &module_paths {
         if let Some(module) = pkg.modules.get(path) {
             for item in &module.items {
@@ -2927,7 +3029,7 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
                     Item::Impl(i) => (&i.attributes, "impl"),
                     Item::ModDecl(_) => unreachable!("mod decls are removed by the loader"),
                 };
-                for attr_name in &["test", "task"] {
+                for attr_name in &["test", "task", "get", "post", "put", "patch", "delete"] {
                     if attrs.iter().any(|a| a.name == *attr_name) {
                         return Err(TypeError {
                             message: format!(
@@ -3117,9 +3219,12 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
         .iter()
         .filter(|(path, def)| {
             is_externally_visible(path, def, &env.definitions)
-                || checked_items
-                    .get(path)
-                    .is_some_and(|f| matches!(f.kind, FunctionKind::Test | FunctionKind::Task))
+                || checked_items.get(path).is_some_and(|f| {
+                    matches!(
+                        f.kind,
+                        FunctionKind::Test | FunctionKind::Task | FunctionKind::Http(_, _)
+                    )
+                })
         })
         .map(|(path, def)| (path.clone(), def.clone()))
         .collect();

@@ -668,10 +668,7 @@ mod tests {
             .child("http")
             .child("Response")
             .child("ok");
-        let def = pkg
-            .definitions
-            .get(&path)
-            .expect("Response::ok definition");
+        let def = pkg.definitions.get(&path).expect("Response::ok definition");
         assert!(matches!(def, Definition::ImplMethod(_)));
     }
 

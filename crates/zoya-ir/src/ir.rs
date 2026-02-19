@@ -1,16 +1,95 @@
+use std::fmt;
+
 use zoya_ast::{BinOp, UnaryOp};
 use zoya_package::QualifiedPath;
 
 use crate::types::{Definition, Type};
 
+/// HTTP method for route functions
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HttpMethod {
+    Get,
+    Post,
+    Put,
+    Patch,
+    Delete,
+}
+
+impl HttpMethod {
+    /// Parse an attribute name into an HTTP method, if it matches.
+    pub fn from_attr_name(name: &str) -> Option<Self> {
+        match name {
+            "get" => Some(HttpMethod::Get),
+            "post" => Some(HttpMethod::Post),
+            "put" => Some(HttpMethod::Put),
+            "patch" => Some(HttpMethod::Patch),
+            "delete" => Some(HttpMethod::Delete),
+            _ => None,
+        }
+    }
+
+    /// Returns the attribute name for this HTTP method.
+    pub fn attr_name(&self) -> &'static str {
+        match self {
+            HttpMethod::Get => "get",
+            HttpMethod::Post => "post",
+            HttpMethod::Put => "put",
+            HttpMethod::Patch => "patch",
+            HttpMethod::Delete => "delete",
+        }
+    }
+}
+
+/// A validated URL pathname for HTTP routes.
+/// Must start with `/` and contain valid path segments.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pathname(String);
+
+impl Pathname {
+    /// Create a new Pathname, validating that it starts with `/`
+    /// and contains only valid path segments.
+    pub fn new(path: &str) -> Result<Self, String> {
+        if !path.starts_with('/') {
+            return Err(format!("pathname '{}' must start with '/'", path));
+        }
+        if path.len() > 1 {
+            for segment in path[1..].split('/') {
+                if segment.is_empty() {
+                    return Err(format!("pathname '{}' contains an empty segment", path));
+                }
+                for ch in segment.chars() {
+                    if !ch.is_alphanumeric() && ch != '-' && ch != '_' && ch != ':' {
+                        return Err(format!(
+                            "pathname '{}' contains invalid character '{}' in segment '{}'",
+                            path, ch, segment
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(Pathname(path.to_string()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for Pathname {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// The kind of a function definition
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum FunctionKind {
     #[default]
     Regular,
     Builtin,
     Test,
     Task,
+    Http(HttpMethod, Pathname),
 }
 
 /// Typed function definition
@@ -368,5 +447,101 @@ impl CheckedPackage {
             .collect();
         fns.sort_by_key(|a| a.to_string());
         fns
+    }
+
+    /// Return sorted (path, method, pathname) tuples for all HTTP route functions.
+    pub fn routes(&self) -> Vec<(QualifiedPath, &HttpMethod, &Pathname)> {
+        let mut routes: Vec<(QualifiedPath, &HttpMethod, &Pathname)> = self
+            .items
+            .iter()
+            .filter_map(|(path, func)| {
+                if let FunctionKind::Http(ref method, ref pathname) = func.kind {
+                    Some((path.clone(), method, pathname))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        routes.sort_by_key(|(path, _, _)| path.to_string());
+        routes
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pathname_valid_root() {
+        assert!(Pathname::new("/").is_ok());
+    }
+
+    #[test]
+    fn test_pathname_valid_path() {
+        let p = Pathname::new("/users").unwrap();
+        assert_eq!(p.as_str(), "/users");
+    }
+
+    #[test]
+    fn test_pathname_valid_nested() {
+        assert!(Pathname::new("/users/profile").is_ok());
+    }
+
+    #[test]
+    fn test_pathname_valid_with_param() {
+        assert!(Pathname::new("/users/:id").is_ok());
+    }
+
+    #[test]
+    fn test_pathname_valid_with_hyphens_underscores() {
+        assert!(Pathname::new("/my-route/sub_path").is_ok());
+    }
+
+    #[test]
+    fn test_pathname_must_start_with_slash() {
+        let err = Pathname::new("users").unwrap_err();
+        assert!(err.contains("must start with '/'"));
+    }
+
+    #[test]
+    fn test_pathname_no_empty_segments() {
+        let err = Pathname::new("/users//profile").unwrap_err();
+        assert!(err.contains("empty segment"));
+    }
+
+    #[test]
+    fn test_pathname_invalid_chars() {
+        let err = Pathname::new("/users?q=1").unwrap_err();
+        assert!(err.contains("invalid character"));
+    }
+
+    #[test]
+    fn test_pathname_display() {
+        let p = Pathname::new("/test").unwrap();
+        assert_eq!(format!("{}", p), "/test");
+    }
+
+    #[test]
+    fn test_http_method_from_attr_name() {
+        assert_eq!(HttpMethod::from_attr_name("get"), Some(HttpMethod::Get));
+        assert_eq!(HttpMethod::from_attr_name("post"), Some(HttpMethod::Post));
+        assert_eq!(HttpMethod::from_attr_name("put"), Some(HttpMethod::Put));
+        assert_eq!(HttpMethod::from_attr_name("patch"), Some(HttpMethod::Patch));
+        assert_eq!(
+            HttpMethod::from_attr_name("delete"),
+            Some(HttpMethod::Delete)
+        );
+        assert_eq!(HttpMethod::from_attr_name("options"), None);
+        assert_eq!(HttpMethod::from_attr_name("head"), None);
+        assert_eq!(HttpMethod::from_attr_name("unknown"), None);
+    }
+
+    #[test]
+    fn test_http_method_attr_name() {
+        assert_eq!(HttpMethod::Get.attr_name(), "get");
+        assert_eq!(HttpMethod::Post.attr_name(), "post");
+        assert_eq!(HttpMethod::Put.attr_name(), "put");
+        assert_eq!(HttpMethod::Patch.attr_name(), "patch");
+        assert_eq!(HttpMethod::Delete.attr_name(), "delete");
     }
 }
