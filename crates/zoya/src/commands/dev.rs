@@ -1,28 +1,41 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
+use axum::Router;
+use axum::extract::State;
+use axum::response::IntoResponse;
+use console::{Term, style};
+use notify::{RecursiveMode, Watcher};
+use tokio::sync::mpsc;
+use tower::ServiceExt;
 use zoya_check::check;
-use zoya_ir::HttpMethod;
-use zoya_loader::Mode;
+use zoya_ir::{CheckedPackage, HttpMethod};
+use zoya_loader::{LoaderError, Mode};
 
-/// Start a development HTTP server from a Zoya package.
+/// Shared state for the dev server, holding the current active router.
+struct DevState {
+    router: RwLock<Option<Router>>,
+}
+
+/// Result of a successful build.
+struct BuildResult {
+    router: Router,
+    routes: Vec<(String, String)>,
+}
+
+/// Start a development HTTP server with file watching.
 pub fn execute(path: &Path, port: u16) -> Result<(), String> {
-    let pkg = zoya_loader::load_package(path, Mode::Dev).map_err(|e| e.to_string())?;
-    let std = zoya_std::std();
-    let checked = check(&pkg, &[std]).map_err(|e| e.to_string())?;
+    let term = Term::stderr();
+    let watch_dir = resolve_watch_dir(path)?;
 
-    let routes = checked.routes();
-    for (_, method, pathname) in &routes {
-        let method_str = match method {
-            HttpMethod::Get => "GET",
-            HttpMethod::Post => "POST",
-            HttpMethod::Put => "PUT",
-            HttpMethod::Patch => "PATCH",
-            HttpMethod::Delete => "DELETE",
-        };
-        eprintln!("  {method_str:<6} {pathname}");
-    }
+    // Initial build — only NoPackageToml is fatal
+    let initial = initial_build(&term, path)?;
+    let state = Arc::new(DevState {
+        router: RwLock::new(initial.map(|b| b.router)),
+    });
 
-    let app = zoya_router::router(&checked, &[std]);
+    let outer = build_outer_router(state.clone());
 
     let rt = tokio::runtime::Runtime::new().map_err(|e| format!("failed to start runtime: {e}"))?;
     rt.block_on(async {
@@ -30,9 +43,200 @@ pub fn execute(path: &Path, port: u16) -> Result<(), String> {
         let listener = tokio::net::TcpListener::bind(&addr)
             .await
             .map_err(|e| format!("failed to bind to {addr}: {e}"))?;
-        eprintln!("Listening on http://localhost:{port}");
-        axum::serve(listener, app)
+
+        let _ = term.write_line(&format!(
+            "  Listening on {}",
+            style(format!("http://localhost:{port}")).bold()
+        ));
+        let _ = term.write_line(&format!("  {}", style("Watching for changes...").dim()));
+
+        // Set up file watcher
+        let (tx, rx) = mpsc::unbounded_channel();
+        let _watcher = setup_watcher(&watch_dir, tx)?;
+
+        // Spawn the watch loop
+        let watch_state = state.clone();
+        let watch_path = path.to_path_buf();
+        let watch_term = term.clone();
+        tokio::spawn(async move {
+            watch_loop(rx, watch_state, &watch_path, &watch_term).await;
+        });
+
+        axum::serve(listener, outer)
             .await
             .map_err(|e| format!("server error: {e}"))
     })
+}
+
+/// Resolve the directory to watch for file changes.
+fn resolve_watch_dir(path: &Path) -> Result<PathBuf, String> {
+    if path.is_dir() {
+        Ok(path.to_path_buf())
+    } else if path.is_file() {
+        path.parent()
+            .map(|p| p.to_path_buf())
+            .ok_or_else(|| format!("cannot determine parent directory of '{}'", path.display()))
+    } else {
+        // Path doesn't exist yet — use it as-is (it may be created)
+        Ok(path.to_path_buf())
+    }
+}
+
+/// Attempt the initial build. Returns `Err` only for `NoPackageToml` (fatal).
+/// Returns `Ok(None)` on recoverable errors (prints the error and continues).
+fn initial_build(term: &Term, path: &Path) -> Result<Option<BuildResult>, String> {
+    match try_build(path) {
+        Ok(result) => {
+            print_routes(term, &result.routes);
+            Ok(Some(result))
+        }
+        Err(BuildError::Fatal(msg)) => Err(msg),
+        Err(BuildError::Recoverable(msg)) => {
+            let _ = term.write_line(&format!("  {}: {msg}", style("error").red().bold()));
+            Ok(None)
+        }
+    }
+}
+
+enum BuildError {
+    Fatal(String),
+    Recoverable(String),
+}
+
+/// Try to build the package. Classifies errors as fatal or recoverable.
+fn try_build(path: &Path) -> Result<BuildResult, BuildError> {
+    let pkg = zoya_loader::load_package(path, Mode::Dev).map_err(|e| {
+        if matches!(e, LoaderError::NoPackageToml { .. }) {
+            BuildError::Fatal(e.to_string())
+        } else {
+            BuildError::Recoverable(e.to_string())
+        }
+    })?;
+
+    let std = zoya_std::std();
+    let checked = check(&pkg, &[std]).map_err(|e| BuildError::Recoverable(e.to_string()))?;
+
+    let routes = extract_routes(&checked);
+    let router = zoya_router::router(&checked, &[std]);
+
+    Ok(BuildResult { router, routes })
+}
+
+/// Extract route metadata for display.
+fn extract_routes(checked: &CheckedPackage) -> Vec<(String, String)> {
+    checked
+        .routes()
+        .iter()
+        .map(|(_, method, pathname)| {
+            let method_str = match method {
+                HttpMethod::Get => "GET",
+                HttpMethod::Post => "POST",
+                HttpMethod::Put => "PUT",
+                HttpMethod::Patch => "PATCH",
+                HttpMethod::Delete => "DELETE",
+            };
+            (method_str.to_string(), pathname.to_string())
+        })
+        .collect()
+}
+
+/// Print the route table to the terminal.
+fn print_routes(term: &Term, routes: &[(String, String)]) {
+    for (method, pathname) in routes {
+        let _ = term.write_line(&format!(
+            "  {}  {}",
+            style(format!("{method:<6}")).bold(),
+            pathname
+        ));
+    }
+}
+
+/// Build the outer proxy router that delegates to the current inner router.
+fn build_outer_router(state: Arc<DevState>) -> Router {
+    Router::new().fallback(proxy_handler).with_state(state)
+}
+
+/// Proxy handler that forwards requests to the current inner router.
+async fn proxy_handler(
+    State(state): State<Arc<DevState>>,
+    request: axum::extract::Request,
+) -> axum::response::Response {
+    let inner = state.router.read().unwrap().clone();
+
+    match inner {
+        Some(router) => match router.oneshot(request).await {
+            Ok(response) => response,
+            Err(infallible) => match infallible {},
+        },
+        None => (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "Build failed. Fix errors and save to retry.\n",
+        )
+            .into_response(),
+    }
+}
+
+/// Set up a file watcher that sends events for `.zy` file changes.
+fn setup_watcher(
+    watch_dir: &Path,
+    tx: mpsc::UnboundedSender<()>,
+) -> Result<notify::RecommendedWatcher, String> {
+    let mut watcher = notify::recommended_watcher(move |res: Result<notify::Event, _>| {
+        if let Ok(event) = res {
+            let is_zy = event
+                .paths
+                .iter()
+                .any(|p| p.extension().is_some_and(|ext| ext == "zy"));
+            if is_zy {
+                let _ = tx.send(());
+            }
+        }
+    })
+    .map_err(|e| format!("failed to create file watcher: {e}"))?;
+
+    watcher
+        .watch(watch_dir, RecursiveMode::Recursive)
+        .map_err(|e| format!("failed to watch '{}': {e}", watch_dir.display()))?;
+
+    Ok(watcher)
+}
+
+/// Watch loop that receives file change events, debounces, and rebuilds.
+async fn watch_loop(
+    mut rx: mpsc::UnboundedReceiver<()>,
+    state: Arc<DevState>,
+    path: &Path,
+    term: &Term,
+) {
+    loop {
+        // Wait for the first event
+        if rx.recv().await.is_none() {
+            return; // Channel closed
+        }
+
+        // Debounce: wait 100ms and drain any additional events
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        while rx.try_recv().is_ok() {}
+
+        let _ = term.write_line(&format!("  {}", style("File changed, rebuilding...").dim()));
+
+        let had_previous = state.router.read().unwrap().is_some();
+
+        match try_build(path) {
+            Ok(result) => {
+                print_routes(term, &result.routes);
+                *state.router.write().unwrap() = Some(result.router);
+                let _ = term.write_line(&format!("  {} Ready", style("✓").green()));
+            }
+            Err(BuildError::Fatal(msg) | BuildError::Recoverable(msg)) => {
+                let _ = term.write_line(&format!("  {}: {msg}", style("error").red().bold()));
+                if had_previous {
+                    let _ = term.write_line(&format!(
+                        "  {}",
+                        style("Serving last successful build").dim()
+                    ));
+                }
+            }
+        }
+    }
 }

@@ -20,7 +20,9 @@ zoya-parser = { path = "../zoya-parser" }
 zoya-router = { path = "../zoya-router" }
 zoya-run = { path = "../zoya-run" }
 zoya-std = { path = "../zoya-std" }
-tokio = { version = "1", features = ["rt-multi-thread", "net"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time"] }
+notify = "7"
+tower = { version = "0.5", features = ["util"] }
 axum = "0.8"
 clap = { version = "4", features = ["derive"] }
 console = "0.15"
