@@ -60,10 +60,16 @@ pub enum LoaderError<P: Clone + Debug + Display = FilePath> {
     DuplicateMod { mod_name: String },
     #[error("failed to read '{path}': {error}")]
     SourceError { path: P, error: SourceError },
-    #[error("lexer error in '{path}': {message}")]
-    LexError { path: P, message: String },
-    #[error("parse error in '{path}': {message}")]
-    ParseError { path: P, message: String },
+    #[error("lexer error in '{path}': {source}")]
+    LexError {
+        path: P,
+        source: zoya_lexer::LexError,
+    },
+    #[error("parse error in '{path}': {source}")]
+    ParseError {
+        path: P,
+        source: zoya_parser::ParseError,
+    },
     #[error(
         "invalid module name '{mod_name}': module names must be snake_case (try '{suggestion}')"
     )]
@@ -209,13 +215,13 @@ fn load_module_recursive<S: ModuleSource>(
     // Lex
     let tokens = zoya_lexer::lex(&content).map_err(|e| LoaderError::LexError {
         path: file_path.clone(),
-        message: e.to_string(),
+        source: e,
     })?;
 
     // Parse
     let all_items = zoya_parser::parse_module(tokens).map_err(|e| LoaderError::ParseError {
         path: file_path.clone(),
-        message: e.to_string(),
+        source: e,
     })?;
 
     // Partition items: extract ModDecl items, keep the rest
