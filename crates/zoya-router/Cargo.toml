@@ -1,0 +1,21 @@
+[package]
+name = "zoya-router"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = "0.8"
+http = "1"
+tokio = { version = "1", features = ["sync"] }
+zoya-ir = { path = "../zoya-ir" }
+zoya-package = { path = "../zoya-package" }
+zoya-run = { path = "../zoya-run" }
+zoya-value = { path = "../zoya-value" }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
+tokio = { version = "1", features = ["full"] }
+zoya-check = { path = "../zoya-check" }
+zoya-loader = { path = "../zoya-loader" }
+zoya-std = { path = "../zoya-std" }
