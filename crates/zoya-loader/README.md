@@ -58,7 +58,7 @@ Module names must be valid `snake_case` identifiers and not reserved names (`roo
 
 ## Error Types
 
-`LoaderError<P>` is generic over the path type (`FilePath` for filesystem, `String` for memory sources). It embeds upstream `LexError`, `ParseError`, and `ConfigError` directly as `#[source]`/`#[from]` fields, preserving error chain structure. A `map_path()` method converts between path types.
+`LoaderError<P>` is generic over the path type (`FilePath` for filesystem, `String` for memory sources). It embeds upstream `LexError`, `ParseError`, and `ConfigError` directly as `#[source]`/`#[from]` fields, preserving error chain structure. The `LexError` and `ParseError` variants also carry `source_text: String` for diagnostic rendering. A `map_path()` method converts between path types.
 
 ```rust
 use zoya_loader::{load_package, LoaderError, Mode};
@@ -79,11 +79,11 @@ match load_package(Path::new("missing.zy"), Mode::Dev) {
     Err(LoaderError::ReservedModName { mod_name }) => {
         println!("Reserved module name: {}", mod_name);
     }
-    Err(LoaderError::LexError { path, source }) => {
-        println!("Lexer error in {}: {}", path, source);
+    Err(LoaderError::LexError { path, source_text, source }) => {
+        println!("Lexer error in {}: {} (source: {} bytes)", path, source, source_text.len());
     }
-    Err(LoaderError::ParseError { path, source }) => {
-        println!("Parse error in {}: {}", path, source);
+    Err(LoaderError::ParseError { path, source_text, source }) => {
+        println!("Parse error in {}: {} (source: {} bytes)", path, source, source_text.len());
     }
     Err(e) => println!("Error: {}", e),
     Ok(pkg) => { /* success */ }

@@ -5,6 +5,7 @@ use console::{Term, style};
 use zoya_loader::Mode;
 
 mod commands;
+mod diagnostic;
 
 #[derive(Parser)]
 #[command(name = "zoya")]
@@ -136,6 +137,14 @@ fn fatal(term: &Term, msg: &str) -> ! {
     std::process::exit(1);
 }
 
+fn handle_error(term: &Term, e: impl Into<anyhow::Error>) -> ! {
+    let e = e.into();
+    if !diagnostic::try_render_diagnostic(&e) {
+        fatal(term, &e.to_string());
+    }
+    std::process::exit(1);
+}
+
 fn parse_mode(term: &Term, s: &str) -> Mode {
     s.parse().unwrap_or_else(|e: String| {
         fatal(term, &e);
@@ -157,7 +166,7 @@ fn main() {
             let path = package.unwrap_or_else(|| PathBuf::from("."));
             let mode = parse_mode(&term, &mode);
             if let Err(e) = commands::run::execute(&path, mode, name.as_deref(), &args, json) {
-                fatal(&term, &e.to_string());
+                handle_error(&term, e);
             }
         }
         Some(Command::Repl { package }) => {
@@ -168,7 +177,7 @@ fn main() {
             let path = package.unwrap_or_else(|| PathBuf::from("."));
             let mode = parse_mode(&term, &mode);
             if let Err(e) = commands::check::execute(&path, mode) {
-                fatal(&term, &e.to_string());
+                handle_error(&term, e);
             }
         }
         Some(Command::Build {
@@ -179,25 +188,25 @@ fn main() {
             let path = package.unwrap_or_else(|| PathBuf::from("."));
             let mode = parse_mode(&term, &mode);
             if let Err(e) = commands::build::execute(&path, output.as_deref(), mode) {
-                fatal(&term, &e.to_string());
+                handle_error(&term, e);
             }
         }
         Some(Command::Fmt { package, check }) => {
             let path = package.unwrap_or_else(|| PathBuf::from("."));
             if let Err(e) = commands::fmt::execute(&path, check) {
-                fatal(&term, &e.to_string());
+                handle_error(&term, e);
             }
         }
         Some(Command::Test { package }) => {
             let path = package.unwrap_or_else(|| PathBuf::from("."));
             if let Err(e) = commands::test::execute(&path) {
-                fatal(&term, &e.to_string());
+                handle_error(&term, e);
             }
         }
         Some(Command::Dev { package, port }) => {
             let path = package.unwrap_or_else(|| PathBuf::from("."));
             if let Err(e) = commands::dev::execute(&path, port) {
-                fatal(&term, &e.to_string());
+                handle_error(&term, e);
             }
         }
         Some(Command::Task { command }) => match command {
@@ -205,7 +214,7 @@ fn main() {
                 let path = package.unwrap_or_else(|| PathBuf::from("."));
                 let mode = parse_mode(&term, &mode);
                 if let Err(e) = commands::task::list::execute(&path, mode) {
-                    fatal(&term, &e.to_string());
+                    handle_error(&term, e);
                 }
             }
             TaskCommand::Run {
@@ -218,13 +227,13 @@ fn main() {
                 let path = package.unwrap_or_else(|| PathBuf::from("."));
                 let mode = parse_mode(&term, &mode);
                 if let Err(e) = commands::task::run::execute(&path, &name, &args, json, mode) {
-                    fatal(&term, &e.to_string());
+                    handle_error(&term, e);
                 }
             }
         },
         Some(Command::Init { path, name }) => {
             if let Err(e) = commands::init::execute(&path, name.as_deref()) {
-                fatal(&term, &e.to_string());
+                handle_error(&term, e);
             }
         }
         None => {

@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, bail};
 use console::{Term, style};
 
+use crate::diagnostic;
+
 /// Format .zy source files
 pub fn execute(path: &Path, check: bool) -> Result<()> {
     let term = Term::stderr();
@@ -42,12 +44,7 @@ pub fn execute(path: &Path, check: bool) -> Result<()> {
         let tokens = match zoya_lexer::lex(&source) {
             Ok(t) => t,
             Err(e) => {
-                let _ = term.write_line(&format!(
-                    "{}: failed to lex '{}': {}",
-                    style("error").red().bold(),
-                    file.display(),
-                    e
-                ));
+                diagnostic::render_lex_error(&file.display().to_string(), &source, &e);
                 error_count += 1;
                 continue;
             }
@@ -56,12 +53,7 @@ pub fn execute(path: &Path, check: bool) -> Result<()> {
         let items = match zoya_parser::parse_module(tokens) {
             Ok(parsed) => parsed,
             Err(e) => {
-                let _ = term.write_line(&format!(
-                    "{}: failed to parse '{}': {}",
-                    style("error").red().bold(),
-                    file.display(),
-                    e
-                ));
+                diagnostic::render_parse_error(&file.display().to_string(), &source, &e);
                 error_count += 1;
                 continue;
             }

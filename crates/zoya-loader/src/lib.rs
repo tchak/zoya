@@ -63,11 +63,13 @@ pub enum LoaderError<P: Clone + Debug + Display = FilePath> {
     #[error("lexer error in '{path}': {source}")]
     LexError {
         path: P,
+        source_text: String,
         source: zoya_lexer::LexError,
     },
     #[error("parse error in '{path}': {source}")]
     ParseError {
         path: P,
+        source_text: String,
         source: zoya_parser::ParseError,
     },
     #[error(
@@ -108,12 +110,22 @@ impl<P: Clone + Debug + Display> LoaderError<P> {
                 path: f(path),
                 error,
             },
-            Self::LexError { path, source } => LoaderError::LexError {
+            Self::LexError {
+                path,
+                source_text,
+                source,
+            } => LoaderError::LexError {
                 path: f(path),
+                source_text,
                 source,
             },
-            Self::ParseError { path, source } => LoaderError::ParseError {
+            Self::ParseError {
+                path,
+                source_text,
+                source,
+            } => LoaderError::ParseError {
                 path: f(path),
+                source_text,
                 source,
             },
             Self::DuplicateMod { mod_name } => LoaderError::DuplicateMod { mod_name },
@@ -258,12 +270,14 @@ fn load_module_recursive<S: ModuleSource>(
     // Lex
     let tokens = zoya_lexer::lex(&content).map_err(|e| LoaderError::LexError {
         path: file_path.clone(),
+        source_text: content.clone(),
         source: e,
     })?;
 
     // Parse
     let all_items = zoya_parser::parse_module(tokens).map_err(|e| LoaderError::ParseError {
         path: file_path.clone(),
+        source_text: content.clone(),
         source: e,
     })?;
 

@@ -573,7 +573,11 @@ pub fn execute(path: &Path) {
                         }
                     }
                     Err(e) => {
-                        let _ = term.write_line(&format!("{}: {}", style("error").red().bold(), e));
+                        if !crate::diagnostic::try_render_diagnostic_with_source(&e, "<repl>", line)
+                        {
+                            let _ =
+                                term.write_line(&format!("{}: {}", style("error").red().bold(), e));
+                        }
                     }
                 }
             }
