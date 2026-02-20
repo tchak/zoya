@@ -473,15 +473,147 @@ impl TypeScheme {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct TypeError {
-    pub message: String,
-}
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum TypeError {
+    #[error("type mismatch: {expected} vs {actual}")]
+    TypeMismatch { expected: String, actual: String },
 
-impl fmt::Display for TypeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.message)
-    }
+    #[error("{context}: expected {expected}, got {actual}: {detail}")]
+    TypeMismatchIn {
+        context: String,
+        expected: String,
+        actual: String,
+        detail: String,
+    },
+
+    #[error("unknown identifier: {name}")]
+    UnboundVariable { name: String },
+
+    #[error("unknown path: {path}")]
+    UnboundPath { path: String },
+
+    #[error("no method '{method}' on type {on_type}")]
+    UnboundMethod { method: String, on_type: String },
+
+    #[error("{kind} '{name}' expects {expected} {what}, got {actual}")]
+    ArityMismatch {
+        kind: String,
+        name: String,
+        expected: usize,
+        actual: usize,
+        what: String,
+    },
+
+    #[error("tuple length mismatch: {expected} vs {actual}")]
+    TupleLengthMismatch { expected: usize, actual: usize },
+
+    #[error("{kind} {name} expects {expected} type argument(s), got {actual}")]
+    TypeArgCount {
+        kind: String,
+        name: String,
+        expected: usize,
+        actual: usize,
+    },
+
+    #[error("{kind} '{name}' is private to module '{module}'")]
+    PrivateAccess {
+        kind: String,
+        name: String,
+        module: String,
+    },
+
+    #[error("pub use cannot re-export private item '{name}'")]
+    PrivateReExport { name: String },
+
+    #[error("missing field '{field}' in {context}")]
+    MissingField { field: String, context: String },
+
+    #[error("unknown field '{field}' in {context}")]
+    UnknownField { field: String, context: String },
+
+    #[error("refutable pattern in {context}: {detail}")]
+    RefutablePattern { context: String, detail: String },
+
+    #[error("duplicate binding '{name}' in pattern")]
+    DuplicateBinding { name: String },
+
+    #[error("non-exhaustive match: missing pattern(s) {patterns}{hint}")]
+    NonExhaustiveMatch { patterns: String, hint: String },
+
+    #[error("unreachable pattern(s): arm(s) {arms}")]
+    UnreachablePattern { arms: String },
+
+    #[error("{kind} '{name}' should be {convention} (e.g., '{suggestion}')")]
+    NamingConvention {
+        kind: String,
+        name: String,
+        convention: String,
+        suggestion: String,
+    },
+
+    #[error("{kind} '{name}' {problem}")]
+    KindMisuse {
+        kind: String,
+        name: String,
+        problem: String,
+    },
+
+    #[error("enum variant {variant} {problem}")]
+    VariantMismatch { variant: String, problem: String },
+
+    #[error("{message}")]
+    InvalidAttribute { message: String },
+
+    #[error("cannot find '{name}' to import")]
+    UnboundImport { name: String },
+
+    #[error("'{name}' is already imported (from '{original}')")]
+    DuplicateImport { name: String, original: String },
+
+    #[error("{message}")]
+    ImportValidation { message: String },
+
+    #[error("{operator} only work on {expected_types}, not {actual_type}")]
+    InvalidOperatorType {
+        operator: String,
+        expected_types: String,
+        actual_type: String,
+    },
+
+    #[error("infinite type: {lhs} = {rhs}")]
+    InfiniteType { lhs: String, rhs: String },
+
+    #[error("circular type alias detected: {name}")]
+    CircularTypeAlias { name: String },
+
+    #[error("circular re-export detected: {path}")]
+    CircularReExport { path: String },
+
+    #[error("{message}")]
+    InvalidImpl { message: String },
+
+    #[error("duplicate definition for '{name}' on type '{on_type}'")]
+    DuplicateDefinition { name: String, on_type: String },
+
+    #[error("{message}")]
+    InvalidIndex { message: String },
+
+    #[error("{message}")]
+    InvalidInterpolation { message: String },
+
+    #[error("{message}")]
+    PathResolution { message: String },
+
+    #[error("match expression must have at least one arm")]
+    EmptyMatch,
+
+    #[error(
+        "'{name}' is an associated function on '{on_type}', not a method; call it as {on_type}::{name}()"
+    )]
+    AssociatedFunctionAsMethod { name: String, on_type: String },
+
+    #[error("`Self` can only be used inside an impl block")]
+    SelfOutsideImpl,
 }
 
 /// Lookup table for resolving recursive type stubs.
@@ -843,10 +975,11 @@ mod tests {
 
     #[test]
     fn test_display_type_error() {
-        let err = TypeError {
-            message: "type mismatch".to_string(),
+        let err = TypeError::TypeMismatch {
+            expected: "Int".to_string(),
+            actual: "String".to_string(),
         };
-        assert_eq!(err.to_string(), "type mismatch");
+        assert_eq!(err.to_string(), "type mismatch: Int vs String");
     }
 
     #[test]

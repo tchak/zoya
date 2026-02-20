@@ -38,9 +38,9 @@ fn test_list_index_non_list_error() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(
-        err.message.contains("cannot index into non-list type"),
+        err.to_string().contains("cannot index into non-list type"),
         "unexpected error: {}",
-        err.message
+        err
     );
 }
 
@@ -54,8 +54,8 @@ fn test_list_index_non_int_index_error() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(
-        err.message.contains("list index must be Int"),
+        err.to_string().contains("list index must be Int"),
         "unexpected error: {}",
-        err.message
+        err
     );
 }

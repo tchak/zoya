@@ -19,9 +19,7 @@ fn merge_bindings(
 ) -> Result<(), TypeError> {
     for (name, ty) in source {
         if target.contains_key(&name) {
-            return Err(TypeError {
-                message: format!("duplicate binding '{}' in pattern", name),
-            });
+            return Err(TypeError::DuplicateBinding { name });
         }
         target.insert(name, ty);
     }
@@ -78,14 +76,13 @@ pub fn check_pattern(
             let lit_ty = typed.ty();
 
             // Unify literal type with scrutinee type
-            ctx.unify(&lit_ty, scrutinee_ty).map_err(|e| TypeError {
-                message: format!(
-                    "pattern type {} does not match scrutinee type {}: {}",
-                    ctx.resolve(&lit_ty),
-                    ctx.resolve(scrutinee_ty),
-                    e.message
-                ),
-            })?;
+            ctx.unify(&lit_ty, scrutinee_ty)
+                .map_err(|e| TypeError::TypeMismatchIn {
+                    context: "pattern".to_string(),
+                    expected: ctx.resolve(scrutinee_ty).to_string(),
+                    actual: ctx.resolve(&lit_ty).to_string(),
+                    detail: e.to_string(),
+                })?;
 
             Ok((TypedPattern::Literal(typed), HashMap::new()))
         }
@@ -95,12 +92,11 @@ pub fn check_pattern(
             // Unify scrutinee with List<T> for some fresh T
             let elem_ty = ctx.fresh_var();
             ctx.unify(scrutinee_ty, &Type::List(Box::new(elem_ty.clone())))
-                .map_err(|e| TypeError {
-                    message: format!(
-                        "list pattern cannot match type {}: {}",
-                        ctx.resolve(scrutinee_ty),
-                        e.message
-                    ),
+                .map_err(|e| TypeError::TypeMismatchIn {
+                    context: "list pattern".to_string(),
+                    expected: "List<_>".to_string(),
+                    actual: ctx.resolve(scrutinee_ty).to_string(),
+                    detail: e.to_string(),
                 })?;
             let resolved_elem = ctx.resolve(&elem_ty);
 
@@ -139,12 +135,11 @@ pub fn check_pattern(
                     // Handle rest binding: rest @ .. binds to List<T>
                     let rest_binding_with_type = if let Some(name) = rest_binding {
                         if !is_snake_case(name) {
-                            return Err(TypeError {
-                                message: format!(
-                                    "variable '{}' should be snake_case (e.g., '{}')",
-                                    name,
-                                    to_snake_case(name)
-                                ),
+                            return Err(TypeError::NamingConvention {
+                                kind: "variable".to_string(),
+                                name: name.clone(),
+                                convention: "snake_case".to_string(),
+                                suggestion: to_snake_case(name),
                             });
                         }
                         let rest_ty = Type::List(Box::new(resolved_elem.clone()));
@@ -179,12 +174,11 @@ pub fn check_pattern(
                     // Handle rest binding
                     let rest_binding_with_type = if let Some(name) = rest_binding {
                         if !is_snake_case(name) {
-                            return Err(TypeError {
-                                message: format!(
-                                    "variable '{}' should be snake_case (e.g., '{}')",
-                                    name,
-                                    to_snake_case(name)
-                                ),
+                            return Err(TypeError::NamingConvention {
+                                kind: "variable".to_string(),
+                                name: name.clone(),
+                                convention: "snake_case".to_string(),
+                                suggestion: to_snake_case(name),
                             });
                         }
                         let rest_ty = Type::List(Box::new(resolved_elem.clone()));
@@ -228,12 +222,11 @@ pub fn check_pattern(
                     // Handle rest binding
                     let rest_binding_with_type = if let Some(name) = rest_binding {
                         if !is_snake_case(name) {
-                            return Err(TypeError {
-                                message: format!(
-                                    "variable '{}' should be snake_case (e.g., '{}')",
-                                    name,
-                                    to_snake_case(name)
-                                ),
+                            return Err(TypeError::NamingConvention {
+                                kind: "variable".to_string(),
+                                name: name.clone(),
+                                convention: "snake_case".to_string(),
+                                suggestion: to_snake_case(name),
                             });
                         }
                         let rest_ty = Type::List(Box::new(resolved_elem.clone()));
@@ -267,12 +260,11 @@ pub fn check_pattern(
                         TuplePattern::Empty => {
                             // Unify with empty tuple
                             ctx.unify(scrutinee_ty, &Type::Tuple(vec![])).map_err(|e| {
-                                TypeError {
-                                    message: format!(
-                                        "tuple pattern cannot match type {}: {}",
-                                        ctx.resolve(scrutinee_ty),
-                                        e.message
-                                    ),
+                                TypeError::TypeMismatchIn {
+                                    context: "tuple pattern".to_string(),
+                                    expected: "tuple".to_string(),
+                                    actual: ctx.resolve(scrutinee_ty).to_string(),
+                                    detail: e.to_string(),
                                 }
                             })?;
                             vec![]
@@ -282,12 +274,11 @@ pub fn check_pattern(
                             let elem_types: Vec<Type> =
                                 (0..patterns.len()).map(|_| ctx.fresh_var()).collect();
                             ctx.unify(scrutinee_ty, &Type::Tuple(elem_types.clone()))
-                                .map_err(|e| TypeError {
-                                    message: format!(
-                                        "tuple pattern cannot match type {}: {}",
-                                        ctx.resolve(scrutinee_ty),
-                                        e.message
-                                    ),
+                                .map_err(|e| TypeError::TypeMismatchIn {
+                                    context: "tuple pattern".to_string(),
+                                    expected: "tuple".to_string(),
+                                    actual: ctx.resolve(scrutinee_ty).to_string(),
+                                    detail: e.to_string(),
                                 })?;
                             elem_types
                         }
@@ -295,16 +286,16 @@ pub fn check_pattern(
                         | TuplePattern::Suffix { .. }
                         | TuplePattern::PrefixSuffix { .. } => {
                             // Can't infer tuple size from rest patterns
-                            return Err(TypeError {
-                                message:
-                                    "cannot infer tuple type for pattern with '..' - add a type annotation".to_string(),
+                            return Err(TypeError::PathResolution {
+                                message: "cannot infer tuple type for pattern with '..' - add a type annotation".to_string(),
                             });
                         }
                     }
                 }
                 other => {
-                    return Err(TypeError {
-                        message: format!("tuple pattern cannot match type {}", other),
+                    return Err(TypeError::TypeMismatch {
+                        expected: "tuple".to_string(),
+                        actual: other.to_string(),
                     });
                 }
             };
@@ -312,11 +303,12 @@ pub fn check_pattern(
             match tuple_pattern {
                 TuplePattern::Empty => {
                     if !tuple_types.is_empty() {
-                        return Err(TypeError {
-                            message: format!(
-                                "empty tuple pattern cannot match tuple with {} elements",
-                                tuple_types.len()
-                            ),
+                        return Err(TypeError::ArityMismatch {
+                            kind: "tuple pattern".to_string(),
+                            name: String::new(),
+                            expected: tuple_types.len(),
+                            actual: 0,
+                            what: "elements".to_string(),
                         });
                     }
                     Ok((TypedPattern::TupleEmpty, HashMap::new()))
@@ -324,12 +316,12 @@ pub fn check_pattern(
 
                 TuplePattern::Exact(patterns) => {
                     if patterns.len() != tuple_types.len() {
-                        return Err(TypeError {
-                            message: format!(
-                                "tuple pattern has {} elements but tuple has {} elements",
-                                patterns.len(),
-                                tuple_types.len()
-                            ),
+                        return Err(TypeError::ArityMismatch {
+                            kind: "tuple pattern".to_string(),
+                            name: String::new(),
+                            expected: tuple_types.len(),
+                            actual: patterns.len(),
+                            what: "elements".to_string(),
                         });
                     }
 
@@ -354,12 +346,12 @@ pub fn check_pattern(
                     rest_binding,
                 } => {
                     if patterns.len() > tuple_types.len() {
-                        return Err(TypeError {
-                            message: format!(
-                                "tuple pattern has {} prefix elements but tuple has only {} elements",
-                                patterns.len(),
-                                tuple_types.len()
-                            ),
+                        return Err(TypeError::ArityMismatch {
+                            kind: "tuple pattern".to_string(),
+                            name: String::new(),
+                            expected: tuple_types.len(),
+                            actual: patterns.len(),
+                            what: "prefix elements".to_string(),
                         });
                     }
 
@@ -374,12 +366,11 @@ pub fn check_pattern(
                     // Handle rest binding: rest @ .. binds to tuple of remaining elements
                     let rest_binding_with_type = if let Some(name) = rest_binding {
                         if !is_snake_case(name) {
-                            return Err(TypeError {
-                                message: format!(
-                                    "variable '{}' should be snake_case (e.g., '{}')",
-                                    name,
-                                    to_snake_case(name)
-                                ),
+                            return Err(TypeError::NamingConvention {
+                                kind: "variable".to_string(),
+                                name: name.clone(),
+                                convention: "snake_case".to_string(),
+                                suggestion: to_snake_case(name),
                             });
                         }
                         let rest_types: Vec<Type> = tuple_types[patterns.len()..].to_vec();
@@ -405,12 +396,12 @@ pub fn check_pattern(
                     rest_binding,
                 } => {
                     if patterns.len() > tuple_types.len() {
-                        return Err(TypeError {
-                            message: format!(
-                                "tuple pattern has {} suffix elements but tuple has only {} elements",
-                                patterns.len(),
-                                tuple_types.len()
-                            ),
+                        return Err(TypeError::ArityMismatch {
+                            kind: "tuple pattern".to_string(),
+                            name: String::new(),
+                            expected: tuple_types.len(),
+                            actual: patterns.len(),
+                            what: "suffix elements".to_string(),
                         });
                     }
 
@@ -427,12 +418,11 @@ pub fn check_pattern(
                     // Handle rest binding: rest @ .. binds to tuple of leading elements
                     let rest_binding_with_type = if let Some(name) = rest_binding {
                         if !is_snake_case(name) {
-                            return Err(TypeError {
-                                message: format!(
-                                    "variable '{}' should be snake_case (e.g., '{}')",
-                                    name,
-                                    to_snake_case(name)
-                                ),
+                            return Err(TypeError::NamingConvention {
+                                kind: "variable".to_string(),
+                                name: name.clone(),
+                                convention: "snake_case".to_string(),
+                                suggestion: to_snake_case(name),
                             });
                         }
                         let rest_types: Vec<Type> = tuple_types[..start_idx].to_vec();
@@ -460,12 +450,12 @@ pub fn check_pattern(
                 } => {
                     let total_patterns = prefix.len() + suffix.len();
                     if total_patterns > tuple_types.len() {
-                        return Err(TypeError {
-                            message: format!(
-                                "tuple pattern has {} elements but tuple has only {} elements",
-                                total_patterns,
-                                tuple_types.len()
-                            ),
+                        return Err(TypeError::ArityMismatch {
+                            kind: "tuple pattern".to_string(),
+                            name: String::new(),
+                            expected: tuple_types.len(),
+                            actual: total_patterns,
+                            what: "elements".to_string(),
                         });
                     }
 
@@ -492,12 +482,11 @@ pub fn check_pattern(
                     // Handle rest binding: rest @ .. binds to tuple of middle elements
                     let rest_binding_with_type = if let Some(name) = rest_binding {
                         if !is_snake_case(name) {
-                            return Err(TypeError {
-                                message: format!(
-                                    "variable '{}' should be snake_case (e.g., '{}')",
-                                    name,
-                                    to_snake_case(name)
-                                ),
+                            return Err(TypeError::NamingConvention {
+                                kind: "variable".to_string(),
+                                name: name.clone(),
+                                convention: "snake_case".to_string(),
+                                suggestion: to_snake_case(name),
                             });
                         }
                         let rest_types: Vec<Type> =
@@ -536,12 +525,11 @@ pub fn check_pattern(
                  -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
                     // Enforce snake_case for variable bindings
                     if !is_snake_case(name) {
-                        return Err(TypeError {
-                            message: format!(
-                                "variable '{}' should be snake_case (e.g., '{}')",
-                                name,
-                                to_snake_case(name)
-                            ),
+                        return Err(TypeError::NamingConvention {
+                            kind: "variable".to_string(),
+                            name: name.to_string(),
+                            convention: "snake_case".to_string(),
+                            suggestion: to_snake_case(name),
                         });
                     }
 
@@ -613,12 +601,11 @@ pub fn check_pattern(
         Pattern::As { name, pattern } => {
             // Check variable name is snake_case
             if !is_snake_case(name) {
-                return Err(TypeError {
-                    message: format!(
-                        "variable '{}' should be snake_case (e.g., '{}')",
-                        name,
-                        to_snake_case(name)
-                    ),
+                return Err(TypeError::NamingConvention {
+                    kind: "variable".to_string(),
+                    name: name.clone(),
+                    convention: "snake_case".to_string(),
+                    suggestion: to_snake_case(name),
                 });
             }
 
@@ -658,8 +645,9 @@ fn check_path_pattern_resolved(
         } => {
             // Must be a unit variant when used as a bare path pattern
             if !matches!(variant_type, EnumVariantType::Unit) {
-                return Err(TypeError {
-                    message: format!("enum variant '{}' is not a unit variant", qualified_path),
+                return Err(TypeError::VariantMismatch {
+                    variant: qualified_path.to_string(),
+                    problem: "is not a unit variant".to_string(),
                 });
             }
 
@@ -669,13 +657,11 @@ fn check_path_pattern_resolved(
             let (_instantiation, expected_enum_ty) = instantiate_enum_type(enum_type, ctx);
 
             ctx.unify(scrutinee_ty, &expected_enum_ty)
-                .map_err(|e| TypeError {
-                    message: format!(
-                        "enum pattern {} cannot match type {}: {}",
-                        qualified_path,
-                        ctx.resolve(scrutinee_ty),
-                        e.message
-                    ),
+                .map_err(|e| TypeError::TypeMismatchIn {
+                    context: format!("enum pattern {}", qualified_path),
+                    expected: expected_enum_ty.to_string(),
+                    actual: ctx.resolve(scrutinee_ty).to_string(),
+                    detail: e.to_string(),
                 })?;
 
             Ok((
@@ -700,15 +686,14 @@ fn check_path_pattern_resolved(
                 fields: vec![],
             };
 
-            ctx.unify(scrutinee_ty, &expected_struct_ty)
-                .map_err(|e| TypeError {
-                    message: format!(
-                        "struct pattern {} cannot match type {}: {}",
-                        qualified_path,
-                        ctx.resolve(scrutinee_ty),
-                        e.message
-                    ),
-                })?;
+            ctx.unify(scrutinee_ty, &expected_struct_ty).map_err(|e| {
+                TypeError::TypeMismatchIn {
+                    context: format!("struct pattern {}", qualified_path),
+                    expected: expected_struct_ty.to_string(),
+                    actual: ctx.resolve(scrutinee_ty).to_string(),
+                    detail: e.to_string(),
+                }
+            })?;
 
             Ok((
                 TypedPattern::StructExact {
@@ -723,14 +708,18 @@ fn check_path_pattern_resolved(
             def,
         } => {
             let kind = def.kind_name();
-            Err(TypeError {
-                message: format!("{} '{}' cannot be used as a pattern", kind, qualified_path),
+            Err(TypeError::KindMisuse {
+                kind: kind.to_string(),
+                name: qualified_path.to_string(),
+                problem: "cannot be used as a pattern".to_string(),
             })
         }
-        ResolvedPath::Local { name, .. } => Err(TypeError {
-            message: format!(
-                "variable '{}' cannot be used as a pattern; path {} is bound as a local variable",
-                name, path
+        ResolvedPath::Local { name, .. } => Err(TypeError::KindMisuse {
+            kind: "variable".to_string(),
+            name: name.clone(),
+            problem: format!(
+                "cannot be used as a pattern; path {} is bound as a local variable",
+                path
             ),
         }),
     }
@@ -762,19 +751,15 @@ fn check_call_pattern(
             let expected_types = match variant_type {
                 EnumVariantType::Tuple(types) => types,
                 EnumVariantType::Unit => {
-                    return Err(TypeError {
-                        message: format!(
-                            "enum variant '{}' is a unit variant, doesn't take arguments",
-                            qualified_path
-                        ),
+                    return Err(TypeError::VariantMismatch {
+                        variant: qualified_path.to_string(),
+                        problem: "is a unit variant, doesn't take arguments".to_string(),
                     });
                 }
                 EnumVariantType::Struct(_) => {
-                    return Err(TypeError {
-                        message: format!(
-                            "enum variant '{}' is a struct variant, use {{ }} syntax",
-                            qualified_path
-                        ),
+                    return Err(TypeError::VariantMismatch {
+                        variant: qualified_path.to_string(),
+                        problem: "is a struct variant, use { } syntax".to_string(),
                     });
                 }
             };
@@ -785,13 +770,11 @@ fn check_call_pattern(
             let (instantiation, expected_enum_ty) = instantiate_enum_type(enum_type, ctx);
 
             ctx.unify(scrutinee_ty, &expected_enum_ty)
-                .map_err(|e| TypeError {
-                    message: format!(
-                        "enum pattern '{}' cannot match type {}: {}",
-                        qualified_path,
-                        ctx.resolve(scrutinee_ty),
-                        e.message
-                    ),
+                .map_err(|e| TypeError::TypeMismatchIn {
+                    context: format!("enum pattern '{}'", qualified_path),
+                    expected: expected_enum_ty.to_string(),
+                    actual: ctx.resolve(scrutinee_ty).to_string(),
+                    detail: e.to_string(),
                 })?;
 
             // Resolve expected types with type variable substitution
@@ -817,15 +800,14 @@ fn check_call_pattern(
             // Create fresh type variables and build instantiated struct type
             let (instantiation, expected_struct_ty) = instantiate_struct_type(struct_type, ctx);
 
-            ctx.unify(scrutinee_ty, &expected_struct_ty)
-                .map_err(|e| TypeError {
-                    message: format!(
-                        "tuple struct pattern '{}' cannot match type {}: {}",
-                        qualified_path,
-                        ctx.resolve(scrutinee_ty),
-                        e.message
-                    ),
-                })?;
+            ctx.unify(scrutinee_ty, &expected_struct_ty).map_err(|e| {
+                TypeError::TypeMismatchIn {
+                    context: format!("tuple struct pattern '{}'", qualified_path),
+                    expected: expected_struct_ty.to_string(),
+                    actual: ctx.resolve(scrutinee_ty).to_string(),
+                    detail: e.to_string(),
+                }
+            })?;
 
             // Resolve field types with substitution
             let resolved_types: Vec<Type> = struct_type
@@ -848,15 +830,16 @@ fn check_call_pattern(
             def,
         } => {
             let kind = def.kind_name();
-            Err(TypeError {
-                message: format!(
-                    "{} '{}' cannot be used as a call pattern",
-                    kind, qualified_path
-                ),
+            Err(TypeError::KindMisuse {
+                kind: kind.to_string(),
+                name: qualified_path.to_string(),
+                problem: "cannot be used as a call pattern".to_string(),
             })
         }
-        ResolvedPath::Local { name, .. } => Err(TypeError {
-            message: format!("variable '{}' cannot be used as a call pattern", name),
+        ResolvedPath::Local { name, .. } => Err(TypeError::KindMisuse {
+            kind: "variable".to_string(),
+            name: name.clone(),
+            problem: "cannot be used as a call pattern".to_string(),
         }),
     }
 }
@@ -884,11 +867,10 @@ fn check_struct_pattern(
         ResolvedPath::Definition {
             def: Definition::Struct(struct_type),
             qualified_path,
-        } if struct_type.kind == StructTypeKind::Tuple => Err(TypeError {
-            message: format!(
-                "tuple struct '{}' must be matched with () syntax, not {{}}",
-                qualified_path
-            ),
+        } if struct_type.kind == StructTypeKind::Tuple => Err(TypeError::KindMisuse {
+            kind: "tuple struct".to_string(),
+            name: qualified_path.to_string(),
+            problem: "must be matched with () syntax, not {}".to_string(),
         }),
         ResolvedPath::Definition {
             def: Definition::Struct(struct_type),
@@ -921,32 +903,28 @@ fn check_struct_pattern(
                     env,
                     ctx,
                 ),
-                EnumVariantType::Unit => Err(TypeError {
-                    message: format!(
-                        "enum variant '{}' is a unit variant, doesn't take fields",
-                        qualified_path
-                    ),
+                EnumVariantType::Unit => Err(TypeError::VariantMismatch {
+                    variant: qualified_path.to_string(),
+                    problem: "is a unit variant, doesn't take fields".to_string(),
                 }),
-                EnumVariantType::Tuple(_) => Err(TypeError {
-                    message: format!(
-                        "enum variant '{}' is a tuple variant, use ( ) syntax",
-                        qualified_path
-                    ),
+                EnumVariantType::Tuple(_) => Err(TypeError::VariantMismatch {
+                    variant: qualified_path.to_string(),
+                    problem: "is a tuple variant, use ( ) syntax".to_string(),
                 }),
             }
         }
         ResolvedPath::Definition {
             qualified_path,
             def,
-        } => Err(TypeError {
-            message: format!(
-                "{} '{}' cannot be used as a struct pattern",
-                def.kind_name(),
-                qualified_path
-            ),
+        } => Err(TypeError::KindMisuse {
+            kind: def.kind_name().to_string(),
+            name: qualified_path.to_string(),
+            problem: "cannot be used as a struct pattern".to_string(),
         }),
-        ResolvedPath::Local { name, .. } => Err(TypeError {
-            message: format!("variable '{}' cannot be used as a struct pattern", name),
+        ResolvedPath::Local { name, .. } => Err(TypeError::KindMisuse {
+            kind: "variable".to_string(),
+            name: name.clone(),
+            problem: "cannot be used as a struct pattern".to_string(),
         }),
     }
 }
@@ -968,13 +946,11 @@ fn check_struct_type_pattern(
     let (instantiation, expected_struct_ty) = instantiate_struct_type(struct_type, ctx);
 
     ctx.unify(scrutinee_ty, &expected_struct_ty)
-        .map_err(|e| TypeError {
-            message: format!(
-                "struct pattern {} cannot match type {}: {}",
-                struct_name,
-                ctx.resolve(scrutinee_ty),
-                e.message
-            ),
+        .map_err(|e| TypeError::TypeMismatchIn {
+            context: format!("struct pattern {}", struct_name),
+            expected: expected_struct_ty.to_string(),
+            actual: ctx.resolve(scrutinee_ty).to_string(),
+            detail: e.to_string(),
         })?;
 
     // For exact patterns, verify all fields are covered
@@ -988,10 +964,11 @@ fn check_struct_type_pattern(
 
         for expected in &expected_field_names {
             if !provided_field_names.contains(expected) {
-                return Err(TypeError {
-                    message: format!(
-                        "missing field '{}' in struct pattern {} (use '..' for partial match)",
-                        expected, struct_name
+                return Err(TypeError::MissingField {
+                    field: expected.to_string(),
+                    context: format!(
+                        "struct pattern {} (use '..' for partial match)",
+                        struct_name
                     ),
                 });
             }
@@ -1008,11 +985,9 @@ fn check_struct_type_pattern(
             .fields
             .iter()
             .find(|(n, _)| n == &field_pattern.field_name)
-            .ok_or_else(|| TypeError {
-                message: format!(
-                    "struct {} has no field '{}'",
-                    struct_name, field_pattern.field_name
-                ),
+            .ok_or_else(|| TypeError::UnknownField {
+                field: field_pattern.field_name.clone(),
+                context: format!("struct {}", struct_name),
             })?;
 
         // Substitute type variables
@@ -1065,18 +1040,17 @@ fn check_enum_struct_variant_pattern(
         .iter()
         .find(|(name, _)| name == variant_name)
         .map(|(_, vt)| vt)
-        .ok_or_else(|| TypeError {
-            message: format!("enum {} has no variant {}", enum_name, variant_name),
+        .ok_or_else(|| TypeError::UnknownField {
+            field: variant_name.to_string(),
+            context: format!("enum {}", enum_name),
         })?;
 
     let expected_fields = match variant_type {
         EnumVariantType::Struct(fields) => fields,
         _ => {
-            return Err(TypeError {
-                message: format!(
-                    "enum variant {}::{} is not a struct variant",
-                    enum_name, variant_name
-                ),
+            return Err(TypeError::VariantMismatch {
+                variant: format!("{}::{}", enum_name, variant_name),
+                problem: "is not a struct variant".to_string(),
             });
         }
     };
@@ -1085,14 +1059,11 @@ fn check_enum_struct_variant_pattern(
     let (instantiation, expected_enum_ty) = instantiate_enum_type(enum_type, ctx);
 
     ctx.unify(scrutinee_ty, &expected_enum_ty)
-        .map_err(|e| TypeError {
-            message: format!(
-                "enum pattern {}::{} cannot match type {}: {}",
-                enum_name,
-                variant_name,
-                ctx.resolve(scrutinee_ty),
-                e.message
-            ),
+        .map_err(|e| TypeError::TypeMismatchIn {
+            context: format!("enum pattern {}::{}", enum_name, variant_name),
+            expected: expected_enum_ty.to_string(),
+            actual: ctx.resolve(scrutinee_ty).to_string(),
+            detail: e.to_string(),
         })?;
 
     // Resolve expected fields with type variable substitution
@@ -1133,11 +1104,12 @@ fn check_enum_tuple_pattern(
     match tuple_pattern {
         TuplePattern::Empty => {
             if total_fields != 0 {
-                return Err(TypeError {
-                    message: format!(
-                        "enum variant {}::{} has {} field(s), empty pattern not allowed",
-                        enum_name, variant_name, total_fields
-                    ),
+                return Err(TypeError::ArityMismatch {
+                    kind: "enum variant".to_string(),
+                    name: format!("{}::{}", enum_name, variant_name),
+                    expected: total_fields,
+                    actual: 0,
+                    what: "field(s)".to_string(),
                 });
             }
             Ok((
@@ -1152,14 +1124,12 @@ fn check_enum_tuple_pattern(
 
         TuplePattern::Exact(patterns) => {
             if patterns.len() != total_fields {
-                return Err(TypeError {
-                    message: format!(
-                        "enum variant {}::{} has {} field(s) but pattern has {}",
-                        enum_name,
-                        variant_name,
-                        total_fields,
-                        patterns.len()
-                    ),
+                return Err(TypeError::ArityMismatch {
+                    kind: "enum variant".to_string(),
+                    name: format!("{}::{}", enum_name, variant_name),
+                    expected: total_fields,
+                    actual: patterns.len(),
+                    what: "field(s)".to_string(),
                 });
             }
             let (typed_patterns, bindings) =
@@ -1179,14 +1149,12 @@ fn check_enum_tuple_pattern(
             rest_binding,
         } => {
             if patterns.len() > total_fields {
-                return Err(TypeError {
-                    message: format!(
-                        "enum variant {}::{} has {} field(s) but prefix pattern has {}",
-                        enum_name,
-                        variant_name,
-                        total_fields,
-                        patterns.len()
-                    ),
+                return Err(TypeError::ArityMismatch {
+                    kind: "enum variant".to_string(),
+                    name: format!("{}::{}", enum_name, variant_name),
+                    expected: total_fields,
+                    actual: patterns.len(),
+                    what: "prefix field(s)".to_string(),
                 });
             }
             let (typed_patterns, mut bindings) =
@@ -1195,12 +1163,11 @@ fn check_enum_tuple_pattern(
             // Handle rest binding: rest @ .. binds to tuple of remaining elements
             let rest_binding_with_type = if let Some(name) = rest_binding {
                 if !is_snake_case(name) {
-                    return Err(TypeError {
-                        message: format!(
-                            "variable '{}' should be snake_case (e.g., '{}')",
-                            name,
-                            to_snake_case(name)
-                        ),
+                    return Err(TypeError::NamingConvention {
+                        kind: "variable".to_string(),
+                        name: name.clone(),
+                        convention: "snake_case".to_string(),
+                        suggestion: to_snake_case(name),
                     });
                 }
                 let rest_types: Vec<Type> = expected_types[patterns.len()..].to_vec();
@@ -1227,14 +1194,12 @@ fn check_enum_tuple_pattern(
             rest_binding,
         } => {
             if patterns.len() > total_fields {
-                return Err(TypeError {
-                    message: format!(
-                        "enum variant {}::{} has {} field(s) but suffix pattern has {}",
-                        enum_name,
-                        variant_name,
-                        total_fields,
-                        patterns.len()
-                    ),
+                return Err(TypeError::ArityMismatch {
+                    kind: "enum variant".to_string(),
+                    name: format!("{}::{}", enum_name, variant_name),
+                    expected: total_fields,
+                    actual: patterns.len(),
+                    what: "suffix field(s)".to_string(),
                 });
             }
             let start_idx = total_fields - patterns.len();
@@ -1249,12 +1214,11 @@ fn check_enum_tuple_pattern(
             // Handle rest binding: rest @ .. binds to tuple of leading elements
             let rest_binding_with_type = if let Some(name) = rest_binding {
                 if !is_snake_case(name) {
-                    return Err(TypeError {
-                        message: format!(
-                            "variable '{}' should be snake_case (e.g., '{}')",
-                            name,
-                            to_snake_case(name)
-                        ),
+                    return Err(TypeError::NamingConvention {
+                        kind: "variable".to_string(),
+                        name: name.clone(),
+                        convention: "snake_case".to_string(),
+                        suggestion: to_snake_case(name),
                     });
                 }
                 let rest_types: Vec<Type> = expected_types[..start_idx].to_vec();
@@ -1283,11 +1247,12 @@ fn check_enum_tuple_pattern(
         } => {
             let total_patterns = prefix.len() + suffix.len();
             if total_patterns > total_fields {
-                return Err(TypeError {
-                    message: format!(
-                        "enum variant {}::{} has {} field(s) but pattern has {}",
-                        enum_name, variant_name, total_fields, total_patterns
-                    ),
+                return Err(TypeError::ArityMismatch {
+                    kind: "enum variant".to_string(),
+                    name: format!("{}::{}", enum_name, variant_name),
+                    expected: total_fields,
+                    actual: total_patterns,
+                    what: "field(s)".to_string(),
                 });
             }
             let (prefix_typed, mut bindings) =
@@ -1305,12 +1270,11 @@ fn check_enum_tuple_pattern(
             // Handle rest binding: rest @ .. binds to tuple of middle elements
             let rest_binding_with_type = if let Some(name) = rest_binding {
                 if !is_snake_case(name) {
-                    return Err(TypeError {
-                        message: format!(
-                            "variable '{}' should be snake_case (e.g., '{}')",
-                            name,
-                            to_snake_case(name)
-                        ),
+                    return Err(TypeError::NamingConvention {
+                        kind: "variable".to_string(),
+                        name: name.clone(),
+                        convention: "snake_case".to_string(),
+                        suggestion: to_snake_case(name),
                     });
                 }
                 let rest_types: Vec<Type> = expected_types[prefix.len()..suffix_start].to_vec();
@@ -1350,11 +1314,12 @@ fn check_struct_tuple_pattern(
     match tuple_pattern {
         TuplePattern::Empty => {
             if total_fields != 0 {
-                return Err(TypeError {
-                    message: format!(
-                        "tuple struct {} has {} field(s), empty pattern not allowed",
-                        struct_name, total_fields
-                    ),
+                return Err(TypeError::ArityMismatch {
+                    kind: "tuple struct".to_string(),
+                    name: struct_name.to_string(),
+                    expected: total_fields,
+                    actual: 0,
+                    what: "field(s)".to_string(),
                 });
             }
             Ok((
@@ -1369,13 +1334,12 @@ fn check_struct_tuple_pattern(
 
         TuplePattern::Exact(patterns) => {
             if patterns.len() != total_fields {
-                return Err(TypeError {
-                    message: format!(
-                        "tuple struct {} has {} field(s) but pattern has {}",
-                        struct_name,
-                        total_fields,
-                        patterns.len()
-                    ),
+                return Err(TypeError::ArityMismatch {
+                    kind: "tuple struct".to_string(),
+                    name: struct_name.to_string(),
+                    expected: total_fields,
+                    actual: patterns.len(),
+                    what: "field(s)".to_string(),
                 });
             }
             let (typed_patterns, bindings) =
@@ -1395,13 +1359,12 @@ fn check_struct_tuple_pattern(
             rest_binding,
         } => {
             if patterns.len() > total_fields {
-                return Err(TypeError {
-                    message: format!(
-                        "tuple struct {} has {} field(s) but prefix pattern has {}",
-                        struct_name,
-                        total_fields,
-                        patterns.len()
-                    ),
+                return Err(TypeError::ArityMismatch {
+                    kind: "tuple struct".to_string(),
+                    name: struct_name.to_string(),
+                    expected: total_fields,
+                    actual: patterns.len(),
+                    what: "prefix field(s)".to_string(),
                 });
             }
             let (typed_patterns, mut bindings) =
@@ -1409,12 +1372,11 @@ fn check_struct_tuple_pattern(
 
             let rest_binding_with_type = if let Some(name) = rest_binding {
                 if !is_snake_case(name) {
-                    return Err(TypeError {
-                        message: format!(
-                            "variable '{}' should be snake_case (e.g., '{}')",
-                            name,
-                            to_snake_case(name)
-                        ),
+                    return Err(TypeError::NamingConvention {
+                        kind: "variable".to_string(),
+                        name: name.clone(),
+                        convention: "snake_case".to_string(),
+                        suggestion: to_snake_case(name),
                     });
                 }
                 let rest_types: Vec<Type> = expected_types[patterns.len()..].to_vec();
@@ -1441,13 +1403,12 @@ fn check_struct_tuple_pattern(
             rest_binding,
         } => {
             if patterns.len() > total_fields {
-                return Err(TypeError {
-                    message: format!(
-                        "tuple struct {} has {} field(s) but suffix pattern has {}",
-                        struct_name,
-                        total_fields,
-                        patterns.len()
-                    ),
+                return Err(TypeError::ArityMismatch {
+                    kind: "tuple struct".to_string(),
+                    name: struct_name.to_string(),
+                    expected: total_fields,
+                    actual: patterns.len(),
+                    what: "suffix field(s)".to_string(),
                 });
             }
             let start_idx = total_fields - patterns.len();
@@ -1461,12 +1422,11 @@ fn check_struct_tuple_pattern(
 
             let rest_binding_with_type = if let Some(name) = rest_binding {
                 if !is_snake_case(name) {
-                    return Err(TypeError {
-                        message: format!(
-                            "variable '{}' should be snake_case (e.g., '{}')",
-                            name,
-                            to_snake_case(name)
-                        ),
+                    return Err(TypeError::NamingConvention {
+                        kind: "variable".to_string(),
+                        name: name.clone(),
+                        convention: "snake_case".to_string(),
+                        suggestion: to_snake_case(name),
                     });
                 }
                 let rest_types: Vec<Type> = expected_types[..start_idx].to_vec();
@@ -1495,11 +1455,12 @@ fn check_struct_tuple_pattern(
         } => {
             let total_patterns = prefix.len() + suffix.len();
             if total_patterns > total_fields {
-                return Err(TypeError {
-                    message: format!(
-                        "tuple struct {} has {} field(s) but pattern has {}",
-                        struct_name, total_fields, total_patterns
-                    ),
+                return Err(TypeError::ArityMismatch {
+                    kind: "tuple struct".to_string(),
+                    name: struct_name.to_string(),
+                    expected: total_fields,
+                    actual: total_patterns,
+                    what: "field(s)".to_string(),
                 });
             }
             let (prefix_typed, mut bindings) =
@@ -1516,12 +1477,11 @@ fn check_struct_tuple_pattern(
 
             let rest_binding_with_type = if let Some(name) = rest_binding {
                 if !is_snake_case(name) {
-                    return Err(TypeError {
-                        message: format!(
-                            "variable '{}' should be snake_case (e.g., '{}')",
-                            name,
-                            to_snake_case(name)
-                        ),
+                    return Err(TypeError::NamingConvention {
+                        kind: "variable".to_string(),
+                        name: name.clone(),
+                        convention: "snake_case".to_string(),
+                        suggestion: to_snake_case(name),
                     });
                 }
                 let rest_types: Vec<Type> = expected_types[prefix.len()..suffix_start].to_vec();
@@ -1569,10 +1529,11 @@ fn check_enum_struct_pattern(
 
         for expected in &expected_field_names {
             if !provided_field_names.contains(expected) {
-                return Err(TypeError {
-                    message: format!(
-                        "missing field '{}' in enum variant pattern {}::{} (use '..' for partial match)",
-                        expected, enum_name, variant_name
+                return Err(TypeError::MissingField {
+                    field: expected.to_string(),
+                    context: format!(
+                        "enum variant pattern {}::{} (use '..' for partial match)",
+                        enum_name, variant_name
                     ),
                 });
             }
@@ -1588,11 +1549,9 @@ fn check_enum_struct_pattern(
         let (_, field_type) = expected_fields
             .iter()
             .find(|(n, _)| n == &field_pattern.field_name)
-            .ok_or_else(|| TypeError {
-                message: format!(
-                    "enum variant {}::{} has no field '{}'",
-                    enum_name, variant_name, field_pattern.field_name
-                ),
+            .ok_or_else(|| TypeError::UnknownField {
+                field: field_pattern.field_name.clone(),
+                context: format!("enum variant {}::{}", enum_name, variant_name),
             })?;
 
         // Recursively check the field pattern
@@ -1707,8 +1666,9 @@ pub fn check_let_binding(
     ctx: &mut UnifyCtx,
 ) -> Result<(TypedLetBinding, HashMap<String, Type>), TypeError> {
     // Check pattern is irrefutable
-    check_irrefutable(&binding.pattern).map_err(|msg| TypeError {
-        message: format!("refutable pattern in let binding: {}", msg),
+    check_irrefutable(&binding.pattern).map_err(|msg| TypeError::RefutablePattern {
+        context: "let binding".to_string(),
+        detail: msg,
     })?;
 
     // Type check the value
@@ -1720,13 +1680,11 @@ pub fn check_let_binding(
         let declared_type =
             resolve_type_annotation(annotation, &HashMap::new(), current_module, env)?;
         ctx.unify(&inferred_type, &declared_type)
-            .map_err(|e| TypeError {
-                message: format!(
-                    "let binding declares type {} but value has type {}: {}",
-                    declared_type,
-                    ctx.resolve(&inferred_type),
-                    e.message
-                ),
+            .map_err(|e| TypeError::TypeMismatchIn {
+                context: "let binding".to_string(),
+                expected: declared_type.to_string(),
+                actual: ctx.resolve(&inferred_type).to_string(),
+                detail: e.to_string(),
             })?;
         declared_type
     } else {
@@ -1795,8 +1753,8 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("should be snake_case"));
-        assert!(err.message.contains("my_var"));
+        assert!(err.to_string().contains("should be snake_case"));
+        assert!(err.to_string().contains("my_var"));
     }
 
     #[test]
@@ -1812,7 +1770,7 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("should be snake_case"));
+        assert!(err.to_string().contains("should be snake_case"));
     }
 
     // ========================================================================
@@ -1867,8 +1825,8 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("pattern type"));
-        assert!(err.message.contains("does not match scrutinee type"));
+        assert!(err.to_string().contains("pattern"));
+        assert!(err.to_string().contains("expected"));
     }
 
     // ========================================================================
@@ -1978,7 +1936,7 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("should be snake_case"));
+        assert!(err.to_string().contains("should be snake_case"));
     }
 
     // ========================================================================
@@ -2129,7 +2087,7 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("list pattern cannot match type"));
+        assert!(err.to_string().contains("list pattern"));
     }
 
     // ========================================================================
@@ -2164,7 +2122,7 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("empty tuple pattern cannot match"));
+        assert!(err.to_string().contains("expects 1 elements, got 0"));
     }
 
     // ========================================================================
@@ -2209,10 +2167,7 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(
-            err.message
-                .contains("tuple pattern has 3 elements but tuple has 2")
-        );
+        assert!(err.to_string().contains("expects 2 elements, got 3"));
     }
 
     // ========================================================================
@@ -2285,7 +2240,7 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("prefix elements"));
+        assert!(err.to_string().contains("prefix elements"));
     }
 
     #[test]
@@ -2375,7 +2330,7 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("suffix elements"));
+        assert!(err.to_string().contains("suffix elements"));
     }
 
     #[test]
@@ -2472,7 +2427,7 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("4 elements but tuple has only 3"));
+        assert!(err.to_string().contains("expects 3 elements, got 4"));
     }
 
     #[test]
@@ -2535,7 +2490,7 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("cannot infer tuple type"));
+        assert!(err.to_string().contains("cannot infer tuple type"));
     }
 
     // ========================================================================
@@ -2557,7 +2512,7 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("tuple pattern cannot match type"));
+        assert!(err.to_string().contains("type mismatch"));
     }
 
     // ========================================================================
@@ -2690,8 +2645,8 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("missing field 'y'"));
-        assert!(err.message.contains("use '..' for partial match"));
+        assert!(err.to_string().contains("missing field 'y'"));
+        assert!(err.to_string().contains("use '..' for partial match"));
     }
 
     #[test]
@@ -2753,7 +2708,10 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("struct Point has no field 'z'"));
+        assert!(
+            err.to_string()
+                .contains("unknown field 'z' in struct Point")
+        );
     }
 
     #[test]
@@ -2773,7 +2731,7 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("unknown identifier"));
+        assert!(err.to_string().contains("unknown identifier"));
     }
 
     // ========================================================================
@@ -3054,7 +3012,7 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("missing field 'y'"));
+        assert!(err.to_string().contains("missing field 'y'"));
     }
 
     #[test]
@@ -3085,7 +3043,7 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("is not a unit variant"));
+        assert!(err.to_string().contains("is not a unit variant"));
     }
 
     #[test]
@@ -3120,9 +3078,9 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
-            err.message.contains("is a unit variant"),
+            err.to_string().contains("is a unit variant"),
             "Expected 'is a unit variant' but got: {}",
-            err.message
+            err
         );
     }
 
@@ -3169,9 +3127,9 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
-            err.message.contains("is a tuple variant"),
+            err.to_string().contains("is a tuple variant"),
             "Expected 'is a tuple variant' but got: {}",
-            err.message
+            err
         );
     }
 
@@ -3192,7 +3150,7 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("unknown path"));
+        assert!(err.to_string().contains("unknown path"));
     }
 
     #[test]
@@ -3224,9 +3182,9 @@ mod tests {
         let err = result.unwrap_err();
         // With the new scheme, unknown variants are reported as unknown paths
         assert!(
-            err.message.contains("unknown path") && err.message.contains("Unknown"),
+            err.to_string().contains("unknown path") && err.to_string().contains("Unknown"),
             "Expected 'unknown path' error with 'Unknown' but got: {}",
-            err.message
+            err
         );
     }
 
@@ -3248,7 +3206,7 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("unknown identifier"));
+        assert!(err.to_string().contains("unknown identifier"));
     }
 
     // ========================================================================
@@ -3299,7 +3257,7 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("should be snake_case"));
+        assert!(err.to_string().contains("should be snake_case"));
     }
 
     // ========================================================================
@@ -3644,7 +3602,7 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("3 field(s) but pattern has 4"));
+        assert!(err.to_string().contains("expects 3 field(s), got 4"));
     }
 
     #[test]
@@ -3677,6 +3635,6 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("empty pattern not allowed"));
+        assert!(err.to_string().contains("expects 3 field(s), got 0"));
     }
 }

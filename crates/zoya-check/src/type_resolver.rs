@@ -62,9 +62,7 @@ fn resolve_type_annotation_inner(
                 if name == "Self" {
                     return match self_type {
                         Some(ty) => Ok(ty.clone()),
-                        None => Err(TypeError {
-                            message: "`Self` can only be used inside an impl block".to_string(),
-                        }),
+                        None => Err(TypeError::SelfOutsideImpl),
                     };
                 } else if name == "Int" {
                     return Ok(Type::Int);
@@ -104,12 +102,11 @@ fn resolve_type_annotation_inner(
                         Definition::Struct(struct_def) => {
                             // Non-generic struct reference
                             if !struct_def.type_params.is_empty() {
-                                return Err(TypeError {
-                                    message: format!(
-                                        "struct {} requires {} type argument(s)",
-                                        name,
-                                        struct_def.type_params.len()
-                                    ),
+                                return Err(TypeError::TypeArgCount {
+                                    kind: "struct".to_string(),
+                                    name: name.to_string(),
+                                    expected: struct_def.type_params.len(),
+                                    actual: 0,
                                 });
                             }
                             // Non-generic struct: use fields as-is
@@ -123,12 +120,11 @@ fn resolve_type_annotation_inner(
                         Definition::Enum(enum_def) => {
                             // Non-generic enum reference
                             if !enum_def.type_params.is_empty() {
-                                return Err(TypeError {
-                                    message: format!(
-                                        "enum {} requires {} type argument(s)",
-                                        name,
-                                        enum_def.type_params.len()
-                                    ),
+                                return Err(TypeError::TypeArgCount {
+                                    kind: "enum".to_string(),
+                                    name: name.to_string(),
+                                    expected: enum_def.type_params.len(),
+                                    actual: 0,
                                 });
                             }
                             // Non-generic enum: use variants as-is
@@ -142,21 +138,17 @@ fn resolve_type_annotation_inner(
                         Definition::TypeAlias(alias_def) => {
                             // Non-generic type alias reference
                             if !alias_def.type_params.is_empty() {
-                                return Err(TypeError {
-                                    message: format!(
-                                        "type alias {} requires {} type argument(s)",
-                                        name,
-                                        alias_def.type_params.len()
-                                    ),
+                                return Err(TypeError::TypeArgCount {
+                                    kind: "type alias".to_string(),
+                                    name: name.to_string(),
+                                    expected: alias_def.type_params.len(),
+                                    actual: 0,
                                 });
                             }
                             // Cycle detection
                             if !expanding_aliases.insert(qualified_path.clone()) {
-                                return Err(TypeError {
-                                    message: format!(
-                                        "circular type alias detected: {}",
-                                        qualified_path
-                                    ),
+                                return Err(TypeError::CircularTypeAlias {
+                                    name: qualified_path.to_string(),
                                 });
                             }
                             let result = Ok(alias_def.typ.clone());
@@ -166,17 +158,17 @@ fn resolve_type_annotation_inner(
                         Definition::Function(_)
                         | Definition::EnumVariant(..)
                         | Definition::Module(..)
-                        | Definition::ImplMethod(_) => Err(TypeError {
-                            message: format!(
-                                "{} '{}' is not a type",
-                                def.kind_name(),
-                                qualified_path
-                            ),
+                        | Definition::ImplMethod(_) => Err(TypeError::KindMisuse {
+                            kind: def.kind_name().to_string(),
+                            name: qualified_path.to_string(),
+                            problem: "is not a type".to_string(),
                         }),
                     }
                 }
-                ResolvedPath::Local { name, .. } => Err(TypeError {
-                    message: format!("variable '{}' is not a type", name),
+                ResolvedPath::Local { name, .. } => Err(TypeError::KindMisuse {
+                    kind: "variable".to_string(),
+                    name,
+                    problem: "is not a type".to_string(),
                 }),
             }
         }
@@ -186,8 +178,11 @@ fn resolve_type_annotation_inner(
                 && name == "List"
             {
                 if params.len() != 1 {
-                    return Err(TypeError {
-                        message: "List requires exactly one type parameter".to_string(),
+                    return Err(TypeError::TypeArgCount {
+                        kind: String::new(),
+                        name: "List".to_string(),
+                        expected: 1,
+                        actual: params.len(),
                     });
                 }
                 let elem_type = resolve_type_annotation_inner(
@@ -205,8 +200,11 @@ fn resolve_type_annotation_inner(
                 && name == "Set"
             {
                 if params.len() != 1 {
-                    return Err(TypeError {
-                        message: "Set requires exactly one type parameter".to_string(),
+                    return Err(TypeError::TypeArgCount {
+                        kind: String::new(),
+                        name: "Set".to_string(),
+                        expected: 1,
+                        actual: params.len(),
                     });
                 }
                 let elem_type = resolve_type_annotation_inner(
@@ -224,8 +222,11 @@ fn resolve_type_annotation_inner(
                 && name == "Dict"
             {
                 if params.len() != 2 {
-                    return Err(TypeError {
-                        message: "Dict requires exactly two type parameters".to_string(),
+                    return Err(TypeError::TypeArgCount {
+                        kind: String::new(),
+                        name: "Dict".to_string(),
+                        expected: 2,
+                        actual: params.len(),
                     });
                 }
                 let key_type = resolve_type_annotation_inner(
@@ -270,13 +271,11 @@ fn resolve_type_annotation_inner(
                         Definition::Struct(struct_def) => {
                             // Generic struct reference
                             if params.len() != struct_def.type_params.len() {
-                                return Err(TypeError {
-                                    message: format!(
-                                        "struct {} expects {} type argument(s), got {}",
-                                        name,
-                                        struct_def.type_params.len(),
-                                        params.len()
-                                    ),
+                                return Err(TypeError::TypeArgCount {
+                                    kind: "struct".to_string(),
+                                    name: name.to_string(),
+                                    expected: struct_def.type_params.len(),
+                                    actual: params.len(),
                                 });
                             }
                             let type_args = params
@@ -312,13 +311,11 @@ fn resolve_type_annotation_inner(
                         Definition::Enum(enum_def) => {
                             // Generic enum reference
                             if params.len() != enum_def.type_params.len() {
-                                return Err(TypeError {
-                                    message: format!(
-                                        "enum {} expects {} type argument(s), got {}",
-                                        name,
-                                        enum_def.type_params.len(),
-                                        params.len()
-                                    ),
+                                return Err(TypeError::TypeArgCount {
+                                    kind: "enum".to_string(),
+                                    name: name.to_string(),
+                                    expected: enum_def.type_params.len(),
+                                    actual: params.len(),
                                 });
                             }
                             let type_args = params
@@ -356,22 +353,17 @@ fn resolve_type_annotation_inner(
                         Definition::TypeAlias(alias_def) => {
                             // Generic type alias reference
                             if params.len() != alias_def.type_params.len() {
-                                return Err(TypeError {
-                                    message: format!(
-                                        "type alias {} expects {} type argument(s), got {}",
-                                        name,
-                                        alias_def.type_params.len(),
-                                        params.len()
-                                    ),
+                                return Err(TypeError::TypeArgCount {
+                                    kind: "type alias".to_string(),
+                                    name: name.to_string(),
+                                    expected: alias_def.type_params.len(),
+                                    actual: params.len(),
                                 });
                             }
                             // Cycle detection
                             if !expanding_aliases.insert(qualified_path.clone()) {
-                                return Err(TypeError {
-                                    message: format!(
-                                        "circular type alias detected: {}",
-                                        qualified_path
-                                    ),
+                                return Err(TypeError::CircularTypeAlias {
+                                    name: qualified_path.to_string(),
                                 });
                             }
                             let type_args = params
@@ -398,17 +390,17 @@ fn resolve_type_annotation_inner(
                         Definition::Function(_)
                         | Definition::EnumVariant(..)
                         | Definition::Module(..)
-                        | Definition::ImplMethod(_) => Err(TypeError {
-                            message: format!(
-                                "{} '{}' is not a type",
-                                def.kind_name(),
-                                qualified_path
-                            ),
+                        | Definition::ImplMethod(_) => Err(TypeError::KindMisuse {
+                            kind: def.kind_name().to_string(),
+                            name: qualified_path.to_string(),
+                            problem: "is not a type".to_string(),
                         }),
                     }
                 }
-                ResolvedPath::Local { name, .. } => Err(TypeError {
-                    message: format!("variable '{}' is not a type", name),
+                ResolvedPath::Local { name, .. } => Err(TypeError::KindMisuse {
+                    kind: "variable".to_string(),
+                    name,
+                    problem: "is not a type".to_string(),
                 }),
             }
         }
@@ -533,8 +525,8 @@ mod tests {
         let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("unknown identifier"));
-        assert!(err.message.contains("UnknownType"));
+        assert!(err.to_string().contains("unknown identifier"));
+        assert!(err.to_string().contains("UnknownType"));
     }
 
     #[test]
@@ -546,7 +538,7 @@ mod tests {
         let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("unknown identifier"));
+        assert!(err.to_string().contains("unknown identifier"));
     }
 
     // ========================================================================
@@ -564,7 +556,7 @@ mod tests {
         let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("unknown path"));
+        assert!(err.to_string().contains("unknown path"));
     }
 
     #[test]
@@ -581,7 +573,7 @@ mod tests {
         let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("unknown path"));
+        assert!(err.to_string().contains("unknown path"));
     }
 
     // ========================================================================
@@ -620,10 +612,15 @@ mod tests {
         let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(
-            err.message
-                .contains("List requires exactly one type parameter")
-        );
+        assert!(matches!(
+            err,
+            TypeError::TypeArgCount {
+                ref name,
+                expected: 1,
+                actual: 0,
+                ..
+            } if name == "List"
+        ));
     }
 
     #[test]
@@ -638,10 +635,15 @@ mod tests {
         let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(
-            err.message
-                .contains("List requires exactly one type parameter")
-        );
+        assert!(matches!(
+            err,
+            TypeError::TypeArgCount {
+                ref name,
+                expected: 1,
+                actual: 2,
+                ..
+            } if name == "List"
+        ));
     }
 
     // ========================================================================
@@ -674,10 +676,15 @@ mod tests {
         let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(
-            err.message
-                .contains("Dict requires exactly two type parameters")
-        );
+        assert!(matches!(
+            err,
+            TypeError::TypeArgCount {
+                ref name,
+                expected: 2,
+                actual: 1,
+                ..
+            } if name == "Dict"
+        ));
     }
 
     #[test]
@@ -686,10 +693,15 @@ mod tests {
         let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(
-            err.message
-                .contains("Dict requires exactly two type parameters")
-        );
+        assert!(matches!(
+            err,
+            TypeError::TypeArgCount {
+                ref name,
+                expected: 2,
+                actual: 0,
+                ..
+            } if name == "Dict"
+        ));
     }
 
     #[test]
@@ -705,10 +717,15 @@ mod tests {
         let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &empty_env());
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(
-            err.message
-                .contains("Dict requires exactly two type parameters")
-        );
+        assert!(matches!(
+            err,
+            TypeError::TypeArgCount {
+                ref name,
+                expected: 2,
+                actual: 3,
+                ..
+            } if name == "Dict"
+        ));
     }
 
     #[test]
@@ -786,10 +803,15 @@ mod tests {
         let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &env);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(
-            err.message
-                .contains("struct Container requires 1 type argument")
-        );
+        assert!(matches!(
+            err,
+            TypeError::TypeArgCount {
+                ref kind,
+                ref name,
+                expected: 1,
+                actual: 0,
+            } if kind == "struct" && name == "Container"
+        ));
     }
 
     #[test]
@@ -819,10 +841,15 @@ mod tests {
         let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &env);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(
-            err.message
-                .contains("struct Pair expects 2 type argument(s), got 1")
-        );
+        assert!(matches!(
+            err,
+            TypeError::TypeArgCount {
+                ref kind,
+                ref name,
+                expected: 2,
+                actual: 1,
+            } if kind == "struct" && name == "Pair"
+        ));
     }
 
     #[test]
@@ -928,7 +955,15 @@ mod tests {
         let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &env);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("enum Option requires 1 type argument"));
+        assert!(matches!(
+            err,
+            TypeError::TypeArgCount {
+                ref kind,
+                ref name,
+                expected: 1,
+                actual: 0,
+            } if kind == "enum" && name == "Option"
+        ));
     }
 
     #[test]
@@ -967,10 +1002,15 @@ mod tests {
         let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &env);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(
-            err.message
-                .contains("enum Result expects 2 type argument(s), got 3")
-        );
+        assert!(matches!(
+            err,
+            TypeError::TypeArgCount {
+                ref kind,
+                ref name,
+                expected: 2,
+                actual: 3,
+            } if kind == "enum" && name == "Result"
+        ));
     }
 
     #[test]
@@ -1060,10 +1100,15 @@ mod tests {
         let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &env);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(
-            err.message
-                .contains("type alias MyList requires 1 type argument")
-        );
+        assert!(matches!(
+            err,
+            TypeError::TypeArgCount {
+                ref kind,
+                ref name,
+                expected: 1,
+                actual: 0,
+            } if kind == "type alias" && name == "MyList"
+        ));
     }
 
     #[test]
@@ -1088,10 +1133,15 @@ mod tests {
         let result = resolve_type_annotation(&annotation, &empty_map(), &root(), &env);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(
-            err.message
-                .contains("type alias MyPair expects 2 type argument(s), got 1")
-        );
+        assert!(matches!(
+            err,
+            TypeError::TypeArgCount {
+                ref kind,
+                ref name,
+                expected: 2,
+                actual: 1,
+            } if kind == "type alias" && name == "MyPair"
+        ));
     }
 
     #[test]

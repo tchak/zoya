@@ -90,7 +90,7 @@ fn test_type_alias_non_pascal_case_error() {
     let tree = build_test_package(items);
     let result = check(&tree, &[]);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("PascalCase"));
+    assert!(result.unwrap_err().to_string().contains("PascalCase"));
 }
 
 #[test]
@@ -129,5 +129,5 @@ fn test_type_alias_wrong_arity_error() {
     let tree = build_test_package(items);
     let result = check(&tree, &[]);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("type argument"));
+    assert!(result.unwrap_err().to_string().contains("type argument"));
 }

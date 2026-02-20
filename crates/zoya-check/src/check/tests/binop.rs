@@ -46,7 +46,7 @@ fn test_check_type_mismatch() {
     let result = check_expr_with_env(&expr);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("type mismatch"));
+    assert!(err.to_string().contains("type mismatch"));
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn test_check_negate_bool_error() {
     };
     let result = check_expr_with_env(&expr);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("negation"));
+    assert!(result.unwrap_err().to_string().contains("negation"));
 }
 
 #[test]
@@ -102,7 +102,7 @@ fn test_check_negate_string_error() {
     };
     let result = check_expr_with_env(&expr);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("negation"));
+    assert!(result.unwrap_err().to_string().contains("negation"));
 }
 
 #[test]
@@ -230,7 +230,7 @@ fn test_check_ordering_on_bool_error() {
     assert!(
         result
             .unwrap_err()
-            .message
+            .to_string()
             .contains("ordering operators only work on numeric types")
     );
 }
@@ -244,7 +244,7 @@ fn test_check_comparison_type_mismatch() {
     };
     let result = check_expr_with_env(&expr);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("type mismatch"));
+    assert!(result.unwrap_err().to_string().contains("type mismatch"));
 }
 
 #[test]
@@ -259,7 +259,7 @@ fn test_check_string_addition_error() {
     assert!(
         result
             .unwrap_err()
-            .message
+            .to_string()
             .contains("arithmetic operators only work on numeric types")
     );
 }
@@ -276,7 +276,7 @@ fn test_check_string_subtraction_error() {
     assert!(
         result
             .unwrap_err()
-            .message
+            .to_string()
             .contains("arithmetic operators only work on numeric types")
     );
 }
@@ -293,7 +293,7 @@ fn test_check_bool_addition_error() {
     assert!(
         result
             .unwrap_err()
-            .message
+            .to_string()
             .contains("arithmetic operators only work on numeric types")
     );
 }
@@ -310,7 +310,7 @@ fn test_check_string_multiplication_error() {
     assert!(
         result
             .unwrap_err()
-            .message
+            .to_string()
             .contains("arithmetic operators only work on numeric types")
     );
 }

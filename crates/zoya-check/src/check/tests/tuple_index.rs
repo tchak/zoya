@@ -41,9 +41,9 @@ fn test_tuple_index_out_of_bounds() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(
-        err.message.contains("out of bounds"),
+        err.to_string().contains("out of bounds"),
         "unexpected error: {}",
-        err.message
+        err
     );
 }
 
@@ -57,9 +57,9 @@ fn test_tuple_index_on_non_tuple_error() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(
-        err.message.contains("cannot use tuple index"),
+        err.to_string().contains("cannot use tuple index"),
         "unexpected error: {}",
-        err.message
+        err
     );
 }
 
@@ -111,8 +111,8 @@ fn test_tuple_struct_index_out_of_bounds() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(
-        err.message.contains("cannot use tuple index"),
+        err.to_string().contains("cannot use tuple index"),
         "unexpected error: {}",
-        err.message
+        err
     );
 }

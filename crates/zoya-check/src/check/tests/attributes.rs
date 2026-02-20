@@ -13,7 +13,7 @@ fn check_source(source: &str) -> Result<zoya_ir::CheckedPackage, String> {
     let mem = MemorySource::new().with_module("root", source);
     let pkg = load_memory_package(&mem, zoya_loader::Mode::Dev).map_err(|e| format!("{}", e))?;
     let std = zoya_std::std();
-    check(&pkg, &[std]).map_err(|e| e.message)
+    check(&pkg, &[std]).map_err(|e| e.to_string())
 }
 
 #[test]
@@ -51,7 +51,7 @@ fn test_test_attr_on_struct_is_error() {
     })];
     let pkg = build_test_package(items);
     let err = check(&pkg, &[]).unwrap_err();
-    assert!(err.message.contains("#[test]"));
+    assert!(err.to_string().contains("#[test]"));
 }
 
 #[test]
@@ -69,8 +69,8 @@ fn test_test_attr_on_struct_error_message() {
     })];
     let pkg = build_test_package(items);
     let err = check(&pkg, &[]).unwrap_err();
-    assert!(err.message.contains("#[test]"));
-    assert!(err.message.contains("struct"));
+    assert!(err.to_string().contains("#[test]"));
+    assert!(err.to_string().contains("struct"));
 }
 
 #[test]
@@ -88,8 +88,8 @@ fn test_test_attr_on_enum_is_error() {
     })];
     let pkg = build_test_package(items);
     let err = check(&pkg, &[]).unwrap_err();
-    assert!(err.message.contains("#[test]"));
-    assert!(err.message.contains("enum"));
+    assert!(err.to_string().contains("#[test]"));
+    assert!(err.to_string().contains("enum"));
 }
 
 #[test]
@@ -132,7 +132,7 @@ fn test_test_attr_with_params_is_error() {
     })];
     let pkg = build_test_package(items);
     let err = check(&pkg, &[]).unwrap_err();
-    assert!(err.message.contains("cannot have parameters"));
+    assert!(err.to_string().contains("cannot have parameters"));
 }
 
 #[test]
@@ -152,7 +152,7 @@ fn test_test_attr_wrong_return_type_is_error() {
     })];
     let pkg = build_test_package(items);
     let err = check(&pkg, &[]).unwrap_err();
-    assert!(err.message.contains("must return () or Result"));
+    assert!(err.to_string().contains("must return () or Result"));
 }
 
 #[test]
@@ -178,7 +178,7 @@ fn test_builtin_and_test_conflict_is_error() {
     })];
     let pkg = build_test_package(items);
     let err = check(&pkg, &[]).unwrap_err();
-    assert!(err.message.contains("cannot have both"));
+    assert!(err.to_string().contains("cannot have both"));
 }
 
 #[test]
@@ -262,8 +262,8 @@ fn test_task_attr_on_struct_is_error() {
     })];
     let pkg = build_test_package(items);
     let err = check(&pkg, &[]).unwrap_err();
-    assert!(err.message.contains("#[task]"));
-    assert!(err.message.contains("struct"));
+    assert!(err.to_string().contains("#[task]"));
+    assert!(err.to_string().contains("struct"));
 }
 
 #[test]
@@ -281,8 +281,8 @@ fn test_task_attr_on_enum_is_error() {
     })];
     let pkg = build_test_package(items);
     let err = check(&pkg, &[]).unwrap_err();
-    assert!(err.message.contains("#[task]"));
-    assert!(err.message.contains("enum"));
+    assert!(err.to_string().contains("#[task]"));
+    assert!(err.to_string().contains("enum"));
 }
 
 #[test]
@@ -308,9 +308,9 @@ fn test_builtin_and_task_conflict_is_error() {
     })];
     let pkg = build_test_package(items);
     let err = check(&pkg, &[]).unwrap_err();
-    assert!(err.message.contains("cannot have both"));
-    assert!(err.message.contains("#[builtin]"));
-    assert!(err.message.contains("#[task]"));
+    assert!(err.to_string().contains("cannot have both"));
+    assert!(err.to_string().contains("#[builtin]"));
+    assert!(err.to_string().contains("#[task]"));
 }
 
 #[test]
@@ -336,9 +336,9 @@ fn test_test_and_task_conflict_is_error() {
     })];
     let pkg = build_test_package(items);
     let err = check(&pkg, &[]).unwrap_err();
-    assert!(err.message.contains("cannot have both"));
-    assert!(err.message.contains("#[test]"));
-    assert!(err.message.contains("#[task]"));
+    assert!(err.to_string().contains("cannot have both"));
+    assert!(err.to_string().contains("#[test]"));
+    assert!(err.to_string().contains("#[task]"));
 }
 
 #[test]
@@ -482,8 +482,8 @@ fn test_get_attr_on_struct_is_error() {
     })];
     let pkg = build_test_package(items);
     let err = check(&pkg, &[]).unwrap_err();
-    assert!(err.message.contains("#[get]"));
-    assert!(err.message.contains("struct"));
+    assert!(err.to_string().contains("#[get]"));
+    assert!(err.to_string().contains("struct"));
 }
 
 #[test]
@@ -501,8 +501,8 @@ fn test_get_attr_on_enum_is_error() {
     })];
     let pkg = build_test_package(items);
     let err = check(&pkg, &[]).unwrap_err();
-    assert!(err.message.contains("#[get]"));
-    assert!(err.message.contains("enum"));
+    assert!(err.to_string().contains("#[get]"));
+    assert!(err.to_string().contains("enum"));
 }
 
 #[test]
@@ -522,7 +522,7 @@ fn test_get_attr_missing_path_is_error() {
     })];
     let pkg = build_test_package(items);
     let err = check(&pkg, &[]).unwrap_err();
-    assert!(err.message.contains("requires a path argument"));
+    assert!(err.to_string().contains("requires a path argument"));
 }
 
 #[test]
@@ -542,7 +542,7 @@ fn test_get_attr_non_string_path_is_error() {
     })];
     let pkg = build_test_package(items);
     let err = check(&pkg, &[]).unwrap_err();
-    assert!(err.message.contains("requires a string path argument"));
+    assert!(err.to_string().contains("requires a string path argument"));
 }
 
 #[test]
@@ -562,7 +562,7 @@ fn test_get_attr_invalid_pathname_is_error() {
     })];
     let pkg = build_test_package(items);
     let err = check(&pkg, &[]).unwrap_err();
-    assert!(err.message.contains("must start with '/'"));
+    assert!(err.to_string().contains("must start with '/'"));
 }
 
 #[test]
@@ -635,7 +635,7 @@ fn test_get_and_test_conflict_is_error() {
     })];
     let pkg = build_test_package(items);
     let err = check(&pkg, &[]).unwrap_err();
-    assert!(err.message.contains("cannot have both"));
+    assert!(err.to_string().contains("cannot have both"));
 }
 
 #[test]
@@ -661,7 +661,7 @@ fn test_get_and_builtin_conflict_is_error() {
     })];
     let pkg = build_test_package(items);
     let err = check(&pkg, &[]).unwrap_err();
-    assert!(err.message.contains("cannot have both"));
+    assert!(err.to_string().contains("cannot have both"));
 }
 
 #[test]
@@ -687,7 +687,7 @@ fn test_get_and_task_conflict_is_error() {
     })];
     let pkg = build_test_package(items);
     let err = check(&pkg, &[]).unwrap_err();
-    assert!(err.message.contains("cannot have both"));
+    assert!(err.to_string().contains("cannot have both"));
 }
 
 #[test]

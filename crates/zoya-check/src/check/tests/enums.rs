@@ -76,7 +76,7 @@ fn test_enum_tuple_construct_unit_variant_with_args_error() {
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("unit variant"));
+    assert!(err.to_string().contains("unit variant"));
 }
 
 #[test]
@@ -94,7 +94,7 @@ fn test_enum_tuple_construct_struct_variant_with_tuple_syntax_error() {
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("struct variant"));
+    assert!(err.to_string().contains("struct variant"));
 }
 
 #[test]
@@ -136,7 +136,7 @@ fn test_enum_struct_construct_unit_variant_error() {
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("unit variant"));
+    assert!(err.to_string().contains("unit variant"));
 }
 
 #[test]
@@ -155,7 +155,7 @@ fn test_enum_struct_construct_tuple_variant_error() {
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("tuple variant"));
+    assert!(err.to_string().contains("tuple variant"));
 }
 
 #[test]
@@ -177,7 +177,7 @@ fn test_enum_struct_construct_missing_field() {
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("missing field 'y'"));
+    assert!(err.to_string().contains("missing field 'y'"));
 }
 
 #[test]
@@ -200,7 +200,7 @@ fn test_enum_struct_construct_unknown_field() {
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("unknown field 'z'"));
+    assert!(err.to_string().contains("unknown field 'z'"));
 }
 
 #[test]
@@ -222,5 +222,5 @@ fn test_enum_struct_construct_field_type_mismatch() {
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("field 'y'") && err.message.contains("expects"));
+    assert!(err.to_string().contains("field 'y'") && err.to_string().contains("expected"));
 }

@@ -61,7 +61,7 @@ fn test_interpolated_string_with_bool_expr_error() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(
-        err.message
+        err.to_string()
             .contains("cannot interpolate expression of type Bool")
     );
 }

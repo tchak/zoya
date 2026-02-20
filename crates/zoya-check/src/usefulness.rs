@@ -1169,8 +1169,8 @@ pub fn check_patterns(
             .iter()
             .map(|i| (i + 1).to_string())
             .collect();
-        return Err(TypeError {
-            message: format!("unreachable pattern(s): arm(s) {}", arm_numbers.join(", ")),
+        return Err(TypeError::UnreachablePattern {
+            arms: arm_numbers.join(", "),
         });
     }
 
@@ -1190,12 +1190,9 @@ pub fn check_patterns(
                 String::new()
             };
 
-            Err(TypeError {
-                message: format!(
-                    "non-exhaustive match: missing pattern(s) {}{}",
-                    missing_patterns.join(", "),
-                    more
-                ),
+            Err(TypeError::NonExhaustiveMatch {
+                patterns: missing_patterns.join(", "),
+                hint: more,
             })
         }
     }
@@ -2697,8 +2694,9 @@ mod tests {
         let result = check_patterns(&arms, &Type::Bool, &DefinitionLookup::empty());
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("non-exhaustive"));
-        assert!(err.message.contains("false"));
+        let msg = err.to_string();
+        assert!(msg.contains("non-exhaustive"));
+        assert!(msg.contains("false"));
     }
 
     #[test]
@@ -2707,7 +2705,7 @@ mod tests {
         let result = check_patterns(&arms, &Type::Bool, &DefinitionLookup::empty());
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("unreachable"));
+        assert!(err.to_string().contains("unreachable"));
     }
 
     #[test]
@@ -2720,9 +2718,10 @@ mod tests {
         let result = check_patterns(&arms, &Type::Bool, &DefinitionLookup::empty());
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("unreachable"));
+        let msg = err.to_string();
+        assert!(msg.contains("unreachable"));
         // Should mention both patterns 2 and 3
-        assert!(err.message.contains("2") && err.message.contains("3"));
+        assert!(msg.contains("2") && msg.contains("3"));
     }
 
     // ==================== DefinitionLookup Tests ====================
@@ -3118,7 +3117,8 @@ mod tests {
         let result = check_patterns(&arms, &tuple_ty, &DefinitionLookup::empty());
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("non-exhaustive"));
-        assert!(err.message.contains("and 1 more"));
+        let msg = err.to_string();
+        assert!(msg.contains("non-exhaustive"));
+        assert!(msg.contains("and 1 more"));
     }
 }

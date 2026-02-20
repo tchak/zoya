@@ -133,7 +133,7 @@ fn test_import_private_function_fails() {
 
     let result = check(&tree, &[]);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("private"));
+    assert!(result.unwrap_err().to_string().contains("private"));
 }
 
 #[test]
@@ -157,7 +157,7 @@ fn test_import_private_struct_fails() {
 
     let result = check(&tree, &[]);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("private"));
+    assert!(result.unwrap_err().to_string().contains("private"));
 }
 
 #[test]
@@ -171,7 +171,7 @@ fn test_import_not_found_fails() {
 
     let result = check(&tree, &[]);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("cannot find"));
+    assert!(result.unwrap_err().to_string().contains("cannot find"));
 }
 
 #[test]
@@ -249,7 +249,7 @@ fn test_duplicate_import_fails() {
     };
     let result = check(&pkg, &[]);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("already imported"));
+    assert!(result.unwrap_err().to_string().contains("already imported"));
 }
 
 // ===== Shadowing Priority Tests =====
@@ -710,7 +710,7 @@ fn test_pub_use_cannot_reexport_private() {
 
     let result = check(&tree, &[]);
     assert!(result.is_err());
-    let msg = result.unwrap_err().message;
+    let msg = result.unwrap_err().to_string();
     assert!(
         msg.contains("pub use cannot re-export private"),
         "unexpected error: {}",
@@ -761,7 +761,7 @@ fn test_private_use_does_not_reexport() {
 
     let result = check(&tree, &[]);
     assert!(result.is_err());
-    let msg = result.unwrap_err().message;
+    let msg = result.unwrap_err().to_string();
     assert!(msg.contains("cannot find"), "unexpected error: {}", msg);
 }
 

@@ -80,7 +80,7 @@ fn test_check_let_type_mismatch() {
     let tree = build_test_package_with_expr(vec![], test_expr);
     let result = check(&tree, &[]);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("declares type"));
+    assert!(result.unwrap_err().to_string().contains("let binding"));
 }
 
 #[test]

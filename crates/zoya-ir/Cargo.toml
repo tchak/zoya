@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+thiserror = "2"
 zoya-ast = { path = "../zoya-ast" }
 zoya-package = { path = "../zoya-package" }

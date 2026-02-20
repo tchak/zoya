@@ -54,12 +54,7 @@ fn test_list_spread_non_list_error() {
     let expr = Expr::List(vec![ListElement::Spread(Expr::Int(42))]);
     let result = check_expr_with_env(&expr);
     assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .message
-            .contains("spread in list must be a list")
-    );
+    assert!(result.unwrap_err().to_string().contains("type mismatch"));
 }
 
 #[test]
@@ -72,10 +67,5 @@ fn test_list_spread_type_mismatch_error() {
     ]);
     let result = check_expr_with_env(&expr);
     assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .message
-            .contains("spread in list must be a list")
-    );
+    assert!(result.unwrap_err().to_string().contains("type mismatch"));
 }

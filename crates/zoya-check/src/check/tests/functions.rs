@@ -60,7 +60,7 @@ fn test_check_function_call_wrong_arg_type() {
     };
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("type mismatch"));
+    assert!(result.unwrap_err().to_string().contains("type mismatch"));
 }
 
 #[test]
@@ -85,7 +85,12 @@ fn test_check_function_call_wrong_arity() {
     };
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("expects 2 arguments"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("expects 2 arguments")
+    );
 }
 
 #[test]
@@ -199,7 +204,7 @@ fn test_check_function_def_return_type_mismatch() {
 
     let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx, "test");
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("declares return type"));
+    assert!(result.unwrap_err().to_string().contains("expected"));
 }
 
 #[test]
@@ -545,7 +550,7 @@ fn test_check_undefined_variable_error() {
         "Unknown variable should fail, but got: {:?}",
         result
     );
-    let err_msg = result.unwrap_err().message;
+    let err_msg = result.unwrap_err().to_string();
     assert!(
         err_msg.contains("unknown identifier"),
         "Expected 'unknown identifier' but got: {}",
@@ -619,7 +624,7 @@ fn test_function_def_invalid_name_pascal_case() {
     let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx, "test");
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("should be snake_case"));
+    assert!(err.to_string().contains("should be snake_case"));
 }
 
 #[test]
@@ -642,7 +647,10 @@ fn test_function_def_invalid_type_param() {
     let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx, "test");
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("type parameter") && err.message.contains("should be PascalCase"));
+    assert!(
+        err.to_string().contains("type parameter")
+            && err.to_string().contains("should be PascalCase")
+    );
 }
 
 #[test]
@@ -666,7 +674,7 @@ fn test_function_def_refutable_param_pattern() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(
-        err.message
+        err.to_string()
             .contains("refutable pattern in function parameter")
     );
 }
@@ -692,7 +700,7 @@ fn test_builtin_not_allowed_outside_std() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(
-        err.message
+        err.to_string()
             .contains("can only be used in the standard library")
     );
 }
@@ -717,7 +725,10 @@ fn test_builtin_requires_explicit_return_type() {
     let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx, "std");
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("must have an explicit return type"));
+    assert!(
+        err.to_string()
+            .contains("must have an explicit return type")
+    );
 }
 
 #[test]
@@ -740,7 +751,7 @@ fn test_builtin_requires_unit_body() {
     let result = check_function(&func, &QualifiedPath::root(), &env, &mut ctx, "std");
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("must have a unit body"));
+    assert!(err.to_string().contains("must have a unit body"));
 }
 
 #[test]

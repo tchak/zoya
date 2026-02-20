@@ -109,7 +109,7 @@ fn test_let_literal_pattern_rejected() {
     let tree = build_test_package_with_expr(vec![], test_expr);
     let result = check(&tree, &[]);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("refutable"));
+    assert!(result.unwrap_err().to_string().contains("refutable"));
 }
 
 #[test]
@@ -127,7 +127,7 @@ fn test_let_list_pattern_rejected() {
     let tree = build_test_package_with_expr(vec![], test_expr);
     let result = check(&tree, &[]);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("refutable"));
+    assert!(result.unwrap_err().to_string().contains("refutable"));
 }
 
 #[test]
@@ -151,7 +151,7 @@ fn test_let_call_pattern_rejected() {
     let tree = build_test_package_with_expr(vec![], test_expr);
     let result = check(&tree, &[]);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("refutable"));
+    assert!(result.unwrap_err().to_string().contains("refutable"));
 }
 
 #[test]
@@ -252,7 +252,10 @@ fn test_turbofish_wrong_count_error() {
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("expects 1 type argument(s), got 2"));
+    assert!(
+        err.to_string()
+            .contains("expects 1 type argument(s), got 2")
+    );
 }
 
 #[test]
@@ -270,5 +273,5 @@ fn test_turbofish_on_variable_error() {
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("cannot use turbofish on variable"));
+    assert!(err.to_string().contains("cannot use turbofish"));
 }

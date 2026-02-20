@@ -29,7 +29,7 @@ pub(crate) fn resolve_use_path(
 ) -> Result<QualifiedPath, TypeError> {
     let path = &use_decl.path;
     if path.prefix == PathPrefix::None {
-        return Err(TypeError {
+        return Err(TypeError::ImportValidation {
             message: "use declarations require a prefix (root::, self::, or super::)".to_string(),
         });
     }
@@ -44,7 +44,7 @@ pub(crate) fn resolve_use_module_path(
 ) -> Result<QualifiedPath, TypeError> {
     let path = &use_decl.path;
     if path.prefix == PathPrefix::None {
-        return Err(TypeError {
+        return Err(TypeError::ImportValidation {
             message: "use declarations require a prefix (root::, self::, or super::)".to_string(),
         });
     }
@@ -57,9 +57,11 @@ fn check_import_visible(
     accessor_module: &QualifiedPath,
     definitions: &HashMap<QualifiedPath, Definition>,
 ) -> Result<(), TypeError> {
-    let def = definitions.get(qualified).ok_or_else(|| TypeError {
-        message: format!("cannot find '{}' to import", qualified),
-    })?;
+    let def = definitions
+        .get(qualified)
+        .ok_or_else(|| TypeError::UnboundImport {
+            name: qualified.to_string(),
+        })?;
 
     if def.visibility() == Visibility::Public {
         return Ok(());
@@ -69,11 +71,10 @@ fn check_import_visible(
     if is_module_ancestor(target_module, accessor_module) {
         Ok(())
     } else {
-        Err(TypeError {
-            message: format!(
-                "'{}' is private and cannot be imported from '{}'",
-                qualified, accessor_module
-            ),
+        Err(TypeError::PrivateAccess {
+            kind: "item".to_string(),
+            name: qualified.to_string(),
+            module: accessor_module.to_string(),
         })
     }
 }
@@ -85,8 +86,9 @@ fn insert_import(
     qualified: QualifiedPath,
 ) -> Result<(), TypeError> {
     if let Some(existing) = imports.get(&local_name) {
-        return Err(TypeError {
-            message: format!("'{}' is already imported (from '{}')", local_name, existing),
+        return Err(TypeError::DuplicateImport {
+            name: local_name.clone(),
+            original: existing.to_string(),
         });
     }
     imports.insert(local_name, qualified);
@@ -101,8 +103,8 @@ fn check_pub_reexport_visible(
     let def = definitions.get(qualified).expect("already checked above");
     let target_visibility = def.visibility();
     if target_visibility != Visibility::Public {
-        return Err(TypeError {
-            message: format!("pub use cannot re-export private item '{}'", qualified),
+        return Err(TypeError::PrivateReExport {
+            name: qualified.to_string(),
         });
     }
     Ok(())
@@ -220,8 +222,8 @@ pub fn resolve_module_imports(
                         }
                     }
                     if !found {
-                        return Err(TypeError {
-                            message: format!("cannot find '{}' to import", qualified),
+                        return Err(TypeError::UnboundImport {
+                            name: qualified.to_string(),
                         });
                     }
                 }
@@ -231,8 +233,8 @@ pub fn resolve_module_imports(
 
                 // Resolve target as module or enum
                 let container = resolve_target_container(&target_path, definitions, reexports)?
-                    .ok_or_else(|| TypeError {
-                        message: format!("cannot find module or enum '{}'", target_path),
+                    .ok_or_else(|| TypeError::UnboundPath {
+                        path: target_path.to_string(),
                     })?;
 
                 match container {
@@ -302,8 +304,8 @@ pub fn resolve_module_imports(
 
                 // Resolve target as module or enum
                 let container = resolve_target_container(&target_path, definitions, reexports)?
-                    .ok_or_else(|| TypeError {
-                        message: format!("cannot find module or enum '{}'", target_path),
+                    .ok_or_else(|| TypeError::UnboundPath {
+                        path: target_path.to_string(),
                     })?;
 
                 match container {
@@ -408,7 +410,7 @@ mod tests {
         let current = QualifiedPath::root();
         let result = resolve_use_path(&use_decl, &current);
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("super"));
+        assert!(result.unwrap_err().to_string().contains("super"));
     }
 
     #[test]
@@ -469,7 +471,7 @@ mod tests {
         let result = resolve_module_imports(&uses, &current, &definitions, &HashMap::new());
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("already imported"));
+        assert!(result.unwrap_err().to_string().contains("already imported"));
     }
 
     #[test]
@@ -481,7 +483,7 @@ mod tests {
         let result = resolve_module_imports(&uses, &current, &definitions, &HashMap::new());
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("cannot find"));
+        assert!(result.unwrap_err().to_string().contains("cannot find"));
     }
 
     #[test]
@@ -504,7 +506,7 @@ mod tests {
         let result = resolve_module_imports(&uses, &current, &definitions, &HashMap::new());
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("private"));
+        assert!(result.unwrap_err().to_string().contains("private"));
     }
 
     #[test]
@@ -528,7 +530,7 @@ mod tests {
         let result = resolve_module_imports(&uses, &current, &definitions, &HashMap::new());
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("private"));
+        assert!(result.unwrap_err().to_string().contains("private"));
     }
 
     #[test]
@@ -551,7 +553,7 @@ mod tests {
         let result = resolve_module_imports(&uses, &current, &definitions, &HashMap::new());
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("private"));
+        assert!(result.unwrap_err().to_string().contains("private"));
     }
 
     fn make_pub_use(prefix: PathPrefix, segments: &[&str]) -> UseDecl {
@@ -591,7 +593,7 @@ mod tests {
         assert!(
             result
                 .unwrap_err()
-                .message
+                .to_string()
                 .contains("pub use cannot re-export private")
         );
     }

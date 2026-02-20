@@ -83,12 +83,11 @@ fn check_function(
 ) -> Result<TypedFunction, TypeError> {
     // Check function name is snake_case
     if !is_snake_case(&func.name) {
-        return Err(TypeError {
-            message: format!(
-                "function name '{}' should be snake_case (e.g., '{}')",
-                func.name,
-                to_snake_case(&func.name)
-            ),
+        return Err(TypeError::NamingConvention {
+            kind: "function name".to_string(),
+            name: func.name.clone(),
+            convention: "snake_case".to_string(),
+            suggestion: to_snake_case(&func.name),
         });
     }
 
@@ -96,12 +95,11 @@ fn check_function(
     // Check type parameter names are PascalCase
     for name in &func.type_params {
         if !is_pascal_case(name) {
-            return Err(TypeError {
-                message: format!(
-                    "type parameter '{}' should be PascalCase (e.g., '{}')",
-                    name,
-                    to_pascal_case(name)
-                ),
+            return Err(TypeError::NamingConvention {
+                kind: "type parameter".to_string(),
+                name: name.clone(),
+                convention: "PascalCase".to_string(),
+                suggestion: to_pascal_case(name),
             });
         }
     }
@@ -128,8 +126,9 @@ fn check_function(
 
     for param in &func.params {
         // Check pattern is irrefutable
-        check_irrefutable(&param.pattern).map_err(|msg| TypeError {
-            message: format!("refutable pattern in function parameter: {}", msg),
+        check_irrefutable(&param.pattern).map_err(|msg| TypeError::RefutablePattern {
+            context: "function parameter".to_string(),
+            detail: msg,
         })?;
 
         let ty = resolve_type_annotation(&param.typ, &type_param_map, current_module, env)?;
@@ -171,7 +170,7 @@ fn check_function(
         }
 
         if special_names.len() > 1 {
-            return Err(TypeError {
+            return Err(TypeError::InvalidAttribute {
                 message: format!(
                     "a function cannot have both #[{}] and #[{}] attributes",
                     special_names[0], special_names[1]
@@ -190,7 +189,7 @@ fn check_function(
                 Some(args) if args.len() == 1 => match &args[0] {
                     AttributeArg::String(s) => s.clone(),
                     AttributeArg::Identifier(_) => {
-                        return Err(TypeError {
+                        return Err(TypeError::InvalidAttribute {
                             message: format!(
                                 "#[{}] attribute requires a string path argument, e.g., #[{}(\"/path\")]",
                                 method.attr_name(),
@@ -200,7 +199,7 @@ fn check_function(
                     }
                 },
                 Some(_) => {
-                    return Err(TypeError {
+                    return Err(TypeError::InvalidAttribute {
                         message: format!(
                             "#[{}] attribute requires exactly one string path argument",
                             method.attr_name()
@@ -208,7 +207,7 @@ fn check_function(
                     });
                 }
                 None => {
-                    return Err(TypeError {
+                    return Err(TypeError::InvalidAttribute {
                         message: format!(
                             "#[{}] attribute requires a path argument, e.g., #[{}(\"/path\")]",
                             method.attr_name(),
@@ -218,9 +217,10 @@ fn check_function(
                 }
             };
 
-            let pathname = Pathname::new(&pathname_str).map_err(|e| TypeError {
-                message: format!("#[{}] attribute: {}", method.attr_name(), e),
-            })?;
+            let pathname =
+                Pathname::new(&pathname_str).map_err(|e| TypeError::InvalidAttribute {
+                    message: format!("#[{}] attribute: {}", method.attr_name(), e),
+                })?;
 
             FunctionKind::Http(method, pathname)
         } else {
@@ -230,7 +230,7 @@ fn check_function(
 
     // Validate: #[test] functions cannot have parameters
     if kind == FunctionKind::Test && !func.params.is_empty() {
-        return Err(TypeError {
+        return Err(TypeError::InvalidAttribute {
             message: format!("#[test] function '{}' cannot have parameters", func.name),
         });
     }
@@ -238,7 +238,7 @@ fn check_function(
     // Validate: HTTP route functions can have at most 1 parameter of type Request
     if let FunctionKind::Http(ref method, _) = kind {
         if func.params.len() > 1 {
-            return Err(TypeError {
+            return Err(TypeError::InvalidAttribute {
                 message: format!(
                     "#[{}] function '{}' can have at most 1 parameter (of type Request)",
                     method.attr_name(),
@@ -254,7 +254,7 @@ fn check_function(
                 Type::Struct { module, name, .. } if name == "Request" && module.to_string() == "std::http"
             );
             if !is_request {
-                return Err(TypeError {
+                return Err(TypeError::InvalidAttribute {
                     message: format!(
                         "#[{}] function '{}' parameter must be of type Request (from std::http), but got {}",
                         method.attr_name(),
@@ -269,20 +269,20 @@ fn check_function(
     if kind == FunctionKind::Builtin {
         // Validate: only allowed in std package
         if package_name != "std" {
-            return Err(TypeError {
+            return Err(TypeError::InvalidAttribute {
                 message: "the #[builtin] attribute can only be used in the standard library"
                     .to_string(),
             });
         }
         // Validate: must have explicit return type
         if func.return_type.is_none() {
-            return Err(TypeError {
+            return Err(TypeError::InvalidAttribute {
                 message: "#[builtin] functions must have an explicit return type".to_string(),
             });
         }
         // Validate: body must be unit `()`
         if func.body != Expr::Tuple(vec![]) {
-            return Err(TypeError {
+            return Err(TypeError::InvalidAttribute {
                 message: "#[builtin] functions must have a unit body ()".to_string(),
             });
         }
@@ -320,14 +320,11 @@ fn check_function(
             resolve_type_annotation(annotation, &type_param_map, current_module, env)?;
         // Unify body type with declared return type
         ctx.unify(&body_type, &declared_return)
-            .map_err(|e| TypeError {
-                message: format!(
-                    "function '{}' declares return type {} but body has type {}: {}",
-                    func.name,
-                    ctx.resolve(&declared_return),
-                    body_type,
-                    e.message
-                ),
+            .map_err(|e| TypeError::TypeMismatchIn {
+                context: format!("function '{}'", func.name),
+                expected: ctx.resolve(&declared_return).to_string(),
+                actual: body_type.to_string(),
+                detail: e.to_string(),
             })?;
         ctx.resolve(&declared_return)
     } else {
@@ -344,7 +341,7 @@ fn check_function(
             _ => false,
         };
         if !valid {
-            return Err(TypeError {
+            return Err(TypeError::InvalidAttribute {
                 message: format!(
                     "#[test] function '{}' must return () or Result, but returns {}",
                     func.name, resolved
@@ -361,7 +358,7 @@ fn check_function(
             Type::Struct { module, name, .. } if name == "Response" && module.to_string() == "std::http"
         );
         if !is_response {
-            return Err(TypeError {
+            return Err(TypeError::InvalidAttribute {
                 message: format!(
                     "#[{}] function '{}' must return Response (from std::http), but returns {}",
                     method.attr_name(),
@@ -457,8 +454,9 @@ fn check_impl_method_body(
     }
 
     for param in &method.params {
-        check_irrefutable(&param.pattern).map_err(|msg| TypeError {
-            message: format!("refutable pattern in method parameter: {}", msg),
+        check_irrefutable(&param.pattern).map_err(|msg| TypeError::RefutablePattern {
+            context: "method parameter".to_string(),
+            detail: msg,
         })?;
 
         let ty = resolve_type_annotation_with_self(
@@ -484,18 +482,18 @@ fn check_impl_method_body(
 
     if is_builtin {
         if package_name != "std" {
-            return Err(TypeError {
+            return Err(TypeError::InvalidAttribute {
                 message: "the #[builtin] attribute can only be used in the standard library"
                     .to_string(),
             });
         }
         if method.return_type.is_none() {
-            return Err(TypeError {
+            return Err(TypeError::InvalidAttribute {
                 message: "#[builtin] methods must have an explicit return type".to_string(),
             });
         }
         if method.body != Expr::Tuple(vec![]) {
-            return Err(TypeError {
+            return Err(TypeError::InvalidAttribute {
                 message: "#[builtin] methods must have a unit body ()".to_string(),
             });
         }
@@ -537,15 +535,11 @@ fn check_impl_method_body(
             &self_type,
         )?;
         ctx.unify(&body_type, &declared_return)
-            .map_err(|e| TypeError {
-                message: format!(
-                    "method '{}' on '{}' declares return type {} but body has type {}: {}",
-                    method.name,
-                    type_qpath.last(),
-                    ctx.resolve(&declared_return),
-                    body_type,
-                    e.message
-                ),
+            .map_err(|e| TypeError::TypeMismatchIn {
+                context: format!("method '{}' on '{}'", method.name, type_qpath.last()),
+                expected: ctx.resolve(&declared_return).to_string(),
+                actual: body_type.to_string(),
+                detail: e.to_string(),
             })?;
         ctx.resolve(&declared_return)
     } else {
@@ -588,8 +582,10 @@ fn check_path_expr(
         ResolvedPath::Local { name, scheme } => {
             // Variables cannot have turbofish
             if path.type_args.is_some() {
-                return Err(TypeError {
-                    message: format!("cannot use turbofish on variable '{}'", name),
+                return Err(TypeError::KindMisuse {
+                    kind: "variable".to_string(),
+                    name: name.to_string(),
+                    problem: "cannot use turbofish".to_string(),
                 });
             }
             let ty = ctx.instantiate(scheme);
@@ -604,8 +600,9 @@ fn check_path_expr(
         } => {
             // Must be a unit variant when used as a bare path
             if !matches!(variant_type, EnumVariantType::Unit) {
-                return Err(TypeError {
-                    message: format!("enum variant {} requires arguments", qualified_path),
+                return Err(TypeError::VariantMismatch {
+                    variant: qualified_path.to_string(),
+                    problem: "requires arguments".to_string(),
                 });
             }
 
@@ -619,13 +616,11 @@ fn check_path_expr(
             {
                 // Validate count matches type parameters
                 if type_args.len() != enum_type.type_params.len() {
-                    return Err(TypeError {
-                        message: format!(
-                            "enum {} expects {} type argument(s), got {}",
-                            enum_path,
-                            enum_type.type_params.len(),
-                            type_args.len()
-                        ),
+                    return Err(TypeError::TypeArgCount {
+                        kind: "enum".to_string(),
+                        name: enum_path.to_string(),
+                        expected: enum_type.type_params.len(),
+                        actual: type_args.len(),
                     });
                 }
                 // Resolve type annotations to Types
@@ -690,12 +685,10 @@ fn check_path_expr(
             def,
         } => {
             // Functions, structs, enums, type aliases can't be used as values directly
-            Err(TypeError {
-                message: format!(
-                    "{} '{}' cannot be used as a value",
-                    def.kind_name(),
-                    qualified_path
-                ),
+            Err(TypeError::KindMisuse {
+                kind: def.kind_name().to_string(),
+                name: qualified_path.to_string(),
+                problem: "cannot be used as a value".to_string(),
             })
         }
     }
@@ -722,8 +715,10 @@ fn check_path_call(
         ResolvedPath::Local { name, scheme } => {
             // Lambda call - cannot have turbofish
             if path.type_args.is_some() {
-                return Err(TypeError {
-                    message: format!("cannot use turbofish on lambda call '{}'", name),
+                return Err(TypeError::KindMisuse {
+                    kind: "lambda".to_string(),
+                    name: name.to_string(),
+                    problem: "cannot use turbofish".to_string(),
                 });
             }
             check_lambda_call(&name, scheme, args, current_module, env, ctx)
@@ -754,17 +749,13 @@ fn check_path_call(
                 env,
                 ctx,
             ),
-            EnumVariantType::Unit => Err(TypeError {
-                message: format!(
-                    "enum variant {} is a unit variant, doesn't take arguments",
-                    qualified_path
-                ),
+            EnumVariantType::Unit => Err(TypeError::VariantMismatch {
+                variant: qualified_path.to_string(),
+                problem: "is a unit variant, doesn't take arguments".to_string(),
             }),
-            EnumVariantType::Struct(_) => Err(TypeError {
-                message: format!(
-                    "enum variant {} is a struct variant, use {{ }} syntax",
-                    qualified_path
-                ),
+            EnumVariantType::Struct(_) => Err(TypeError::VariantMismatch {
+                variant: qualified_path.to_string(),
+                problem: "is a struct variant, use { } syntax".to_string(),
             }),
         },
         ResolvedPath::Definition {
@@ -788,12 +779,11 @@ fn check_path_call(
         ResolvedPath::Definition {
             qualified_path,
             def,
-        } => {
-            let kind = def.kind_name();
-            Err(TypeError {
-                message: format!("{} '{}' cannot be called", kind, qualified_path),
-            })
-        }
+        } => Err(TypeError::KindMisuse {
+            kind: def.kind_name().to_string(),
+            name: qualified_path.to_string(),
+            problem: "cannot be called".to_string(),
+        }),
     }
 }
 
@@ -815,13 +805,12 @@ fn check_function_call(
 
     // Check argument count
     if args.len() != func_type.params.len() {
-        return Err(TypeError {
-            message: format!(
-                "function '{}' expects {} arguments, got {}",
-                func_name,
-                func_type.params.len(),
-                args.len()
-            ),
+        return Err(TypeError::ArityMismatch {
+            kind: "function".to_string(),
+            name: func_name.to_string(),
+            expected: func_type.params.len(),
+            actual: args.len(),
+            what: "arguments".to_string(),
         });
     }
 
@@ -829,13 +818,11 @@ fn check_function_call(
     let instantiation: HashMap<TypeVarId, Type> = if let Some(ref type_args) = path.type_args {
         // Validate count matches type parameters
         if type_args.len() != func_type.type_params.len() {
-            return Err(TypeError {
-                message: format!(
-                    "function '{}' expects {} type argument(s), got {}",
-                    func_name,
-                    func_type.type_params.len(),
-                    type_args.len()
-                ),
+            return Err(TypeError::TypeArgCount {
+                kind: "function".to_string(),
+                name: func_name.to_string(),
+                expected: func_type.type_params.len(),
+                actual: type_args.len(),
             });
         }
         // Resolve type annotations to Types
@@ -874,15 +861,13 @@ fn check_function_call(
         let arg_type = typed_arg.ty();
 
         // Unify argument type with parameter type
-        ctx.unify(&arg_type, param_type).map_err(|e| TypeError {
-            message: format!(
-                "argument type mismatch in call to '{}': expected {}, got {}: {}",
-                func_name,
-                ctx.resolve(param_type),
-                ctx.resolve(&arg_type),
-                e.message
-            ),
-        })?;
+        ctx.unify(&arg_type, param_type)
+            .map_err(|e| TypeError::TypeMismatchIn {
+                context: format!("argument in call to '{}'", func_name),
+                expected: ctx.resolve(param_type).to_string(),
+                actual: ctx.resolve(&arg_type).to_string(),
+                detail: e.to_string(),
+            })?;
 
         typed_args.push(typed_arg);
     }
@@ -930,13 +915,11 @@ fn check_impl_method_path_call(
     // Handle explicit type arguments (turbofish) or create fresh type variables
     let instantiation: HashMap<TypeVarId, Type> = if let Some(ref type_args) = path.type_args {
         if type_args.len() != all_type_params.len() {
-            return Err(TypeError {
-                message: format!(
-                    "impl method '{}' expects {} type argument(s), got {}",
-                    method_name,
-                    all_type_params.len(),
-                    type_args.len()
-                ),
+            return Err(TypeError::TypeArgCount {
+                kind: "impl method".to_string(),
+                name: method_name.to_string(),
+                expected: all_type_params.len(),
+                actual: type_args.len(),
             });
         }
         let resolved: Vec<Type> = type_args
@@ -965,13 +948,12 @@ fn check_impl_method_path_call(
     };
 
     if args.len() != expected_args {
-        return Err(TypeError {
-            message: format!(
-                "impl method '{}' expects {} argument(s), got {}",
-                method_name,
-                expected_args,
-                args.len()
-            ),
+        return Err(TypeError::ArityMismatch {
+            kind: "impl method".to_string(),
+            name: method_name.to_string(),
+            expected: expected_args,
+            actual: args.len(),
+            what: "argument(s)".to_string(),
         });
     }
 
@@ -987,15 +969,13 @@ fn check_impl_method_path_call(
         let typed_arg = check_expr_with_expected(arg, Some(param_type), current_module, env, ctx)?;
         let arg_type = typed_arg.ty();
 
-        ctx.unify(&arg_type, param_type).map_err(|e| TypeError {
-            message: format!(
-                "argument type mismatch in call to '{}': expected {}, got {}: {}",
-                method_name,
-                ctx.resolve(param_type),
-                ctx.resolve(&arg_type),
-                e.message
-            ),
-        })?;
+        ctx.unify(&arg_type, param_type)
+            .map_err(|e| TypeError::TypeMismatchIn {
+                context: format!("argument in call to '{}'", method_name),
+                expected: ctx.resolve(param_type).to_string(),
+                actual: ctx.resolve(&arg_type).to_string(),
+                detail: e.to_string(),
+            })?;
 
         typed_args.push(typed_arg);
     }
@@ -1034,28 +1014,32 @@ fn check_lambda_call(
                 params: param_types.clone(),
                 ret: Box::new(ret_type.clone()),
             };
-            ctx.unify(&func_ty, &func_type).map_err(|e| TypeError {
-                message: format!("cannot call '{}' as a function: {}", name, e.message),
-            })?;
+            ctx.unify(&func_ty, &func_type)
+                .map_err(|e| TypeError::KindMisuse {
+                    kind: "expression".to_string(),
+                    name: name.to_string(),
+                    problem: format!("cannot be called as a function: {}", e),
+                })?;
 
             (param_types, ret_type)
         }
         _ => {
-            return Err(TypeError {
-                message: format!("'{}' is not a function, has type {}", name, resolved),
+            return Err(TypeError::KindMisuse {
+                kind: "expression".to_string(),
+                name: name.to_string(),
+                problem: format!("is not a function, has type {}", resolved),
             });
         }
     };
 
     // Check argument count
     if args.len() != params.len() {
-        return Err(TypeError {
-            message: format!(
-                "'{}' expects {} arguments, got {}",
-                name,
-                params.len(),
-                args.len()
-            ),
+        return Err(TypeError::ArityMismatch {
+            kind: "function".to_string(),
+            name: name.to_string(),
+            expected: params.len(),
+            actual: args.len(),
+            what: "arguments".to_string(),
         });
     }
 
@@ -1065,15 +1049,13 @@ fn check_lambda_call(
         let typed_arg = check_expr_with_expected(arg, Some(param_type), current_module, env, ctx)?;
         let arg_type = typed_arg.ty();
 
-        ctx.unify(&arg_type, param_type).map_err(|e| TypeError {
-            message: format!(
-                "argument type mismatch in call to '{}': expected {}, got {}: {}",
-                name,
-                ctx.resolve(param_type),
-                ctx.resolve(&arg_type),
-                e.message
-            ),
-        })?;
+        ctx.unify(&arg_type, param_type)
+            .map_err(|e| TypeError::TypeMismatchIn {
+                context: format!("argument in call to '{}'", name),
+                expected: ctx.resolve(param_type).to_string(),
+                actual: ctx.resolve(&arg_type).to_string(),
+                detail: e.to_string(),
+            })?;
 
         typed_args.push(typed_arg);
     }
@@ -1106,31 +1088,26 @@ fn check_enum_tuple_construct_resolved(
     let expected_types = match variant_type {
         EnumVariantType::Tuple(types) => types,
         EnumVariantType::Unit => {
-            return Err(TypeError {
-                message: format!(
-                    "enum variant {} is a unit variant, doesn't take arguments",
-                    qualified_variant_path
-                ),
+            return Err(TypeError::VariantMismatch {
+                variant: qualified_variant_path.to_string(),
+                problem: "is a unit variant, doesn't take arguments".to_string(),
             });
         }
         EnumVariantType::Struct(_) => {
-            return Err(TypeError {
-                message: format!(
-                    "enum variant {} is a struct variant, use {{ }} syntax",
-                    qualified_variant_path
-                ),
+            return Err(TypeError::VariantMismatch {
+                variant: qualified_variant_path.to_string(),
+                problem: "is a struct variant, use { } syntax".to_string(),
             });
         }
     };
 
     if args.len() != expected_types.len() {
-        return Err(TypeError {
-            message: format!(
-                "enum variant {} expects {} argument(s), got {}",
-                qualified_variant_path,
-                expected_types.len(),
-                args.len()
-            ),
+        return Err(TypeError::ArityMismatch {
+            kind: "enum variant".to_string(),
+            name: qualified_variant_path.to_string(),
+            expected: expected_types.len(),
+            actual: args.len(),
+            what: "argument(s)".to_string(),
         });
     }
 
@@ -1138,13 +1115,11 @@ fn check_enum_tuple_construct_resolved(
     let instantiation: HashMap<TypeVarId, Type> = if let Some(type_args) = explicit_type_args {
         // Validate count matches type parameters
         if type_args.len() != enum_type.type_params.len() {
-            return Err(TypeError {
-                message: format!(
-                    "enum {} expects {} type argument(s), got {}",
-                    enum_path,
-                    enum_type.type_params.len(),
-                    type_args.len()
-                ),
+            return Err(TypeError::TypeArgCount {
+                kind: "enum".to_string(),
+                name: enum_path.to_string(),
+                expected: enum_type.type_params.len(),
+                actual: type_args.len(),
             });
         }
         // Resolve type annotations to Types
@@ -1175,14 +1150,11 @@ fn check_enum_tuple_construct_resolved(
         let actual_type = typed_expr.ty();
 
         ctx.unify(&actual_type, &expected_type)
-            .map_err(|e| TypeError {
-                message: format!(
-                    "in enum variant {} expected {} but got {}: {}",
-                    qualified_variant_path,
-                    ctx.resolve(&expected_type),
-                    ctx.resolve(&actual_type),
-                    e.message
-                ),
+            .map_err(|e| TypeError::TypeMismatchIn {
+                context: format!("enum variant {}", qualified_variant_path),
+                expected: ctx.resolve(&expected_type).to_string(),
+                actual: ctx.resolve(&actual_type).to_string(),
+                detail: e.to_string(),
             })?;
 
         typed_exprs.push(typed_expr);
@@ -1223,26 +1195,23 @@ fn check_struct_tuple_construct_resolved(
 
     // Check argument count
     if args.len() != struct_type.fields.len() {
-        return Err(TypeError {
-            message: format!(
-                "tuple struct {} expects {} argument(s), got {}",
-                name,
-                struct_type.fields.len(),
-                args.len()
-            ),
+        return Err(TypeError::ArityMismatch {
+            kind: "tuple struct".to_string(),
+            name: name.to_string(),
+            expected: struct_type.fields.len(),
+            actual: args.len(),
+            what: "argument(s)".to_string(),
         });
     }
 
     // Handle explicit type arguments (turbofish) or create fresh type variables
     let instantiation: HashMap<TypeVarId, Type> = if let Some(type_args) = explicit_type_args {
         if type_args.len() != struct_type.type_params.len() {
-            return Err(TypeError {
-                message: format!(
-                    "struct {} expects {} type argument(s), got {}",
-                    name,
-                    struct_type.type_params.len(),
-                    type_args.len()
-                ),
+            return Err(TypeError::TypeArgCount {
+                kind: "struct".to_string(),
+                name: name.to_string(),
+                expected: struct_type.type_params.len(),
+                actual: type_args.len(),
             });
         }
         let resolved: Vec<Type> = type_args
@@ -1271,14 +1240,11 @@ fn check_struct_tuple_construct_resolved(
         let actual_type = typed_arg.ty();
 
         ctx.unify(&actual_type, &expected_type)
-            .map_err(|e| TypeError {
-                message: format!(
-                    "in tuple struct {} expected {} but got {}: {}",
-                    name,
-                    ctx.resolve(&expected_type),
-                    ctx.resolve(&actual_type),
-                    e.message
-                ),
+            .map_err(|e| TypeError::TypeMismatchIn {
+                context: format!("tuple struct {}", name),
+                expected: ctx.resolve(&expected_type).to_string(),
+                actual: ctx.resolve(&actual_type).to_string(),
+                detail: e.to_string(),
             })?;
 
         typed_args.push(typed_arg);
@@ -1335,11 +1301,10 @@ fn check_unary_op(
                     expr: Box::new(typed_expr),
                     ty,
                 }),
-                _ => Err(TypeError {
-                    message: format!(
-                        "negation operator only works on numeric types, not {}",
-                        resolved
-                    ),
+                _ => Err(TypeError::InvalidOperatorType {
+                    operator: "negation operator".to_string(),
+                    expected_types: "numeric types".to_string(),
+                    actual_type: resolved.to_string(),
                 }),
             }
         }
@@ -1375,15 +1340,13 @@ fn check_bin_op(
         BinOp::Le => "<=",
         BinOp::Ge => ">=",
     };
-    ctx.unify(&left_ty, &right_ty).map_err(|e| TypeError {
-        message: format!(
-            "binary operator '{}' requires operands of the same type, but got {} and {}: {}",
-            op_symbol,
-            ctx.resolve(&left_ty),
-            ctx.resolve(&right_ty),
-            e.message
-        ),
-    })?;
+    ctx.unify(&left_ty, &right_ty)
+        .map_err(|e| TypeError::TypeMismatchIn {
+            context: format!("binary operator '{}'", op_symbol),
+            expected: ctx.resolve(&left_ty).to_string(),
+            actual: ctx.resolve(&right_ty).to_string(),
+            detail: e.to_string(),
+        })?;
 
     let resolved_ty = ctx.resolve(&left_ty);
 
@@ -1393,11 +1356,10 @@ fn check_bin_op(
         // Type variables are allowed through (they may resolve to numeric types later via unification)
         BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Pow => {
             if !is_numeric_type(&resolved_ty) && !matches!(resolved_ty, Type::Var(_)) {
-                return Err(TypeError {
-                    message: format!(
-                        "arithmetic operators only work on numeric types, not {}",
-                        resolved_ty
-                    ),
+                return Err(TypeError::InvalidOperatorType {
+                    operator: "arithmetic operators".to_string(),
+                    expected_types: "numeric types".to_string(),
+                    actual_type: resolved_ty.to_string(),
                 });
             }
             resolved_ty
@@ -1410,11 +1372,10 @@ fn check_bin_op(
         // Type variables are allowed through (they may resolve to numeric types later via unification)
         BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
             if !is_numeric_type(&resolved_ty) && !matches!(resolved_ty, Type::Var(_)) {
-                return Err(TypeError {
-                    message: format!(
-                        "ordering operators only work on numeric types, not {}",
-                        resolved_ty
-                    ),
+                return Err(TypeError::InvalidOperatorType {
+                    operator: "ordering operators".to_string(),
+                    expected_types: "numeric types".to_string(),
+                    actual_type: resolved_ty.to_string(),
                 });
             }
             Type::Bool
@@ -1486,9 +1447,7 @@ fn check_match_expr(
     let scrutinee_ty = typed_scrutinee.ty();
 
     if arms.is_empty() {
-        return Err(TypeError {
-            message: "match expression must have at least one arm".to_string(),
-        });
+        return Err(TypeError::EmptyMatch);
     }
 
     let mut typed_arms = Vec::new();
@@ -1502,14 +1461,13 @@ fn check_match_expr(
         match &result_ty {
             None => result_ty = Some(arm_ty),
             Some(ty) => {
-                ctx.unify(ty, &arm_ty).map_err(|e| TypeError {
-                    message: format!(
-                        "match arms have different types: {} vs {}: {}",
-                        ctx.resolve(ty),
-                        ctx.resolve(&arm_ty),
-                        e.message
-                    ),
-                })?;
+                ctx.unify(ty, &arm_ty)
+                    .map_err(|e| TypeError::TypeMismatchIn {
+                        context: "match arms".to_string(),
+                        expected: ctx.resolve(ty).to_string(),
+                        actual: ctx.resolve(&arm_ty).to_string(),
+                        detail: e.to_string(),
+                    })?;
             }
         }
 
@@ -1543,12 +1501,9 @@ fn check_method_call(
     // Check impl methods (both user-defined and std primitive methods)
     if let Some((method_qpath, imt)) = find_impl_method(&receiver_ty, method, &env.definitions) {
         if !imt.has_self {
-            return Err(TypeError {
-                message: format!(
-                    "'{}' is an associated function on '{}', not a method; \
-                     call it as {}::{}()",
-                    method, imt.target_type_name, imt.target_type_name, method
-                ),
+            return Err(TypeError::AssociatedFunctionAsMethod {
+                name: method.to_string(),
+                on_type: imt.target_type_name.clone(),
             });
         }
 
@@ -1575,27 +1530,23 @@ fn check_method_call(
         // The first param in imt.params is self — skip it for argument matching
         let method_params = &imt.params[1..]; // skip self
         if args.len() != method_params.len() {
-            return Err(TypeError {
-                message: format!(
-                    "method '{}' expects {} argument(s), got {}",
-                    method,
-                    method_params.len(),
-                    args.len()
-                ),
+            return Err(TypeError::ArityMismatch {
+                kind: "method".to_string(),
+                name: method.to_string(),
+                expected: method_params.len(),
+                actual: args.len(),
+                what: "argument(s)".to_string(),
             });
         }
 
         // Instantiate self param and unify with receiver
         let self_param = substitute_type_vars(&imt.params[0], &instantiation);
         ctx.unify(&receiver_ty, &self_param)
-            .map_err(|e| TypeError {
-                message: format!(
-                    "self type mismatch in method '{}': expected {}, got {}: {}",
-                    method,
-                    ctx.resolve(&self_param),
-                    ctx.resolve(&receiver_ty),
-                    e.message
-                ),
+            .map_err(|e| TypeError::TypeMismatchIn {
+                context: format!("self in method '{}'", method),
+                expected: ctx.resolve(&self_param).to_string(),
+                actual: ctx.resolve(&receiver_ty).to_string(),
+                detail: e.to_string(),
             })?;
 
         // Type check arguments
@@ -1606,15 +1557,13 @@ fn check_method_call(
                 check_expr_with_expected(arg, Some(&instantiated), current_module, env, ctx)?;
             let arg_ty = typed_arg.ty();
 
-            ctx.unify(&arg_ty, &instantiated).map_err(|e| TypeError {
-                message: format!(
-                    "argument type mismatch in method '{}': expected {}, got {}: {}",
-                    method,
-                    ctx.resolve(&instantiated),
-                    ctx.resolve(&arg_ty),
-                    e.message
-                ),
-            })?;
+            ctx.unify(&arg_ty, &instantiated)
+                .map_err(|e| TypeError::TypeMismatchIn {
+                    context: format!("argument in method '{}'", method),
+                    expected: ctx.resolve(&instantiated).to_string(),
+                    actual: ctx.resolve(&arg_ty).to_string(),
+                    detail: e.to_string(),
+                })?;
 
             typed_args.push(typed_arg);
         }
@@ -1632,8 +1581,9 @@ fn check_method_call(
         });
     }
 
-    Err(TypeError {
-        message: format!("no method '{}' on type {}", method, receiver_ty),
+    Err(TypeError::UnboundMethod {
+        method: method.to_string(),
+        on_type: receiver_ty.to_string(),
     })
 }
 
@@ -1705,16 +1655,20 @@ fn check_list_expr(
         match element {
             ListElement::Item(expr) => {
                 let typed = check_expr(expr, current_module, env, ctx)?;
-                ctx.unify(&typed.ty(), &elem_ty).map_err(|e| TypeError {
-                    message: format!("list element type mismatch: {}", e.message),
-                })?;
+                ctx.unify(&typed.ty(), &elem_ty)
+                    .map_err(|e| TypeError::TypeMismatch {
+                        expected: "matching list element types".to_string(),
+                        actual: e.to_string(),
+                    })?;
                 typed_elements.push(TypedListElement::Item(typed));
             }
             ListElement::Spread(expr) => {
                 let typed = check_expr(expr, current_module, env, ctx)?;
-                ctx.unify(&typed.ty(), &list_ty).map_err(|e| TypeError {
-                    message: format!("spread in list must be a list: {}", e.message),
-                })?;
+                ctx.unify(&typed.ty(), &list_ty)
+                    .map_err(|e| TypeError::TypeMismatch {
+                        expected: "List".to_string(),
+                        actual: e.to_string(),
+                    })?;
                 typed_elements.push(TypedListElement::Spread(typed));
             }
         }
@@ -1775,8 +1729,9 @@ fn check_lambda(
 
     for param in params {
         // Check pattern is irrefutable
-        check_irrefutable(&param.pattern).map_err(|msg| TypeError {
-            message: format!("refutable pattern in lambda parameter: {}", msg),
+        check_irrefutable(&param.pattern).map_err(|msg| TypeError::RefutablePattern {
+            context: "lambda parameter".to_string(),
+            detail: msg,
         })?;
 
         let param_ty = match &param.typ {
@@ -1825,13 +1780,11 @@ fn check_lambda(
         let declared_return =
             resolve_type_annotation(annotation, &HashMap::new(), current_module, env)?;
         ctx.unify(&body_ty, &declared_return)
-            .map_err(|e| TypeError {
-                message: format!(
-                    "lambda body type {} doesn't match declared return type {}: {}",
-                    ctx.resolve(&body_ty),
-                    ctx.resolve(&declared_return),
-                    e.message
-                ),
+            .map_err(|e| TypeError::TypeMismatchIn {
+                context: "lambda body".to_string(),
+                expected: ctx.resolve(&declared_return).to_string(),
+                actual: ctx.resolve(&body_ty).to_string(),
+                detail: e.to_string(),
             })?;
         ctx.resolve(&declared_return)
     } else {
@@ -1873,11 +1826,10 @@ fn check_path_struct(
         ResolvedPath::Definition {
             def: Definition::Struct(struct_type),
             qualified_path,
-        } if struct_type.kind == StructTypeKind::Tuple => Err(TypeError {
-            message: format!(
-                "tuple struct '{}' must be constructed with () syntax, not {{}}",
-                qualified_path
-            ),
+        } if struct_type.kind == StructTypeKind::Tuple => Err(TypeError::KindMisuse {
+            kind: "tuple struct".to_string(),
+            name: qualified_path.to_string(),
+            problem: "must be constructed with () syntax, not {}".to_string(),
         }),
         ResolvedPath::Definition {
             def: Definition::Struct(struct_type),
@@ -1898,7 +1850,7 @@ fn check_path_struct(
         } => match variant {
             EnumVariantType::Struct(_) => {
                 if spread.is_some() {
-                    return Err(TypeError {
+                    return Err(TypeError::InvalidAttribute {
                         message: "spread is not supported for enum struct variants".to_string(),
                     });
                 }
@@ -1913,34 +1865,28 @@ fn check_path_struct(
                     ctx,
                 )
             }
-            EnumVariantType::Unit => Err(TypeError {
-                message: format!(
-                    "enum variant {} is a unit variant, doesn't take fields",
-                    qualified_path
-                ),
+            EnumVariantType::Unit => Err(TypeError::VariantMismatch {
+                variant: qualified_path.to_string(),
+                problem: "is a unit variant, doesn't take fields".to_string(),
             }),
-            EnumVariantType::Tuple(_) => Err(TypeError {
-                message: format!(
-                    "enum variant {} is a tuple variant, use ( ) syntax",
-                    qualified_path
-                ),
+            EnumVariantType::Tuple(_) => Err(TypeError::VariantMismatch {
+                variant: qualified_path.to_string(),
+                problem: "is a tuple variant, use ( ) syntax".to_string(),
             }),
         },
-        ResolvedPath::Local { name, .. } => Err(TypeError {
-            message: format!("'{}' is a variable, not a struct", name),
+        ResolvedPath::Local { name, .. } => Err(TypeError::KindMisuse {
+            kind: "variable".to_string(),
+            name: name.to_string(),
+            problem: "is not a struct".to_string(),
         }),
         ResolvedPath::Definition {
             qualified_path,
             def,
-        } => {
-            let kind = def.kind_name();
-            Err(TypeError {
-                message: format!(
-                    "{} '{}' cannot be constructed with struct syntax",
-                    kind, qualified_path
-                ),
-            })
-        }
+        } => Err(TypeError::KindMisuse {
+            kind: def.kind_name().to_string(),
+            name: qualified_path.to_string(),
+            problem: "cannot be constructed with struct syntax".to_string(),
+        }),
     }
 }
 
@@ -1960,13 +1906,11 @@ fn check_struct_construct_resolved(
     // Handle explicit type arguments (turbofish) or create fresh type variables
     let instantiation: HashMap<TypeVarId, Type> = if let Some(type_args) = explicit_type_args {
         if type_args.len() != struct_type.type_params.len() {
-            return Err(TypeError {
-                message: format!(
-                    "struct {} expects {} type argument(s), got {}",
-                    name,
-                    struct_type.type_params.len(),
-                    type_args.len()
-                ),
+            return Err(TypeError::TypeArgCount {
+                kind: "struct".to_string(),
+                name: name.to_string(),
+                expected: struct_type.type_params.len(),
+                actual: type_args.len(),
             });
         }
         let resolved: Vec<Type> = type_args
@@ -1996,8 +1940,9 @@ fn check_struct_construct_resolved(
     if spread.is_none() {
         for expected in &expected_field_names {
             if !provided_field_names.contains(expected) {
-                return Err(TypeError {
-                    message: format!("missing field '{}' in struct {}", expected, name),
+                return Err(TypeError::MissingField {
+                    field: expected.to_string(),
+                    context: format!("struct {}", name),
                 });
             }
         }
@@ -2006,8 +1951,9 @@ fn check_struct_construct_resolved(
     // Check for extra/unknown fields (always check, even with spread)
     for provided in &provided_field_names {
         if !expected_field_names.contains(provided) {
-            return Err(TypeError {
-                message: format!("unknown field '{}' in struct {}", provided, name),
+            return Err(TypeError::UnknownField {
+                field: provided.to_string(),
+                context: format!("struct {}", name),
             });
         }
     }
@@ -2020,8 +1966,9 @@ fn check_struct_construct_resolved(
             .fields
             .iter()
             .find(|(n, _)| n == field_name)
-            .ok_or_else(|| TypeError {
-                message: format!("unknown field '{}' in struct {}", field_name, name),
+            .ok_or_else(|| TypeError::UnknownField {
+                field: field_name.clone(),
+                context: format!("struct {}", name),
             })?;
 
         // Substitute type variables to get the expected type for this instantiation
@@ -2033,15 +1980,11 @@ fn check_struct_construct_resolved(
 
         // Unify with expected type
         ctx.unify(&actual_type, &expected_type)
-            .map_err(|e| TypeError {
-                message: format!(
-                    "field '{}' in struct {} expects type {} but got {}: {}",
-                    field_name,
-                    name,
-                    ctx.resolve(&expected_type),
-                    ctx.resolve(&actual_type),
-                    e.message
-                ),
+            .map_err(|e| TypeError::TypeMismatchIn {
+                context: format!("field '{}' in struct {}", field_name, name),
+                expected: ctx.resolve(&expected_type).to_string(),
+                actual: ctx.resolve(&actual_type).to_string(),
+                detail: e.to_string(),
             })?;
 
         typed_fields.push((field_name.clone(), typed_expr));
@@ -2071,14 +2014,11 @@ fn check_struct_construct_resolved(
         };
 
         ctx.unify(&spread_type, &expected_struct_type)
-            .map_err(|e| TypeError {
-                message: format!(
-                    "spread expression in struct {} has type {} but expected {}: {}",
-                    name,
-                    ctx.resolve(&spread_type),
-                    ctx.resolve(&expected_struct_type),
-                    e.message
-                ),
+            .map_err(|e| TypeError::TypeMismatchIn {
+                context: format!("spread expression in struct {}", name),
+                expected: ctx.resolve(&expected_struct_type).to_string(),
+                actual: ctx.resolve(&spread_type).to_string(),
+                detail: e.to_string(),
             })?;
 
         Some(Box::new(typed_spread_expr))
@@ -2137,19 +2077,15 @@ fn check_enum_struct_construct_resolved(
     let expected_fields = match variant_type {
         EnumVariantType::Struct(fields) => fields,
         EnumVariantType::Unit => {
-            return Err(TypeError {
-                message: format!(
-                    "enum variant {} is a unit variant, doesn't take fields",
-                    qualified_variant_path
-                ),
+            return Err(TypeError::VariantMismatch {
+                variant: qualified_variant_path.to_string(),
+                problem: "is a unit variant, doesn't take fields".to_string(),
             });
         }
         EnumVariantType::Tuple(_) => {
-            return Err(TypeError {
-                message: format!(
-                    "enum variant {} is a tuple variant, use ( ) syntax",
-                    qualified_variant_path
-                ),
+            return Err(TypeError::VariantMismatch {
+                variant: qualified_variant_path.to_string(),
+                problem: "is a tuple variant, use ( ) syntax".to_string(),
             });
         }
     };
@@ -2157,13 +2093,11 @@ fn check_enum_struct_construct_resolved(
     // Handle explicit type arguments (turbofish) or create fresh type variables
     let instantiation: HashMap<TypeVarId, Type> = if let Some(type_args) = explicit_type_args {
         if type_args.len() != enum_type.type_params.len() {
-            return Err(TypeError {
-                message: format!(
-                    "enum {} expects {} type argument(s), got {}",
-                    enum_path,
-                    enum_type.type_params.len(),
-                    type_args.len()
-                ),
+            return Err(TypeError::TypeArgCount {
+                kind: "enum".to_string(),
+                name: enum_path.to_string(),
+                expected: enum_type.type_params.len(),
+                actual: type_args.len(),
             });
         }
         let resolved: Vec<Type> = type_args
@@ -2190,22 +2124,18 @@ fn check_enum_struct_construct_resolved(
 
     for expected in &expected_names {
         if !provided_names.contains(expected) {
-            return Err(TypeError {
-                message: format!(
-                    "missing field '{}' in enum variant {}",
-                    expected, qualified_variant_path
-                ),
+            return Err(TypeError::MissingField {
+                field: expected.to_string(),
+                context: format!("enum variant {}", qualified_variant_path),
             });
         }
     }
 
     for provided in &provided_names {
         if !expected_names.contains(provided) {
-            return Err(TypeError {
-                message: format!(
-                    "unknown field '{}' in enum variant {}",
-                    provided, qualified_variant_path
-                ),
+            return Err(TypeError::UnknownField {
+                field: provided.to_string(),
+                context: format!("enum variant {}", qualified_variant_path),
             });
         }
     }
@@ -2222,15 +2152,14 @@ fn check_enum_struct_construct_resolved(
         let actual_type = typed_expr.ty();
 
         ctx.unify(&actual_type, &expected_type)
-            .map_err(|e| TypeError {
-                message: format!(
-                    "field '{}' in enum variant {} expects {} but got {}: {}",
-                    field_name,
-                    qualified_variant_path,
-                    ctx.resolve(&expected_type),
-                    ctx.resolve(&actual_type),
-                    e.message
+            .map_err(|e| TypeError::TypeMismatchIn {
+                context: format!(
+                    "field '{}' in enum variant {}",
+                    field_name, qualified_variant_path
                 ),
+                expected: ctx.resolve(&expected_type).to_string(),
+                actual: ctx.resolve(&actual_type).to_string(),
+                detail: e.to_string(),
             })?;
 
         typed_fields.push((field_name.clone(), typed_expr));
@@ -2283,8 +2212,9 @@ fn check_field_access(
                 actual_fields
                     .iter()
                     .find(|(n, _)| n == field)
-                    .ok_or_else(|| TypeError {
-                        message: format!("struct {} has no field '{}'", name, field),
+                    .ok_or_else(|| TypeError::UnknownField {
+                        field: field.to_string(),
+                        context: format!("struct {}", name),
                     })?;
 
             Ok(TypedExpr::FieldAccess {
@@ -2293,11 +2223,9 @@ fn check_field_access(
                 ty: field_type.clone(),
             })
         }
-        _ => Err(TypeError {
-            message: format!(
-                "cannot access field '{}' on non-struct type {}",
-                field, expr_ty
-            ),
+        _ => Err(TypeError::UnknownField {
+            field: field.to_string(),
+            context: format!("non-struct type {}", expr_ty),
         }),
     }
 }
@@ -2317,7 +2245,7 @@ fn check_tuple_index(
     match &expr_ty {
         Type::Tuple(elements) => {
             if index_usize >= elements.len() {
-                return Err(TypeError {
+                return Err(TypeError::InvalidIndex {
                     message: format!(
                         "tuple index {} is out of bounds for tuple with {} elements",
                         index,
@@ -2345,7 +2273,7 @@ fn check_tuple_index(
             let (_, field_type) = actual_fields
                 .iter()
                 .find(|(n, _)| n == &field_name)
-                .ok_or_else(|| TypeError {
+                .ok_or_else(|| TypeError::InvalidIndex {
                     message: format!("cannot use tuple index {} on struct {}", index, name),
                 })?;
 
@@ -2355,7 +2283,7 @@ fn check_tuple_index(
                 ty: field_type.clone(),
             })
         }
-        _ => Err(TypeError {
+        _ => Err(TypeError::InvalidIndex {
             message: format!("cannot use tuple index on type {}", expr_ty),
         }),
     }
@@ -2376,7 +2304,7 @@ fn check_list_index(
     let elem_ty = match &expr_ty {
         Type::List(elem) => *elem.clone(),
         _ => {
-            return Err(TypeError {
+            return Err(TypeError::InvalidIndex {
                 message: format!("cannot index into non-list type {}", expr_ty),
             });
         }
@@ -2385,9 +2313,10 @@ fn check_list_index(
     // Type-check the index and verify it's Int
     let typed_index = check_expr(index, current_module, env, ctx)?;
     let index_ty = ctx.resolve(&typed_index.ty());
-    ctx.unify(&index_ty, &Type::Int).map_err(|_| TypeError {
-        message: format!("list index must be Int, got {}", index_ty),
-    })?;
+    ctx.unify(&index_ty, &Type::Int)
+        .map_err(|_| TypeError::InvalidIndex {
+            message: format!("list index must be Int, got {}", index_ty),
+        })?;
 
     // Return type is Option<T>
     // Look up the Option definition to get its module path
@@ -2525,12 +2454,12 @@ fn check_interpolated_string(
                 match &ty {
                     Type::String | Type::Int | Type::Float | Type::BigInt => {}
                     Type::Var(_) => {
-                        return Err(TypeError {
+                        return Err(TypeError::InvalidInterpolation {
                             message: "cannot interpolate expression of unknown type".to_string(),
                         });
                     }
                     _ => {
-                        return Err(TypeError {
+                        return Err(TypeError::InvalidInterpolation {
                             message: format!(
                                 "cannot interpolate expression of type {ty}; only String, Int, Float, and BigInt can be interpolated"
                             ),
@@ -2772,8 +2701,8 @@ fn process_reexports(
                                     }
                                 }
                                 _ => {
-                                    return Err(TypeError {
-                                        message: format!(
+                                    return Err(TypeError::UnboundPath {
+                                        path: format!(
                                             "cannot find module or enum '{}' for glob re-export",
                                             target_path
                                         ),
@@ -2788,8 +2717,8 @@ fn process_reexports(
                             match env.definitions.get(&target_path) {
                                 Some(Definition::Module(_) | Definition::Enum(_)) => {}
                                 _ => {
-                                    return Err(TypeError {
-                                        message: format!(
+                                    return Err(TypeError::UnboundPath {
+                                        path: format!(
                                             "cannot find module or enum '{}' for group re-export",
                                             target_path
                                         ),
@@ -2823,9 +2752,12 @@ fn register_reexport(
     local_name: &str,
     qualified: &QualifiedPath,
 ) -> Result<(), TypeError> {
-    let def = env.definitions.get(qualified).ok_or_else(|| TypeError {
-        message: format!("cannot find '{}' to re-export", qualified),
-    })?;
+    let def = env
+        .definitions
+        .get(qualified)
+        .ok_or_else(|| TypeError::UnboundImport {
+            name: qualified.to_string(),
+        })?;
 
     // Modules need special handling: create a proper Module definition
     // with the re-exporting module as parent. Module visibility is not checked
@@ -2844,8 +2776,8 @@ fn register_reexport(
 
     let target_visibility = def.visibility();
     if target_visibility != Visibility::Public {
-        return Err(TypeError {
-            message: format!("pub use cannot re-export private item '{}'", qualified),
+        return Err(TypeError::PrivateReExport {
+            name: qualified.to_string(),
         });
     }
 
@@ -3031,7 +2963,7 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
                 };
                 for attr_name in &["test", "task", "get", "post", "put", "patch", "delete"] {
                     if attrs.iter().any(|a| a.name == *attr_name) {
-                        return Err(TypeError {
+                        return Err(TypeError::InvalidAttribute {
                             message: format!(
                                 "#[{}] is only valid on functions, not on {} definitions",
                                 attr_name, kind
@@ -3411,12 +3343,11 @@ fn register_impl_methods(
         let mut impl_type_var_ids = Vec::new();
         for name in &impl_block.type_params {
             if !is_pascal_case(name) {
-                return Err(TypeError {
-                    message: format!(
-                        "type parameter '{}' should be PascalCase (e.g., '{}')",
-                        name,
-                        to_pascal_case(name)
-                    ),
+                return Err(TypeError::NamingConvention {
+                    kind: "type parameter".to_string(),
+                    name: name.clone(),
+                    convention: "PascalCase".to_string(),
+                    suggestion: to_pascal_case(name),
                 });
             }
             let var = ctx.fresh_var();
@@ -3441,12 +3372,11 @@ fn register_impl_methods(
         for method in &impl_block.methods {
             // Validate method name
             if !is_snake_case(&method.name) {
-                return Err(TypeError {
-                    message: format!(
-                        "method name '{}' should be snake_case (e.g., '{}')",
-                        method.name,
-                        to_snake_case(&method.name)
-                    ),
+                return Err(TypeError::NamingConvention {
+                    kind: "method name".to_string(),
+                    name: method.name.clone(),
+                    convention: "snake_case".to_string(),
+                    suggestion: to_snake_case(&method.name),
                 });
             }
 
@@ -3454,11 +3384,9 @@ fn register_impl_methods(
 
             // Check for duplicate
             if env.definitions.contains_key(&method_qpath) {
-                return Err(TypeError {
-                    message: format!(
-                        "duplicate definition for '{}' on type '{}'",
-                        method.name, target_type_name
-                    ),
+                return Err(TypeError::DuplicateDefinition {
+                    name: method.name.clone(),
+                    on_type: target_type_name.clone(),
                 });
             }
 
@@ -3467,12 +3395,11 @@ fn register_impl_methods(
             let mut method_type_var_ids = Vec::new();
             for name in &method.type_params {
                 if !is_pascal_case(name) {
-                    return Err(TypeError {
-                        message: format!(
-                            "type parameter '{}' should be PascalCase (e.g., '{}')",
-                            name,
-                            to_pascal_case(name)
-                        ),
+                    return Err(TypeError::NamingConvention {
+                        kind: "type parameter".to_string(),
+                        name: name.clone(),
+                        convention: "PascalCase".to_string(),
+                        suggestion: to_pascal_case(name),
                     });
                 }
                 let var = ctx.fresh_var();
@@ -3548,7 +3475,7 @@ fn resolve_impl_target(
         TypeAnnotation::Named(path) => path,
         TypeAnnotation::Parameterized(path, _) => path,
         _ => {
-            return Err(TypeError {
+            return Err(TypeError::InvalidImpl {
                 message: "impl target must be a named type".to_string(),
             });
         }
@@ -3580,7 +3507,7 @@ fn resolve_impl_target(
                 }),
             ));
         }
-        return Err(TypeError {
+        return Err(TypeError::InvalidImpl {
             message: format!("cannot define impl for primitive type '{}'", type_name),
         });
     }
@@ -3603,7 +3530,7 @@ fn resolve_impl_target(
             match &def {
                 Definition::Struct(_) | Definition::Enum(_) => {}
                 _ => {
-                    return Err(TypeError {
+                    return Err(TypeError::InvalidImpl {
                         message: format!(
                             "cannot define impl for {} '{}'",
                             def.kind_name(),
@@ -3618,7 +3545,7 @@ fn resolve_impl_target(
             if !segments.is_empty() && segments[0] != "root" {
                 // Type is from a dependency package
                 let dep_name = &segments[0];
-                return Err(TypeError {
+                return Err(TypeError::InvalidImpl {
                     message: format!(
                         "cannot define impl for type '{}' from package '{}' (orphan rule)",
                         type_name, dep_name
@@ -3631,8 +3558,10 @@ fn resolve_impl_target(
 
             Ok((qualified_path, def.clone()))
         }
-        ResolvedPath::Local { name, .. } => Err(TypeError {
-            message: format!("variable '{}' is not a type", name),
+        ResolvedPath::Local { name, .. } => Err(TypeError::KindMisuse {
+            kind: "variable".to_string(),
+            name: name.to_string(),
+            problem: "is not a type".to_string(),
         }),
     }
 }

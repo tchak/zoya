@@ -60,10 +60,7 @@ fn test_check_lambda_return_type_mismatch() {
     let result = check_expr_with_env(&expr);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(
-        err.message.contains("lambda body type")
-            || err.message.contains("doesn't match declared return type")
-    );
+    assert!(err.to_string().contains("lambda body"));
 }
 
 #[test]
@@ -81,7 +78,7 @@ fn test_check_lambda_refutable_param_error() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(
-        err.message
+        err.to_string()
             .contains("refutable pattern in lambda parameter")
     );
 }
@@ -144,7 +141,7 @@ fn test_call_non_function_error() {
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("is not a function"));
+    assert!(err.to_string().contains("is not a function"));
 }
 
 #[test]
@@ -170,7 +167,7 @@ fn test_turbofish_on_lambda_error() {
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("cannot use turbofish on lambda"));
+    assert!(err.to_string().contains("cannot use turbofish"));
 }
 
 #[test]
@@ -192,7 +189,7 @@ fn test_call_lambda_wrong_arity() {
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("expects 2 arguments"));
+    assert!(err.to_string().contains("expects 2 arguments"));
 }
 
 #[test]
@@ -269,5 +266,10 @@ fn test_call_concrete_non_function_still_errors() {
 
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("is not a function"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("is not a function")
+    );
 }

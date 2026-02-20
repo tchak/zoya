@@ -30,9 +30,11 @@ pub(crate) fn resolve_prefix_path(
             Ok(QualifiedPath::new(out))
         }
         PathPrefix::Super => {
-            let parent = current_module.parent().ok_or_else(|| TypeError {
-                message: "cannot use super:: in root module".to_string(),
-            })?;
+            let parent = current_module
+                .parent()
+                .ok_or_else(|| TypeError::PathResolution {
+                    message: "cannot use super:: in root module".to_string(),
+                })?;
             let mut out = parent.segments().to_vec();
             out.extend(segments.iter().cloned());
             Ok(QualifiedPath::new(out))
@@ -42,7 +44,7 @@ pub(crate) fn resolve_prefix_path(
             out.extend(segments.iter().cloned());
             Ok(QualifiedPath::new(out))
         }
-        PathPrefix::None => Err(TypeError {
+        PathPrefix::None => Err(TypeError::PathResolution {
             message: "expected a path prefix".to_string(),
         }),
     }
@@ -66,7 +68,7 @@ pub fn resolve_path(
     if path.prefix == PathPrefix::None {
         // Relative path: current_module + segments
         if path.segments.is_empty() {
-            return Err(TypeError {
+            return Err(TypeError::PathResolution {
                 message: "empty path".to_string(),
             });
         }
@@ -103,13 +105,10 @@ pub(crate) fn check_item_visibility(
     if is_module_ancestor(target_module, accessor_module) {
         Ok(())
     } else {
-        Err(TypeError {
-            message: format!(
-                "{} '{}' is private to module '{}'",
-                def.kind_name(),
-                item_name,
-                target_module,
-            ),
+        Err(TypeError::PrivateAccess {
+            kind: def.kind_name().to_string(),
+            name: item_name.to_string(),
+            module: target_module.to_string(),
         })
     }
 }
@@ -144,11 +143,10 @@ pub(crate) fn check_module_path_visible(
             }
 
             if !is_module_ancestor(&parent_module_path, accessor_module) {
-                return Err(TypeError {
-                    message: format!(
-                        "module '{}' is private to module '{}'",
-                        child_name, parent_module_path
-                    ),
+                return Err(TypeError::PrivateAccess {
+                    kind: "module".to_string(),
+                    name: child_name.clone(),
+                    module: parent_module_path.to_string(),
                 });
             }
         }
@@ -222,8 +220,8 @@ pub(crate) fn follow_reexports(
     visited.insert(current.clone());
     while let Some(original) = reexports.get(&current) {
         if !visited.insert(original.clone()) {
-            return Err(TypeError {
-                message: format!("circular re-export detected: {}", original),
+            return Err(TypeError::CircularReExport {
+                path: original.to_string(),
             });
         }
         current = original.clone();
@@ -327,12 +325,12 @@ fn resolve_definition_path<'a>(
 
     // Nothing found
     if path.segments.len() == 1 {
-        Err(TypeError {
-            message: format!("unknown identifier: {}", path.segments[0]),
+        Err(TypeError::UnboundVariable {
+            name: path.segments[0].clone(),
         })
     } else {
-        Err(TypeError {
-            message: format!("unknown path: {}", path),
+        Err(TypeError::UnboundPath {
+            path: path.to_string(),
         })
     }
 }
@@ -396,7 +394,7 @@ mod tests {
         let current = QualifiedPath::root();
         let result = resolve_path(&path, &current);
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("super::"));
+        assert!(result.unwrap_err().to_string().contains("super::"));
     }
 
     #[test]
@@ -550,7 +548,7 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("private"));
+        assert!(err.to_string().contains("private"));
     }
 
     #[test]
@@ -581,7 +579,7 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("private"));
+        assert!(err.to_string().contains("private"));
     }
 
     #[test]
@@ -645,7 +643,7 @@ mod tests {
             &HashMap::new(),
         );
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("private"));
+        assert!(result.unwrap_err().to_string().contains("private"));
     }
 
     #[test]
@@ -675,7 +673,7 @@ mod tests {
             &HashMap::new(),
         );
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("private"));
+        assert!(result.unwrap_err().to_string().contains("private"));
     }
 
     #[test]
@@ -705,7 +703,7 @@ mod tests {
             &HashMap::new(),
         );
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("private"));
+        assert!(result.unwrap_err().to_string().contains("private"));
     }
 
     #[test]
@@ -736,7 +734,7 @@ mod tests {
             &HashMap::new(),
         );
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("private"));
+        assert!(result.unwrap_err().to_string().contains("private"));
     }
 
     #[test]
@@ -819,7 +817,7 @@ mod tests {
         let current = QualifiedPath::root().child("b");
         let result = resolve_pattern_path(&path, &current, &imports, &definitions, &HashMap::new());
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("private"));
+        assert!(result.unwrap_err().to_string().contains("private"));
     }
 
     // ========================================================================
@@ -946,7 +944,7 @@ mod tests {
             &HashMap::new(),
         );
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("unknown path"));
+        assert!(result.unwrap_err().to_string().contains("unknown path"));
     }
 
     #[test]

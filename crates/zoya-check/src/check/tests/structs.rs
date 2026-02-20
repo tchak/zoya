@@ -59,7 +59,7 @@ fn test_struct_construct_missing_field() {
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("missing field 'y'"));
+    assert!(err.to_string().contains("missing field 'y'"));
 }
 
 #[test]
@@ -78,7 +78,7 @@ fn test_struct_construct_extra_field() {
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("unknown field 'z'"));
+    assert!(err.to_string().contains("unknown field 'z'"));
 }
 
 #[test]
@@ -96,7 +96,7 @@ fn test_struct_construct_field_type_mismatch() {
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("field 'y'") && err.message.contains("expects type"));
+    assert!(err.to_string().contains("field 'y'") && err.to_string().contains("expected"));
 }
 
 #[test]
@@ -111,7 +111,7 @@ fn test_struct_construct_unknown_struct() {
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("unknown identifier"));
+    assert!(err.to_string().contains("unknown identifier"));
 }
 
 fn env_with_empty_struct() -> TypeEnv {
@@ -154,7 +154,7 @@ fn test_non_unit_struct_bare_path_error() {
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("cannot be used as a value"));
+    assert!(err.to_string().contains("cannot be used as a value"));
 }
 
 // Tuple struct tests
@@ -310,7 +310,7 @@ fn test_struct_spread_type_mismatch() {
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("spread"));
+    assert!(err.to_string().contains("spread"));
 }
 
 #[test]
@@ -325,7 +325,7 @@ fn test_struct_spread_unknown_explicit_field() {
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("unknown field 'z'"));
+    assert!(err.to_string().contains("unknown field 'z'"));
 }
 
 #[test]

@@ -190,12 +190,9 @@ impl UnifyCtx {
             // Tuple types - unify element types pairwise
             (Type::Tuple(elems1), Type::Tuple(elems2)) => {
                 if elems1.len() != elems2.len() {
-                    return Err(TypeError {
-                        message: format!(
-                            "tuple length mismatch: {} vs {}",
-                            elems1.len(),
-                            elems2.len()
-                        ),
+                    return Err(TypeError::TupleLengthMismatch {
+                        expected: elems1.len(),
+                        actual: elems2.len(),
                     });
                 }
                 for (e1, e2) in elems1.iter().zip(elems2.iter()) {
@@ -210,8 +207,9 @@ impl UnifyCtx {
             // Type variable on left: bind it to the right type
             (Type::Var(id), other) => {
                 if self.occurs(*id, other) {
-                    return Err(TypeError {
-                        message: format!("infinite type: {} = {}", id, other),
+                    return Err(TypeError::InfiniteType {
+                        lhs: id.to_string(),
+                        rhs: other.to_string(),
                     });
                 }
                 self.substitutions.insert(*id, other.clone());
@@ -221,8 +219,9 @@ impl UnifyCtx {
             // Type variable on right: bind it to the left type
             (other, Type::Var(id)) => {
                 if self.occurs(*id, other) {
-                    return Err(TypeError {
-                        message: format!("infinite type: {} = {}", id, other),
+                    return Err(TypeError::InfiniteType {
+                        lhs: id.to_string(),
+                        rhs: other.to_string(),
                     });
                 }
                 self.substitutions.insert(*id, other.clone());
@@ -241,12 +240,9 @@ impl UnifyCtx {
                 },
             ) => {
                 if params1.len() != params2.len() {
-                    return Err(TypeError {
-                        message: format!(
-                            "function arity mismatch: {} parameters vs {}",
-                            params1.len(),
-                            params2.len()
-                        ),
+                    return Err(TypeError::TypeMismatch {
+                        expected: t1.to_string(),
+                        actual: t2.to_string(),
                     });
                 }
                 for (p1, p2) in params1.iter().zip(params2.iter()) {
@@ -272,18 +268,17 @@ impl UnifyCtx {
                 },
             ) => {
                 if mod1 != mod2 || name1 != name2 {
-                    return Err(TypeError {
-                        message: format!("struct type mismatch: {} vs {}", name1, name2),
+                    return Err(TypeError::TypeMismatch {
+                        expected: t1.to_string(),
+                        actual: t2.to_string(),
                     });
                 }
                 if args1.len() != args2.len() {
-                    return Err(TypeError {
-                        message: format!(
-                            "struct {} type argument count mismatch: {} vs {}",
-                            name1,
-                            args1.len(),
-                            args2.len()
-                        ),
+                    return Err(TypeError::TypeArgCount {
+                        kind: "struct".to_string(),
+                        name: name1.clone(),
+                        expected: args1.len(),
+                        actual: args2.len(),
                     });
                 }
                 for (a1, a2) in args1.iter().zip(args2.iter()) {
@@ -309,18 +304,17 @@ impl UnifyCtx {
                 },
             ) => {
                 if mod1 != mod2 || name1 != name2 {
-                    return Err(TypeError {
-                        message: format!("enum type mismatch: {} vs {}", name1, name2),
+                    return Err(TypeError::TypeMismatch {
+                        expected: t1.to_string(),
+                        actual: t2.to_string(),
                     });
                 }
                 if args1.len() != args2.len() {
-                    return Err(TypeError {
-                        message: format!(
-                            "enum {} type argument count mismatch: {} vs {}",
-                            name1,
-                            args1.len(),
-                            args2.len()
-                        ),
+                    return Err(TypeError::TypeArgCount {
+                        kind: "enum".to_string(),
+                        name: name1.clone(),
+                        expected: args1.len(),
+                        actual: args2.len(),
                     });
                 }
                 for (a1, a2) in args1.iter().zip(args2.iter()) {
@@ -330,8 +324,9 @@ impl UnifyCtx {
             }
 
             // Different concrete types - cannot unify
-            _ => Err(TypeError {
-                message: format!("type mismatch: {} vs {}", t1, t2),
+            _ => Err(TypeError::TypeMismatch {
+                expected: t1.to_string(),
+                actual: t2.to_string(),
             }),
         }
     }
@@ -470,7 +465,7 @@ mod tests {
         let mut ctx = UnifyCtx::new();
         let result = ctx.unify(&Type::Int, &Type::Float);
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("type mismatch"));
+        assert!(result.unwrap_err().to_string().contains("type mismatch"));
     }
 
     #[test]
@@ -595,7 +590,7 @@ mod tests {
         // T = List<T> should fail (infinite type)
         let result = ctx.unify(&var, &list);
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("infinite type"));
+        assert!(result.unwrap_err().to_string().contains("infinite type"));
     }
 
     #[test]
@@ -639,7 +634,7 @@ mod tests {
         };
         let result = ctx.unify(&f1, &f2);
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("arity"));
+        assert!(result.unwrap_err().to_string().contains("type mismatch"));
     }
 
     #[test]
@@ -794,7 +789,7 @@ mod tests {
         assert!(
             result
                 .unwrap_err()
-                .message
+                .to_string()
                 .contains("tuple length mismatch")
         );
     }
@@ -859,7 +854,7 @@ mod tests {
         let s2 = test_struct("Vec", vec![], vec![]);
         let result = ctx.unify(&s1, &s2);
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("struct type mismatch"));
+        assert!(result.unwrap_err().to_string().contains("type mismatch"));
     }
 
     #[test]
@@ -909,12 +904,7 @@ mod tests {
         let s2 = test_struct("Pair", vec![Type::Int, Type::Bool], vec![]);
         let result = ctx.unify(&s1, &s2);
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .message
-                .contains("type argument count mismatch")
-        );
+        assert!(result.unwrap_err().to_string().contains("type argument(s)"));
     }
 
     // ==================== Enum Unification Tests ====================
@@ -948,7 +938,7 @@ mod tests {
         let e2 = test_enum("Direction", vec![], vec![]);
         let result = ctx.unify(&e1, &e2);
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("enum type mismatch"));
+        assert!(result.unwrap_err().to_string().contains("type mismatch"));
     }
 
     #[test]
@@ -998,12 +988,7 @@ mod tests {
         let e2 = test_enum("Result", vec![Type::Int, Type::String], vec![]);
         let result = ctx.unify(&e1, &e2);
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .message
-                .contains("type argument count mismatch")
-        );
+        assert!(result.unwrap_err().to_string().contains("type argument(s)"));
     }
 
     // ==================== Additional Occurs Check Tests ====================
@@ -1016,7 +1001,7 @@ mod tests {
         // T = (T, Int) should fail (infinite type)
         let result = ctx.unify(&var, &tuple);
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("infinite type"));
+        assert!(result.unwrap_err().to_string().contains("infinite type"));
     }
 
     #[test]
@@ -1030,7 +1015,7 @@ mod tests {
         // T = T -> Int should fail (infinite type)
         let result = ctx.unify(&var, &func);
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("infinite type"));
+        assert!(result.unwrap_err().to_string().contains("infinite type"));
     }
 
     #[test]
@@ -1045,7 +1030,7 @@ mod tests {
         // T = Box<T> should fail (infinite type)
         let result = ctx.unify(&var, &s);
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("infinite type"));
+        assert!(result.unwrap_err().to_string().contains("infinite type"));
     }
 
     #[test]
@@ -1063,7 +1048,7 @@ mod tests {
         // T = Option<T> should fail (infinite type)
         let result = ctx.unify(&var, &e);
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("infinite type"));
+        assert!(result.unwrap_err().to_string().contains("infinite type"));
     }
 
     // ==================== Free Variables Tests ====================

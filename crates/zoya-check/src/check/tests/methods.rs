@@ -7,7 +7,7 @@ fn check_source(source: &str) -> Result<(), String> {
     let mem = MemorySource::new().with_module("root", source);
     let pkg = load_memory_package(&mem, zoya_loader::Mode::Dev).map_err(|e| format!("{}", e))?;
     let std = zoya_std::std();
-    check(&pkg, &[std]).map(|_| ()).map_err(|e| e.message)
+    check(&pkg, &[std]).map(|_| ()).map_err(|e| e.to_string())
 }
 
 // String method tests

@@ -63,18 +63,17 @@ pub fn struct_type_from_def(
 ) -> Result<StructType, TypeError> {
     // Check struct name is PascalCase
     if !is_pascal_case(&def.name) {
-        return Err(TypeError {
-            message: format!(
-                "struct name '{}' should be PascalCase (e.g., '{}')",
-                def.name,
-                to_pascal_case(&def.name)
-            ),
+        return Err(TypeError::NamingConvention {
+            kind: "struct name".to_string(),
+            name: def.name.clone(),
+            convention: "PascalCase".to_string(),
+            suggestion: to_pascal_case(&def.name),
         });
     }
 
     // Unit structs cannot have type parameters
     if matches!(def.kind, StructKind::Unit) && !def.type_params.is_empty() {
-        return Err(TypeError {
+        return Err(TypeError::InvalidAttribute {
             message: format!("unit struct '{}' cannot have type parameters", def.name),
         });
     }
@@ -85,12 +84,11 @@ pub fn struct_type_from_def(
     for name in &def.type_params {
         // Check type parameter name is PascalCase
         if !is_pascal_case(name) {
-            return Err(TypeError {
-                message: format!(
-                    "type parameter '{}' should be PascalCase (e.g., '{}')",
-                    name,
-                    to_pascal_case(name)
-                ),
+            return Err(TypeError::NamingConvention {
+                kind: "type parameter".to_string(),
+                name: name.clone(),
+                convention: "PascalCase".to_string(),
+                suggestion: to_pascal_case(name),
             });
         }
         let var = ctx.fresh_var();
@@ -115,12 +113,11 @@ pub fn struct_type_from_def(
             let mut fields = Vec::new();
             for field in field_defs {
                 if !is_valid_field_name(&field.name) {
-                    return Err(TypeError {
-                        message: format!(
-                            "struct field '{}' should be snake_case (e.g., '{}')",
-                            field.name,
-                            to_snake_case(&field.name)
-                        ),
+                    return Err(TypeError::NamingConvention {
+                        kind: "struct field".to_string(),
+                        name: field.name.clone(),
+                        convention: "snake_case".to_string(),
+                        suggestion: to_snake_case(&field.name),
                     });
                 }
                 let ty = resolve_type_annotation(&field.typ, &type_param_map, current_module, env)?;
@@ -150,12 +147,11 @@ pub fn enum_type_from_def(
 ) -> Result<EnumType, TypeError> {
     // Check enum name is PascalCase
     if !is_pascal_case(&def.name) {
-        return Err(TypeError {
-            message: format!(
-                "enum name '{}' should be PascalCase (e.g., '{}')",
-                def.name,
-                to_pascal_case(&def.name)
-            ),
+        return Err(TypeError::NamingConvention {
+            kind: "enum name".to_string(),
+            name: def.name.clone(),
+            convention: "PascalCase".to_string(),
+            suggestion: to_pascal_case(&def.name),
         });
     }
 
@@ -165,12 +161,11 @@ pub fn enum_type_from_def(
     for name in &def.type_params {
         // Check type parameter name is PascalCase
         if !is_pascal_case(name) {
-            return Err(TypeError {
-                message: format!(
-                    "type parameter '{}' should be PascalCase (e.g., '{}')",
-                    name,
-                    to_pascal_case(name)
-                ),
+            return Err(TypeError::NamingConvention {
+                kind: "type parameter".to_string(),
+                name: name.clone(),
+                convention: "PascalCase".to_string(),
+                suggestion: to_pascal_case(name),
             });
         }
         let var = ctx.fresh_var();
@@ -185,12 +180,11 @@ pub fn enum_type_from_def(
     for variant in &def.variants {
         // Check variant name is PascalCase
         if !is_pascal_case(&variant.name) {
-            return Err(TypeError {
-                message: format!(
-                    "enum variant '{}' should be PascalCase (e.g., '{}')",
-                    variant.name,
-                    to_pascal_case(&variant.name)
-                ),
+            return Err(TypeError::NamingConvention {
+                kind: "enum variant".to_string(),
+                name: variant.name.clone(),
+                convention: "PascalCase".to_string(),
+                suggestion: to_pascal_case(&variant.name),
             });
         }
         let variant_type = match &variant.kind {
@@ -207,12 +201,11 @@ pub fn enum_type_from_def(
                     .iter()
                     .map(|f| {
                         if !is_valid_field_name(&f.name) {
-                            return Err(TypeError {
-                                message: format!(
-                                    "struct field '{}' should be snake_case (e.g., '{}')",
-                                    f.name,
-                                    to_snake_case(&f.name)
-                                ),
+                            return Err(TypeError::NamingConvention {
+                                kind: "struct field".to_string(),
+                                name: f.name.clone(),
+                                convention: "snake_case".to_string(),
+                                suggestion: to_snake_case(&f.name),
                             });
                         }
                         let ty =
@@ -245,12 +238,11 @@ pub fn type_alias_from_def(
 ) -> Result<TypeAliasType, TypeError> {
     // Check type alias name is PascalCase
     if !is_pascal_case(&def.name) {
-        return Err(TypeError {
-            message: format!(
-                "type alias name '{}' should be PascalCase (e.g., '{}')",
-                def.name,
-                to_pascal_case(&def.name)
-            ),
+        return Err(TypeError::NamingConvention {
+            kind: "type alias name".to_string(),
+            name: def.name.clone(),
+            convention: "PascalCase".to_string(),
+            suggestion: to_pascal_case(&def.name),
         });
     }
 
@@ -260,12 +252,11 @@ pub fn type_alias_from_def(
     for name in &def.type_params {
         // Check type parameter name is PascalCase
         if !is_pascal_case(name) {
-            return Err(TypeError {
-                message: format!(
-                    "type parameter '{}' should be PascalCase (e.g., '{}')",
-                    name,
-                    to_pascal_case(name)
-                ),
+            return Err(TypeError::NamingConvention {
+                kind: "type parameter".to_string(),
+                name: name.clone(),
+                convention: "PascalCase".to_string(),
+                suggestion: to_pascal_case(name),
             });
         }
         let var = ctx.fresh_var();
@@ -338,8 +329,9 @@ mod tests {
         let result = struct_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("should be PascalCase"));
-        assert!(err.message.contains("Point"));
+        let msg = err.to_string();
+        assert!(msg.contains("should be PascalCase"));
+        assert!(msg.contains("Point"));
     }
 
     #[test]
@@ -357,8 +349,9 @@ mod tests {
         let result = struct_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("should be PascalCase"));
-        assert!(err.message.contains("MyPoint"));
+        let msg = err.to_string();
+        assert!(msg.contains("should be PascalCase"));
+        assert!(msg.contains("MyPoint"));
     }
 
     #[test]
@@ -379,8 +372,9 @@ mod tests {
         let result = struct_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("type parameter"));
-        assert!(err.message.contains("should be PascalCase"));
+        let msg = err.to_string();
+        assert!(msg.contains("type parameter"));
+        assert!(msg.contains("should be PascalCase"));
     }
 
     #[test]
@@ -401,8 +395,10 @@ mod tests {
         let result = struct_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("type parameter 'my_type'"));
-        assert!(err.message.contains("MyType"));
+        let msg = err.to_string();
+        assert!(msg.contains("type parameter"));
+        assert!(msg.contains("my_type"));
+        assert!(msg.contains("MyType"));
     }
 
     #[test]
@@ -442,10 +438,8 @@ mod tests {
         let result = struct_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(
-            err.message
-                .contains("unit struct 'Phantom' cannot have type parameters")
-        );
+        let msg = err.to_string();
+        assert!(msg.contains("unit struct 'Phantom' cannot have type parameters"));
     }
 
     // ========================================================================
@@ -495,8 +489,10 @@ mod tests {
         let result = enum_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("enum name 'option'"));
-        assert!(err.message.contains("should be PascalCase"));
+        let msg = err.to_string();
+        assert!(msg.contains("enum name"));
+        assert!(msg.contains("option"));
+        assert!(msg.contains("should be PascalCase"));
     }
 
     #[test]
@@ -514,7 +510,8 @@ mod tests {
         let result = enum_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("MyEnum"));
+        let msg = err.to_string();
+        assert!(msg.contains("MyEnum"));
     }
 
     #[test]
@@ -532,7 +529,9 @@ mod tests {
         let result = enum_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("type parameter 'ok_type'"));
+        let msg = err.to_string();
+        assert!(msg.contains("type parameter"));
+        assert!(msg.contains("ok_type"));
     }
 
     #[test]
@@ -553,8 +552,10 @@ mod tests {
         let result = enum_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("enum variant 'ok'"));
-        assert!(err.message.contains("should be PascalCase"));
+        let msg = err.to_string();
+        assert!(msg.contains("enum variant"));
+        assert!(msg.contains("ok"));
+        assert!(msg.contains("should be PascalCase"));
     }
 
     #[test]
@@ -575,7 +576,8 @@ mod tests {
         let result = enum_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("NotFound"));
+        let msg = err.to_string();
+        assert!(msg.contains("NotFound"));
     }
 
     #[test]
@@ -700,7 +702,8 @@ mod tests {
         let result = enum_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("unknown identifier"));
+        let msg = err.to_string();
+        assert!(msg.contains("unknown identifier"));
     }
 
     #[test]
@@ -724,7 +727,8 @@ mod tests {
         let result = enum_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("unknown identifier"));
+        let msg = err.to_string();
+        assert!(msg.contains("unknown identifier"));
     }
 
     // ========================================================================
@@ -766,8 +770,10 @@ mod tests {
         let result = type_alias_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("type alias name 'intList'"));
-        assert!(err.message.contains("should be PascalCase"));
+        let msg = err.to_string();
+        assert!(msg.contains("type alias name"));
+        assert!(msg.contains("intList"));
+        assert!(msg.contains("should be PascalCase"));
     }
 
     #[test]
@@ -785,7 +791,8 @@ mod tests {
         let result = type_alias_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("IntList"));
+        let msg = err.to_string();
+        assert!(msg.contains("IntList"));
     }
 
     #[test]
@@ -803,7 +810,9 @@ mod tests {
         let result = type_alias_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("type parameter 'elem_type'"));
+        let msg = err.to_string();
+        assert!(msg.contains("type parameter"));
+        assert!(msg.contains("elem_type"));
     }
 
     #[test]
@@ -843,7 +852,8 @@ mod tests {
         let result = type_alias_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("unknown identifier"));
+        let msg = err.to_string();
+        assert!(msg.contains("unknown identifier"));
     }
 
     // ========================================================================
@@ -952,7 +962,8 @@ mod tests {
         let result = function_type_from_def(&func, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("unknown identifier"));
+        let msg = err.to_string();
+        assert!(msg.contains("unknown identifier"));
     }
 
     // ========================================================================
@@ -977,8 +988,10 @@ mod tests {
         let result = struct_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("should be snake_case"));
-        assert!(err.message.contains("struct field 'X'"));
+        let msg = err.to_string();
+        assert!(msg.contains("should be snake_case"));
+        assert!(msg.contains("struct field"));
+        assert!(msg.contains("'X'"));
     }
 
     #[test]
@@ -1002,7 +1015,9 @@ mod tests {
         let result = enum_type_from_def(&def, &root(), &env, &mut ctx);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("should be snake_case"));
-        assert!(err.message.contains("struct field 'Radius'"));
+        let msg = err.to_string();
+        assert!(msg.contains("should be snake_case"));
+        assert!(msg.contains("struct field"));
+        assert!(msg.contains("'Radius'"));
     }
 }

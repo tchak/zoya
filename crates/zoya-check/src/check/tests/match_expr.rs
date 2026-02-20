@@ -95,12 +95,7 @@ fn test_check_match_pattern_type_mismatch() {
     };
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .message
-            .contains("does not match scrutinee")
-    );
+    assert!(result.unwrap_err().to_string().contains("pattern"));
 }
 
 #[test]
@@ -125,7 +120,7 @@ fn test_check_match_arm_type_mismatch() {
     };
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("different types"));
+    assert!(result.unwrap_err().to_string().contains("match arms"));
 }
 
 #[test]

@@ -24,7 +24,12 @@ fn test_check_unknown_variable() {
     let expr = Expr::Path(Path::simple("x".to_string()));
     let result = check_expr(&expr, &QualifiedPath::root(), &env, &mut ctx);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("unknown identifier"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("unknown identifier")
+    );
 }
 
 #[test]
