@@ -50,6 +50,21 @@ zoya build --mode release -o out.js         # Build in release mode
 | `-o, --output <path>` | Output directory (defaults to `build`) |
 | `--mode <mode>` | Compilation mode: `dev` (default), `test`, or `release` |
 
+### `zoya dev`
+
+Start a development HTTP server. Discovers functions annotated with `#[get("/...")]`, `#[post("/...")]`, etc. and serves them as HTTP routes.
+
+```bash
+zoya dev                             # Start dev server on port 3000
+zoya dev --port 8080                 # Start on a custom port
+zoya dev -p my_app/                  # Start from a specific package
+```
+
+| Option | Description |
+|--------|-------------|
+| `-p, --package <path>` | Path to a `.zy` file or directory with `package.toml` (defaults to current directory) |
+| `--port <port>` | Port to listen on (default: `3000`) |
+
 ### `zoya repl`
 
 Start an interactive REPL session.

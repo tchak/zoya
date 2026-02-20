@@ -81,6 +81,15 @@ enum Command {
         #[command(subcommand)]
         command: TaskCommand,
     },
+    /// Start a development server
+    Dev {
+        /// Path to a .zy file or directory with package.toml (defaults to current directory)
+        #[arg(short, long)]
+        package: Option<PathBuf>,
+        /// Port to listen on
+        #[arg(long, default_value_t = 3000)]
+        port: u16,
+    },
     /// Create a new Zoya project
     New {
         /// Path to create the project at
@@ -182,6 +191,12 @@ fn main() {
         Some(Command::Test { package }) => {
             let path = package.unwrap_or_else(|| PathBuf::from("."));
             if let Err(e) = commands::test::execute(&path) {
+                fatal(&term, &e.to_string());
+            }
+        }
+        Some(Command::Dev { package, port }) => {
+            let path = package.unwrap_or_else(|| PathBuf::from("."));
+            if let Err(e) = commands::dev::execute(&path, port) {
                 fatal(&term, &e.to_string());
             }
         }

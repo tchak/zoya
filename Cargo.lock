@@ -3154,11 +3154,13 @@ checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
 name = "zoya"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "clap",
  "console",
  "dirs",
  "rustyline",
  "tempfile",
+ "tokio",
  "zoya-ast",
  "zoya-check",
  "zoya-codegen",
@@ -3168,6 +3170,7 @@ dependencies = [
  "zoya-loader",
  "zoya-package",
  "zoya-parser",
+ "zoya-router",
  "zoya-run",
  "zoya-std",
 ]
