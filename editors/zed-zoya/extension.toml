@@ -1,4 +1,3 @@
-[extension]
 id = "zoya"
 name = "Zoya"
 version = "0.1.0"
@@ -8,5 +7,6 @@ authors = ["Paul Chavard"]
 repository = "https://github.com/tchak/zoya-lang"
 
 [grammars.zoya]
-repository = "https://github.com/tchak/zoya-lang"
+repository = "file:///Users/tchak/dev/ng/zoya-lang"
+rev = "HEAD"
 path = "editors/tree-sitter-zoya"

@@ -1,6 +1,7 @@
 #include "tree_sitter/parser.h"
 
 #include <stdbool.h>
+#include <stdlib.h>
 #include <string.h>
 
 // External token types — must match order in grammar.js externals
