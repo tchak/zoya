@@ -1,16 +1,5 @@
 # Roadmap
 
-## Completed
-
-- **Impl blocks** - Methods and associated functions on user-defined and primitive types
-- **Standard library expansion** - `Option<T>`, `Result<T, E>` with full method sets, methods on `Int`, `Float`, `BigInt`, `String`, `List<T>`, `Dict<K, V>`
-- **String interpolation** - `$"hello {name}!"` syntax
-- **Dict type** - Persistent `Dict<K, V>` backed by HAMT
-- **List spread** - `[0, ..xs, 4]` syntax
-- **Modulo and power operators** - `%` and `**`
-- **Source formatter** - `zoya fmt` command
-- **Test runner** - `zoya test` command
-
 ## Planned
 
 Planned features in rough implementation order:
