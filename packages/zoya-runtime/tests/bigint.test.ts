@@ -9,7 +9,7 @@ describe('$$BigInt', () => {
   });
 
   it('to_string', () => {
-    expect($$BigInt.to_string(42n)).toBe("42");
+    expect($$BigInt.to_string(42n)).toBe('42');
   });
 
   it('min/max', () => {

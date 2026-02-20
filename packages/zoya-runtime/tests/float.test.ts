@@ -8,7 +8,7 @@ describe('$$Float', () => {
   });
 
   it('to_string', () => {
-    expect($$Float.to_string(3.14)).toBe("3.14");
+    expect($$Float.to_string(3.14)).toBe('3.14');
   });
 
   it('to_int', () => {

@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { $$div, $$div_bigint, $$mod, $$mod_bigint, $$pow, $$pow_bigint } from '../src/arithmetic';
+import {
+  $$div,
+  $$div_bigint,
+  $$mod,
+  $$mod_bigint,
+  $$pow,
+  $$pow_bigint,
+} from '../src/arithmetic';
 import { $$ZoyaError } from '../src/error';
 
 describe('$$div', () => {

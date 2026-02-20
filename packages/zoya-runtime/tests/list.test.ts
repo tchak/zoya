@@ -26,17 +26,22 @@ describe('$$List', () => {
   });
 
   it('filter', () => {
-    expect($$List.filter([1, 2, 3, 4], (x) => (x as number) % 2 === 0)).toEqual([2, 4]);
+    expect($$List.filter([1, 2, 3, 4], (x) => (x as number) % 2 === 0)).toEqual(
+      [2, 4],
+    );
   });
 
   it('fold', () => {
-    expect($$List.fold([1, 2, 3], 0, (acc, x) => (acc as number) + (x as number))).toBe(6);
+    expect(
+      $$List.fold([1, 2, 3], 0, (acc, x) => (acc as number) + (x as number)),
+    ).toBe(6);
   });
 
   it('filter_map', () => {
-    const result = $$List.filter_map(
-      [1, 2, 3, 4],
-      (x) => (x as number) % 2 === 0 ? { $tag: "Some", $0: (x as number) * 10 } : { $tag: "None" }
+    const result = $$List.filter_map([1, 2, 3, 4], (x) =>
+      (x as number) % 2 === 0
+        ? { $tag: 'Some', $0: (x as number) * 10 }
+        : { $tag: 'None' },
     );
     expect(result).toEqual([20, 40]);
   });

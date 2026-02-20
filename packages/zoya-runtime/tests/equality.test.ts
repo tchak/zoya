@@ -20,7 +20,7 @@ describe('$$is_obj', () => {
 
   it('returns false for primitives', () => {
     expect($$is_obj(42)).toBe(false);
-    expect($$is_obj("hello")).toBe(false);
+    expect($$is_obj('hello')).toBe(false);
     expect($$is_obj(true)).toBe(false);
   });
 });
@@ -29,8 +29,8 @@ describe('$$eq', () => {
   it('compares primitives', () => {
     expect($$eq(1, 1)).toBe(true);
     expect($$eq(1, 2)).toBe(false);
-    expect($$eq("a", "a")).toBe(true);
-    expect($$eq("a", "b")).toBe(false);
+    expect($$eq('a', 'a')).toBe(true);
+    expect($$eq('a', 'b')).toBe(false);
     expect($$eq(true, true)).toBe(true);
     expect($$eq(true, false)).toBe(false);
   });
@@ -58,9 +58,18 @@ describe('$$eq', () => {
   });
 
   it('compares dicts', () => {
-    const d1 = $$Dict.from([["a", 1], ["b", 2]]);
-    const d2 = $$Dict.from([["a", 1], ["b", 2]]);
-    const d3 = $$Dict.from([["a", 1], ["b", 3]]);
+    const d1 = $$Dict.from([
+      ['a', 1],
+      ['b', 2],
+    ]);
+    const d2 = $$Dict.from([
+      ['a', 1],
+      ['b', 2],
+    ]);
+    const d3 = $$Dict.from([
+      ['a', 1],
+      ['b', 3],
+    ]);
     expect($$eq(d1, d2)).toBe(true);
     expect($$eq(d1, d3)).toBe(false);
   });

@@ -1,8 +1,20 @@
 import { $$ZoyaError, $$throw } from './error';
 import { $$eq, $$is_obj } from './equality';
-import { $$div, $$div_bigint, $$mod, $$mod_bigint, $$pow, $$pow_bigint } from './arithmetic';
+import {
+  $$div,
+  $$div_bigint,
+  $$mod,
+  $$mod_bigint,
+  $$pow,
+  $$pow_bigint,
+} from './arithmetic';
 import { $$list_idx } from './list-idx';
-import { $$json_to_zoya, $$zoya_to_json, $$zoya_to_js, $$js_to_zoya } from './json';
+import {
+  $$json_to_zoya,
+  $$zoya_to_json,
+  $$zoya_to_js,
+  $$js_to_zoya,
+} from './json';
 import { $$Dict } from './hamt';
 import { $$Set } from './set';
 import { $$Int } from './int';
@@ -12,11 +24,26 @@ import { $$String } from './string';
 import { $$List } from './list';
 
 Object.assign(globalThis, {
-  $$ZoyaError, $$throw,
-  $$eq, $$is_obj,
-  $$div, $$div_bigint, $$mod, $$mod_bigint, $$pow, $$pow_bigint,
+  $$ZoyaError,
+  $$throw,
+  $$eq,
+  $$is_obj,
+  $$div,
+  $$div_bigint,
+  $$mod,
+  $$mod_bigint,
+  $$pow,
+  $$pow_bigint,
   $$list_idx,
-  $$json_to_zoya, $$zoya_to_json, $$zoya_to_js, $$js_to_zoya,
-  $$Dict, $$Set,
-  $$Int, $$BigInt, $$Float, $$String, $$List,
+  $$json_to_zoya,
+  $$zoya_to_json,
+  $$zoya_to_js,
+  $$js_to_zoya,
+  $$Dict,
+  $$Set,
+  $$Int,
+  $$BigInt,
+  $$Float,
+  $$String,
+  $$List,
 });

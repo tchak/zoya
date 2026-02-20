@@ -32,15 +32,17 @@ export function $$eq(a: unknown, b: unknown): boolean {
     if (a.$$hamt === true && b.$$hamt === true) {
       const aNode = a as unknown as ReturnType<typeof $$Dict.empty>;
       const bNode = b as unknown as ReturnType<typeof $$Dict.empty>;
-      if ((a as { size: number }).size !== (b as { size: number }).size) return false;
+      if ((a as { size: number }).size !== (b as { size: number }).size)
+        return false;
       const ea = $$Dict.entries(aNode);
       for (let i = 0; i < ea.length; i++) {
         const v = $$Dict.get(bNode, ea[i][0]) as { $tag: string; $0?: unknown };
-        if (v.$tag === "None" || !$$eq(ea[i][1], v.$0)) return false;
+        if (v.$tag === 'None' || !$$eq(ea[i][1], v.$0)) return false;
       }
       return true;
     }
-    const ka = Object.keys(a), kb = Object.keys(b);
+    const ka = Object.keys(a),
+      kb = Object.keys(b);
     if (ka.length !== kb.length) return false;
     for (const k of ka) {
       if (!$$eq(a[k], b[k])) return false;

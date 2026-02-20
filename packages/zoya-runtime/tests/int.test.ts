@@ -9,8 +9,8 @@ describe('$$Int', () => {
   });
 
   it('to_string', () => {
-    expect($$Int.to_string(42)).toBe("42");
-    expect($$Int.to_string(-1)).toBe("-1");
+    expect($$Int.to_string(42)).toBe('42');
+    expect($$Int.to_string(-1)).toBe('-1');
   });
 
   it('to_float', () => {

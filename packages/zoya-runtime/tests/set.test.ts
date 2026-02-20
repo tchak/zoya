@@ -60,17 +60,29 @@ describe('$$Set', () => {
   });
 
   it('checks disjoint', () => {
-    expect($$Set.is_disjoint($$Set.from([1, 2]), $$Set.from([3, 4]))).toBe(true);
-    expect($$Set.is_disjoint($$Set.from([1, 2]), $$Set.from([2, 3]))).toBe(false);
+    expect($$Set.is_disjoint($$Set.from([1, 2]), $$Set.from([3, 4]))).toBe(
+      true,
+    );
+    expect($$Set.is_disjoint($$Set.from([1, 2]), $$Set.from([2, 3]))).toBe(
+      false,
+    );
   });
 
   it('checks subset', () => {
-    expect($$Set.is_subset($$Set.from([1, 2]), $$Set.from([1, 2, 3]))).toBe(true);
-    expect($$Set.is_subset($$Set.from([1, 4]), $$Set.from([1, 2, 3]))).toBe(false);
+    expect($$Set.is_subset($$Set.from([1, 2]), $$Set.from([1, 2, 3]))).toBe(
+      true,
+    );
+    expect($$Set.is_subset($$Set.from([1, 4]), $$Set.from([1, 2, 3]))).toBe(
+      false,
+    );
   });
 
   it('checks superset', () => {
-    expect($$Set.is_superset($$Set.from([1, 2, 3]), $$Set.from([1, 2]))).toBe(true);
-    expect($$Set.is_superset($$Set.from([1, 2]), $$Set.from([1, 2, 3]))).toBe(false);
+    expect($$Set.is_superset($$Set.from([1, 2, 3]), $$Set.from([1, 2]))).toBe(
+      true,
+    );
+    expect($$Set.is_superset($$Set.from([1, 2]), $$Set.from([1, 2, 3]))).toBe(
+      false,
+    );
   });
 });

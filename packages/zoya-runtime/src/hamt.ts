@@ -32,10 +32,10 @@ type HamtNode = LeafNode | CollisionNode | InternalNode;
 // --- Hashing ---
 
 function $$hash(v: unknown): number {
-  if (typeof v === "number") return v | 0;
-  if (typeof v === "bigint") return Number(v & 0x7fffffffn) | 0;
-  if (typeof v === "boolean") return v ? 1 : 0;
-  if (typeof v === "string") {
+  if (typeof v === 'number') return v | 0;
+  if (typeof v === 'bigint') return Number(v & 0x7fffffffn) | 0;
+  if (typeof v === 'boolean') return v ? 1 : 0;
+  if (typeof v === 'string') {
     let h = 0;
     for (let i = 0; i < v.length; i++) {
       h = (Math.imul(31, h) + v.charCodeAt(i)) | 0;
@@ -49,12 +49,14 @@ function $$hash(v: unknown): number {
     }
     return h;
   }
-  if (typeof v === "object" && v !== null) {
+  if (typeof v === 'object' && v !== null) {
     let h = 1;
     const keys = Object.keys(v).sort();
     for (let i = 0; i < keys.length; i++) {
       h = (Math.imul(31, h) + $$hash(keys[i])) | 0;
-      h = (Math.imul(31, h) + $$hash((v as Record<string, unknown>)[keys[i]])) | 0;
+      h =
+        (Math.imul(31, h) + $$hash((v as Record<string, unknown>)[keys[i]])) |
+        0;
     }
     return h;
   }
@@ -72,23 +74,57 @@ function popcount(x: number): number {
 }
 
 // Empty HAMT node
-const EMPTY: InternalNode = Object.freeze({ $$hamt: true as const, bitmap: 0, children: Object.freeze([]) as ReadonlyArray<HamtNode>, size: 0 });
+const EMPTY: InternalNode = Object.freeze({
+  $$hamt: true as const,
+  bitmap: 0,
+  children: Object.freeze([]) as ReadonlyArray<HamtNode>,
+  size: 0,
+});
 
 function leaf(hash: number, key: unknown, value: unknown): LeafNode {
-  return Object.freeze({ $$hamt: true as const, hash, key, value, size: 1 as const });
+  return Object.freeze({
+    $$hamt: true as const,
+    hash,
+    key,
+    value,
+    size: 1 as const,
+  });
 }
 
-function collision(hash: number, bucket: Array<{ key: unknown; value: unknown }>): CollisionNode {
-  return Object.freeze({ $$hamt: true as const, hash, bucket: Object.freeze(bucket), size: bucket.length });
+function collision(
+  hash: number,
+  bucket: Array<{ key: unknown; value: unknown }>,
+): CollisionNode {
+  return Object.freeze({
+    $$hamt: true as const,
+    hash,
+    bucket: Object.freeze(bucket),
+    size: bucket.length,
+  });
 }
 
-function internal(bitmap: number, children: HamtNode[], size: number): InternalNode {
-  return Object.freeze({ $$hamt: true as const, bitmap, children: Object.freeze(children), size });
+function internal(
+  bitmap: number,
+  children: HamtNode[],
+  size: number,
+): InternalNode {
+  return Object.freeze({
+    $$hamt: true as const,
+    bitmap,
+    children: Object.freeze(children),
+    size,
+  });
 }
 
-function isLeaf(node: HamtNode): node is LeafNode { return 'key' in node; }
-function isCollision(node: HamtNode): node is CollisionNode { return 'bucket' in node; }
-function isInternal(node: HamtNode): node is InternalNode { return 'bitmap' in node && !('bucket' in node) && !('key' in node); }
+function isLeaf(node: HamtNode): node is LeafNode {
+  return 'key' in node;
+}
+function isCollision(node: HamtNode): node is CollisionNode {
+  return 'bucket' in node;
+}
+function isInternal(node: HamtNode): node is InternalNode {
+  return 'bitmap' in node && !('bucket' in node) && !('key' in node);
+}
 
 function getIndex(bitmap: number, bit: number): number {
   return popcount(bitmap & (bit - 1));
@@ -96,10 +132,15 @@ function getIndex(bitmap: number, bit: number): number {
 
 // --- Lookup ---
 
-function get(node: HamtNode, hash: number, key: unknown, shift: number): unknown | undefined {
+function get(
+  node: HamtNode,
+  hash: number,
+  key: unknown,
+  shift: number,
+): unknown | undefined {
   if (node === EMPTY) return undefined;
   if (isLeaf(node)) {
-    return (node.hash === hash && $$eq(node.key, key)) ? node.value : undefined;
+    return node.hash === hash && $$eq(node.key, key) ? node.value : undefined;
   }
   if (isCollision(node)) {
     if (node.hash !== hash) return undefined;
@@ -118,7 +159,13 @@ function get(node: HamtNode, hash: number, key: unknown, shift: number): unknown
 
 // --- Insert ---
 
-function insert(node: HamtNode, hash: number, key: unknown, value: unknown, shift: number): HamtNode {
+function insert(
+  node: HamtNode,
+  hash: number,
+  key: unknown,
+  value: unknown,
+  shift: number,
+): HamtNode {
   if (node === EMPTY) return leaf(hash, key, value);
 
   if (isLeaf(node)) {
@@ -127,7 +174,10 @@ function insert(node: HamtNode, hash: number, key: unknown, value: unknown, shif
         return leaf(hash, key, value); // replace
       }
       // Hash collision
-      return collision(hash, [{ key: node.key, value: node.value }, { key, value }]);
+      return collision(hash, [
+        { key: node.key, value: node.value },
+        { key, value },
+      ]);
     }
     // Different hashes
     return mergeLeaves(shift, node, leaf(hash, key, value));
@@ -170,7 +220,11 @@ function insert(node: HamtNode, hash: number, key: unknown, value: unknown, shif
   if (newChild === child) return node;
   const newChildren = (node.children as HamtNode[]).slice();
   newChildren[idx] = newChild;
-  return internal(node.bitmap, newChildren, node.size - child.size + newChild.size);
+  return internal(
+    node.bitmap,
+    newChildren,
+    node.size - child.size + newChild.size,
+  );
 }
 
 function mergeLeaves(shift: number, a: LeafNode, b: LeafNode): HamtNode {
@@ -190,18 +244,24 @@ function mergeLeaves(shift: number, a: LeafNode, b: LeafNode): HamtNode {
 
 // --- Remove ---
 
-function remove(node: HamtNode, hash: number, key: unknown, shift: number): HamtNode {
+function remove(
+  node: HamtNode,
+  hash: number,
+  key: unknown,
+  shift: number,
+): HamtNode {
   if (node === EMPTY) return EMPTY;
 
   if (isLeaf(node)) {
-    return (node.hash === hash && $$eq(node.key, key)) ? EMPTY : node;
+    return node.hash === hash && $$eq(node.key, key) ? EMPTY : node;
   }
 
   if (isCollision(node)) {
     if (node.hash !== hash) return node;
     const newBucket = node.bucket.filter((e) => !$$eq(e.key, key));
     if (newBucket.length === node.bucket.length) return node; // not found
-    if (newBucket.length === 1) return leaf(hash, newBucket[0].key, newBucket[0].value);
+    if (newBucket.length === 1)
+      return leaf(hash, newBucket[0].key, newBucket[0].value);
     return collision(hash, newBucket);
   }
 
@@ -219,9 +279,16 @@ function remove(node: HamtNode, hash: number, key: unknown, shift: number): Hamt
     if (node.children.length === 1) return EMPTY;
     const newChildren = (node.children as HamtNode[]).slice();
     newChildren.splice(idx, 1);
-    const newInternal = internal(node.bitmap ^ bit, newChildren, node.size - child.size);
+    const newInternal = internal(
+      node.bitmap ^ bit,
+      newChildren,
+      node.size - child.size,
+    );
     // Collapse if only one child left and it's a leaf or collision
-    if (newInternal.children.length === 1 && !isInternal(newInternal.children[0])) {
+    if (
+      newInternal.children.length === 1 &&
+      !isInternal(newInternal.children[0])
+    ) {
       return newInternal.children[0];
     }
     return newInternal;
@@ -229,16 +296,27 @@ function remove(node: HamtNode, hash: number, key: unknown, shift: number): Hamt
 
   const newChildren = (node.children as HamtNode[]).slice();
   newChildren[idx] = newChild;
-  return internal(node.bitmap, newChildren, node.size - child.size + newChild.size);
+  return internal(
+    node.bitmap,
+    newChildren,
+    node.size - child.size + newChild.size,
+  );
 }
 
 // --- Traversal ---
 
-function collect(node: HamtNode, fn: (key: unknown, value: unknown) => void): void {
+function collect(
+  node: HamtNode,
+  fn: (key: unknown, value: unknown) => void,
+): void {
   if (node === EMPTY) return;
-  if (isLeaf(node)) { fn(node.key, node.value); return; }
+  if (isLeaf(node)) {
+    fn(node.key, node.value);
+    return;
+  }
   if (isCollision(node)) {
-    for (let i = 0; i < node.bucket.length; i++) fn(node.bucket[i].key, node.bucket[i].value);
+    for (let i = 0; i < node.bucket.length; i++)
+      fn(node.bucket[i].key, node.bucket[i].value);
     return;
   }
   for (let i = 0; i < node.children.length; i++) collect(node.children[i], fn);
@@ -246,37 +324,57 @@ function collect(node: HamtNode, fn: (key: unknown, value: unknown) => void): vo
 
 function keys(node: HamtNode): unknown[] {
   const result: unknown[] = [];
-  collect(node, (k) => { result.push(k); });
+  collect(node, (k) => {
+    result.push(k);
+  });
   return result;
 }
 
 function values(node: HamtNode): unknown[] {
   const result: unknown[] = [];
-  collect(node, (_k, v) => { result.push(v); });
+  collect(node, (_k, v) => {
+    result.push(v);
+  });
   return result;
 }
 
 function entries(node: HamtNode): [unknown, unknown][] {
   const result: [unknown, unknown][] = [];
-  collect(node, (k, v) => { result.push([k, v]); });
+  collect(node, (k, v) => {
+    result.push([k, v]);
+  });
   return result;
 }
 
 export const $$Dict = {
-  empty(): HamtNode { return EMPTY; },
-  get(d: HamtNode, k: unknown): { $tag: "Some"; $0: unknown } | { $tag: "None" } {
-    const v = get(d, $$hash(k), k, 0);
-    return v === undefined ? { $tag: "None" } : { $tag: "Some", $0: v };
+  empty(): HamtNode {
+    return EMPTY;
   },
-  insert(d: HamtNode, k: unknown, v: unknown): HamtNode { return insert(d, $$hash(k), k, v, 0); },
-  remove(d: HamtNode, k: unknown): HamtNode { return remove(d, $$hash(k), k, 0); },
+  get(
+    d: HamtNode,
+    k: unknown,
+  ): { $tag: 'Some'; $0: unknown } | { $tag: 'None' } {
+    const v = get(d, $$hash(k), k, 0);
+    return v === undefined ? { $tag: 'None' } : { $tag: 'Some', $0: v };
+  },
+  insert(d: HamtNode, k: unknown, v: unknown): HamtNode {
+    return insert(d, $$hash(k), k, v, 0);
+  },
+  remove(d: HamtNode, k: unknown): HamtNode {
+    return remove(d, $$hash(k), k, 0);
+  },
   keys,
   values,
-  len(d: HamtNode): number { return d.size; },
-  has(d: HamtNode, k: unknown): boolean { return get(d, $$hash(k), k, 0) !== undefined; },
+  len(d: HamtNode): number {
+    return d.size;
+  },
+  has(d: HamtNode, k: unknown): boolean {
+    return get(d, $$hash(k), k, 0) !== undefined;
+  },
   from(pairs: [unknown, unknown][]): HamtNode {
     let d: HamtNode = EMPTY;
-    for (let i = 0; i < pairs.length; i++) d = insert(d, $$hash(pairs[i][0]), pairs[i][0], pairs[i][1], 0);
+    for (let i = 0; i < pairs.length; i++)
+      d = insert(d, $$hash(pairs[i][0]), pairs[i][0], pairs[i][1], 0);
     return d;
   },
   entries,

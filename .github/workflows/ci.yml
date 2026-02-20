@@ -60,6 +60,8 @@ jobs:
           cache-dependency-path: packages/zoya-runtime/package-lock.json
       - run: npm ci
         working-directory: packages/zoya-runtime
+      - run: npm run lint
+        working-directory: packages/zoya-runtime
       - run: npm test
         working-directory: packages/zoya-runtime
       - run: npm run typecheck
