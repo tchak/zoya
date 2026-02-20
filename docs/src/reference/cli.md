@@ -119,13 +119,13 @@ zoya fmt --check               # Check formatting without writing (exit 1 if not
 | `-p, --package <path>` | Path to a `.zy` file or directory (defaults to current directory) |
 | `--check` | Check if files are formatted without writing (exit 1 if not) |
 
-### `zoya new <path>`
+### `zoya init <path>`
 
 Create a new Zoya project with a `package.toml` and `main.zy`.
 
 ```bash
-zoya new my_project              # Create project (name derived from directory)
-zoya new my_project --name app   # Create project with explicit package name
+zoya init my_project              # Create project (name derived from directory)
+zoya init my_project --name app   # Create project with explicit package name
 ```
 
 ## Package Configuration
@@ -143,10 +143,10 @@ main = "src/main.zy"
 | `name` | Yes | — | Package name. Must be lowercase alphanumeric with hyphens or underscores, starting with a letter. Reserved names (`root`, `self`, `super`, `std`, `zoya`) are not allowed. |
 | `main` | No | `src/main.zy` | Relative path to the main entry file. |
 
-Create a new project with `zoya new`:
+Create a new project with `zoya init`:
 
 ```bash
-zoya new my-project
+zoya init my-project
 ```
 
 This generates a `package.toml` with the `name` field set and a default for `main`.

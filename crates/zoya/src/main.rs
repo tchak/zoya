@@ -91,7 +91,7 @@ enum Command {
         port: u16,
     },
     /// Create a new Zoya project
-    New {
+    Init {
         /// Path to create the project at
         path: PathBuf,
         /// Package name (defaults to directory name sanitized)
@@ -222,8 +222,8 @@ fn main() {
                 }
             }
         },
-        Some(Command::New { path, name }) => {
-            if let Err(e) = commands::new::execute(&path, name.as_deref()) {
+        Some(Command::Init { path, name }) => {
+            if let Err(e) = commands::init::execute(&path, name.as_deref()) {
                 fatal(&term, &e.to_string());
             }
         }

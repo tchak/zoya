@@ -29,7 +29,7 @@ crates/
 │           ├── build.rs   # Build command
 │           ├── check.rs   # Check command
 │           ├── fmt.rs     # Format command
-│           ├── new.rs     # New project command
+│           ├── init.rs    # Init project command
 │           ├── repl.rs    # REPL (rustyline)
 │           ├── run.rs     # Run command
 │           └── test.rs    # Test command
@@ -86,7 +86,7 @@ cargo run -p zoya -- build --package file.zy     # Compile to JS
 cargo run -p zoya -- fmt                         # Format current package
 cargo run -p zoya -- fmt --check                 # Check formatting
 cargo run -p zoya -- test                        # Run tests
-cargo run -p zoya -- new my_project              # Create new project
+cargo run -p zoya -- init my_project              # Create new project
 cargo test --workspace                           # Run all Rust tests
 cargo clippy --workspace                         # Lint
 cd packages/zoya-runtime && npm run build        # Build JS runtime bundle

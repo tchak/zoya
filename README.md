@@ -72,7 +72,7 @@ Zoya is organized as a Cargo workspace with multiple crates:
 ### Create a New Project
 
 ```bash
-zoya new my_project
+zoya init my_project
 cd my_project
 ```
 

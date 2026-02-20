@@ -7,7 +7,7 @@ This is the main binary crate that provides the `zoya` CLI tool for compiling an
 ## Commands
 
 ```bash
-zoya new my_project                # Create a new project
+zoya init my_project                # Create a new project
 zoya repl                          # Start interactive REPL
 zoya repl file.zy                # REPL with file preloaded
 zoya run file.zy                 # Execute a file
@@ -26,13 +26,13 @@ zoya test                          # Run tests in current package
 zoya test path/to/project          # Run tests at path
 ```
 
-## New Project
+## Init Project
 
-Create a new Zoya project with `zoya new`:
+Create a new Zoya project with `zoya init`:
 
 ```bash
-zoya new my_project
-zoya new my_project --name custom_name
+zoya init my_project
+zoya init my_project --name custom_name
 ```
 
 This creates a directory with `package.toml` and `src/main.zy`.

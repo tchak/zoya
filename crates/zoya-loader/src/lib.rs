@@ -75,7 +75,7 @@ pub enum LoaderError<P: Clone + Debug + Display = FilePath> {
         "invalid module name '{mod_name}': this name is reserved (root, self, super, std, zoya)"
     )]
     ReservedModName { mod_name: String },
-    #[error("no package.toml found in '{}'\nhint: provide a .zy file path or create a package with `zoya new`", dir.display())]
+    #[error("no package.toml found in '{}'\nhint: provide a .zy file path or create a package with `zoya init`", dir.display())]
     NoPackageToml { dir: PathBuf },
     #[error("main file '{}' not found in package at '{}'", main.display(), package_dir.display())]
     MainNotFound { main: PathBuf, package_dir: PathBuf },
