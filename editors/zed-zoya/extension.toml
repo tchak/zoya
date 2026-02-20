@@ -8,5 +8,5 @@ repository = "https://github.com/tchak/zoya-lang"
 
 [grammars.zoya]
 repository = "file:///Users/tchak/dev/ng/zoya-lang"
-rev = "HEAD"
+rev = "684976530b43630751aae27cee636fc57a00eb4d"
 path = "editors/tree-sitter-zoya"
