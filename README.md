@@ -29,8 +29,9 @@ fn main() -> Float {
 - **First-class functions** - Lambdas, closures, and higher-order functions
 - **Impl blocks** - Methods and associated functions on user-defined types
 - **Module system** - Organize code into modules with public/private visibility
-- **Standard library** - `Option<T>`, `Result<T, E>`, `Dict<K, V>`, JSON, and more
+- **Standard library** - `Option<T>`, `Result<T, E>`, `Dict<K, V>`, `Set<T>`, JSON, HTTP, and more
 - **String interpolation** - `$"hello {name}!"` syntax with embedded expressions
+- **HTTP functions** - Annotate functions with `#[get("/path")]` to define HTTP handlers
 - **Immutable by default** - All data structures are persistent and immutable
 - **Compiles to JavaScript** - Run anywhere JS runs
 
@@ -63,6 +64,7 @@ Zoya is organized as a Cargo workspace with multiple crates:
 | [zoya-naming](crates/zoya-naming) | Naming conventions and validation |
 | [zoya-package](crates/zoya-package) | Package data structures |
 | [zoya-parser](crates/zoya-parser) | Parser (chumsky) |
+| [zoya-router](crates/zoya-router) | HTTP router (Axum) |
 | [zoya-run](crates/zoya-run) | Runtime execution (QuickJS) |
 | [zoya-std](crates/zoya-std) | Standard library |
 | [zoya-value](crates/zoya-value) | Runtime value types and serialization |
@@ -128,6 +130,7 @@ zoya run                      # Run package in current directory
 zoya run path/to/project      # Run package at path
 zoya run --mode test          # Run in test mode
 zoya run --json               # Output result as JSON
+zoya run -- add 1 2           # Run a named function with arguments
 ```
 
 ### Type Check Only
@@ -161,6 +164,43 @@ zoya test                    # Run tests in current package
 zoya test path/to/project    # Run tests at path
 ```
 
+### Development Server
+
+Start an HTTP development server with file watching and hot-reload:
+
+```bash
+zoya dev                     # Start dev server (default port 3000)
+zoya dev --port 8080         # Custom port
+```
+
+Functions annotated with HTTP method attributes become routes:
+
+```zoya
+use std::http::{Response, Body}
+
+#[get("/")]
+pub fn index() -> Response {
+    Response::ok(Option::Some(Body::Text("Hello!")))
+}
+
+#[post("/echo")]
+pub fn echo(request: Request) -> Response {
+    Response::ok(request.body)
+}
+```
+
+The server automatically rebuilds when `.zy` files change.
+
+### Task Functions
+
+Define and run task functions with `#[task]`:
+
+```bash
+zoya task list               # List available task functions
+zoya task run deploy         # Run a task function
+zoya task run deploy -- arg1 # Run with arguments
+```
+
 ## Language Tour
 
 ### Comments
@@ -185,6 +225,7 @@ Zoya has the following built-in types:
 | `String` | `"hello"`, `"line\nbreak"` |
 | `List<T>` | `[1, 2, 3]`, `[]` |
 | `Dict<K, V>` | persistent hash map |
+| `Set<T>` | persistent hash set |
 | `(T, U, ...)` | `(1, "hello")`, `()`, `(42,)` |
 | `T -> U` | `Int -> Bool`, `(Int, Int) -> Int` |
 
@@ -564,6 +605,15 @@ some_val.unwrap()               // 42
 let ok = Result::Ok::<Int, String>(42)
 let err = Result::Err::<Int, String>("oops")
 ok.map(|x| x + 1)              // Result::Ok(43)
+
+// Set<T> - persistent hash set
+let s = Set::new::<Int>()
+let s = s.insert(1).insert(2)
+s.contains(1)                  // true
+s.len()                        // 2
+
+// HTTP types (for HTTP handler functions)
+use std::http::{Request, Response, Body, Method, Headers}
 ```
 
 ### Methods
@@ -607,6 +657,14 @@ Dict::new::<String, Int>()     // empty dict
 dict.insert("key", 42)         // new dict with entry
 dict.get("key")                // Option::Some(42)
 dict.keys()                    // list of keys
+
+// Set (all operations return new sets)
+Set::new::<Int>()              // empty set
+Set::from([1, 2, 3])          // set from list
+set.insert(4)                  // new set with element
+set.contains(1)                // true
+set.union(other)               // set union
+set.intersection(other)        // set intersection
 
 // Option
 Option::Some(42).map(|x| x + 1)      // Option::Some(43)

@@ -14,7 +14,7 @@ Transforms a token stream into an Abstract Syntax Tree using [Chumsky](https://g
 - List and tuple spread syntax
 - Module declarations with visibility (`pub mod`)
 - Use declarations with path prefixes (`root::`, `self::`, `super::`)
-- Attribute parsing (`#[test]`, `#[builtin]`, `#[mode(...)]`)
+- Attribute parsing (`#[test]`, `#[builtin]`, `#[mode(...)]`, `#[get("/path")]`, `#[task]`)
 - Error recovery and reporting with byte-offset spans
 
 ## Usage
@@ -25,9 +25,8 @@ use zoya_parser::{parse_module, parse_input};
 
 // Parse a module file (for .zy files)
 let tokens = lex("pub mod utils\nuse root::utils::helper\nfn main() -> Int { helper() }").unwrap();
-let (mods, items) = parse_module(tokens).unwrap();
-// mods - mod declarations (with visibility)
-// items - function/struct/enum/impl definitions and use declarations
+let items = parse_module(tokens).unwrap();
+// items - all items including mod declarations, use declarations, functions, structs, enums, impl blocks
 
 // Parse REPL input (expressions, let bindings, and items)
 let tokens = lex("let x = 1 + 2").unwrap();
@@ -40,7 +39,7 @@ let (items, stmts) = parse_input(tokens).unwrap();
 
 | Function | Input | Output |
 |----------|-------|--------|
-| `parse_module` | Module file tokens | `(Vec<ModDecl>, Vec<Item>)` — mod declarations and items |
+| `parse_module` | Module file tokens | `Vec<Item>` — all items (mod declarations, use declarations, functions, structs, enums, impl blocks) |
 | `parse_input` | REPL input tokens | `(Vec<Item>, Vec<Stmt>)` — items and statements |
 
 ## Error Handling

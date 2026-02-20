@@ -7,7 +7,7 @@ This crate defines the type-checked IR produced by the type checker. All express
 ## Types
 
 - **Primitive types** - `Int`, `BigInt`, `Float`, `Bool`, `String`
-- **Compound types** - `List<T>`, `Dict<K, V>`, tuples `(T, U, ...)`, functions `T -> U`
+- **Compound types** - `List<T>`, `Set<T>`, `Dict<K, V>`, tuples `(T, U, ...)`, functions `T -> U`
 - **User-defined types** - Structs, enums with generics
 - **Type variables** - For inference and polymorphism
 - **Visibility** - Re-exported from `zoya-ast` for use throughout the compiler
@@ -50,6 +50,21 @@ fn process_package(pkg: &CheckedPackage) {
             _ => {}
         }
     }
+
+    // Query HTTP routes
+    for (path, method, pathname) in pkg.routes() {
+        println!("{} {} -> {}", method.attr_name(), pathname.as_str(), path);
+    }
+
+    // Query task functions
+    for path in pkg.tasks() {
+        println!("task: {}", path);
+    }
+
+    // Query public functions
+    for path in pkg.fns() {
+        println!("fn: {}", path);
+    }
 }
 ```
 
@@ -57,10 +72,13 @@ fn process_package(pkg: &CheckedPackage) {
 
 | Type | Description |
 |------|-------------|
-| `Type` | Resolved type (Int, List<T>, Dict<K, V>, structs, enums, functions) |
+| `Type` | Resolved type (Int, List<T>, Set<T>, Dict<K, V>, structs, enums, functions) |
 | `TypedExpr` | Expression with attached type information |
 | `TypedPattern` | Pattern with resolved types for codegen |
-| `TypedFunction` | Function with typed body and return type |
+| `TypedFunction` | Function with typed body, return type, and `FunctionKind` |
+| `FunctionKind` | Function classification: `Regular`, `Builtin`, `Test`, `Task`, `Http(HttpMethod, Pathname)` |
+| `HttpMethod` | HTTP method: `Get`, `Post`, `Put`, `Patch`, `Delete` |
+| `Pathname` | Validated URL pathname for HTTP routes |
 | `CheckedPackage` | Complete package of checked items, definitions, re-exports, and imports |
 | `QualifiedPath` | Fully resolved path (e.g., `root::utils::helper`) |
 | `Definition` | Type definition: Function, Struct, Enum, EnumVariant, TypeAlias, Module, ImplMethod |

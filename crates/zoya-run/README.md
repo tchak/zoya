@@ -10,6 +10,7 @@ Provides a builder-pattern API to run Zoya programs by compiling to JavaScript a
 - **Package execution** - Run type-checked packages with module and dependency support
 - **Source execution** - Compile and run source strings directly
 - **File execution** - Load, check, and run `.zy` files
+- **Custom entry points** - Run any function by path with arguments
 - **Test runner** - Discover and run `#[test]` functions with streaming results
 - **Value marshaling** - Convert JavaScript results to typed Zoya values
 
@@ -73,6 +74,21 @@ let result = Runner::new()
     .run()?;
 ```
 
+### Run a specific function with arguments
+
+```rust
+use zoya_run::{Runner, Value};
+use zoya_package::QualifiedPath;
+
+// Run any function by its qualified path, passing arguments
+let fn_path = QualifiedPath::root().child("add");
+let result = Runner::new()
+    .package(&checked_pkg, [std])
+    .entry(fn_path, vec![Value::Int(1), Value::Int(2)])
+    .run()?;
+assert_eq!(result, Value::Int(3));
+```
+
 ### Run tests
 
 ```rust
@@ -114,6 +130,7 @@ pub struct PackageRunner<'a>;
 
 impl PackageRunner<'_> {
     pub fn module(self, module: impl Into<String>) -> Self;
+    pub fn entry(self, path: QualifiedPath, args: Vec<Value>) -> Self;
     pub fn run(self) -> Result<Value, EvalError>;
 }
 

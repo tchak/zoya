@@ -78,12 +78,54 @@ impl<T, E> Result<T, E> {
 //               filter_map, first, last, truncate, insert, remove
 
 // Dict methods: new, get, insert, remove, keys, values, len, has, from, is_empty
+
+// Set methods: new, contains, insert, remove, len, to_list, is_disjoint,
+//              is_subset, is_superset, difference, intersection, union, from, is_empty
+```
+
+### Set\<T\>
+
+```zoya
+impl<T> Set<T> {
+    pub fn new() -> Self
+    pub fn contains(self, value: T) -> Bool
+    pub fn insert(self, value: T) -> Self
+    pub fn remove(self, value: T) -> Self
+    pub fn len(self) -> Int
+    pub fn to_list(self) -> List<T>
+    pub fn is_disjoint(self, other: Self) -> Bool
+    pub fn is_subset(self, other: Self) -> Bool
+    pub fn is_superset(self, other: Self) -> Bool
+    pub fn difference(self, other: Self) -> Self
+    pub fn intersection(self, other: Self) -> Self
+    pub fn union(self, other: Self) -> Self
+    pub fn from(items: List<T>) -> Self
+    pub fn is_empty(self) -> Bool
+}
+```
+
+### HTTP Types
+
+```zoya
+pub type Headers = Dict<String, String>
+
+pub enum Method { Get, Post, Put, Patch, Delete, Head, Options }
+pub enum Body { Text(String), Json(JSON) }
+
+pub struct Request { url: String, method: Method, body: Option<Body>, headers: Headers }
+pub struct Response { body: Option<Body>, status: Int, headers: Headers }
+
+impl Response {
+    pub fn ok(body: Option<Body>) -> Response
+}
 ```
 
 ### Other Modules
 
 - **io** - IO operations (`println`)
 - **json** - JSON type, `Number` enum, `parse` function, `ParseError` enum
+- **http** - HTTP types (`Request`, `Response`, `Method`, `Body`, `Headers`)
+- **set** - Set methods (`new`, `insert`, `remove`, `union`, `intersection`, etc.)
 - **prelude** - Re-exports all standard types and variants for automatic injection
 
 ### Built-in Functions
@@ -124,6 +166,7 @@ root
 ├── bigint     # BigInt methods
 ├── dict       # Dict<K, V> type and methods
 ├── float      # Float methods
+├── http       # HTTP Request/Response types
 ├── int        # Int methods
 ├── io         # IO operations (println)
 ├── json       # JSON type and parsing
@@ -131,6 +174,7 @@ root
 ├── option     # Option<T> enum and methods
 ├── prelude    # Re-exports for auto-injection
 ├── result     # Result<T, E> enum and methods
+├── set        # Set<T> methods
 └── string     # String methods
 ```
 

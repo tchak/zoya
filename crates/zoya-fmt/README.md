@@ -20,10 +20,10 @@ use zoya_fmt::fmt;
 
 // Parse a source file
 let tokens = lex(source).unwrap();
-let (mods, items) = parse_module(tokens).unwrap();
+let items = parse_module(tokens).unwrap();
 
 // Format to canonical source
-let formatted = fmt(mods, items);
+let formatted = fmt(items);
 println!("{}", formatted);
 ```
 
@@ -39,7 +39,7 @@ Blank lines: none between consecutive mods, none between consecutive uses, blank
 
 | Function | Description |
 |----------|-------------|
-| `fmt(mods, items)` | Format parsed module into canonical source code |
+| `fmt(items)` | Format parsed items into canonical source code |
 
 ## Dependencies
 

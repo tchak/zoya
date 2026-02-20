@@ -15,6 +15,7 @@ zoya run                           # Run package in current directory
 zoya run path/to/project           # Run package at path
 zoya run --mode test               # Run in test mode
 zoya run --json file.zy          # Output result as JSON
+zoya run -- add 1 2                # Run a named function with arguments
 zoya check file.zy               # Type-check without running
 zoya check                         # Check package in current directory
 zoya build file.zy               # Compile to JavaScript (stdout)
@@ -24,6 +25,11 @@ zoya fmt file.zy                 # Format a single file
 zoya fmt --check                   # Check formatting without writing
 zoya test                          # Run tests in current package
 zoya test path/to/project          # Run tests at path
+zoya dev                           # Start HTTP dev server (port 3000)
+zoya dev --port 8080               # Dev server on custom port
+zoya task list                     # List available task functions
+zoya task run deploy               # Run a task function
+zoya task run deploy -- arg1       # Run task with arguments
 ```
 
 ## Init Project
@@ -70,6 +76,40 @@ zoya run --mode test       # Run with test items included
 zoya check --mode release  # Check in release mode
 ```
 
+## Development Server
+
+Start an HTTP development server with file watching and hot-reload:
+
+```bash
+zoya dev                     # Start on default port 3000
+zoya dev --port 8080         # Custom port
+```
+
+Functions annotated with HTTP method attributes (`#[get("/path")]`, `#[post("/path")]`, etc.) become routes. The server automatically rebuilds when `.zy` files change, continuing to serve the last successful build on errors.
+
+## Task Functions
+
+Define functions with `#[task]` and run them from the CLI:
+
+```bash
+zoya task list               # List all #[task] functions
+zoya task run deploy         # Run a task function
+```
+
+Task functions can accept typed arguments parsed from the command line.
+
+## Named Function Execution
+
+Run any public function by name, with type-guided argument parsing:
+
+```bash
+zoya run -- add 1 2          # Calls add(1, 2) with Int arguments
+zoya run -- greet             # Calls greet() with no arguments
+zoya run --json -- add 1 2   # Output result as JSON
+```
+
+Arguments are parsed according to the function's parameter types.
+
 ## Programmatic Usage
 
 For programmatic execution, use the [zoya-run](../zoya-run) crate:
@@ -109,9 +149,12 @@ println!("{} passed, {} failed", report.passed(), report.failed());
 - [zoya-loader](../zoya-loader) - Package file loading
 - [zoya-package](../zoya-package) - Package data structures and config
 - [zoya-parser](../zoya-parser) - Parser
+- [zoya-router](../zoya-router) - HTTP router for dev server
 - [zoya-run](../zoya-run) - Runtime execution
 - [zoya-std](../zoya-std) - Standard library
-- [zoya-value](../zoya-value) - Runtime value types
+- [axum](https://github.com/tokio-rs/axum) - HTTP framework (dev server)
 - [clap](https://github.com/clap-rs/clap) - CLI argument parsing
 - [console](https://github.com/console-rs/console) - Terminal styling and colors
+- [notify](https://github.com/notify-rs/notify) - File watching (dev server)
 - [rustyline](https://github.com/kkawakam/rustyline) - REPL line editing
+- [tokio](https://github.com/tokio-rs/tokio) - Async runtime (dev server)

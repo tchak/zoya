@@ -32,7 +32,8 @@ crates/
 │           ├── init.rs    # Init project command
 │           ├── repl.rs    # REPL (rustyline)
 │           ├── run.rs     # Run command
-│           └── test.rs    # Test command
+│           ├── test.rs    # Test command
+│           └── dev.rs     # Dev server command
 ├── zoya-ast/          # Untyped AST types
 ├── zoya-check/        # Type checker (Hindley-Milner)
 ├── zoya-codegen/      # JavaScript code generation
@@ -43,6 +44,7 @@ crates/
 ├── zoya-naming/       # Naming conventions & validation
 ├── zoya-package/      # Package data structures & config
 ├── zoya-parser/       # Parser (chumsky)
+├── zoya-router/       # HTTP router (Axum integration)
 ├── zoya-run/          # Runtime execution (rquickjs)
 │   └── src/
 │       ├── lib.rs         # Public API
@@ -62,8 +64,10 @@ crates/
             ├── string.zy      # String methods
             ├── list.zy        # List<T> methods
             ├── dict.zy        # Dict<K, V> methods
+            ├── set.zy         # Set<T> methods
             ├── io.zy          # IO operations
-            └── json.zy        # JSON type and methods
+            ├── json.zy        # JSON type and methods
+            └── http.zy        # HTTP Request/Response types
 └── zoya-value/        # Runtime value types & serialization
     └── src/
         └── lib.rs         # Value, JSValue, serde support
@@ -87,6 +91,10 @@ cargo run -p zoya -- fmt                         # Format current package
 cargo run -p zoya -- fmt --check                 # Check formatting
 cargo run -p zoya -- test                        # Run tests
 cargo run -p zoya -- init my_project              # Create new project
+cargo run -p zoya -- dev                          # Start dev HTTP server
+cargo run -p zoya -- dev --port 8080              # Dev server on custom port
+cargo run -p zoya -- task list                    # List task functions
+cargo run -p zoya -- task run deploy              # Run a task function
 cargo test --workspace                           # Run all Rust tests
 cargo clippy --workspace                         # Lint
 cd packages/zoya-runtime && npm run build        # Build JS runtime bundle
@@ -144,6 +152,7 @@ New features need tests at each pipeline stage:
 | `zoya-check` | Type inference, visibility, and errors |
 | `zoya-codegen` | Generated JS correctness |
 | `zoya-fmt` | Source code formatting |
+| `zoya-router` | HTTP routing and handler execution |
 | `zoya-run` | End-to-end execution |
 | `zoya-std` | Standard library loading and caching |
 | `zoya-value` | Value types, serialization, JS bridge |

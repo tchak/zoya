@@ -16,6 +16,7 @@ Implements Hindley-Milner type inference with constraint-based unification, tran
 - **Generics** - Parametric polymorphism for structs, enums, functions, and impl blocks
 - **Impl blocks** - Type-checks methods and associated functions on types
 - **Multi-package support** - Type-check against dependency packages (e.g., standard library)
+- **Attribute validation** - Validates HTTP method/pathname attributes and function kind annotations
 
 ## Usage
 
