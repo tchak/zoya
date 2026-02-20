@@ -1,0 +1,92 @@
+===
+Named type
+===
+
+fn id(x: Int) -> Int x
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (named_type (identifier)))
+    return_type: (named_type (identifier))
+    body: (identifier)))
+
+===
+Parameterized type
+===
+
+fn first(list: List<Int>) -> Option<Int> list[0]
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (parameterized_type (identifier) (named_type (identifier))))
+    return_type: (parameterized_type (identifier) (named_type (identifier)))
+    body: (index_expression object: (identifier) index: (integer))))
+
+===
+Tuple type
+===
+
+fn pair() -> (Int, String) (1, "hello")
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    return_type: (tuple_type (named_type (identifier)) (named_type (identifier)))
+    body: (tuple_expression (integer) (string))))
+
+===
+Function type
+===
+
+fn apply(f: Int -> Bool, x: Int) -> Bool f(x)
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (function_type (named_type (identifier)) (named_type (identifier))))
+    (parameter pattern: (identifier) type: (named_type (identifier)))
+    return_type: (named_type (identifier))
+    body: (call_expression function: (identifier) (identifier))))
+
+===
+Type alias
+===
+
+pub type Headers = Dict<String, String>
+
+---
+
+(source_file
+  (type_alias
+    (visibility)
+    name: (identifier)
+    type: (parameterized_type (identifier) (named_type (identifier)) (named_type (identifier)))))
+
+===
+Self type in return position
+===
+
+impl Int {
+  pub fn new() -> Self ()
+}
+
+---
+
+(source_file
+  (impl_block
+    type: (named_type (identifier))
+    (impl_method
+      (visibility)
+      name: (identifier)
+      return_type: (self_type)
+      body: (tuple_expression))))

@@ -1,0 +1,151 @@
+===
+Wildcard pattern
+===
+
+fn ignore(x: Int) -> Int {
+  match x {
+    _ => 0,
+  }
+}
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (named_type (identifier)))
+    return_type: (named_type (identifier))
+    body: (block
+      (match_expression
+        scrutinee: (identifier)
+        (match_arm pattern: (wildcard_pattern) body: (integer))))))
+
+===
+Literal patterns
+===
+
+fn describe(n: Int) -> String {
+  match n {
+    0 => "zero",
+    1 => "one",
+    _ => "other",
+  }
+}
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (named_type (identifier)))
+    return_type: (named_type (identifier))
+    body: (block
+      (match_expression
+        scrutinee: (identifier)
+        (match_arm pattern: (literal_pattern (integer)) body: (string))
+        (match_arm pattern: (literal_pattern (integer)) body: (string))
+        (match_arm pattern: (wildcard_pattern) body: (string))))))
+
+===
+Call pattern (enum tuple variant)
+===
+
+fn unwrap(opt: Option<Int>) -> Int {
+  match opt {
+    Some(v) => v,
+    None => 0,
+  }
+}
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (parameterized_type (identifier) (named_type (identifier))))
+    return_type: (named_type (identifier))
+    body: (block
+      (match_expression
+        scrutinee: (identifier)
+        (match_arm pattern: (call_pattern name: (identifier) (identifier)) body: (identifier))
+        (match_arm pattern: (identifier) body: (integer))))))
+
+===
+List pattern with rest
+===
+
+fn head(list: List<Int>) -> Option<Int> {
+  match list {
+    [] => None,
+    [first, ..] => Some(first),
+  }
+}
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (parameterized_type (identifier) (named_type (identifier))))
+    return_type: (parameterized_type (identifier) (named_type (identifier)))
+    body: (block
+      (match_expression
+        scrutinee: (identifier)
+        (match_arm pattern: (list_pattern) body: (identifier))
+        (match_arm
+          pattern: (list_pattern (identifier) (rest_pattern))
+          body: (call_expression function: (identifier) (identifier)))))))
+
+===
+Tuple pattern
+===
+
+fn swap(pair: (Int, String)) -> (String, Int) {
+  match pair {
+    (a, b) => (b, a),
+  }
+}
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (tuple_type (named_type (identifier)) (named_type (identifier))))
+    return_type: (tuple_type (named_type (identifier)) (named_type (identifier)))
+    body: (block
+      (match_expression
+        scrutinee: (identifier)
+        (match_arm
+          pattern: (tuple_pattern (identifier) (identifier))
+          body: (tuple_expression (identifier) (identifier)))))))
+
+===
+As pattern
+===
+
+fn check(list: List<Int>) -> List<Int> {
+  match list {
+    [_, rest @ ..] => rest,
+    _ => [],
+  }
+}
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (parameterized_type (identifier) (named_type (identifier))))
+    return_type: (parameterized_type (identifier) (named_type (identifier)))
+    body: (block
+      (match_expression
+        scrutinee: (identifier)
+        (match_arm
+          pattern: (list_pattern
+            (wildcard_pattern)
+            (rest_pattern (identifier)))
+          body: (identifier))
+        (match_arm
+          pattern: (wildcard_pattern)
+          body: (list_expression))))))

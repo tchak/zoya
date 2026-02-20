@@ -1,0 +1,113 @@
+===
+Simple impl block
+===
+
+impl String {
+  pub fn len(self) -> Int ()
+}
+
+---
+
+(source_file
+  (impl_block
+    type: (named_type (identifier))
+    (impl_method
+      (visibility)
+      name: (identifier)
+      (parameter)
+      return_type: (named_type (identifier))
+      body: (tuple_expression))))
+
+===
+Generic impl block
+===
+
+impl<T> Option<T> {
+  pub fn unwrap(self) -> T {
+    match self {
+      Some(v) => v,
+      None => panic("called unwrap on None"),
+    }
+  }
+}
+
+---
+
+(source_file
+  (impl_block
+    (type_parameters (identifier))
+    type: (parameterized_type (identifier) (named_type (identifier)))
+    (impl_method
+      (visibility)
+      name: (identifier)
+      (parameter)
+      return_type: (named_type (identifier))
+      body: (block
+        (match_expression
+          scrutinee: (self_expression)
+          (match_arm
+            pattern: (call_pattern name: (identifier) (identifier))
+            body: (identifier))
+          (match_arm
+            pattern: (identifier)
+            body: (call_expression function: (identifier) (string))))))))
+
+===
+Impl with builtin method
+===
+
+impl<T> List<T> {
+  #[builtin]
+  pub fn len(self) -> Int ()
+
+  pub fn is_empty(self) -> Bool self.len() == 0
+}
+
+---
+
+(source_file
+  (impl_block
+    (type_parameters (identifier))
+    type: (parameterized_type (identifier) (named_type (identifier)))
+    (impl_method
+      (attribute name: (identifier))
+      (visibility)
+      name: (identifier)
+      (parameter)
+      return_type: (named_type (identifier))
+      body: (tuple_expression))
+    (impl_method
+      (visibility)
+      name: (identifier)
+      (parameter)
+      return_type: (named_type (identifier))
+      body: (binary_expression
+        left: (method_call object: (self_expression) method: (identifier))
+        right: (integer)))))
+
+===
+Impl with associated function
+===
+
+impl Response {
+  pub fn ok(body: Option<Body>) -> Response {
+    Response { body: body, status: 200, headers: Dict::new() }
+  }
+}
+
+---
+
+(source_file
+  (impl_block
+    type: (named_type (identifier))
+    (impl_method
+      (visibility)
+      name: (identifier)
+      (parameter pattern: (identifier) type: (parameterized_type (identifier) (named_type (identifier))))
+      return_type: (named_type (identifier))
+      body: (block
+        (struct_constructor
+          name: (identifier)
+          (field_initializer name: (identifier) value: (identifier))
+          (field_initializer name: (identifier) value: (integer))
+          (field_initializer name: (identifier) value: (call_expression function: (path (identifier) (identifier)))))))))

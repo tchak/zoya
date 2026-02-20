@@ -1,0 +1,57 @@
+===
+Named struct
+===
+
+struct Point { x: Int, y: Int }
+
+---
+
+(source_file
+  (struct_definition
+    name: (identifier)
+    (struct_named_fields
+      (struct_field name: (identifier) type: (named_type (identifier)))
+      (struct_field name: (identifier) type: (named_type (identifier))))))
+
+===
+Tuple struct
+===
+
+struct Pair(Int, String)
+
+---
+
+(source_file
+  (struct_definition
+    name: (identifier)
+    (struct_tuple_fields (named_type (identifier)) (named_type (identifier)))))
+
+===
+Unit struct
+===
+
+struct Empty
+
+---
+
+(source_file
+  (struct_definition
+    name: (identifier)))
+
+===
+Pub generic struct
+===
+
+pub struct Request { url: String, method: Method, body: Option<Body>, headers: Headers }
+
+---
+
+(source_file
+  (struct_definition
+    (visibility)
+    name: (identifier)
+    (struct_named_fields
+      (struct_field name: (identifier) type: (named_type (identifier)))
+      (struct_field name: (identifier) type: (named_type (identifier)))
+      (struct_field name: (identifier) type: (parameterized_type (identifier) (named_type (identifier))))
+      (struct_field name: (identifier) type: (named_type (identifier))))))

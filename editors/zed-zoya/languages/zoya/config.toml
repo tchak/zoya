@@ -1,0 +1,29 @@
+name = "Zoya"
+grammar = "zoya"
+path_suffixes = ["zy"]
+line_comments = ["// "]
+block_comment = ["/* ", " */"]
+
+[brackets]
+pairs = [
+  ["(", ")"],
+  ["[", "]"],
+  ["{", "}"],
+  ["|", "|"],
+  ["\"", "\""],
+]
+
+[autoclose]
+pairs = [
+  ["(", ")"],
+  ["[", "]"],
+  ["{", "}"],
+  ["\"", "\""],
+]
+
+[overrides.string]
+disabled_bracket_pairs = ["(", "[", "{"]
+
+[indents]
+increase = ["{", "(", "["]
+decrease = ["}", ")", "]"]

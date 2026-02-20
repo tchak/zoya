@@ -1,0 +1,122 @@
+===
+Simple function
+===
+
+fn add(x: Int, y: Int) -> Int x + y
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (named_type (identifier)))
+    (parameter pattern: (identifier) type: (named_type (identifier)))
+    return_type: (named_type (identifier))
+    body: (binary_expression
+      left: (identifier)
+      right: (identifier))))
+
+===
+Function with block body
+===
+
+fn factorial(n: Int) -> Int {
+  let acc = 1;
+  acc
+}
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (named_type (identifier)))
+    return_type: (named_type (identifier))
+    body: (block
+      (let_binding pattern: (identifier) value: (integer))
+      (identifier))))
+
+===
+Generic function
+===
+
+fn identity<T>(x: T) -> T x
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (type_parameters (identifier))
+    (parameter pattern: (identifier) type: (named_type (identifier)))
+    return_type: (named_type (identifier))
+    body: (identifier)))
+
+===
+Pub function
+===
+
+pub fn main() -> Int 42
+
+---
+
+(source_file
+  (function_definition
+    (visibility)
+    name: (identifier)
+    return_type: (named_type (identifier))
+    body: (integer)))
+
+===
+Builtin function
+===
+
+#[builtin]
+pub fn panic<T>(message: String) -> T ()
+
+---
+
+(source_file
+  (function_definition
+    (attribute name: (identifier))
+    (visibility)
+    name: (identifier)
+    (type_parameters (identifier))
+    (parameter pattern: (identifier) type: (named_type (identifier)))
+    return_type: (named_type (identifier))
+    body: (tuple_expression)))
+
+===
+Test function
+===
+
+#[test]
+fn test_add() -> () assert_eq(1 + 1, 2)
+
+---
+
+(source_file
+  (function_definition
+    (attribute name: (identifier))
+    name: (identifier)
+    return_type: (tuple_type)
+    body: (call_expression
+      function: (identifier)
+      (binary_expression left: (integer) right: (integer))
+      (integer))))
+
+===
+Function with function type parameter
+===
+
+fn apply(f: Int -> Bool, x: Int) -> Bool f(x)
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (function_type (named_type (identifier)) (named_type (identifier))))
+    (parameter pattern: (identifier) type: (named_type (identifier)))
+    return_type: (named_type (identifier))
+    body: (call_expression function: (identifier) (identifier))))

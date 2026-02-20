@@ -1,0 +1,12 @@
+[extension]
+id = "zoya"
+name = "Zoya"
+version = "0.1.0"
+schema_version = 1
+description = "Zoya language support for Zed"
+authors = ["Paul Chavard"]
+repository = "https://github.com/tchak/zoya-lang"
+
+[grammars.zoya]
+repository = "https://github.com/tchak/zoya-lang"
+path = "editors/tree-sitter-zoya"

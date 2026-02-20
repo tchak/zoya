@@ -1,0 +1,158 @@
+===
+Integer literals
+===
+
+fn main() -> Int 42
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    return_type: (named_type (identifier))
+    body: (integer)))
+
+===
+Integer with underscores
+===
+
+fn main() -> Int 1_000_000
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    return_type: (named_type (identifier))
+    body: (integer)))
+
+===
+Float literals
+===
+
+fn main() -> Float 3.14
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    return_type: (named_type (identifier))
+    body: (float)))
+
+===
+BigInt literals
+===
+
+fn main() -> BigInt 42n
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    return_type: (named_type (identifier))
+    body: (bigint)))
+
+===
+Boolean literals
+===
+
+fn t() -> Bool true
+fn f() -> Bool false
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    return_type: (named_type (identifier))
+    body: (boolean))
+  (function_definition
+    name: (identifier)
+    return_type: (named_type (identifier))
+    body: (boolean)))
+
+===
+String literals
+===
+
+fn main() -> String "hello world"
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    return_type: (named_type (identifier))
+    body: (string)))
+
+===
+String with escape sequences
+===
+
+fn main() -> String "line\nbreak\ttab"
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    return_type: (named_type (identifier))
+    body: (string)))
+
+===
+Empty list
+===
+
+fn main() -> List<Int> []
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    return_type: (parameterized_type (identifier) (named_type (identifier)))
+    body: (list_expression)))
+
+===
+List with elements
+===
+
+fn main() -> List<Int> [1, 2, 3]
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    return_type: (parameterized_type (identifier) (named_type (identifier)))
+    body: (list_expression (integer) (integer) (integer))))
+
+===
+Empty tuple
+===
+
+fn main() -> () ()
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    return_type: (tuple_type)
+    body: (tuple_expression)))
+
+===
+Tuple expression
+===
+
+fn main() -> (Int, String) (1, "hello")
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    return_type: (tuple_type (named_type (identifier)) (named_type (identifier)))
+    body: (tuple_expression (integer) (string))))

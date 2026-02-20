@@ -1,0 +1,215 @@
+===
+Binary arithmetic
+===
+
+fn main() -> Int 1 + 2 * 3
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    return_type: (named_type (identifier))
+    body: (binary_expression
+      left: (integer)
+      right: (binary_expression
+        left: (integer)
+        right: (integer)))))
+
+===
+Comparison
+===
+
+fn main() -> Bool 1 == 2
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    return_type: (named_type (identifier))
+    body: (binary_expression
+      left: (integer)
+      right: (integer))))
+
+===
+Unary negation
+===
+
+fn neg(x: Int) -> Int -x
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (named_type (identifier)))
+    return_type: (named_type (identifier))
+    body: (unary_expression operand: (identifier))))
+
+===
+Power operator
+===
+
+fn main() -> Int 2 ** 3
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    return_type: (named_type (identifier))
+    body: (binary_expression
+      left: (integer)
+      right: (integer))))
+
+===
+Match expression
+===
+
+fn abs(n: Int) -> Int {
+  match n >= 0 {
+    true => n,
+    false => -n,
+  }
+}
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (named_type (identifier)))
+    return_type: (named_type (identifier))
+    body: (block
+      (match_expression
+        scrutinee: (binary_expression left: (identifier) right: (integer))
+        (match_arm
+          pattern: (literal_pattern (boolean))
+          body: (identifier))
+        (match_arm
+          pattern: (literal_pattern (boolean))
+          body: (unary_expression operand: (identifier)))))))
+
+===
+Method call chain
+===
+
+fn main() -> Int [1, 2, 3].len()
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    return_type: (named_type (identifier))
+    body: (method_call
+      object: (list_expression (integer) (integer) (integer))
+      method: (identifier))))
+
+===
+Field access
+===
+
+fn get_x(p: Point) -> Int p.x
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (named_type (identifier)))
+    return_type: (named_type (identifier))
+    body: (field_expression
+      object: (identifier)
+      field: (identifier))))
+
+===
+Index expression
+===
+
+fn first(list: List<Int>) -> Option<Int> list[0]
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (parameterized_type (identifier) (named_type (identifier))))
+    return_type: (parameterized_type (identifier) (named_type (identifier)))
+    body: (index_expression
+      object: (identifier)
+      index: (integer))))
+
+===
+Lambda expression
+===
+
+fn main() -> List<Int> [1, 2, 3].map(|x| x + 1)
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    return_type: (parameterized_type (identifier) (named_type (identifier)))
+    body: (method_call
+      object: (list_expression (integer) (integer) (integer))
+      method: (identifier)
+      (lambda_expression
+        (lambda_parameter pattern: (identifier))
+        body: (binary_expression left: (identifier) right: (integer))))))
+
+===
+Block expression with let bindings
+===
+
+fn main() -> Int {
+  let x = 1;
+  let y = 2;
+  x + y
+}
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    return_type: (named_type (identifier))
+    body: (block
+      (let_binding pattern: (identifier) value: (integer))
+      (let_binding pattern: (identifier) value: (integer))
+      (binary_expression left: (identifier) right: (identifier)))))
+
+===
+Struct constructor
+===
+
+fn origin() -> Point Point { x: 0, y: 0 }
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    return_type: (named_type (identifier))
+    body: (struct_constructor
+      name: (identifier)
+      (field_initializer name: (identifier) value: (integer))
+      (field_initializer name: (identifier) value: (integer)))))
+
+===
+List spread
+===
+
+fn prepend(x: Int, xs: List<Int>) -> List<Int> [x, ..xs]
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (named_type (identifier)))
+    (parameter pattern: (identifier) type: (parameterized_type (identifier) (named_type (identifier))))
+    return_type: (parameterized_type (identifier) (named_type (identifier)))
+    body: (list_expression (identifier) (spread_element (identifier)))))

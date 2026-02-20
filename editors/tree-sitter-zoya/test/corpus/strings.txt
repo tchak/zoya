@@ -1,0 +1,68 @@
+===
+Simple interpolated string
+===
+
+fn greet(name: String) -> String $"hello {name}!"
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (named_type (identifier)))
+    return_type: (named_type (identifier))
+    body: (interpolated_string
+      (interpolation (identifier)))))
+
+===
+Interpolated string with multiple expressions
+===
+
+fn format(a: Int, b: Int) -> String $"{a} and {b}"
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (named_type (identifier)))
+    (parameter pattern: (identifier) type: (named_type (identifier)))
+    return_type: (named_type (identifier))
+    body: (interpolated_string
+      (interpolation (identifier))
+      (interpolation (identifier)))))
+
+===
+Adjacent interpolations
+===
+
+fn concat(a: String, b: String) -> String $"{a}{b}"
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (named_type (identifier)))
+    (parameter pattern: (identifier) type: (named_type (identifier)))
+    return_type: (named_type (identifier))
+    body: (interpolated_string
+      (interpolation (identifier))
+      (interpolation (identifier)))))
+
+===
+Interpolation with expression
+===
+
+fn show(n: Int) -> String $"{n + 1}"
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (named_type (identifier)))
+    return_type: (named_type (identifier))
+    body: (interpolated_string
+      (interpolation
+        (binary_expression left: (identifier) right: (integer))))))

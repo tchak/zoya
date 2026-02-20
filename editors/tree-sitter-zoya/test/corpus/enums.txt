@@ -1,0 +1,68 @@
+===
+Simple enum
+===
+
+enum Color { Red, Green, Blue }
+
+---
+
+(source_file
+  (enum_definition
+    name: (identifier)
+    (enum_variant name: (identifier))
+    (enum_variant name: (identifier))
+    (enum_variant name: (identifier))))
+
+===
+Generic enum
+===
+
+pub enum Option<T> { None, Some(T) }
+
+---
+
+(source_file
+  (enum_definition
+    (visibility)
+    name: (identifier)
+    (type_parameters (identifier))
+    (enum_variant name: (identifier))
+    (enum_variant name: (identifier) (named_type (identifier)))))
+
+===
+Enum with multiple type parameters
+===
+
+pub enum Result<T, E> { Ok(T), Err(E) }
+
+---
+
+(source_file
+  (enum_definition
+    (visibility)
+    name: (identifier)
+    (type_parameters (identifier) (identifier))
+    (enum_variant name: (identifier) (named_type (identifier)))
+    (enum_variant name: (identifier) (named_type (identifier)))))
+
+===
+Enum with struct variant
+===
+
+enum Shape {
+  Circle { radius: Float },
+  Rectangle { width: Float, height: Float },
+}
+
+---
+
+(source_file
+  (enum_definition
+    name: (identifier)
+    (enum_variant
+      name: (identifier)
+      (struct_field name: (identifier) type: (named_type (identifier))))
+    (enum_variant
+      name: (identifier)
+      (struct_field name: (identifier) type: (named_type (identifier)))
+      (struct_field name: (identifier) type: (named_type (identifier))))))

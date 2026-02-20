@@ -1,0 +1,62 @@
+===
+Module declaration
+===
+
+pub mod option
+
+---
+
+(source_file
+  (mod_declaration (visibility) name: (identifier)))
+
+===
+Use single import
+===
+
+use super::option::Option
+
+---
+
+(source_file
+  (use_declaration
+    (use_path (identifier) (identifier))))
+
+===
+Use glob import
+===
+
+pub use self::Option::*
+
+---
+
+(source_file
+  (use_declaration
+    (visibility)
+    (use_path (identifier))))
+
+===
+Use group import
+===
+
+use root::foo::{bar, baz}
+
+---
+
+(source_file
+  (use_declaration
+    (use_path (identifier) (identifier) (identifier))))
+
+===
+Multiple module declarations
+===
+
+pub mod bigint
+pub mod dict
+pub mod float
+
+---
+
+(source_file
+  (mod_declaration (visibility) name: (identifier))
+  (mod_declaration (visibility) name: (identifier))
+  (mod_declaration (visibility) name: (identifier)))
