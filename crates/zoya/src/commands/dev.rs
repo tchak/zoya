@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::Router;
 use axum::extract::State;
@@ -16,6 +16,7 @@ use zoya_loader::{LoaderError, Mode};
 /// Shared state for the dev server, holding the current active router.
 struct DevState {
     router: RwLock<Option<Router>>,
+    term: Term,
 }
 
 /// Result of a successful build.
@@ -33,6 +34,7 @@ pub fn execute(path: &Path, port: u16) -> Result<(), String> {
     let initial = initial_build(&term, path)?;
     let state = Arc::new(DevState {
         router: RwLock::new(initial.map(|b| b.router)),
+        term: term.clone(),
     });
 
     let outer = build_outer_router(state.clone());
@@ -161,9 +163,13 @@ async fn proxy_handler(
     State(state): State<Arc<DevState>>,
     request: axum::extract::Request,
 ) -> axum::response::Response {
+    let method = request.method().clone();
+    let path = request.uri().path().to_string();
+    let start = Instant::now();
+
     let inner = state.router.read().unwrap().clone();
 
-    match inner {
+    let response = match inner {
         Some(router) => match router.oneshot(request).await {
             Ok(response) => response,
             Err(infallible) => match infallible {},
@@ -173,7 +179,30 @@ async fn proxy_handler(
             "Build failed. Fix errors and save to retry.\n",
         )
             .into_response(),
-    }
+    };
+
+    let status = response.status().as_u16();
+    let elapsed = start.elapsed();
+    let time_str = if elapsed.as_millis() > 0 {
+        format!("{:.2}ms", elapsed.as_secs_f64() * 1000.0)
+    } else {
+        format!("{}µs", elapsed.as_micros())
+    };
+
+    let styled_status = if status < 400 {
+        style(status).green()
+    } else if status < 500 {
+        style(status).yellow()
+    } else {
+        style(status).red()
+    };
+
+    let _ = state.term.write_line(&format!(
+        "  {:<6} {path:<30} {styled_status}  {time_str}",
+        method.as_str(),
+    ));
+
+    response
 }
 
 /// Set up a file watcher that sends events for `.zy` file changes.
