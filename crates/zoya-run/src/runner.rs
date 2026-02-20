@@ -22,7 +22,6 @@ enum EntryPoint {
 ///
 /// Use `Runner::new()` then choose an input source:
 /// - `.package(pkg, deps)` → `PackageRunner`
-/// - `.path(p)` → `PathRunner`
 /// - `.source(s)` → `SourceRunner`
 #[derive(Default)]
 pub struct Runner;
@@ -43,14 +42,6 @@ impl Runner {
             package,
             deps: deps.into_iter().collect(),
             entry_point: EntryPoint::Main(None),
-        }
-    }
-
-    /// Load, check, and run a `.zy` file at the given path.
-    pub fn path(self, path: &Path) -> PathRunner {
-        PathRunner {
-            path: path.to_path_buf(),
-            mode: zoya_loader::Mode::Dev,
         }
     }
 
@@ -103,29 +94,6 @@ impl<'a> PackageRunner<'a> {
     }
 }
 
-/// Runner configured to load and run a file.
-pub struct PathRunner {
-    path: std::path::PathBuf,
-    mode: zoya_loader::Mode,
-}
-
-impl PathRunner {
-    /// Set the compilation mode (default: `Mode::Dev`).
-    pub fn mode(mut self, mode: zoya_loader::Mode) -> Self {
-        self.mode = mode;
-        self
-    }
-
-    /// Load, check, and execute the file.
-    pub fn run(self) -> Result<Value, EvalError> {
-        let std = zoya_std::std();
-        let package =
-            load_package(&self.path, self.mode).map_err(|e| e.map_path(|p| p.to_string()))?;
-        let checked = check(&package, &[std])?;
-        run_checked(&checked, &[std], &EntryPoint::Main(None))
-    }
-}
-
 /// Runner configured to compile and run a source string.
 pub struct SourceRunner {
     source: String,
@@ -152,11 +120,6 @@ impl SourceRunner {
 /// Load, check, and run source code from a string (convenience function).
 pub fn run_source(source: &str) -> Result<Value, EvalError> {
     Runner::new().source(source).run()
-}
-
-/// Load, check, and run a `.zy` file (convenience function).
-pub fn run_path(path: &Path) -> Result<Value, EvalError> {
-    Runner::new().path(path).run()
 }
 
 /// Structured error for test failures.

@@ -15,23 +15,16 @@ pub fn execute(
     args: &[String],
     json: bool,
 ) -> Result<()> {
-    match name {
+    let std = zoya_std::std();
+    let pkg = zoya_loader::load_package(path, mode)?;
+    let checked = check(&pkg, &[std])?;
+
+    let value = match name {
         None => {
             // Default behavior: run main()
-            let value = Runner::new().path(path).mode(mode).run()?;
-            if json {
-                println!("{}", value.to_json_pretty());
-            } else {
-                println!("{}", value);
-            }
-            Ok(())
+            Runner::new().package(&checked, [std]).run()?
         }
         Some(fn_name) => {
-            // Run a named function with type-guided arg parsing
-            let pkg = zoya_loader::load_package(path, mode)?;
-            let std = zoya_std::std();
-            let checked = check(&pkg, &[std])?;
-
             // Build qualified path from function name (e.g. "add" or "utils::helper")
             let mut fn_path = QualifiedPath::root();
             for segment in fn_name.split("::") {
@@ -93,20 +86,19 @@ pub fn execute(
             }
 
             // Run the function
-            let result = Runner::new()
+            Runner::new()
                 .package(&checked, [std])
                 .entry(fn_path, parsed_args)
-                .run()?;
-
-            // Print result
-            if json {
-                println!("{}", result.to_json_pretty());
-            } else {
-                println!("{}", result);
-            }
-            Ok(())
+                .run()?
         }
+    };
+
+    if json {
+        println!("{}", value.to_json_pretty());
+    } else {
+        println!("{}", value);
     }
+    Ok(())
 }
 
 #[cfg(test)]
