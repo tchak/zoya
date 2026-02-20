@@ -3459,6 +3459,7 @@ dependencies = [
  "zoya-router",
  "zoya-run",
  "zoya-std",
+ "zoya-test",
 ]
 
 [[package]]
@@ -3595,6 +3596,21 @@ dependencies = [
  "zoya-check",
  "zoya-ir",
  "zoya-loader",
+]
+
+[[package]]
+name = "zoya-test"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "thiserror 2.0.18",
+ "zoya-check",
+ "zoya-ir",
+ "zoya-loader",
+ "zoya-package",
+ "zoya-run",
+ "zoya-std",
+ "zoya-value",
 ]
 
 [[package]]

@@ -1,0 +1,17 @@
+[package]
+name = "zoya-test"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+thiserror = "2"
+zoya-ir = { path = "../zoya-ir" }
+zoya-package = { path = "../zoya-package" }
+zoya-run = { path = "../zoya-run" }
+zoya-value = { path = "../zoya-value" }
+
+[dev-dependencies]
+tempfile = "3"
+zoya-check = { path = "../zoya-check" }
+zoya-loader = { path = "../zoya-loader" }
+zoya-std = { path = "../zoya-std" }

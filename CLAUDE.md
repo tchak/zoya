@@ -69,6 +69,7 @@ crates/
 │       ├── lib.rs         # Public API
 │       ├── eval.rs        # JS execution
 │       └── runner.rs      # Run functions
+├── zoya-test/         # Test runner (TestRunner, TestReport)
 ├── zoya-std/          # Standard library
     └── src/
         ├── lib.rs         # Loads and caches std package
@@ -120,7 +121,7 @@ All crates use [`thiserror`](https://github.com/dtolnay/thiserror) for structure
 | `zoya-loader` | `LoaderError<P>` | Module loading — embeds `LexError`/`ParseError` as `#[source]` |
 | `zoya-value` | `Error` | Runtime value conversion errors |
 | `zoya-run` | `EvalError` | Runtime execution: `Panic`, `RuntimeError`, `LoadError`, `TypeError` |
-| `zoya-run` | `TestError` | Per-test errors: `Panic`, `RuntimeError`, `Failed`, `UnexpectedReturn` |
+| `zoya-test` | `TestError` | Per-test errors: `Panic`, `RuntimeError`, `Failed`, `UnexpectedReturn` |
 | `zoya-std` | `StdError` | Std library loading — `#[from]` for `LoaderError` and `TypeError` |
 | `zoya` | `InitError` | Project creation errors |
 
@@ -211,6 +212,7 @@ New features need tests at each pipeline stage:
 | `zoya-fmt` | Source code formatting |
 | `zoya-router` | HTTP routing and handler execution |
 | `zoya-run` | End-to-end execution |
+| `zoya-test` | Test runner and reporting |
 | `zoya-std` | Standard library loading and caching |
 | `zoya-value` | Value types, serialization, JS bridge |
 | `zoya` | CLI commands, REPL, and project creation |
