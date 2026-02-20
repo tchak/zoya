@@ -4,10 +4,19 @@ use zoya_check::check;
 use zoya_ir::CheckedPackage;
 use zoya_loader::{MemorySource, load_memory_package};
 
+/// Error type for standard library building.
+#[derive(Debug, thiserror::Error)]
+pub enum StdError {
+    #[error("failed to load std package: {0}")]
+    Load(#[from] zoya_loader::LoaderError<String>),
+    #[error("failed to check std package: {0}")]
+    Check(#[from] zoya_ir::TypeError),
+}
+
 static STD_PACKAGE: LazyLock<CheckedPackage> =
     LazyLock::new(|| build_std().expect("failed to build std package"));
 
-fn build_std() -> Result<CheckedPackage, String> {
+fn build_std() -> Result<CheckedPackage, StdError> {
     let source = MemorySource::new()
         .with_module("root", include_str!("std/main.zy"))
         .with_module("bigint", include_str!("std/bigint.zy"))
@@ -24,11 +33,10 @@ fn build_std() -> Result<CheckedPackage, String> {
         .with_module("set", include_str!("std/set.zy"))
         .with_module("string", include_str!("std/string.zy"));
 
-    let mut pkg = load_memory_package(&source, zoya_loader::Mode::Release)
-        .map_err(|e| format!("failed to load std package: {e}"))?;
+    let mut pkg = load_memory_package(&source, zoya_loader::Mode::Release)?;
     pkg.name = "std".to_string();
 
-    check(&pkg, &[]).map_err(|e| format!("failed to check std package: {e}"))
+    Ok(check(&pkg, &[])?)
 }
 
 /// Returns the standard library as a checked package.

@@ -12,7 +12,7 @@
 | zoya-ir | Yes | `TypeError` (~30 variants) | `Pathname::new()` | **Done** |
 | zoya-check | Yes | Uses `TypeError` from ir | None | **Done** |
 | zoya-run | Yes | `EvalError` (2 variants), `TestError` (4 variants) | None | **Done** |
-| zoya-std | No | None | `build_std()` | **Not started** |
+| zoya-std | Yes | `StdError` (2 variants) | None | **Done** |
 | zoya (CLI) | No | `NewError` (manual), `BuildError` (String) | All `execute()` fns | **Partially done** |
 
 ### What's been done
@@ -23,25 +23,22 @@ The leaf crates are solid — `zoya-package`, `zoya-lexer`, `zoya-parser`, `zoya
 
 In `zoya-run`, `create_runtime()` now returns `Result<_, EvalError>` instead of `Result<_, String>`. Test results use a new `TestError` enum with 4 variants (`Panic`, `RuntimeError`, `Failed`, `UnexpectedReturn`) instead of plain strings. `run_single_test()` and `interpret_test_value()` map errors to structured `TestError` variants.
 
+In `zoya-std`, `build_std()` now returns `Result<_, StdError>` instead of `Result<_, String>`. `StdError` wraps `LoaderError` and `TypeError` via `#[from]`, using `?` instead of `.map_err(|e| format!(...))`.
+
 Downstream consumers still use `.to_string()` which continues to work since `Display` is derived via `thiserror`.
 
 ### What remains
 
-The remaining work is in the downstream crates — propagating structured errors instead of flattening to strings:
+The remaining work is in the CLI crate — propagating structured errors instead of flattening to strings:
 
 ```
 TypeError (structured enum)
-  → zoya-std: Result<_, String>                ← still flattens
   → CLI: Result<(), String>                    ← still flattens
 ```
 
 ## Remaining Work
 
-### 1. `zoya-std` — Add proper error type (Small)
-
-`build_std()` returns `Result<_, String>`. Replace with a `StdError` enum wrapping `LoaderError` and `TypeError`.
-
-### 2. `zoya` CLI — Proper command errors (Medium)
+### 1. `zoya` CLI — Proper command errors (Medium)
 
 Every command's `execute()` returns `Result<(), String>`. Options:
 - Use `anyhow` at the CLI boundary for ergonomic error propagation
@@ -49,12 +46,11 @@ Every command's `execute()` returns `Result<(), String>`. Options:
 - `NewError` already has proper variants but uses manual `Display` — switch to `thiserror`
 - `BuildError` in `dev.rs` has `Fatal(String)` / `Recoverable(String)` — needs real variants
 
-### 3. `zoya-loader` — Minor cleanup (Small)
+### 2. `zoya-loader` — Minor cleanup (Small)
 
 `ConfigError(String)` variant wraps a plain `String` rather than the actual `ConfigError` type. `LexError` and `ParseError` variants store `message: String` rather than embedding upstream error types directly.
 
 ## Recommended Order
 
-1. **`zoya-std`** — Add `StdError`, eliminate `Result<_, String>`
-2. **`zoya` CLI** — Adopt `anyhow` or `CliError`, propagate structured errors
-3. **`zoya-loader`** — Preserve upstream error types instead of extracting `.message`
+1. **`zoya` CLI** — Adopt `anyhow` or `CliError`, propagate structured errors
+2. **`zoya-loader`** — Preserve upstream error types instead of extracting `.message`
