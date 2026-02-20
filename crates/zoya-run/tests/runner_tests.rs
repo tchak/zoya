@@ -6153,6 +6153,7 @@ fn test_test_path_result_err_fails() {
             .outcome
             .as_ref()
             .unwrap_err()
+            .to_string()
             .contains("something wrong")
     );
 }

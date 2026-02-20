@@ -4,12 +4,14 @@ use zoya_ir::{DefinitionLookup, Type};
 use zoya_value::{JSValue, Value};
 
 /// Create a runtime and context for plain script evaluation (no module system).
-pub(crate) fn create_runtime() -> Result<(Runtime, Context), String> {
-    let runtime = Runtime::new().map_err(|e| e.to_string())?;
-    let context = Context::full(&runtime).map_err(|e| e.to_string())?;
+pub(crate) fn create_runtime() -> Result<(Runtime, Context), EvalError> {
+    let runtime = Runtime::new()
+        .map_err(|e| EvalError::RuntimeError(format!("failed to create runtime: {e}")))?;
+    let context = Context::full(&runtime)
+        .map_err(|e| EvalError::RuntimeError(format!("failed to create context: {e}")))?;
     context
         .with(|ctx| inject_console(&ctx))
-        .map_err(|e| format!("failed to inject console: {e}"))?;
+        .map_err(|e| EvalError::RuntimeError(format!("failed to inject console: {e}")))?;
     Ok((runtime, context))
 }
 

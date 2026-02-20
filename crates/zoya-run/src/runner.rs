@@ -163,11 +163,24 @@ pub fn run_path(path: &Path) -> Result<Value, EvalError> {
     Runner::new().path(path).run()
 }
 
+/// Structured error for test failures.
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum TestError {
+    #[error("panic: {0}")]
+    Panic(String),
+    #[error("runtime error: {0}")]
+    RuntimeError(String),
+    #[error("{0}")]
+    Failed(String),
+    #[error("unexpected test return value: {0}")]
+    UnexpectedReturn(String),
+}
+
 /// A single test result.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TestResult {
     pub path: QualifiedPath,
-    pub outcome: Result<(), String>,
+    pub outcome: Result<(), TestError>,
 }
 
 /// Summary of all test results.
@@ -225,16 +238,16 @@ fn run_single_test(
     package: &CheckedPackage,
     deps: &[&CheckedPackage],
     path: &QualifiedPath,
-) -> Result<(), String> {
+) -> Result<(), TestError> {
     match run_checked(package, deps, &EntryPoint::Entry(path.clone(), vec![])) {
         Ok(value) => interpret_test_value(&value),
-        Err(EvalError::Panic(msg)) => Err(format!("panic: {msg}")),
-        Err(EvalError::RuntimeError(msg)) => Err(format!("runtime error: {msg}")),
+        Err(EvalError::Panic(msg)) => Err(TestError::Panic(msg)),
+        Err(EvalError::RuntimeError(msg)) => Err(TestError::RuntimeError(msg)),
     }
 }
 
 /// Interpret a test function's return value as pass/fail.
-fn interpret_test_value(value: &Value) -> Result<(), String> {
+fn interpret_test_value(value: &Value) -> Result<(), TestError> {
     match value {
         Value::Tuple(elems) if elems.is_empty() => Ok(()),
         Value::EnumVariant {
@@ -253,9 +266,9 @@ fn interpret_test_value(value: &Value) -> Result<(), String> {
                 .first()
                 .map(|v| v.to_string())
                 .unwrap_or_else(|| "test failed".to_string());
-            Err(msg)
+            Err(TestError::Failed(msg))
         }
-        _ => Err(format!("unexpected test return value: {value}")),
+        _ => Err(TestError::UnexpectedReturn(format!("{value}"))),
     }
 }
 
@@ -320,8 +333,7 @@ fn run_checked(
     let entry_func = format_export_path(&function_path, &package.name);
 
     // Create runtime (no module system needed)
-    let (_runtime, context) =
-        eval::create_runtime().map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+    let (_runtime, context) = eval::create_runtime()?;
 
     // Evaluate the script and call the entry function
     context.with(|ctx| {
@@ -369,6 +381,7 @@ mod tests {
         assert!(
             interpret_test_value(&value)
                 .unwrap_err()
+                .to_string()
                 .contains("something failed")
         );
     }
@@ -420,7 +433,7 @@ mod tests {
                 },
                 TestResult {
                     path: QualifiedPath::root().child("test_b"),
-                    outcome: Err("failed".to_string()),
+                    outcome: Err(TestError::Failed("failed".to_string())),
                 },
             ],
         };
