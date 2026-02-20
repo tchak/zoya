@@ -1,17 +1,18 @@
 use std::path::Path;
 
+use anyhow::Result;
 use console::{Term, style};
 use zoya_check::check;
 use zoya_loader::Mode;
 
 /// Type-check a file without executing it
-pub fn execute(path: &Path, mode: Mode) -> Result<(), String> {
+pub fn execute(path: &Path, mode: Mode) -> Result<()> {
     // Load and parse package
-    let pkg = zoya_loader::load_package(path, mode).map_err(|e| e.to_string())?;
+    let pkg = zoya_loader::load_package(path, mode)?;
 
     // Type check entire package with std
     let std = zoya_std::std();
-    check(&pkg, &[std]).map_err(|e| e.to_string())?;
+    check(&pkg, &[std])?;
 
     // Success
     let term = Term::stderr();
@@ -51,7 +52,7 @@ mod tests {
     fn test_execute_file_not_found() {
         let result = execute(Path::new("nonexistent.zy"), Mode::Dev);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("failed to read"));
+        assert!(result.unwrap_err().to_string().contains("failed to read"));
     }
 
     #[test]

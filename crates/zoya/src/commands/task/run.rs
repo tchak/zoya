@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use anyhow::{Result, anyhow, bail};
 use zoya_check::check;
 use zoya_ir::{DefinitionLookup, TypedPattern};
 use zoya_loader::Mode;
@@ -13,11 +14,11 @@ pub fn execute(
     args: &[String],
     json: bool,
     mode: Mode,
-) -> Result<(), String> {
+) -> Result<()> {
     // Load and type-check
-    let pkg = zoya_loader::load_package(path, mode).map_err(|e| e.to_string())?;
+    let pkg = zoya_loader::load_package(path, mode)?;
     let std = zoya_std::std();
-    let checked = check(&pkg, &[std]).map_err(|e| e.to_string())?;
+    let checked = check(&pkg, &[std])?;
 
     // Build qualified path from task name (e.g. "deploy" or "utils::migrate")
     let mut task_path = QualifiedPath::root();
@@ -44,22 +45,22 @@ pub fn execute(
         } else {
             format!("available tasks: {}", available.join(", "))
         };
-        return Err(format!("task '{task_name}' not found ({hint})"));
+        bail!("task '{task_name}' not found ({hint})");
     }
 
     // Get the function's typed signature
     let func = checked
         .items
         .get(&task_path)
-        .ok_or_else(|| format!("task '{task_name}' not found in items"))?;
+        .ok_or_else(|| anyhow!("task '{task_name}' not found in items"))?;
 
     // Validate argument count
     if args.len() != func.params.len() {
-        return Err(format!(
+        bail!(
             "task '{task_name}' expects {} argument(s), got {}",
             func.params.len(),
             args.len()
-        ));
+        );
     }
 
     // Build type lookup for struct/enum resolution
@@ -73,7 +74,7 @@ pub fn execute(
             _ => "?",
         };
         let value = Value::parse(arg_str, param_type, &type_lookup)
-            .map_err(|e| format!("argument {} ({param_name}): {e}", i + 1))?;
+            .map_err(|e| anyhow!("argument {} ({param_name}): {e}", i + 1))?;
         parsed_args.push(value);
     }
 
@@ -81,8 +82,7 @@ pub fn execute(
     let result = Runner::new()
         .package(&checked, [std])
         .entry(task_path, parsed_args)
-        .run()
-        .map_err(|e| e.to_string())?;
+        .run()?;
 
     // Print result
     if json {
@@ -146,7 +146,7 @@ mod tests {
 
         let result = execute(&file, "missing", &[], false, Mode::Dev);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("not found"));
+        assert!(result.unwrap_err().to_string().contains("not found"));
     }
 
     #[test]
@@ -164,7 +164,12 @@ mod tests {
 
         let result = execute(&file, "add", &["1".into()], false, Mode::Dev);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("expects 2 argument(s), got 1"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("expects 2 argument(s), got 1")
+        );
     }
 
     #[test]
@@ -182,7 +187,7 @@ mod tests {
 
         let result = execute(&file, "double", &["abc".into()], false, Mode::Dev);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("argument 1"));
+        assert!(result.unwrap_err().to_string().contains("argument 1"));
     }
 
     #[test]

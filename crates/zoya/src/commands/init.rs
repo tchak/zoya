@@ -4,17 +4,17 @@ use console::{Term, style};
 use zoya_package::PackageConfig;
 
 /// Create a new Zoya project
-pub fn execute(path: &Path, name_override: Option<&str>) -> Result<(), NewError> {
+pub fn execute(path: &Path, name_override: Option<&str>) -> Result<(), InitError> {
     // Check if path already exists
     if path.exists() {
-        return Err(NewError::AlreadyExists(path.to_path_buf()));
+        return Err(InitError::AlreadyExists(path.to_path_buf()));
     }
 
     // Determine package name
     let name = match name_override {
         Some(n) => {
             if !PackageConfig::is_valid_name(n) {
-                return Err(NewError::InvalidName(n.to_string()));
+                return Err(InitError::InvalidName(n.to_string()));
             }
             n.to_string()
         }
@@ -22,20 +22,20 @@ pub fn execute(path: &Path, name_override: Option<&str>) -> Result<(), NewError>
             let dir_name = path
                 .file_name()
                 .and_then(|n| n.to_str())
-                .ok_or_else(|| NewError::InvalidPath(path.to_path_buf()))?;
+                .ok_or_else(|| InitError::InvalidPath(path.to_path_buf()))?;
             PackageConfig::sanitize_name(dir_name)
         }
     };
 
     // Create project directory
-    std::fs::create_dir_all(path).map_err(|e| NewError::Io {
+    std::fs::create_dir_all(path).map_err(|e| InitError::Io {
         path: path.to_path_buf(),
         source: e,
     })?;
 
     // Create src directory
     let src_dir = path.join("src");
-    std::fs::create_dir_all(&src_dir).map_err(|e| NewError::Io {
+    std::fs::create_dir_all(&src_dir).map_err(|e| InitError::Io {
         path: src_dir.clone(),
         source: e,
     })?;
@@ -46,14 +46,14 @@ pub fn execute(path: &Path, name_override: Option<&str>) -> Result<(), NewError>
         main: None,
     };
     let config_path = path.join("package.toml");
-    std::fs::write(&config_path, config.to_toml()).map_err(|e| NewError::Io {
+    std::fs::write(&config_path, config.to_toml()).map_err(|e| InitError::Io {
         path: config_path,
         source: e,
     })?;
 
     // Create .gitignore
     let gitignore_path = path.join(".gitignore");
-    std::fs::write(&gitignore_path, "build/\n").map_err(|e| NewError::Io {
+    std::fs::write(&gitignore_path, "build/\n").map_err(|e| InitError::Io {
         path: gitignore_path,
         source: e,
     })?;
@@ -61,7 +61,7 @@ pub fn execute(path: &Path, name_override: Option<&str>) -> Result<(), NewError>
     // Create src/main.zy
     let main_path = src_dir.join("main.zy");
     std::fs::write(&main_path, "pub fn main() { \"hello world\" }\n").map_err(|e| {
-        NewError::Io {
+        InitError::Io {
             path: main_path,
             source: e,
         }
@@ -79,49 +79,26 @@ pub fn execute(path: &Path, name_override: Option<&str>) -> Result<(), NewError>
 }
 
 /// Errors that can occur when creating a new project
-#[derive(Debug)]
-pub enum NewError {
+#[derive(Debug, thiserror::Error)]
+pub enum InitError {
     /// Path already exists
+    #[error("path '{}' already exists", .0.display())]
     AlreadyExists(std::path::PathBuf),
     /// Invalid project path
+    #[error("invalid project path '{}'", .0.display())]
     InvalidPath(std::path::PathBuf),
     /// Invalid package name provided
+    #[error(
+        "invalid package name '{0}': must be lowercase alphanumeric with underscores or hyphens, starting with a letter, and must not be a reserved name (root, self, super, std, zoya)"
+    )]
     InvalidName(String),
     /// IO error
+    #[error("failed to create '{}': {source}", path.display())]
     Io {
         path: std::path::PathBuf,
+        #[source]
         source: std::io::Error,
     },
-}
-
-impl std::fmt::Display for NewError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            NewError::AlreadyExists(path) => {
-                write!(f, "path '{}' already exists", path.display())
-            }
-            NewError::InvalidPath(path) => {
-                write!(f, "invalid project path '{}'", path.display())
-            }
-            NewError::InvalidName(name) => write!(
-                f,
-                "invalid package name '{}': must be lowercase alphanumeric with underscores or hyphens, starting with a letter, and must not be a reserved name (root, self, super, std, zoya)",
-                name
-            ),
-            NewError::Io { path, source } => {
-                write!(f, "failed to create '{}': {}", path.display(), source)
-            }
-        }
-    }
-}
-
-impl std::error::Error for NewError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            NewError::Io { source, .. } => Some(source),
-            _ => None,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -203,7 +180,7 @@ mod tests {
 
         let result = execute(&project_path, None);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), NewError::AlreadyExists(_)));
+        assert!(matches!(result.unwrap_err(), InitError::AlreadyExists(_)));
     }
 
     #[test]
@@ -213,7 +190,7 @@ mod tests {
 
         let result = execute(&project_path, Some("Invalid Name"));
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), NewError::InvalidName(_)));
+        assert!(matches!(result.unwrap_err(), InitError::InvalidName(_)));
     }
 
     #[test]
@@ -223,7 +200,7 @@ mod tests {
             let project_path = dir.path().join(format!("test_{}", name));
             let result = execute(&project_path, Some(name));
             assert!(
-                matches!(&result, Err(NewError::InvalidName(_))),
+                matches!(&result, Err(InitError::InvalidName(_))),
                 "reserved name '{}' should be rejected, got {:?}",
                 name,
                 result

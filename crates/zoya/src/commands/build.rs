@@ -1,20 +1,21 @@
 use std::path::Path;
 
+use anyhow::{Context, Result};
 use console::{Term, style};
 use zoya_check::check;
 use zoya_codegen::codegen;
 use zoya_loader::Mode;
 
 /// Compile a file to JavaScript without executing
-pub fn execute(path: &Path, output: Option<&Path>, mode: Mode) -> Result<(), String> {
+pub fn execute(path: &Path, output: Option<&Path>, mode: Mode) -> Result<()> {
     let term = Term::stderr();
 
     // Load and parse package
-    let pkg = zoya_loader::load_package(path, mode).map_err(|e| e.to_string())?;
+    let pkg = zoya_loader::load_package(path, mode)?;
 
     // Type check entire package with std
     let std = zoya_std::std();
-    let checked_pkg = check(&pkg, &[std]).map_err(|e| e.to_string())?;
+    let checked_pkg = check(&pkg, &[std])?;
 
     // Resolve output path: CLI arg > default "build" relative to package dir
     let base_dir = if path.is_dir() {
@@ -32,7 +33,7 @@ pub fn execute(path: &Path, output: Option<&Path>, mode: Mode) -> Result<(), Str
     // Create output directory if needed
     if !out_path.exists() {
         std::fs::create_dir_all(&out_path)
-            .map_err(|e| format!("failed to create directory '{}': {}", out_path.display(), e))?;
+            .with_context(|| format!("failed to create directory '{}'", out_path.display()))?;
     }
 
     // Write single JS file
@@ -40,7 +41,7 @@ pub fn execute(path: &Path, output: Option<&Path>, mode: Mode) -> Result<(), Str
     let file_path = out_path.join(&filename);
 
     std::fs::write(&file_path, &js_output.code)
-        .map_err(|e| format!("failed to write file '{}': {}", file_path.display(), e))?;
+        .with_context(|| format!("failed to write file '{}'", file_path.display()))?;
     let _ = term.write_line(&format!("  {}", style(&filename).dim()));
 
     let _ = term.write_line(&format!(

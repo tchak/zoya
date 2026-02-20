@@ -24,6 +24,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time"] }
 notify = "7"
 tower = { version = "0.5", features = ["util"] }
 axum = "0.8"
+anyhow = "1"
+thiserror = "2"
 clap = { version = "4", features = ["derive"] }
 console = "0.15"
 rustyline = "14"

@@ -1,10 +1,11 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use anyhow::{Result, bail};
 use console::{Term, style};
 
 /// Format .zy source files
-pub fn execute(path: &Path, check: bool) -> Result<(), String> {
+pub fn execute(path: &Path, check: bool) -> Result<()> {
     let term = Term::stderr();
 
     let files = if path.is_file() {
@@ -12,11 +13,11 @@ pub fn execute(path: &Path, check: bool) -> Result<(), String> {
     } else if path.is_dir() {
         let files = collect_zy_files(path);
         if files.is_empty() {
-            return Err(format!("no .zy files found in '{}'", path.display()));
+            bail!("no .zy files found in '{}'", path.display());
         }
         files
     } else {
-        return Err(format!("path not found: '{}'", path.display()));
+        bail!("path not found: '{}'", path.display());
     };
 
     let mut formatted_count = 0;
@@ -100,7 +101,7 @@ pub fn execute(path: &Path, check: bool) -> Result<(), String> {
             for f in &unformatted {
                 msg.push_str(&format!("  {}\n", f.display()));
             }
-            Err(msg)
+            bail!("{}", msg);
         }
     } else {
         let skipped = files.len() - formatted_count - error_count;
@@ -201,7 +202,7 @@ mod tests {
 
         let result = execute(&file, true);
         assert!(result.is_err());
-        let err = result.unwrap_err();
+        let err = result.unwrap_err().to_string();
         assert!(err.contains("not formatted"));
         assert!(err.contains("test.zy"));
 
@@ -245,7 +246,7 @@ mod tests {
     fn test_file_not_found() {
         let result = execute(Path::new("nonexistent.zy"), false);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("path not found"));
+        assert!(result.unwrap_err().to_string().contains("path not found"));
     }
 
     #[test]
@@ -271,6 +272,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let result = execute(dir.path(), false);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("no .zy files found"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("no .zy files found")
+        );
     }
 }

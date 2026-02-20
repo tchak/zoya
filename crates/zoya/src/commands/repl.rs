@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use anyhow::{Result, anyhow, bail};
 use console::{Term, style};
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
@@ -169,11 +170,11 @@ pub struct State {
 
 impl State {
     /// Create a new REPL state
-    pub fn new(path: &Path) -> Result<Self, String> {
+    pub fn new(path: &Path) -> Result<Self> {
         let base_pkg = match zoya_loader::load_package(path, zoya_loader::Mode::Dev) {
             Ok(pkg) => Some(pkg),
             Err(zoya_loader::LoaderError::NoPackageToml { .. }) => None,
-            Err(e) => return Err(format!("Failed to load package: {}", e)),
+            Err(e) => return Err(e.into()),
         };
 
         Ok(State {
@@ -189,10 +190,10 @@ impl State {
     /// This method processes the input through the full pipeline:
     /// lexing, parsing, type-checking, and execution.
     /// Returns a result for each statement in the input.
-    pub fn eval(&mut self, input: &str) -> Result<Vec<ReplResult>, String> {
+    pub fn eval(&mut self, input: &str) -> Result<Vec<ReplResult>> {
         // Lex and parse
-        let tokens = zoya_lexer::lex(input).map_err(|e| e.to_string())?;
-        let (items, stmts) = zoya_parser::parse_input(tokens).map_err(|e| e.to_string())?;
+        let tokens = zoya_lexer::lex(input)?;
+        let (items, stmts) = zoya_parser::parse_input(tokens)?;
 
         if items.is_empty() && stmts.is_empty() {
             return Ok(vec![]);
@@ -200,7 +201,7 @@ impl State {
 
         // Module declarations are not allowed in the REPL
         if items.iter().any(|i| matches!(i, Item::ModDecl(_))) {
-            return Err("module declarations are not allowed in the REPL".to_string());
+            bail!("module declarations are not allowed in the REPL");
         }
 
         // Partition statements into blocks for evaluation
@@ -253,7 +254,7 @@ impl State {
 
         // Type check the package with std
         let std = zoya_std::std();
-        let checked_pkg = check(&pkg, &[std]).map_err(|e| e.to_string())?;
+        let checked_pkg = check(&pkg, &[std])?;
 
         // Collect results
         let mut results = Vec::new();
@@ -287,21 +288,20 @@ impl State {
                 .map(|name| {
                     find_typed_function(&checked_pkg, name)
                         .map(|f| f.return_type.clone())
-                        .ok_or_else(|| format!("Internal error: run function {} not found", name))
+                        .ok_or_else(|| anyhow!("internal error: run function {} not found", name))
                 })
-                .collect::<Result<Vec<_>, _>>()?;
+                .collect::<Result<Vec<_>>>()?;
 
             // Call combined main function via runner
             let combined_value = Runner::new()
                 .package(&checked_pkg, [std])
                 .main_module("repl")
-                .run()
-                .map_err(|e| e.to_string())?;
+                .run()?;
 
             // Unpack tuple result
             let individual_values = match combined_value {
                 Value::Tuple(values) => values,
-                _ => return Err("Internal error: combined run did not return tuple".to_string()),
+                _ => bail!("internal error: combined run did not return tuple"),
             };
 
             // Process each result

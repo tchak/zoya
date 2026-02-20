@@ -1,26 +1,26 @@
 use std::path::Path;
 
+use anyhow::Result;
 use console::{Term, style};
 use zoya_check::check;
 use zoya_ir::pretty_type;
 use zoya_loader::Mode;
 
 /// List all `#[task]` functions in a Zoya package or file
-pub fn execute(path: &Path, mode: Mode) -> Result<(), String> {
+pub fn execute(path: &Path, mode: Mode) -> Result<()> {
     let term = Term::stderr();
 
     // Load and parse package
-    let pkg = zoya_loader::load_package(path, mode).map_err(|e| e.to_string())?;
+    let pkg = zoya_loader::load_package(path, mode)?;
 
     // Type check entire package with std
     let std = zoya_std::std();
-    let checked = check(&pkg, &[std]).map_err(|e| e.to_string())?;
+    let checked = check(&pkg, &[std])?;
 
     let tasks = checked.tasks();
 
     if tasks.is_empty() {
-        term.write_line(&format!("{}", style("no tasks found").yellow()))
-            .map_err(|e| e.to_string())?;
+        term.write_line(&format!("{}", style("no tasks found").yellow()))?;
         return Ok(());
     }
 
@@ -35,8 +35,7 @@ pub fn execute(path: &Path, mode: Mode) -> Result<(), String> {
             "  {}  {}",
             style(&display).bold(),
             style(&sig).dim()
-        ))
-        .map_err(|e| e.to_string())?;
+        ))?;
     }
 
     Ok(())

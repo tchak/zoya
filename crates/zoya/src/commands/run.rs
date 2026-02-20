@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use anyhow::{Result, anyhow, bail};
 use zoya_check::check;
 use zoya_ir::{DefinitionLookup, TypedPattern};
 use zoya_loader::Mode;
@@ -13,15 +14,11 @@ pub fn execute(
     name: Option<&str>,
     args: &[String],
     json: bool,
-) -> Result<(), String> {
+) -> Result<()> {
     match name {
         None => {
             // Default behavior: run main()
-            let value = Runner::new()
-                .path(path)
-                .mode(mode)
-                .run()
-                .map_err(|e| e.to_string())?;
+            let value = Runner::new().path(path).mode(mode).run()?;
             if json {
                 println!("{}", value.to_json_pretty());
             } else {
@@ -31,9 +28,9 @@ pub fn execute(
         }
         Some(fn_name) => {
             // Run a named function with type-guided arg parsing
-            let pkg = zoya_loader::load_package(path, mode).map_err(|e| e.to_string())?;
+            let pkg = zoya_loader::load_package(path, mode)?;
             let std = zoya_std::std();
-            let checked = check(&pkg, &[std]).map_err(|e| e.to_string())?;
+            let checked = check(&pkg, &[std])?;
 
             // Build qualified path from function name (e.g. "add" or "utils::helper")
             let mut fn_path = QualifiedPath::root();
@@ -60,22 +57,22 @@ pub fn execute(
                 } else {
                     format!("available functions: {}", available.join(", "))
                 };
-                return Err(format!("function '{fn_name}' not found ({hint})"));
+                bail!("function '{fn_name}' not found ({hint})");
             }
 
             // Get the function's typed signature
             let func = checked
                 .items
                 .get(&fn_path)
-                .ok_or_else(|| format!("function '{fn_name}' not found in items"))?;
+                .ok_or_else(|| anyhow!("function '{fn_name}' not found in items"))?;
 
             // Validate argument count
             if args.len() != func.params.len() {
-                return Err(format!(
+                bail!(
                     "function '{fn_name}' expects {} argument(s), got {}",
                     func.params.len(),
                     args.len()
-                ));
+                );
             }
 
             // Build type lookup for struct/enum resolution
@@ -91,7 +88,7 @@ pub fn execute(
                     _ => "?",
                 };
                 let value = Value::parse(arg_str, param_type, &type_lookup)
-                    .map_err(|e| format!("argument {} ({param_name}): {e}", i + 1))?;
+                    .map_err(|e| anyhow!("argument {} ({param_name}): {e}", i + 1))?;
                 parsed_args.push(value);
             }
 
@@ -99,8 +96,7 @@ pub fn execute(
             let result = Runner::new()
                 .package(&checked, [std])
                 .entry(fn_path, parsed_args)
-                .run()
-                .map_err(|e| e.to_string())?;
+                .run()?;
 
             // Print result
             if json {
@@ -251,7 +247,7 @@ mod tests {
 
         let result = execute(&file, Mode::Dev, Some("missing"), &[], false);
         assert!(result.is_err());
-        let err = result.unwrap_err();
+        let err = result.unwrap_err().to_string();
         assert!(err.contains("not found"));
         assert!(err.contains("greet"));
     }
@@ -264,7 +260,12 @@ mod tests {
 
         let result = execute(&file, Mode::Dev, Some("add"), &["1".into()], false);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("expects 2 argument(s), got 1"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("expects 2 argument(s), got 1")
+        );
     }
 
     #[test]
@@ -275,6 +276,6 @@ mod tests {
 
         let result = execute(&file, Mode::Dev, Some("double"), &["abc".into()], false);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("argument 1"));
+        assert!(result.unwrap_err().to_string().contains("argument 1"));
     }
 }

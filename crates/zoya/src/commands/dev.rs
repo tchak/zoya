@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
+use anyhow::{Context, Result, anyhow};
 use axum::Router;
 use axum::extract::State;
 use axum::response::IntoResponse;
@@ -26,7 +27,7 @@ struct BuildResult {
 }
 
 /// Start a development HTTP server with file watching.
-pub fn execute(path: &Path, port: u16) -> Result<(), String> {
+pub fn execute(path: &Path, port: u16) -> Result<()> {
     let term = Term::stderr();
     let watch_dir = resolve_watch_dir(path)?;
 
@@ -39,12 +40,12 @@ pub fn execute(path: &Path, port: u16) -> Result<(), String> {
 
     let outer = build_outer_router(state.clone());
 
-    let rt = tokio::runtime::Runtime::new().map_err(|e| format!("failed to start runtime: {e}"))?;
+    let rt = tokio::runtime::Runtime::new().context("failed to start runtime")?;
     rt.block_on(async {
         let addr = format!("0.0.0.0:{port}");
         let listener = tokio::net::TcpListener::bind(&addr)
             .await
-            .map_err(|e| format!("failed to bind to {addr}: {e}"))?;
+            .with_context(|| format!("failed to bind to {addr}"))?;
 
         let _ = term.write_line(&format!(
             "  Listening on {}",
@@ -64,20 +65,18 @@ pub fn execute(path: &Path, port: u16) -> Result<(), String> {
             watch_loop(rx, watch_state, &watch_path, &watch_term).await;
         });
 
-        axum::serve(listener, outer)
-            .await
-            .map_err(|e| format!("server error: {e}"))
+        axum::serve(listener, outer).await.context("server error")
     })
 }
 
 /// Resolve the directory to watch for file changes.
-fn resolve_watch_dir(path: &Path) -> Result<PathBuf, String> {
+fn resolve_watch_dir(path: &Path) -> Result<PathBuf> {
     if path.is_dir() {
         Ok(path.to_path_buf())
     } else if path.is_file() {
         path.parent()
             .map(|p| p.to_path_buf())
-            .ok_or_else(|| format!("cannot determine parent directory of '{}'", path.display()))
+            .ok_or_else(|| anyhow!("cannot determine parent directory of '{}'", path.display()))
     } else {
         // Path doesn't exist yet — use it as-is (it may be created)
         Ok(path.to_path_buf())
@@ -86,37 +85,37 @@ fn resolve_watch_dir(path: &Path) -> Result<PathBuf, String> {
 
 /// Attempt the initial build. Returns `Err` only for `NoPackageToml` (fatal).
 /// Returns `Ok(None)` on recoverable errors (prints the error and continues).
-fn initial_build(term: &Term, path: &Path) -> Result<Option<BuildResult>, String> {
+fn initial_build(term: &Term, path: &Path) -> Result<Option<BuildResult>> {
     match try_build(path) {
         Ok(result) => {
             print_routes(term, &result.routes);
             Ok(Some(result))
         }
-        Err(BuildError::Fatal(msg)) => Err(msg),
-        Err(BuildError::Recoverable(msg)) => {
-            let _ = term.write_line(&format!("  {}: {msg}", style("error").red().bold()));
+        Err(BuildError::Fatal(e)) => Err(e),
+        Err(BuildError::Recoverable(e)) => {
+            let _ = term.write_line(&format!("  {}: {e}", style("error").red().bold()));
             Ok(None)
         }
     }
 }
 
 enum BuildError {
-    Fatal(String),
-    Recoverable(String),
+    Fatal(anyhow::Error),
+    Recoverable(anyhow::Error),
 }
 
 /// Try to build the package. Classifies errors as fatal or recoverable.
 fn try_build(path: &Path) -> Result<BuildResult, BuildError> {
     let pkg = zoya_loader::load_package(path, Mode::Dev).map_err(|e| {
         if matches!(e, LoaderError::NoPackageToml { .. }) {
-            BuildError::Fatal(e.to_string())
+            BuildError::Fatal(e.into())
         } else {
-            BuildError::Recoverable(e.to_string())
+            BuildError::Recoverable(e.into())
         }
     })?;
 
     let std = zoya_std::std();
-    let checked = check(&pkg, &[std]).map_err(|e| BuildError::Recoverable(e.to_string()))?;
+    let checked = check(&pkg, &[std]).map_err(|e| BuildError::Recoverable(e.into()))?;
 
     let routes = extract_routes(&checked);
     let router = zoya_router::router(&checked, &[std]);
@@ -209,7 +208,7 @@ async fn proxy_handler(
 fn setup_watcher(
     watch_dir: &Path,
     tx: mpsc::UnboundedSender<()>,
-) -> Result<notify::RecommendedWatcher, String> {
+) -> Result<notify::RecommendedWatcher> {
     let mut watcher = notify::recommended_watcher(move |res: Result<notify::Event, _>| {
         if let Ok(event) = res {
             let is_zy = event
@@ -221,11 +220,11 @@ fn setup_watcher(
             }
         }
     })
-    .map_err(|e| format!("failed to create file watcher: {e}"))?;
+    .context("failed to create file watcher")?;
 
     watcher
         .watch(watch_dir, RecursiveMode::Recursive)
-        .map_err(|e| format!("failed to watch '{}': {e}", watch_dir.display()))?;
+        .with_context(|| format!("failed to watch '{}'", watch_dir.display()))?;
 
     Ok(watcher)
 }

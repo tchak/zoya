@@ -13,7 +13,7 @@
 | zoya-check | Yes | Uses `TypeError` from ir | None | **Done** |
 | zoya-run | Yes | `EvalError` (2 variants), `TestError` (4 variants) | None | **Done** |
 | zoya-std | Yes | `StdError` (2 variants) | None | **Done** |
-| zoya (CLI) | No | `NewError` (manual), `BuildError` (String) | All `execute()` fns | **Partially done** |
+| zoya (CLI) | Yes | `InitError` (thiserror), `BuildError` (anyhow) | None | **Done** |
 
 ### What's been done
 
@@ -25,32 +25,10 @@ In `zoya-run`, `create_runtime()` now returns `Result<_, EvalError>` instead of 
 
 In `zoya-std`, `build_std()` now returns `Result<_, StdError>` instead of `Result<_, String>`. `StdError` wraps `LoaderError` and `TypeError` via `#[from]`, using `?` instead of `.map_err(|e| format!(...))`.
 
-Downstream consumers still use `.to_string()` which continues to work since `Display` is derived via `thiserror`.
-
-### What remains
-
-The remaining work is in the CLI crate — propagating structured errors instead of flattening to strings:
-
-```
-TypeError (structured enum)
-  → CLI: Result<(), String>                    ← still flattens
-```
+In the CLI crate (`zoya`), all command `execute()` functions now use `anyhow::Result<()>` instead of `Result<(), String>`. This eliminates all `.map_err(|e| e.to_string())` boilerplate — upstream errors propagate directly via `?`. Ad-hoc errors use `bail!()` and `anyhow!()`. `InitError` (formerly `NewError`) uses `thiserror` for structured error variants. `BuildError` in `dev.rs` holds `anyhow::Error` instead of `String`. The `test.rs` command was already using `Result<(), EvalError>` and required no changes.
 
 ## Remaining Work
 
-### 1. `zoya` CLI — Proper command errors (Medium)
-
-Every command's `execute()` returns `Result<(), String>`. Options:
-- Use `anyhow` at the CLI boundary for ergonomic error propagation
-- Or define a `CliError` enum wrapping all upstream error types
-- `NewError` already has proper variants but uses manual `Display` — switch to `thiserror`
-- `BuildError` in `dev.rs` has `Fatal(String)` / `Recoverable(String)` — needs real variants
-
-### 2. `zoya-loader` — Minor cleanup (Small)
+### 1. `zoya-loader` — Minor cleanup (Small)
 
 `ConfigError(String)` variant wraps a plain `String` rather than the actual `ConfigError` type. `LexError` and `ParseError` variants store `message: String` rather than embedding upstream error types directly.
-
-## Recommended Order
-
-1. **`zoya` CLI** — Adopt `anyhow` or `CliError`, propagate structured errors
-2. **`zoya-loader`** — Preserve upstream error types instead of extracting `.message`
