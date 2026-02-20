@@ -178,8 +178,25 @@ root
 └── string     # String methods
 ```
 
+## Error Handling
+
+```rust
+use zoya_std::StdError;
+
+/// Error when loading or compiling the standard library.
+pub enum StdError {
+    /// Failed to load std .zy source files
+    Load(zoya_loader::LoaderError<String>),
+    /// Failed to type-check std package
+    Check(zoya_ir::TypeError),
+}
+```
+
+`StdError` uses `#[from]` for automatic `?` propagation from both `LoaderError<String>` and `TypeError`.
+
 ## Dependencies
 
 - [zoya-check](../zoya-check) - Type checker (compiles the .zy sources)
 - [zoya-ir](../zoya-ir) - Typed IR types
 - [zoya-loader](../zoya-loader) - Package loading (via `MemorySource`)
+- [thiserror](https://github.com/dtolnay/thiserror) - Error derive macros

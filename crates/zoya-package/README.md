@@ -117,9 +117,26 @@ main = "src/main.zy"           # optional (default: src/main.zy)
 | `is_valid_name(name)` | Check if name is valid |
 | `sanitize_name(input)` | Sanitize string to valid package name |
 
+## Error Handling
+
+```rust
+use zoya_package::ConfigError;
+
+/// Error when loading or validating package.toml.
+pub enum ConfigError {
+    /// Failed to read the config file
+    Io { path: PathBuf, source: std::io::Error },
+    /// Invalid TOML syntax
+    Parse { source: toml::de::Error },
+    /// Package name fails validation
+    InvalidName { name: String },
+}
+```
+
 ## Dependencies
 
 - [zoya-ast](../zoya-ast) - AST types (for Item and Visibility)
 - [zoya-naming](../zoya-naming) - Name validation and reserved names
 - [serde](https://github.com/serde-rs/serde) - Serialization
 - [toml](https://github.com/toml-rs/toml) - TOML parsing
+- [thiserror](https://github.com/dtolnay/thiserror) - Error derive macros

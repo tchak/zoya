@@ -198,11 +198,28 @@ See [zoya-value](../zoya-value) for full `Value`, `ValueData`, and `JSValue` doc
 ## Error Handling
 
 ```rust
+/// Main runtime error type for execution failures.
 pub enum EvalError {
+    /// Zoya `panic()` was called
     Panic(String),
+    /// Any other runtime error (JS execution, loading, type checking)
     RuntimeError(String),
 }
+
+/// Per-test error type used in TestResult.
+pub enum TestError {
+    /// Test called panic()
+    Panic(String),
+    /// Runtime error during test execution
+    RuntimeError(String),
+    /// Test assertion failed
+    Failed(String),
+    /// Test returned an unexpected value
+    UnexpectedReturn(String),
+}
 ```
+
+`EvalError` implements `From<zoya_value::Error>` for automatic conversion from value marshaling errors.
 
 ## Dependencies
 

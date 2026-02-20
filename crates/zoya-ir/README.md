@@ -90,7 +90,30 @@ fn process_package(pkg: &CheckedPackage) {
 | `TypeScheme` | Polymorphic type with quantified type variables |
 | `Visibility` | Re-exported `Private`/`Public` enum from `zoya-ast` |
 
+## Error Handling
+
+`TypeError` is a structured enum with 30+ variants covering all type checking errors:
+
+```rust
+use zoya_ir::TypeError;
+
+// Type errors carry structured data, not just messages
+match err {
+    TypeError::TypeMismatch { expected, actual } => { /* ... */ }
+    TypeError::UnboundVariable { name } => { /* ... */ }
+    TypeError::ArityMismatch { expected, actual } => { /* ... */ }
+    TypeError::PrivateAccess { name, defined_in } => { /* ... */ }
+    TypeError::NonExhaustiveMatch { missing_patterns } => { /* ... */ }
+    TypeError::NamingConvention { name, expected, suggestion } => { /* ... */ }
+    // ... 25+ more variants
+    _ => {}
+}
+```
+
+Categories: type mismatch, unbound names, arity errors, visibility violations, field errors, pattern errors, exhaustiveness checking, naming conventions, constraint failures, cycle detection, definition/import errors.
+
 ## Dependencies
 
 - [zoya-ast](../zoya-ast) - Untyped AST types (for operators and shared definitions)
 - [zoya-package](../zoya-package) - Package data structures (for module paths)
+- [thiserror](https://github.com/dtolnay/thiserror) - Error derive macros

@@ -105,6 +105,32 @@ packages/
     └── dist/              # Built bundle (committed, used by codegen)
 ```
 
+## Error Handling
+
+All crates use [`thiserror`](https://github.com/dtolnay/thiserror) for structured error enums. The CLI boundary uses [`anyhow`](https://github.com/dtolnay/anyhow). See [ERRORS.md](ERRORS.md) for full details.
+
+### Error Types
+
+| Crate | Error Type | Description |
+|-------|-----------|-------------|
+| `zoya-lexer` | `LexError` | Unexpected characters with byte spans |
+| `zoya-parser` | `ParseError` | Syntax errors with spans, expected/found tokens |
+| `zoya-package` | `ConfigError` | TOML config loading (IO, parse, validation) |
+| `zoya-ir` | `TypeError` | 30+ structured variants (type mismatch, unbound, arity, visibility, exhaustiveness, etc.) |
+| `zoya-loader` | `LoaderError<P>` | Module loading — embeds `LexError`/`ParseError` as `#[source]` |
+| `zoya-value` | `Error` | Runtime value conversion errors |
+| `zoya-run` | `EvalError` | Runtime execution: `Panic`, `RuntimeError` |
+| `zoya-run` | `TestError` | Per-test errors: `Panic`, `RuntimeError`, `Failed`, `UnexpectedReturn` |
+| `zoya-std` | `StdError` | Std library loading — `#[from]` for `LoaderError` and `TypeError` |
+| `zoya` | `InitError` | Project creation errors |
+
+### Conventions
+
+- Use `thiserror::Error` derive for all error enums
+- Embed upstream errors as `#[source]` fields where possible (not `.to_string()`)
+- CLI commands return `anyhow::Result<()>`
+- `StdError` demonstrates the ideal pattern with `#[from]` auto-conversion
+
 ## Commands
 
 ```bash

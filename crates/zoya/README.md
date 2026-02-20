@@ -138,6 +138,21 @@ let report = test_runner.run()?;
 println!("{} passed, {} failed", report.passed(), report.failed());
 ```
 
+## Error Handling
+
+CLI commands return `anyhow::Result<()>` for ergonomic error propagation. The `init` command has its own structured error type:
+
+```rust
+pub enum InitError {
+    AlreadyExists(PathBuf),
+    InvalidPath(PathBuf),
+    InvalidName(String),
+    Io { path: PathBuf, source: std::io::Error },
+}
+```
+
+All errors are reported to stderr via `fatal()` which prints `"error: <message>"` in red/bold using the `console` crate.
+
 ## Dependencies
 
 - [zoya-ast](../zoya-ast) - AST types
@@ -158,3 +173,5 @@ println!("{} passed, {} failed", report.passed(), report.failed());
 - [notify](https://github.com/notify-rs/notify) - File watching (dev server)
 - [rustyline](https://github.com/kkawakam/rustyline) - REPL line editing
 - [tokio](https://github.com/tokio-rs/tokio) - Async runtime (dev server)
+- [anyhow](https://github.com/dtolnay/anyhow) - Error handling at CLI boundary
+- [thiserror](https://github.com/dtolnay/thiserror) - Error derive macros

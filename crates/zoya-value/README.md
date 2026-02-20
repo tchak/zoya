@@ -154,6 +154,24 @@ let val = Value::from_js_value(js, &Type::Int, &type_lookup)?;
 assert_eq!(val, Value::Int(42));
 ```
 
+## Error Handling
+
+```rust
+use zoya_value::Error;
+
+/// Runtime value conversion errors.
+pub enum Error {
+    Panic(String),
+    TypeMismatch { from: String, to: String },
+    MissingField(String),
+    UnknownVariant(String),
+    UnsupportedConversion(String),
+    ParseError(String),
+}
+```
+
+These errors arise during type-guided conversion from `JSValue` to `Value`. `zoya-run` converts them to `EvalError` via a `From` impl.
+
 ## Feature Flags
 
 | Feature | Description |

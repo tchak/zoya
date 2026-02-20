@@ -58,6 +58,8 @@ Module names must be valid `snake_case` identifiers and not reserved names (`roo
 
 ## Error Types
 
+`LoaderError<P>` is generic over the path type (`FilePath` for filesystem, `String` for memory sources). It embeds upstream `LexError` and `ParseError` directly as `#[source]` fields, preserving error chain structure.
+
 ```rust
 use zoya_loader::{load_package, LoaderError, Mode};
 
@@ -77,11 +79,11 @@ match load_package(Path::new("missing.zy"), Mode::Dev) {
     Err(LoaderError::ReservedModName { mod_name }) => {
         println!("Reserved module name: {}", mod_name);
     }
-    Err(LoaderError::LexError { path, message }) => {
-        println!("Lexer error in {}: {}", path, message);
+    Err(LoaderError::LexError { path, source }) => {
+        println!("Lexer error in {}: {}", path, source);
     }
-    Err(LoaderError::ParseError { path, message }) => {
-        println!("Parse error in {}: {}", path, message);
+    Err(LoaderError::ParseError { path, source }) => {
+        println!("Parse error in {}: {}", path, source);
     }
     Err(e) => println!("Error: {}", e),
     Ok(pkg) => { /* success */ }

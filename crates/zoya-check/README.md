@@ -51,6 +51,19 @@ for (path, def) in &checked_pkg.definitions {
 5. **Body checking** - Type-check function and method bodies with inference
 6. **Exhaustiveness checking** - Verify pattern match coverage
 
+## Error Handling
+
+The type checker returns `Result<CheckedPackage, TypeError>` where `TypeError` (defined in `zoya-ir`) is a structured enum with 30+ variants. Error categories include:
+
+- **Type errors** - `TypeMismatch`, `TypeMismatchIn`, `InfiniteType`, `InvalidOperatorType`
+- **Name resolution** - `UnboundVariable`, `UnboundPath`, `UnboundMethod`, `UnboundImport`
+- **Arity** - `ArityMismatch`, `TupleLengthMismatch`, `TypeArgCount`
+- **Visibility** - `PrivateAccess`, `PrivateReExport`
+- **Structs** - `MissingField`, `UnknownField`
+- **Patterns** - `RefutablePattern`, `DuplicateBinding`, `NonExhaustiveMatch`, `UnreachablePattern`
+- **Definitions** - `DuplicateDefinition`, `DuplicateImport`, `CircularTypeAlias`, `CircularReExport`
+- **Naming** - `NamingConvention`
+
 ## Dependencies
 
 - [zoya-ast](../zoya-ast) - Untyped AST types
