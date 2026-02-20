@@ -58,7 +58,7 @@ Module names must be valid `snake_case` identifiers and not reserved names (`roo
 
 ## Error Types
 
-`LoaderError<P>` is generic over the path type (`FilePath` for filesystem, `String` for memory sources). It embeds upstream `LexError` and `ParseError` directly as `#[source]` fields, preserving error chain structure.
+`LoaderError<P>` is generic over the path type (`FilePath` for filesystem, `String` for memory sources). It embeds upstream `LexError`, `ParseError`, and `ConfigError` directly as `#[source]`/`#[from]` fields, preserving error chain structure. A `map_path()` method converts between path types.
 
 ```rust
 use zoya_loader::{load_package, LoaderError, Mode};

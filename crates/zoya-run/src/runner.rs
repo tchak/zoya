@@ -58,9 +58,8 @@ impl Runner {
     pub fn test(self, path: &Path) -> Result<TestRunner, EvalError> {
         let std = zoya_std::std();
         let package = load_package(path, zoya_loader::Mode::Test)
-            .map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?;
-        let checked =
-            check(&package, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+            .map_err(|e| e.map_path(|p| p.to_string()))?;
+        let checked = check(&package, &[std])?;
 
         Ok(TestRunner {
             tests: checked.tests(),
@@ -120,10 +119,9 @@ impl PathRunner {
     /// Load, check, and execute the file.
     pub fn run(self) -> Result<Value, EvalError> {
         let std = zoya_std::std();
-        let package = load_package(&self.path, self.mode)
-            .map_err(|e| EvalError::RuntimeError(format!("error: {}", e)))?;
-        let checked =
-            check(&package, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+        let package =
+            load_package(&self.path, self.mode).map_err(|e| e.map_path(|p| p.to_string()))?;
+        let checked = check(&package, &[std])?;
         run_checked(&checked, &[std], &EntryPoint::Main(None))
     }
 }
@@ -145,10 +143,8 @@ impl SourceRunner {
     pub fn run(self) -> Result<Value, EvalError> {
         let std = zoya_std::std();
         let mem_source = MemorySource::new().with_module("root", &self.source);
-        let package = load_memory_package(&mem_source, self.mode)
-            .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-        let checked =
-            check(&package, &[std]).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+        let package = load_memory_package(&mem_source, self.mode)?;
+        let checked = check(&package, &[std])?;
         run_checked(&checked, &[std], &EntryPoint::Main(None))
     }
 }
@@ -243,6 +239,8 @@ fn run_single_test(
         Ok(value) => interpret_test_value(&value),
         Err(EvalError::Panic(msg)) => Err(TestError::Panic(msg)),
         Err(EvalError::RuntimeError(msg)) => Err(TestError::RuntimeError(msg)),
+        Err(EvalError::LoadError(e)) => Err(TestError::RuntimeError(e.to_string())),
+        Err(EvalError::TypeError(e)) => Err(TestError::RuntimeError(e.to_string())),
     }
 }
 

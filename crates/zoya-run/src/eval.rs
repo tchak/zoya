@@ -92,12 +92,16 @@ pub(crate) fn eval_script(
     Value::from_js_value(js_val, &result_type, type_lookup).map_err(EvalError::from)
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum EvalError {
     #[error("panic: {0}")]
     Panic(String),
     #[error("runtime error: {0}")]
     RuntimeError(String),
+    #[error("{0}")]
+    LoadError(#[from] zoya_loader::LoaderError<String>),
+    #[error("{0}")]
+    TypeError(#[from] zoya_ir::TypeError),
 }
 
 impl From<zoya_value::Error> for EvalError {

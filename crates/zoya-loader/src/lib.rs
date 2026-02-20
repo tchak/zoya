@@ -52,7 +52,7 @@ impl std::str::FromStr for Mode {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum LoaderError<P: Clone + Debug + Display = FilePath> {
     #[error("module '{mod_name}' not found at '{expected_path}'")]
     ModuleNotFound { mod_name: String, expected_path: P },
@@ -86,11 +86,54 @@ pub enum LoaderError<P: Clone + Debug + Display = FilePath> {
     #[error("main file '{}' not found in package at '{}'", main.display(), package_dir.display())]
     MainNotFound { main: PathBuf, package_dir: PathBuf },
     #[error("{0}")]
-    ConfigError(String),
+    ConfigError(#[from] ConfigError),
     #[error("missing root module")]
     MissingRoot,
     #[error("{message}")]
     InvalidAttribute { message: String },
+}
+
+impl<P: Clone + Debug + Display> LoaderError<P> {
+    /// Convert path types in error variants via the given mapping function.
+    pub fn map_path<Q: Clone + Debug + Display>(self, f: impl Fn(P) -> Q) -> LoaderError<Q> {
+        match self {
+            Self::ModuleNotFound {
+                mod_name,
+                expected_path,
+            } => LoaderError::ModuleNotFound {
+                mod_name,
+                expected_path: f(expected_path),
+            },
+            Self::SourceError { path, error } => LoaderError::SourceError {
+                path: f(path),
+                error,
+            },
+            Self::LexError { path, source } => LoaderError::LexError {
+                path: f(path),
+                source,
+            },
+            Self::ParseError { path, source } => LoaderError::ParseError {
+                path: f(path),
+                source,
+            },
+            Self::DuplicateMod { mod_name } => LoaderError::DuplicateMod { mod_name },
+            Self::InvalidModName {
+                mod_name,
+                suggestion,
+            } => LoaderError::InvalidModName {
+                mod_name,
+                suggestion,
+            },
+            Self::ReservedModName { mod_name } => LoaderError::ReservedModName { mod_name },
+            Self::NoPackageToml { dir } => LoaderError::NoPackageToml { dir },
+            Self::MainNotFound { main, package_dir } => {
+                LoaderError::MainNotFound { main, package_dir }
+            }
+            Self::ConfigError(e) => LoaderError::ConfigError(e),
+            Self::MissingRoot => LoaderError::MissingRoot,
+            Self::InvalidAttribute { message } => LoaderError::InvalidAttribute { message },
+        }
+    }
 }
 
 /// Load a package from a filesystem path.
@@ -128,7 +171,7 @@ fn load_from_directory(dir: &Path, mode: Mode) -> Result<Package, LoaderError<Fi
         });
     }
 
-    let config = PackageConfig::load(dir).map_err(|e| LoaderError::ConfigError(e.to_string()))?;
+    let config = PackageConfig::load(dir)?;
     let name = config.module_name();
     let main = config.main_path();
     let main_path = dir.join(&main);

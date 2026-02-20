@@ -418,7 +418,7 @@ fn test_run_list_exhaustiveness_error() {
     let result = run_source(source);
     assert!(matches!(
         result,
-        Err(EvalError::RuntimeError(msg)) if msg.contains("non-exhaustive")
+        Err(EvalError::TypeError(e)) if e.to_string().contains("non-exhaustive")
     ));
 }
 
@@ -5375,7 +5375,7 @@ fn test_arithmetic_on_string_error() {
     "#;
     let result = run_source(source);
     assert!(
-        matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("arithmetic operators only work on numeric types"))
+        matches!(result, Err(EvalError::TypeError(ref e)) if e.to_string().contains("arithmetic operators only work on numeric types"))
     );
 }
 
@@ -5388,7 +5388,7 @@ fn test_ordering_on_string_error() {
     "#;
     let result = run_source(source);
     assert!(
-        matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("ordering operators only work on numeric types"))
+        matches!(result, Err(EvalError::TypeError(ref e)) if e.to_string().contains("ordering operators only work on numeric types"))
     );
 }
 
@@ -5401,7 +5401,7 @@ fn test_ordering_on_bool_error() {
     "#;
     let result = run_source(source);
     assert!(
-        matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("ordering operators only work on numeric types"))
+        matches!(result, Err(EvalError::TypeError(ref e)) if e.to_string().contains("ordering operators only work on numeric types"))
     );
 }
 
@@ -5453,7 +5453,9 @@ fn test_turbofish_named_struct_wrong_type_error() {
         }
     "#;
     let result = run_source(source);
-    assert!(matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("type mismatch")));
+    assert!(
+        matches!(result, Err(EvalError::TypeError(ref e)) if e.to_string().contains("type mismatch"))
+    );
 }
 
 #[test]
@@ -5466,7 +5468,9 @@ fn test_turbofish_named_struct_wrong_arity_error() {
         }
     "#;
     let result = run_source(source);
-    assert!(matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("type argument")));
+    assert!(
+        matches!(result, Err(EvalError::TypeError(ref e)) if e.to_string().contains("type argument"))
+    );
 }
 
 #[test]
@@ -5497,7 +5501,9 @@ fn test_turbofish_enum_struct_variant_wrong_type_error() {
         }
     "#;
     let result = run_source(source);
-    assert!(matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("type mismatch")));
+    assert!(
+        matches!(result, Err(EvalError::TypeError(ref e)) if e.to_string().contains("type mismatch"))
+    );
 }
 
 #[test]
@@ -5530,7 +5536,7 @@ fn test_duplicate_binding_tuple_error() {
     "#;
     let result = run_source(source);
     assert!(
-        matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("duplicate binding"))
+        matches!(result, Err(EvalError::TypeError(ref e)) if e.to_string().contains("duplicate binding"))
     );
 }
 
@@ -5547,7 +5553,7 @@ fn test_duplicate_binding_list_error() {
     "#;
     let result = run_source(source);
     assert!(
-        matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("duplicate binding"))
+        matches!(result, Err(EvalError::TypeError(ref e)) if e.to_string().contains("duplicate binding"))
     );
 }
 

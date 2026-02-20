@@ -202,8 +202,12 @@ See [zoya-value](../zoya-value) for full `Value`, `ValueData`, and `JSValue` doc
 pub enum EvalError {
     /// Zoya `panic()` was called
     Panic(String),
-    /// Any other runtime error (JS execution, loading, type checking)
+    /// Any other runtime error (JS execution, value conversion)
     RuntimeError(String),
+    /// Package loading error (file IO, lex, parse, config)
+    LoadError(zoya_loader::LoaderError<String>),
+    /// Type checking error
+    TypeError(zoya_ir::TypeError),
 }
 
 /// Per-test error type used in TestResult.
@@ -219,7 +223,7 @@ pub enum TestError {
 }
 ```
 
-`EvalError` implements `From<zoya_value::Error>` for automatic conversion from value marshaling errors.
+`EvalError` implements `From` for `zoya_value::Error`, `LoaderError<String>`, and `TypeError` for automatic `?` propagation.
 
 ## Dependencies
 
