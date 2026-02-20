@@ -18,6 +18,7 @@
   "scripts": {
     "generate": "tree-sitter generate",
     "test": "tree-sitter test",
-    "parse": "tree-sitter parse"
+    "parse": "tree-sitter parse",
+    "parse-all": "tree-sitter parse --quiet --stat ../../crates/zoya-std/src/std/*.zy ../../examples/*/src/*.zy"
   }
 }

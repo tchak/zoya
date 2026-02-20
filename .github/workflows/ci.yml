@@ -81,3 +81,5 @@ jobs:
         working-directory: editors/tree-sitter-zoya
       - run: npx tree-sitter test
         working-directory: editors/tree-sitter-zoya
+      - run: npm run parse-all
+        working-directory: editors/tree-sitter-zoya

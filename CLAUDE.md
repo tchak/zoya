@@ -130,6 +130,7 @@ cd packages/zoya-runtime && npm run typecheck    # Type-check JS runtime
 cd editors/tree-sitter-zoya && npx tree-sitter generate  # Regenerate grammar
 cd editors/tree-sitter-zoya && npx tree-sitter test      # Run grammar tests
 cd editors/tree-sitter-zoya && npx tree-sitter parse FILE # Parse a .zy file
+cd editors/tree-sitter-zoya && npm run parse-all         # Parse all std & example files
 ```
 
 ## Version Control
