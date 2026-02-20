@@ -12,6 +12,25 @@ Strongly-typed functional language compiling to JavaScript. See [README.md](READ
 
 When adding or changing language features, **update the spec and docs alongside the code**. Documentation should stay in sync with the implementation.
 
+## Tree-sitter Grammar
+
+**IMPORTANT: When modifying the lexer or parser (adding/changing tokens, syntax, or grammar rules), always review and update the tree-sitter grammar to match.**
+
+The tree-sitter grammar lives in `editors/tree-sitter-zoya/`. The Zed extension in `editors/zed-zoya/` wraps it.
+
+```bash
+cd editors/tree-sitter-zoya && npx tree-sitter generate   # Regenerate parser from grammar.js
+cd editors/tree-sitter-zoya && npx tree-sitter test        # Run grammar test corpus
+cd editors/tree-sitter-zoya && npx tree-sitter parse FILE  # Parse a .zy file and print tree
+```
+
+Key files:
+- `editors/tree-sitter-zoya/grammar.js` — Grammar definition
+- `editors/tree-sitter-zoya/src/scanner.c` — External scanner (interpolated strings)
+- `editors/tree-sitter-zoya/test/corpus/` — Test corpus (63 tests)
+- `editors/zed-zoya/languages/zoya/highlights.scm` — Syntax highlighting queries
+- `editors/zed-zoya/languages/zoya/locals.scm` — Variable scoping queries
+
 ## Architecture
 
 ```
@@ -71,6 +90,14 @@ crates/
 └── zoya-value/        # Runtime value types & serialization
     └── src/
         └── lib.rs         # Value, JSValue, serde support
+editors/
+├── tree-sitter-zoya/  # Tree-sitter grammar
+│   ├── grammar.js         # Grammar definition
+│   ├── src/scanner.c      # External scanner (interpolated strings)
+│   └── test/corpus/       # Test corpus
+└── zed-zoya/          # Zed editor extension
+    ├── extension.toml     # Extension manifest
+    └── languages/zoya/    # Highlighting & config
 packages/
 └── zoya-runtime/      # JS runtime (TypeScript, bundled with tsdown)
     ├── src/               # TypeScript source modules
@@ -100,6 +127,9 @@ cargo clippy --workspace                         # Lint
 cd packages/zoya-runtime && npm run build        # Build JS runtime bundle
 cd packages/zoya-runtime && npm test             # Run JS runtime tests
 cd packages/zoya-runtime && npm run typecheck    # Type-check JS runtime
+cd editors/tree-sitter-zoya && npx tree-sitter generate  # Regenerate grammar
+cd editors/tree-sitter-zoya && npx tree-sitter test      # Run grammar tests
+cd editors/tree-sitter-zoya && npx tree-sitter parse FILE # Parse a .zy file
 ```
 
 ## Version Control
