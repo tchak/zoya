@@ -237,7 +237,8 @@ fn main() {
             }
         }
         None => {
-            println!("Zoya language - use --help for usage");
+            use clap::CommandFactory;
+            Cli::command().print_help().unwrap();
         }
     }
 }
