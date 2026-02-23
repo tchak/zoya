@@ -91,6 +91,10 @@ crates/
 └── zoya-value/        # Runtime value types & serialization
     └── src/
         └── lib.rs         # Value, JSValue, serde support
+examples/
+├── tests/             # Native Zoya integration tests (language features)
+├── std-tests/         # Native Zoya integration tests (std library methods)
+└── algorithms/        # Example algorithm implementations
 editors/
 ├── tree-sitter-zoya/  # Tree-sitter grammar
 │   ├── grammar.js         # Grammar definition
@@ -104,6 +108,89 @@ packages/
     ├── src/               # TypeScript source modules
     ├── tests/             # Vitest tests
     └── dist/              # Built bundle (committed, used by codegen)
+```
+
+## Zoya Syntax Quick Reference
+
+**Items are only allowed at the module top level** — you cannot define `fn`, `struct`, `enum`, `type`, `impl`, `mod`, or `use` inside expressions or blocks. Blocks (`{ ... }`) contain only `let` bindings and a final expression.
+
+```zoya
+// --- Top-level items ---
+mod utils                              // module declaration (file-based)
+pub mod utils                          // public module
+
+use self::utils::add                   // import item
+use self::utils::{add, mul}            // group import
+use self::utils::*                     // glob import
+
+type UserId = Int                      // type alias
+type Pair<A, B> = (A, B)              // generic type alias
+
+struct Point { x: Int, y: Int }        // named struct
+struct Pair<T, U> { first: T, second: U }  // generic struct
+struct Wrapper(Int)                    // tuple struct
+struct UnitStruct                      // unit struct
+
+enum Option<T> { None, Some(T) }      // enum with unit + tuple variants
+enum Message { Quit, Move { x: Int, y: Int }, Write(String) }  // mixed variants
+
+impl Point {                           // impl block
+  fn sum(self) -> Int { self.x + self.y }         // method (has self)
+  fn origin() -> Self { Point { x: 0, y: 0 } }   // associated function (no self)
+}
+impl<T> Wrapper<T> { ... }            // generic impl block
+
+fn add(x: Int, y: Int) -> Int { x + y }           // function with block body
+fn square(x: Int) -> Int x * x                     // function with expression body
+pub fn helper() -> Int 42                           // public function
+fn identity<T>(x: T) -> T x                        // generic function
+
+#[test]
+fn test_add() -> () assert_eq(add(1, 2), 3)       // test function
+
+// --- Expressions ---
+let x = 42;                            // let binding (SEMICOLON required, not a comma)
+let y: Int = 42;                       // let with type annotation
+let (a, b) = (1, 2);                  // destructuring let
+let Point { x, .. } = p;             // struct destructuring let
+
+// Lambdas use |params| body syntax (NOT fn keyword)
+let f = |x| x + 1;                    // lambda, inferred types
+let g = |x: Int| -> Int x * 2;        // lambda with type annotations
+let add = |x, y| x + y;              // multi-param lambda
+let thunk = || 42;                     // no-param lambda
+let nested = |x| |y| x + y;          // curried lambda
+let f: Int -> Int = |x| x * 2;        // function type annotation
+let add: (Int, Int) -> Int = |x, y| x + y;
+
+// Blocks: let bindings + final expression (the result)
+{
+  let a = 10;
+  let b = 20;
+  a + b                                // last expression is the block's value
+}
+
+// Match (used for conditionals — there is NO if/else)
+match x {
+  0 => "zero",
+  n => "other",
+}
+
+// Method calls and field access
+point.x                                // field access
+list[0]                                // index access
+"hello".to_uppercase()                 // method call
+Builder::new().add(10).build()         // chaining
+
+// Enum construction
+Option::Some(42)
+Option::None
+Option::None::<Int>                    // turbofish
+
+// Struct construction
+Point { x: 10, y: 20 }
+Point { x: 10, ..other }              // spread
+Point { x, y }                        // field shorthand
 ```
 
 ## Error Handling
@@ -197,6 +284,8 @@ jj commit -m "fix: resolve unification with recursive types"
 **IMPORTANT: Always run `cargo fmt` before committing.** All code must be formatted with `rustfmt`. Run `cargo fmt --check` to verify.
 
 ## Testing
+
+**Prefer native Zoya tests for integration testing.** When testing language features end-to-end, write tests as `#[test]` functions in `examples/tests/` (language features) or `examples/std-tests/` (std library methods) rather than Rust-side `runner_tests`. Run them with `cargo run -p zoya -- test --package examples/tests` or `cargo run -p zoya -- test --package examples/std-tests`. Reserve Rust integration tests for cases that need to inspect compiler internals (error messages, types, codegen output).
 
 New features need tests at each pipeline stage:
 
