@@ -1036,6 +1036,11 @@ impl<'a> PackageCodegen<'a> {
             "root::task::Task::of" => "return $$Task.of($value);".to_string(),
             "root::task::Task::map" => "return $$Task.map($self, $f);".to_string(),
             "root::task::Task::and_then" => "return $$Task.and_then($self, $f);".to_string(),
+            "root::task::Task::all" => "return $$Task.all($tasks);".to_string(),
+            "root::task::Task::tap" => "return $$Task.tap($self, $f);".to_string(),
+            "root::task::Task::zip" => "return $$Task.zip($a, $b);".to_string(),
+            "root::task::Task::zip3" => "return $$Task.zip3($a, $b, $c);".to_string(),
+            "root::task::Task::zip4" => "return $$Task.zip4($a, $b, $c, $d);".to_string(),
 
             // IO functions
             "root::io::delay" => "return $$Task.delay($ms);".to_string(),

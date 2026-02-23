@@ -7,4 +7,19 @@ impl<T> Task<T> {
 
   #[builtin]
   pub fn and_then<U>(self, f: T -> Task<U>) -> Task<U> ()
+
+  #[builtin]
+  pub fn all(tasks: List<Task<T>>) -> Task<List<T>> ()
+
+  #[builtin]
+  pub fn tap(self, f: T -> ()) -> Task<T> ()
+
+  #[builtin]
+  pub fn zip<U>(a: Task<T>, b: Task<U>) -> Task<(T, U)> ()
+
+  #[builtin]
+  pub fn zip3<U, V>(a: Task<T>, b: Task<U>, c: Task<V>) -> Task<(T, U, V)> ()
+
+  #[builtin]
+  pub fn zip4<U, V, W>(a: Task<T>, b: Task<U>, c: Task<V>, d: Task<W>) -> Task<(T, U, V, W)> ()
 }

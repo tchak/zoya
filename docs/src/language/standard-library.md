@@ -121,10 +121,18 @@ Err("fail").err()          // Some("fail")
 | `of(value: T) -> Task<T>` | Create a task that immediately resolves to `value` |
 | `map<U>(self, f: T -> U) -> Task<U>` | Transform the result of the task |
 | `and_then<U>(self, f: T -> Task<U>) -> Task<U>` | Chain tasks sequentially |
+| `all(tasks: List<Task<T>>) -> Task<List<T>>` | Run all tasks concurrently and collect results |
+| `tap(self, f: T -> ()) -> Task<T>` | Execute a side effect without changing the value |
+| `zip<U>(a: Task<T>, b: Task<U>) -> Task<(T, U)>` | Run two tasks concurrently and return a tuple |
+| `zip3<U, V>(a: Task<T>, b: Task<U>, c: Task<V>) -> Task<(T, U, V)>` | Run three tasks concurrently and return a tuple |
+| `zip4<U, V, W>(a: Task<T>, b: Task<U>, c: Task<V>, d: Task<W>) -> Task<(T, U, V, W)>` | Run four tasks concurrently and return a tuple |
 
 ```zoya
 Task::of(42).map(|x| x + 1)              // Task(43)
 Task::of(5).and_then(|x| Task::of(x * 2)) // Task(10)
+Task::all([Task::of(1), Task::of(2)])     // Task([1, 2])
+Task::zip(Task::of(1), Task::of("a"))     // Task((1, "a"))
+Task::of(42).tap(|x| io::println(x))     // prints 42, returns Task(42)
 
 // delay returns Task<()>
 delay(100).map(|_| "done")                // Task("done") after 100ms
@@ -476,7 +484,7 @@ delay(1000).map(|_| "waited 1 second")
 
 The built-in `Task<T>` type for lazy asynchronous computations. `Task` is re-exported in the prelude.
 
-See [Task Methods](#task-methods) above for available methods (`of`, `map`, `and_then`).
+See [Task Methods](#task-methods) above for available methods (`of`, `map`, `and_then`, `all`, `tap`, `zip`, `zip3`, `zip4`).
 
 ## `std::http`
 

@@ -25,3 +25,40 @@ fn test_map_chain() -> Task<()> {
 fn test_task_unit() -> Task<()> {
   Task::of(())
 }
+
+#[test]
+fn test_all() -> Task<()> {
+  let tasks = [Task::of(1), Task::of(2), Task::of(3)];
+  Task::all(tasks).map(|xs| assert_eq(xs, [1, 2, 3]))
+}
+
+#[test]
+fn test_all_empty() -> Task<()> {
+  let empty: List<Task<Int>> = [];
+  Task::all(empty).map(|xs| assert_eq(xs.len(), 0))
+}
+
+#[test]
+fn test_tap() -> Task<()> {
+  Task::of(42)
+    .tap(|x| assert_eq(x, 42))
+    .map(|x| assert_eq(x, 42))
+}
+
+#[test]
+fn test_zip() -> Task<()> {
+  Task::zip(Task::of(1), Task::of("a"))
+    .map(|pair| assert_eq(pair, (1, "a")))
+}
+
+#[test]
+fn test_zip3() -> Task<()> {
+  Task::zip3(Task::of(1), Task::of("a"), Task::of(true))
+    .map(|t| assert_eq(t, (1, "a", true)))
+}
+
+#[test]
+fn test_zip4() -> Task<()> {
+  Task::zip4(Task::of(1), Task::of("a"), Task::of(true), Task::of(3.14))
+    .map(|t| assert_eq(t, (1, "a", true, 3.14)))
+}

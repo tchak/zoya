@@ -350,6 +350,48 @@
 				run: () => task.run().then((v) => f(v).run())
 			});
 		},
+		all(tasks) {
+			return Object.freeze({
+				$task: true,
+				run: () => Promise.all(tasks.map((t) => t.run()))
+			});
+		},
+		tap(task, f) {
+			return Object.freeze({
+				$task: true,
+				run: () => task.run().then((v) => {
+					f(v);
+					return v;
+				})
+			});
+		},
+		zip(a, b) {
+			return Object.freeze({
+				$task: true,
+				run: () => Promise.all([a.run(), b.run()])
+			});
+		},
+		zip3(a, b, c) {
+			return Object.freeze({
+				$task: true,
+				run: () => Promise.all([
+					a.run(),
+					b.run(),
+					c.run()
+				])
+			});
+		},
+		zip4(a, b, c, d) {
+			return Object.freeze({
+				$task: true,
+				run: () => Promise.all([
+					a.run(),
+					b.run(),
+					c.run(),
+					d.run()
+				])
+			});
+		},
 		delay(ms) {
 			return Object.freeze({
 				$task: true,

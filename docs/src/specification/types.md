@@ -159,6 +159,8 @@ Task has no literal syntax. Create tasks using methods:
 let t = Task::of(42)
 let mapped = t.map(|x| x + 1)
 let chained = t.and_then(|x| Task::of(x * 2))
+let all = Task::all([Task::of(1), Task::of(2)])
+let zipped = Task::zip(Task::of(1), Task::of("a"))
 ```
 
 When a `main` function returns `Task<T>`, the runtime executes the task and produces the inner value.
