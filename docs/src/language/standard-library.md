@@ -8,6 +8,8 @@ The following types and functions are automatically available in every module wi
 
 - **`Option<T>`** — Represents an optional value: `Some(T)` or `None`
 - **`Result<T, E>`** — Represents success (`Ok(T)`) or failure (`Err(E)`)
+- **`Task<T>`** — Represents a lazy asynchronous computation that produces a value of type `T`
+- **`delay(ms: Int) -> Task<()>`** — Create a task that waits `ms` milliseconds before completing
 - **`panic(message: String) -> T`** — Aborts execution with an error message. The generic return type `T` allows `panic` to be used in any type context.
 - **`assert(condition: Bool) -> T`** — Panics with "assertion failed" if the condition is `false`.
 - **`assert_eq(left: V, right: V) -> T`** — Panics with "assertion failed: left != right" if `left` and `right` are not equal (deep equality).
@@ -108,6 +110,24 @@ Ok(1).and(Ok("hello"))     // Ok("hello")
 Ok(42).ok()                // Some(42)
 Err("fail").ok()           // None
 Err("fail").err()          // Some("fail")
+```
+
+### Task Methods
+
+#### `Task<T>`
+
+| Method | Description |
+|--------|-------------|
+| `of(value: T) -> Task<T>` | Create a task that immediately resolves to `value` |
+| `map<U>(self, f: T -> U) -> Task<U>` | Transform the result of the task |
+| `and_then<U>(self, f: T -> Task<U>) -> Task<U>` | Chain tasks sequentially |
+
+```zoya
+Task::of(42).map(|x| x + 1)              // Task(43)
+Task::of(5).and_then(|x| Task::of(x * 2)) // Task(10)
+
+// delay returns Task<()>
+delay(100).map(|_| "done")                // Task("done") after 100ms
 ```
 
 ### `panic`
@@ -436,7 +456,7 @@ d.is_empty()       // false
 
 ## `std::io`
 
-Basic I/O operations. `println` is re-exported in the prelude, so it can be used without an explicit import.
+Basic I/O operations. `println` and `delay` are re-exported in the prelude, so they can be used without an explicit import.
 
 ### `println`
 
@@ -445,6 +465,18 @@ use std::io::println
 
 println("Hello from std::io!")
 ```
+
+### `delay`
+
+```zoya
+delay(1000).map(|_| "waited 1 second")
+```
+
+## `std::task`
+
+The built-in `Task<T>` type for lazy asynchronous computations. `Task` is re-exported in the prelude.
+
+See [Task Methods](#task-methods) above for available methods (`of`, `map`, `and_then`).
 
 ## `std::http`
 

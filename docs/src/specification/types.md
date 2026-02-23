@@ -141,6 +141,28 @@ a.is_disjoint(b)      // false
 
 Elements can be any type that supports structural equality. Elements must be homogeneous within a single set.
 
+## Task Types
+
+Lazy asynchronous computations. A `Task<T>` represents a computation that, when executed, produces a value of type `T`. Tasks are lazy — they describe work to be done but do not execute until the runtime drives them.
+
+### Syntax
+
+```
+Task<T>
+```
+
+### Usage
+
+Task has no literal syntax. Create tasks using methods:
+
+```zoya
+let t = Task::of(42)
+let mapped = t.map(|x| x + 1)
+let chained = t.and_then(|x| Task::of(x * 2))
+```
+
+When a `main` function returns `Task<T>`, the runtime executes the task and produces the inner value.
+
 ## Tuple Types
 
 Fixed-size, heterogeneous product types.
