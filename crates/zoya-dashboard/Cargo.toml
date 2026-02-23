@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 axum = "0.8"
-leptos = { version = "0.7", features = ["ssr"] }
+leptos = { version = "0.8", features = ["ssr"] }
 zoya-ir = { path = "../zoya-ir" }
 zoya-package = { path = "../zoya-package" }
 
