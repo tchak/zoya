@@ -7,5 +7,6 @@ pub mod dict
 pub mod option
 pub mod result
 pub mod set
+pub mod task
 
 pub fn main() -> () ()

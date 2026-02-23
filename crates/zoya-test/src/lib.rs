@@ -127,6 +127,7 @@ fn interpret_test_value(value: &Value) -> Result<(), TestError> {
                 .unwrap_or_else(|| "test failed".to_string());
             Err(TestError::Failed(msg))
         }
+        Value::Task(inner) => interpret_test_value(inner),
         _ => Err(TestError::UnexpectedReturn(format!("{value}"))),
     }
 }
@@ -178,6 +179,35 @@ mod tests {
             data: ValueData::Tuple(vec![Value::Tuple(vec![])]),
         };
         assert!(interpret_test_value(&value).is_err());
+    }
+
+    #[test]
+    fn test_interpret_task_unit() {
+        let value = Value::Task(Box::new(Value::Tuple(vec![])));
+        assert_eq!(interpret_test_value(&value), Ok(()));
+    }
+
+    #[test]
+    fn test_interpret_task_result_ok() {
+        let value = Value::Task(Box::new(Value::EnumVariant {
+            module: QualifiedPath::root(),
+            enum_name: "Result".to_string(),
+            variant_name: "Ok".to_string(),
+            data: ValueData::Tuple(vec![Value::Tuple(vec![])]),
+        }));
+        assert_eq!(interpret_test_value(&value), Ok(()));
+    }
+
+    #[test]
+    fn test_interpret_task_result_err() {
+        let value = Value::Task(Box::new(Value::EnumVariant {
+            module: QualifiedPath::root(),
+            enum_name: "Result".to_string(),
+            variant_name: "Err".to_string(),
+            data: ValueData::Tuple(vec![Value::String("async failed".to_string())]),
+        }));
+        let err = interpret_test_value(&value).unwrap_err();
+        assert!(err.to_string().contains("async failed"));
     }
 
     #[test]

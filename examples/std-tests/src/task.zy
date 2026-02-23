@@ -1,0 +1,27 @@
+#[test]
+fn test_of() -> Task<()> {
+  Task::of(42).map(|x| assert_eq(x, 42))
+}
+
+#[test]
+fn test_map() -> Task<()> {
+  Task::of(5).map(|x| x * 2).map(|x| assert_eq(x, 10))
+}
+
+#[test]
+fn test_and_then() -> Task<()> {
+  Task::of(5).and_then(|x| Task::of(x + 1)).map(|x| assert_eq(x, 6))
+}
+
+#[test]
+fn test_map_chain() -> Task<()> {
+  Task::of(1)
+    .map(|x| x + 1)
+    .map(|x| x * 3)
+    .map(|x| assert_eq(x, 6))
+}
+
+#[test]
+fn test_task_unit() -> Task<()> {
+  Task::of(())
+}

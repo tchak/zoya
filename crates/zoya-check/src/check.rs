@@ -332,18 +332,23 @@ fn check_function(
         body_type
     };
 
-    // Validate: #[test] functions must return () or Result
+    // Validate: #[test] functions must return (), Result, Task<()>, or Task<Result>
     if kind == FunctionKind::Test {
         let resolved = ctx.resolve(&return_type);
         let valid = match &resolved {
             Type::Tuple(elems) if elems.is_empty() => true,
             Type::Enum { name, .. } if name == "Result" => true,
+            Type::Task(inner) => match inner.as_ref() {
+                Type::Tuple(elems) if elems.is_empty() => true,
+                Type::Enum { name, .. } if name == "Result" => true,
+                _ => false,
+            },
             _ => false,
         };
         if !valid {
             return Err(TypeError::InvalidAttribute {
                 message: format!(
-                    "#[test] function '{}' must return () or Result, but returns {}",
+                    "#[test] function '{}' must return (), Result, Task<()>, or Task<Result>, but returns {}",
                     func.name, resolved
                 ),
             });

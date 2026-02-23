@@ -10,8 +10,19 @@ use crate::check::check;
 use super::build_test_package;
 
 fn check_source(source: &str) -> Result<zoya_ir::CheckedPackage, String> {
+    check_source_with_mode(source, zoya_loader::Mode::Dev)
+}
+
+fn check_source_test_mode(source: &str) -> Result<zoya_ir::CheckedPackage, String> {
+    check_source_with_mode(source, zoya_loader::Mode::Test)
+}
+
+fn check_source_with_mode(
+    source: &str,
+    mode: zoya_loader::Mode,
+) -> Result<zoya_ir::CheckedPackage, String> {
     let mem = MemorySource::new().with_module("root", source);
-    let pkg = load_memory_package(&mem, zoya_loader::Mode::Dev).map_err(|e| format!("{}", e))?;
+    let pkg = load_memory_package(&mem, mode).map_err(|e| format!("{}", e))?;
     let std = zoya_std::std();
     check(&pkg, &[std]).map_err(|e| e.to_string())
 }
@@ -152,7 +163,50 @@ fn test_test_attr_wrong_return_type_is_error() {
     })];
     let pkg = build_test_package(items);
     let err = check(&pkg, &[]).unwrap_err();
-    assert!(err.to_string().contains("must return () or Result"));
+    assert!(
+        err.to_string()
+            .contains("must return (), Result, Task<()>, or Task<Result>")
+    );
+}
+
+#[test]
+fn test_test_attr_task_unit_return_is_valid() {
+    let result = check_source_test_mode(
+        r#"
+#[test]
+fn test_async() -> Task<()> {
+  Task::of(())
+}
+"#,
+    );
+    assert!(result.is_ok(), "expected ok, got: {:?}", result);
+}
+
+#[test]
+fn test_test_attr_task_result_return_is_valid() {
+    let result = check_source_test_mode(
+        r#"
+#[test]
+fn test_async() -> Task<Result<(), String>> {
+  Task::of(Result::Ok(()))
+}
+"#,
+    );
+    assert!(result.is_ok(), "expected ok, got: {:?}", result);
+}
+
+#[test]
+fn test_test_attr_task_int_return_is_error() {
+    let result = check_source_test_mode(
+        r#"
+#[test]
+fn test_async() -> Task<Int> {
+  Task::of(42)
+}
+"#,
+    );
+    let err = result.unwrap_err();
+    assert!(err.contains("must return (), Result, Task<()>, or Task<Result>"));
 }
 
 #[test]
