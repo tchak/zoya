@@ -6,7 +6,7 @@ use console::{Term, style};
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
-use zoya_ast::{Expr, FunctionDef, Item, LetBinding, Stmt, TupleElement, Visibility};
+use zoya_ast::{Expr, FunctionDef, Item, LetBinding, Stmt, Visibility};
 use zoya_check::check;
 use zoya_ir::{CheckedPackage, Type, TypedExpr, TypedPattern};
 use zoya_package::{Module, Package, QualifiedPath};
@@ -224,32 +224,6 @@ impl State {
         all_items.extend(items.clone());
         all_items.extend(run_functions);
 
-        // Create combined run function that calls all run_N and returns tuple
-        if !run_function_names.is_empty() {
-            let call_exprs: Vec<TupleElement> = run_function_names
-                .iter()
-                .map(|name| {
-                    TupleElement::Item(Expr::Call {
-                        path: zoya_ast::Path::simple(name.clone()),
-                        args: vec![],
-                    })
-                })
-                .collect();
-
-            let combined_fn = Item::Function(FunctionDef {
-                leading_comments: vec![],
-                attributes: vec![],
-                visibility: Visibility::Public,
-                name: "main".to_string(),
-                type_params: vec![],
-                params: vec![],
-                return_type: None, // inferred as tuple
-                body: Expr::Tuple(call_exprs),
-            });
-
-            all_items.push(combined_fn);
-        }
-
         let pkg = build_repl_package(self.base_pkg.as_ref(), all_items);
 
         // Type check the package with std
@@ -280,37 +254,20 @@ impl State {
             }
         }
 
-        // Call combined run function once and unpack tuple result
+        // Execute each run function individually
         if !run_function_names.is_empty() {
-            // Collect return types from individual functions
-            let return_types: Vec<Type> = run_function_names
-                .iter()
-                .map(|name| {
-                    find_typed_function(&checked_pkg, name)
-                        .map(|f| f.return_type.clone())
-                        .ok_or_else(|| anyhow!("internal error: run function {} not found", name))
-                })
-                .collect::<Result<Vec<_>>>()?;
+            let runner = Runner::new(&checked_pkg, [std]);
 
-            // Call combined main function via runner
-            let combined_value = Runner::new(&checked_pkg, [std])
-                .run(QualifiedPath::root().child("repl").child("main"), vec![])?;
+            for run_name in &run_function_names {
+                let typed_fn = find_typed_function(&checked_pkg, run_name)
+                    .ok_or_else(|| anyhow!("internal error: run function {} not found", run_name))?;
+                let return_type = typed_fn.return_type.clone();
 
-            // Unpack tuple result
-            let individual_values = match combined_value {
-                Value::Tuple(values) => values,
-                _ => bail!("internal error: combined run did not return tuple"),
-            };
+                let path = QualifiedPath::root().child("repl").child(run_name);
+                let value = runner.run(path, vec![])?;
 
-            // Process each result
-            for ((run_name, return_type), value) in run_function_names
-                .iter()
-                .zip(return_types.iter())
-                .zip(individual_values.into_iter())
-            {
-                if *return_type == Type::Tuple(vec![]) {
+                if return_type == Type::Tuple(vec![]) {
                     // Let-only block
-                    let typed_fn = find_typed_function(&checked_pkg, run_name).unwrap();
                     let all_bindings = extract_bindings_from_typed_expr(&typed_fn.body);
                     if let Some(last_binding) = all_bindings.last() {
                         results.push(ReplResult::LetBinding {
@@ -318,7 +275,6 @@ impl State {
                         });
                     }
                 } else {
-                    // Expression result
                     results.push(ReplResult::Expression(value));
                 }
             }
