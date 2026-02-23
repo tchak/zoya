@@ -1,0 +1,19 @@
+[package]
+name = "zoya-dashboard"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = "0.8"
+leptos = { version = "0.7", features = ["ssr"] }
+zoya-ir = { path = "../zoya-ir" }
+zoya-package = { path = "../zoya-package" }
+
+[dev-dependencies]
+http = "1"
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
+tokio = { version = "1", features = ["full"] }
+zoya-check = { path = "../zoya-check" }
+zoya-loader = { path = "../zoya-loader" }
+zoya-std = { path = "../zoya-std" }
