@@ -24,8 +24,7 @@ struct RouteInfo {
 
 /// Shared state accessible from all route handlers.
 struct AppState {
-    checked: CheckedPackage,
-    deps: Vec<CheckedPackage>,
+    runner: Runner,
     routes: Vec<RouteInfo>,
 }
 
@@ -51,8 +50,7 @@ pub fn router(checked: &CheckedPackage, deps: &[&CheckedPackage]) -> Router {
     }
 
     let state = Arc::new(AppState {
-        checked: checked.clone(),
-        deps: deps.iter().map(|d| (*d).clone()).collect(),
+        runner: Runner::new(checked, deps.iter().copied()),
         routes: route_infos,
     });
 
@@ -84,7 +82,6 @@ async fn handle_request(
     body: Bytes,
 ) -> axum::response::Response {
     let info = &state.routes[route_index];
-    let deps: Vec<&CheckedPackage> = state.deps.iter().collect();
 
     let args = if info.has_request_param {
         vec![axum_request_to_value(&parts, &body)]
@@ -92,9 +89,7 @@ async fn handle_request(
         vec![]
     };
 
-    let result = Runner::new(&state.checked, deps)
-        .run_async(info.path.clone(), args)
-        .await;
+    let result = state.runner.run_async(info.path.clone(), args).await;
 
     match result {
         Ok(value) => match value_to_axum_response(value) {

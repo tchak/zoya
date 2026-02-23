@@ -1,5 +1,7 @@
+use std::collections::HashMap;
+
 use zoya_codegen::{codegen, format_export_path};
-use zoya_ir::{CheckedPackage, DefinitionLookup};
+use zoya_ir::{CheckedPackage, Definition, DefinitionLookup};
 use zoya_package::QualifiedPath;
 
 use zoya_value::Value;
@@ -10,18 +12,19 @@ use crate::eval::{self, EvalError};
 ///
 /// Eagerly compiles the package to JavaScript and builds a type lookup
 /// on construction, so that `run()`/`run_async()` can be called multiple
-/// times without repeating this work.
-pub struct Runner<'a> {
-    package: &'a CheckedPackage,
+/// times without repeating this work. Fully owned — no lifetime parameter.
+pub struct Runner {
+    name: String,
+    definitions: HashMap<QualifiedPath, Definition>,
     code: String,
     type_lookup: DefinitionLookup,
 }
 
-impl<'a> Runner<'a> {
+impl Runner {
     /// Create a new runner for the given package and its dependencies.
     ///
     /// This eagerly runs codegen and builds the type lookup table.
-    pub fn new(
+    pub fn new<'a>(
         package: &'a CheckedPackage,
         deps: impl IntoIterator<Item = &'a CheckedPackage>,
     ) -> Self {
@@ -29,7 +32,8 @@ impl<'a> Runner<'a> {
         let code = codegen(package, &deps).code;
         let type_lookup = DefinitionLookup::from_packages(package, &deps);
         Runner {
-            package,
+            name: package.name.clone(),
+            definitions: package.definitions.clone(),
             code,
             type_lookup,
         }
@@ -57,7 +61,6 @@ impl<'a> Runner<'a> {
     ) -> Result<Value, EvalError> {
         // Find the function in the package definitions
         let func_def = self
-            .package
             .definitions
             .get(&path)
             .and_then(|d| d.as_function())
@@ -83,7 +86,7 @@ impl<'a> Runner<'a> {
         }
 
         // Build the entry function name using the package name
-        let entry_func = format_export_path(&path, &self.package.name);
+        let entry_func = format_export_path(&path, &self.name);
 
         // Create async runtime (no module system needed)
         let (_runtime, context) = eval::create_async_runtime().await?;

@@ -50,10 +50,10 @@ assert_eq!(result, Value::Int(3));
 
 ```rust
 /// Runner for executing a checked Zoya package.
-pub struct Runner<'a>;
+pub struct Runner;
 
-impl<'a> Runner<'a> {
-    pub fn new(pkg: &'a CheckedPackage, deps: impl IntoIterator<Item = &'a CheckedPackage>) -> Self;
+impl Runner {
+    pub fn new(pkg: &CheckedPackage, deps: impl IntoIterator<Item = &CheckedPackage>) -> Self;
     pub fn run(&self, path: QualifiedPath, args: Vec<Value>) -> Result<Value, EvalError>;
     pub async fn run_async(&self, path: QualifiedPath, args: Vec<Value>) -> Result<Value, EvalError>;
 }

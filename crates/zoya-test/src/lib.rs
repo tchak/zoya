@@ -88,7 +88,7 @@ impl<'a> TestRunner<'a> {
 }
 
 /// Run a single test function and interpret its result.
-fn run_single_test(runner: &Runner<'_>, path: &QualifiedPath) -> Result<(), TestError> {
+fn run_single_test(runner: &Runner, path: &QualifiedPath) -> Result<(), TestError> {
     match runner.run(path.clone(), vec![]) {
         Ok(value) => interpret_test_value(&value),
         Err(EvalError::Panic(msg)) => Err(TestError::Panic(msg)),
