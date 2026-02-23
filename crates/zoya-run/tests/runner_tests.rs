@@ -42,7 +42,7 @@ fn test_run_no_main_error() {
     let source = "fn foo() -> Int { 42 }";
     let result = run_source(source);
     assert!(
-        matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("no pub fn main()"))
+        matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("function") && msg.contains("not found"))
     );
 }
 
@@ -51,7 +51,7 @@ fn test_run_private_main_error() {
     let source = "fn main() -> Int { 42 }";
     let result = run_source(source);
     assert!(
-        matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("no pub fn main()"))
+        matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("function") && msg.contains("not found"))
     );
 }
 
@@ -1180,13 +1180,16 @@ fn test_entry_error_on_nonexistent_function() {
 }
 
 #[test]
-fn test_main_module_runs_main_in_submodule() {
+fn test_entry_runs_main_in_submodule() {
     let mut source = MemorySource::new();
     source.add_module("root", "pub mod sub");
     source.add_module("sub", "pub fn main() -> Int { 77 }");
     let package = load_memory_package(&source, zoya_loader::Mode::Dev).unwrap();
     let checked = check(&package, &[]).unwrap();
-    let result = Runner::new(&checked, []).main_module("sub").run().unwrap();
+    let result = Runner::new(&checked, [])
+        .entry(QualifiedPath::root().child("sub").child("main"), vec![])
+        .run()
+        .unwrap();
     assert_eq!(result, Value::Int(77));
 }
 

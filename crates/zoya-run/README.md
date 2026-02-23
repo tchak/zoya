@@ -32,17 +32,6 @@ let result = Runner::new(&checked_pkg, [std]).run()?;
 println!("Result: {}", result);
 ```
 
-### Run a specific module's main function
-
-```rust
-use zoya_run::Runner;
-
-// Run main() from the "repl" submodule
-let result = Runner::new(&checked_pkg, [std])
-    .main_module("repl")
-    .run()?;
-```
-
 ### Run a specific function with arguments
 
 ```rust
@@ -65,7 +54,6 @@ pub struct Runner<'a>;
 
 impl<'a> Runner<'a> {
     pub fn new(pkg: &'a CheckedPackage, deps: impl IntoIterator<Item = &'a CheckedPackage>) -> Self;
-    pub fn main_module(self, module: impl Into<String>) -> Self;
     pub fn entry(self, path: QualifiedPath, args: Vec<Value>) -> Self;
     pub fn run(self) -> Result<Value, EvalError>;
     pub async fn run_async(self) -> Result<Value, EvalError>;

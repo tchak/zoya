@@ -12,6 +12,7 @@ use zoya_ir::{CheckedPackage, Type, TypedExpr, TypedPattern};
 use zoya_package::{Module, Package, QualifiedPath};
 use zoya_run::{Runner, Value};
 
+
 /// Extract all variable bindings from a typed pattern.
 /// Returns a list of (name, type) pairs for each bound variable.
 fn extract_bindings(pattern: &TypedPattern) -> Vec<(String, Type)> {
@@ -293,7 +294,9 @@ impl State {
                 .collect::<Result<Vec<_>>>()?;
 
             // Call combined main function via runner
-            let combined_value = Runner::new(&checked_pkg, [std]).main_module("repl").run()?;
+            let combined_value = Runner::new(&checked_pkg, [std])
+                .entry(QualifiedPath::root().child("repl").child("main"), vec![])
+                .run()?;
 
             // Unpack tuple result
             let individual_values = match combined_value {

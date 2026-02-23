@@ -6,19 +6,12 @@ use zoya_value::Value;
 
 use crate::eval::{self, EvalError};
 
-/// Which function to invoke inside a checked package.
-enum EntryPoint {
-    /// Run `main()` in the root module or a named submodule.
-    Main(Option<String>),
-    /// Run an arbitrary function by its full qualified path, with optional args.
-    Entry(QualifiedPath, Vec<Value>),
-}
-
 /// Runner for executing a checked Zoya package.
 pub struct Runner<'a> {
     package: &'a CheckedPackage,
     deps: Vec<&'a CheckedPackage>,
-    entry_point: EntryPoint,
+    entry_path: QualifiedPath,
+    entry_args: Vec<Value>,
 }
 
 impl<'a> Runner<'a> {
@@ -30,18 +23,15 @@ impl<'a> Runner<'a> {
         Runner {
             package,
             deps: deps.into_iter().collect(),
-            entry_point: EntryPoint::Main(None),
+            entry_path: QualifiedPath::root().child("main"),
+            entry_args: vec![],
         }
-    }
-    /// Select a submodule whose `main()` to run (e.g., `"repl"`).
-    pub fn main_module(mut self, module: impl Into<String>) -> Self {
-        self.entry_point = EntryPoint::Main(Some(module.into()));
-        self
     }
 
     /// Select an arbitrary function to run by its full qualified path, with args.
     pub fn entry(mut self, path: QualifiedPath, args: Vec<Value>) -> Self {
-        self.entry_point = EntryPoint::Entry(path, args);
+        self.entry_path = path;
+        self.entry_args = args;
         self
     }
 
@@ -61,7 +51,7 @@ impl<'a> Runner<'a> {
     ///
     /// Use this when already inside a tokio runtime (e.g., HTTP handlers).
     pub async fn run_async(self) -> Result<Value, EvalError> {
-        run_checked_async(self.package, &self.deps, &self.entry_point).await
+        run_checked_async(self.package, &self.deps, &self.entry_path, &self.entry_args).await
     }
 }
 
@@ -69,33 +59,16 @@ impl<'a> Runner<'a> {
 async fn run_checked_async(
     package: &CheckedPackage,
     deps: &[&CheckedPackage],
-    entry_point: &EntryPoint,
+    function_path: &QualifiedPath,
+    args: &[Value],
 ) -> Result<Value, EvalError> {
-    // Resolve the function path and args from the entry point
-    let (function_path, args) = match entry_point {
-        EntryPoint::Main(module) => {
-            let module_path = match module {
-                Some(m) => QualifiedPath::root().child(m),
-                None => QualifiedPath::root(),
-            };
-            (module_path.child("main"), vec![])
-        }
-        EntryPoint::Entry(path, args) => (path.clone(), args.clone()),
-    };
-
     // Find the function in the package definitions
     let func_def = package
         .definitions
-        .get(&function_path)
+        .get(function_path)
         .and_then(|d| d.as_function())
         .ok_or_else(|| {
-            EvalError::RuntimeError(match entry_point {
-                EntryPoint::Main(_) => {
-                    let module_path = function_path.parent().unwrap_or_else(QualifiedPath::root);
-                    format!("no pub fn main() found in {}", module_path)
-                }
-                EntryPoint::Entry(path, _) => format!("function {} not found", path),
-            })
+            EvalError::RuntimeError(format!("function {} not found", function_path))
         })?;
 
     // Validate argument count
@@ -123,7 +96,7 @@ async fn run_checked_async(
     let output = codegen(package, deps);
 
     // Build the entry function name using the package name
-    let entry_func = format_export_path(&function_path, &package.name);
+    let entry_func = format_export_path(function_path, &package.name);
 
     // Create async runtime (no module system needed)
     let (_runtime, context) = eval::create_async_runtime().await?;
@@ -136,7 +109,7 @@ async fn run_checked_async(
             &ctx,
             &code,
             &entry_func,
-            &args,
+            args,
             return_type,
             &type_lookup,
         )
