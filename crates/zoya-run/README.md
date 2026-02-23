@@ -54,8 +54,8 @@ pub struct Runner<'a>;
 
 impl<'a> Runner<'a> {
     pub fn new(pkg: &'a CheckedPackage, deps: impl IntoIterator<Item = &'a CheckedPackage>) -> Self;
-    pub fn run(self, path: QualifiedPath, args: Vec<Value>) -> Result<Value, EvalError>;
-    pub async fn run_async(self, path: QualifiedPath, args: Vec<Value>) -> Result<Value, EvalError>;
+    pub fn run(&self, path: QualifiedPath, args: Vec<Value>) -> Result<Value, EvalError>;
+    pub async fn run_async(&self, path: QualifiedPath, args: Vec<Value>) -> Result<Value, EvalError>;
 }
 
 ```

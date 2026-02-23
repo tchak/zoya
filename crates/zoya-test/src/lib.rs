@@ -75,9 +75,10 @@ impl<'a> TestRunner<'a> {
 
     /// Run all tests, calling `on_result` after each one completes.
     pub fn execute(self, mut on_result: impl FnMut(&TestResult)) -> Result<TestReport, EvalError> {
+        let runner = Runner::new(self.package, self.deps);
         let mut results = Vec::new();
         for path in self.tests {
-            let outcome = run_single_test(self.package, &self.deps, &path);
+            let outcome = run_single_test(&runner, &path);
             let result = TestResult { path, outcome };
             on_result(&result);
             results.push(result);
@@ -87,12 +88,8 @@ impl<'a> TestRunner<'a> {
 }
 
 /// Run a single test function and interpret its result.
-fn run_single_test(
-    package: &CheckedPackage,
-    deps: &[&CheckedPackage],
-    path: &QualifiedPath,
-) -> Result<(), TestError> {
-    match Runner::new(package, deps.iter().copied()).run(path.clone(), vec![]) {
+fn run_single_test(runner: &Runner<'_>, path: &QualifiedPath) -> Result<(), TestError> {
+    match runner.run(path.clone(), vec![]) {
         Ok(value) => interpret_test_value(&value),
         Err(EvalError::Panic(msg)) => Err(TestError::Panic(msg)),
         Err(EvalError::RuntimeError(msg)) => Err(TestError::RuntimeError(msg)),
