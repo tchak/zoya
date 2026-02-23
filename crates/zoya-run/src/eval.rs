@@ -1,4 +1,4 @@
-use rquickjs::{CatchResultExt, Context, Ctx, IntoJs, Runtime};
+use rquickjs::{CatchResultExt, Context, Ctx, FromJs, IntoJs, Runtime};
 
 use zoya_ir::{DefinitionLookup, Type};
 use zoya_value::{JSValue, Value};
@@ -10,9 +10,28 @@ pub(crate) fn create_runtime() -> Result<(Runtime, Context), EvalError> {
     let context = Context::full(&runtime)
         .map_err(|e| EvalError::RuntimeError(format!("failed to create context: {e}")))?;
     context
-        .with(|ctx| inject_console(&ctx))
-        .map_err(|e| EvalError::RuntimeError(format!("failed to inject console: {e}")))?;
+        .with(|ctx| {
+            inject_console(&ctx)?;
+            inject_timers(&ctx)
+        })
+        .map_err(|e| EvalError::RuntimeError(format!("failed to inject globals: {e}")))?;
     Ok((runtime, context))
+}
+
+fn inject_timers(ctx: &Ctx<'_>) -> rquickjs::Result<()> {
+    let globals = ctx.globals();
+    globals.set(
+        "setTimeout",
+        rquickjs::Function::new(
+            ctx.clone(),
+            |_ctx: Ctx<'_>, callback: rquickjs::Function<'_>, ms: u32| -> rquickjs::Result<i32> {
+                std::thread::sleep(std::time::Duration::from_millis(ms as u64));
+                callback.call::<_, ()>(())?;
+                Ok(0)
+            },
+        )?,
+    )?;
+    Ok(())
 }
 
 fn inject_console(ctx: &Ctx<'_>) -> rquickjs::Result<()> {
@@ -85,10 +104,20 @@ pub(crate) fn eval_script(
         .collect::<Vec<_>>()
         .join(",");
 
-    let js_val: JSValue = ctx
+    // $$zoya_to_js is async, so it always returns a Promise
+    let promise_val: rquickjs::Value = ctx
         .eval(format!("$$zoya_to_js({}({}))", entry_func, arg_list))
         .catch(ctx)
         .map_err(map_js_error)?;
+
+    // Drive the Promise to completion (runs QuickJS job queue for microtasks/timers)
+    let promise = rquickjs::Promise::from_value(promise_val)
+        .map_err(|e| EvalError::RuntimeError(format!("expected promise: {e}")))?;
+    let resolved: rquickjs::Value = promise.finish().catch(ctx).map_err(map_js_error)?;
+
+    // Convert resolved JS value to Zoya Value
+    let js_val =
+        JSValue::from_js(ctx, resolved).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
     Value::from_js_value(js_val, &result_type, type_lookup).map_err(EvalError::from)
 }
 

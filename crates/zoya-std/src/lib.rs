@@ -31,7 +31,8 @@ fn build_std() -> Result<CheckedPackage, StdError> {
         .with_module("prelude", include_str!("std/prelude.zy"))
         .with_module("result", include_str!("std/result.zy"))
         .with_module("set", include_str!("std/set.zy"))
-        .with_module("string", include_str!("std/string.zy"));
+        .with_module("string", include_str!("std/string.zy"))
+        .with_module("task", include_str!("std/task.zy"));
 
     let mut pkg = load_memory_package(&source, zoya_loader::Mode::Release)?;
     pkg.name = "std".to_string();

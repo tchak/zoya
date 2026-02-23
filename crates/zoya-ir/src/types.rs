@@ -26,6 +26,7 @@ pub enum Type {
     List(Box<Type>),            // List with element type
     Set(Box<Type>),             // Set with element type
     Dict(Box<Type>, Box<Type>), // Dict with key and value types
+    Task(Box<Type>),            // Task with result type (lazy async)
     Tuple(Vec<Type>),           // Tuple with element types (heterogeneous, fixed size)
     Var(TypeVarId),             // Unification type variable
     Function {
@@ -97,6 +98,7 @@ impl Type {
             },
             Type::List(elem) => Type::List(Box::new(elem.with_root(name))),
             Type::Set(elem) => Type::Set(Box::new(elem.with_root(name))),
+            Type::Task(elem) => Type::Task(Box::new(elem.with_root(name))),
             Type::Dict(key, val) => {
                 Type::Dict(Box::new(key.with_root(name)), Box::new(val.with_root(name)))
             }
@@ -140,6 +142,7 @@ impl fmt::Display for Type {
             Type::String => write!(f, "String"),
             Type::List(elem) => write!(f, "List<{}>", elem),
             Type::Set(elem) => write!(f, "Set<{}>", elem),
+            Type::Task(elem) => write!(f, "Task<{}>", elem),
             Type::Dict(key, val) => write!(f, "Dict<{}, {}>", key, val),
             Type::Tuple(elems) => {
                 let elem_strs: Vec<String> = elems.iter().map(|e| e.to_string()).collect();
@@ -763,6 +766,7 @@ pub fn substitute_type_vars(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Ty
         Type::Var(id) => mapping.get(id).cloned().unwrap_or_else(|| ty.clone()),
         Type::List(elem) => Type::List(Box::new(substitute_type_vars(elem, mapping))),
         Type::Set(elem) => Type::Set(Box::new(substitute_type_vars(elem, mapping))),
+        Type::Task(elem) => Type::Task(Box::new(substitute_type_vars(elem, mapping))),
         Type::Dict(key, val) => Type::Dict(
             Box::new(substitute_type_vars(key, mapping)),
             Box::new(substitute_type_vars(val, mapping)),

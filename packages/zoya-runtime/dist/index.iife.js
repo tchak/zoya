@@ -330,6 +330,35 @@
 	}
 
 //#endregion
+//#region src/task.ts
+	const $$Task = {
+		of(value) {
+			return Object.freeze({
+				$task: true,
+				run: () => Promise.resolve(value)
+			});
+		},
+		map(task, f) {
+			return Object.freeze({
+				$task: true,
+				run: () => task.run().then(f)
+			});
+		},
+		and_then(task, f) {
+			return Object.freeze({
+				$task: true,
+				run: () => task.run().then((v) => f(v).run())
+			});
+		},
+		delay(ms) {
+			return Object.freeze({
+				$task: true,
+				run: () => new Promise((r) => setTimeout(() => r([]), ms))
+			});
+		}
+	};
+
+//#endregion
 //#region src/json.ts
 	function $$json_to_zoya(v) {
 		if (v === null) return { $tag: "Null" };
@@ -373,24 +402,40 @@
 			case "Object": return Object.fromEntries($$Dict.entries(v.$0).map(([k, val]) => [k, $$zoya_to_json(val)]));
 		}
 	}
-	function $$zoya_to_js(v) {
+	async function $$zoya_to_js(v) {
 		if (v === null || v === void 0 || typeof v === "boolean" || typeof v === "number" || typeof v === "string" || typeof v === "bigint" || typeof v === "function") return v;
-		if (Array.isArray(v)) return v.map($$zoya_to_js);
+		if (Array.isArray(v)) {
+			const result = [];
+			for (let i = 0; i < v.length; i++) result.push(await $$zoya_to_js(v[i]));
+			const tagged = v;
+			if (tagged.$tag) result.$tag = tagged.$tag;
+			return result;
+		}
 		if (typeof v === "object") {
 			const obj = v;
-			if (obj.$$set === true) {
-				const arr = $$Dict.keys(obj.$$data).map($$zoya_to_js);
-				arr.$tag = "Set";
+			if (obj.$task === true) {
+				const run = obj.run;
+				const arr = [await $$zoya_to_js(await run())];
+				arr.$tag = "Task";
 				return arr;
 			}
+			if (obj.$$set === true) {
+				const keys = $$Dict.keys(obj.$$data);
+				const result = [];
+				for (let i = 0; i < keys.length; i++) result.push(await $$zoya_to_js(keys[i]));
+				result.$tag = "Set";
+				return result;
+			}
 			if (obj.$$hamt === true) {
-				const arr = $$Dict.entries(v).map((e) => [$$zoya_to_js(e[0]), $$zoya_to_js(e[1])]);
-				arr.$tag = "Dict";
-				return arr;
+				const entries = $$Dict.entries(v);
+				const result = [];
+				for (let i = 0; i < entries.length; i++) result.push([await $$zoya_to_js(entries[i][0]), await $$zoya_to_js(entries[i][1])]);
+				result.$tag = "Dict";
+				return result;
 			}
 			const out = {};
 			const keys = Object.keys(obj);
-			for (let i = 0; i < keys.length; i++) out[keys[i]] = $$zoya_to_js(obj[keys[i]]);
+			for (let i = 0; i < keys.length; i++) out[keys[i]] = await $$zoya_to_js(obj[keys[i]]);
 			return out;
 		}
 		return v;
@@ -399,6 +444,7 @@
 		if (v === null || v === void 0 || typeof v === "boolean" || typeof v === "number" || typeof v === "string" || typeof v === "bigint") return v;
 		if (Array.isArray(v)) {
 			const tagged = v;
+			if (tagged.$tag === "Task") return $$Task.of($$js_to_zoya(v[0]));
 			if (tagged.$tag === "Set") return $$Set_from(v.map($$js_to_zoya));
 			if (tagged.$tag === "Dict") return $$Dict.from(v.map((e) => {
 				const pair = e;
@@ -781,7 +827,8 @@
 		$$BigInt,
 		$$Float,
 		$$String,
-		$$List
+		$$List,
+		$$Task
 	});
 
 //#endregion

@@ -248,6 +248,28 @@ fn resolve_type_annotation_inner(
                 return Ok(Type::Dict(Box::new(key_type), Box::new(val_type)));
             }
 
+            if let Some(name) = path.as_simple()
+                && name == "Task"
+            {
+                if params.len() != 1 {
+                    return Err(TypeError::TypeArgCount {
+                        kind: String::new(),
+                        name: "Task".to_string(),
+                        expected: 1,
+                        actual: params.len(),
+                    });
+                }
+                let elem_type = resolve_type_annotation_inner(
+                    &params[0],
+                    type_param_map,
+                    current_module,
+                    env,
+                    self_type,
+                    expanding_aliases,
+                )?;
+                return Ok(Type::Task(Box::new(elem_type)));
+            }
+
             // Use resolve_pattern_path (type annotations never reference locals)
             let resolved = crate::resolution::resolve_pattern_path(
                 path,

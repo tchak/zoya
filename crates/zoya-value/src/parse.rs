@@ -204,6 +204,7 @@ impl Parser {
                 type_args,
                 variants,
             } => self.parse_enum(module, name, type_args, variants, type_lookup),
+            Type::Task(inner) => self.parse_task(inner, type_lookup),
             Type::Var(_) => Err(Error::ParseError("type variables are not supported".into())),
             Type::Function { .. } => {
                 Err(Error::ParseError("function types are not supported".into()))
@@ -261,6 +262,26 @@ impl Parser {
                 tok.describe()
             ))),
         }
+    }
+
+    fn parse_task(
+        &mut self,
+        inner_type: &Type,
+        type_lookup: &DefinitionLookup,
+    ) -> Result<Value, Error> {
+        match self.advance() {
+            Token::Ident(ref name) if name == "Task" => {}
+            tok => {
+                return Err(Error::ParseError(format!(
+                    "expected 'Task', got {}",
+                    tok.describe()
+                )));
+            }
+        }
+        self.expect_token(Token::LParen)?;
+        let inner = self.parse(inner_type, type_lookup)?;
+        self.expect_token(Token::RParen)?;
+        Ok(Value::Task(Box::new(inner)))
     }
 
     fn parse_list(

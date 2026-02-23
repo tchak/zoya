@@ -1,2 +1,5 @@
 #[builtin]
 pub fn println(message: String) -> () ()
+
+#[builtin]
+pub fn delay(ms: Int) -> Task<()> ()

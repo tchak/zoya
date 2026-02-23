@@ -1,4 +1,5 @@
 import { $$Dict } from './hamt';
+import { $$Task } from './task';
 
 type ZoyaJson =
   | { $tag: 'Null' }
@@ -51,7 +52,7 @@ export function $$zoya_to_json(v: ZoyaJson): unknown {
   }
 }
 
-export function $$zoya_to_js(v: unknown): unknown {
+export async function $$zoya_to_js(v: unknown): Promise<unknown> {
   if (
     v === null ||
     v === undefined ||
@@ -62,27 +63,52 @@ export function $$zoya_to_js(v: unknown): unknown {
     typeof v === 'function'
   )
     return v;
-  if (Array.isArray(v)) return v.map($$zoya_to_js);
+  if (Array.isArray(v)) {
+    const result = [];
+    for (let i = 0; i < v.length; i++) result.push(await $$zoya_to_js(v[i]));
+    // Preserve existing $tag (Set, Dict)
+    const tagged = v as unknown as Record<string, unknown>;
+    if (tagged.$tag)
+      (result as unknown as Record<string, unknown>).$tag = tagged.$tag;
+    return result;
+  }
   if (typeof v === 'object') {
     const obj = v as Record<string, unknown>;
+    // Task: execute .run(), await the promise, tag result as 'Task'
+    if (obj.$task === true) {
+      const run = obj.run as () => Promise<unknown>;
+      const value = await run();
+      const arr = [await $$zoya_to_js(value)];
+      (arr as unknown as Record<string, unknown>).$tag = 'Task';
+      return arr;
+    }
+    // Set (HAMT-backed)
     if (obj.$$set === true) {
-      const arr = $$Dict
-        .keys(obj.$$data as ReturnType<typeof $$Dict.empty>)
-        .map($$zoya_to_js) as unknown[];
-      (arr as unknown as Record<string, unknown>).$tag = 'Set';
-      return arr;
+      const keys = $$Dict.keys(obj.$$data as ReturnType<typeof $$Dict.empty>);
+      const result = [];
+      for (let i = 0; i < keys.length; i++)
+        result.push(await $$zoya_to_js(keys[i]));
+      (result as unknown as Record<string, unknown>).$tag = 'Set';
+      return result;
     }
+    // Dict (HAMT-backed)
     if (obj.$$hamt === true) {
-      const arr = $$Dict
-        .entries(v as ReturnType<typeof $$Dict.empty>)
-        .map((e) => [$$zoya_to_js(e[0]), $$zoya_to_js(e[1])]) as unknown[];
-      (arr as unknown as Record<string, unknown>).$tag = 'Dict';
-      return arr;
+      const entries = $$Dict.entries(v as ReturnType<typeof $$Dict.empty>);
+      const result = [];
+      for (let i = 0; i < entries.length; i++) {
+        result.push([
+          await $$zoya_to_js(entries[i][0]),
+          await $$zoya_to_js(entries[i][1]),
+        ]);
+      }
+      (result as unknown as Record<string, unknown>).$tag = 'Dict';
+      return result;
     }
+    // Plain object
     const out: Record<string, unknown> = {};
     const keys = Object.keys(obj);
     for (let i = 0; i < keys.length; i++)
-      out[keys[i]] = $$zoya_to_js(obj[keys[i]]);
+      out[keys[i]] = await $$zoya_to_js(obj[keys[i]]);
     return out;
   }
   return v;
@@ -100,6 +126,7 @@ export function $$js_to_zoya(v: unknown): unknown {
     return v;
   if (Array.isArray(v)) {
     const tagged = v as unknown as Record<string, unknown>;
+    if (tagged.$tag === 'Task') return $$Task.of($$js_to_zoya(v[0]));
     if (tagged.$tag === 'Set') return $$Set_from(v.map($$js_to_zoya));
     if (tagged.$tag === 'Dict')
       return $$Dict.from(

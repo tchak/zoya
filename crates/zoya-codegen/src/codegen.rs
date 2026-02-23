@@ -1032,6 +1032,14 @@ impl<'a> PackageCodegen<'a> {
             "root::dict::Dict::has" => "return $$Dict.has($self, $key);".to_string(),
             "root::dict::Dict::from" => "return $$Dict.from($entries);".to_string(),
 
+            // Task methods
+            "root::task::Task::of" => "return $$Task.of($value);".to_string(),
+            "root::task::Task::map" => "return $$Task.map($self, $f);".to_string(),
+            "root::task::Task::and_then" => "return $$Task.and_then($self, $f);".to_string(),
+
+            // IO functions
+            "root::io::delay" => "return $$Task.delay($ms);".to_string(),
+
             _ => panic!(
                 "no builtin JS implementation for '{}' — every #[builtin] function must have a codegen entry",
                 path_key

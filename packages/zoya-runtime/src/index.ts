@@ -22,6 +22,7 @@ import { $$BigInt } from './bigint';
 import { $$Float } from './float';
 import { $$String } from './string';
 import { $$List } from './list';
+import { $$Task } from './task';
 
 Object.assign(globalThis, {
   $$ZoyaError,
@@ -46,4 +47,5 @@ Object.assign(globalThis, {
   $$Float,
   $$String,
   $$List,
+  $$Task,
 });

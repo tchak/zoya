@@ -16,6 +16,7 @@ pub fn primitive_method_module(ty: &Type) -> Option<(&'static str, &'static str)
         Type::List(_) => Some(("list", "List")),
         Type::Set(_) => Some(("set", "Set")),
         Type::Dict(_, _) => Some(("dict", "Dict")),
+        Type::Task(_) => Some(("task", "Task")),
         _ => None,
     }
 }
@@ -30,6 +31,7 @@ pub fn primitive_module_for_name(name: &str) -> Option<&'static str> {
         "List" => Some("list"),
         "Set" => Some("set"),
         "Dict" => Some("dict"),
+        "Task" => Some("task"),
         _ => None,
     }
 }

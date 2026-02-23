@@ -87,6 +87,7 @@ pub enum Value {
         module: QualifiedPath,
         data: ValueData,
     },
+    Task(Box<Value>),
 }
 
 impl PartialEq for Value {
@@ -127,6 +128,7 @@ impl PartialEq for Value {
                     data: d2,
                 },
             ) => en1 == en2 && vn1 == vn2 && m1 == m2 && d1 == d2,
+            (Value::Task(a), Value::Task(b)) => a == b,
             _ => false,
         }
     }
@@ -182,6 +184,7 @@ impl Hash for Value {
                 module.hash(state);
                 data.hash(state);
             }
+            Value::Task(inner) => inner.hash(state),
         }
     }
 }
@@ -277,6 +280,7 @@ impl fmt::Display for Value {
                 let path = format!("{}::{}", enum_name, variant_name);
                 write_data(f, &path, data)
             }
+            Value::Task(inner) => write!(f, "Task({})", inner),
         }
     }
 }
@@ -355,6 +359,7 @@ impl serde::Serialize for Value {
                 let type_name = qualified_type_name(module, &name);
                 serialize_data(serializer, &type_name, data)
             }
+            Value::Task(inner) => inner.serialize(serializer),
         }
     }
 }
@@ -393,6 +398,7 @@ impl Value {
             Value::Dict(_) => "Dict",
             Value::Struct { .. } => "Struct",
             Value::EnumVariant { .. } => "EnumVariant",
+            Value::Task(_) => "Task",
         }
     }
 
@@ -485,6 +491,7 @@ impl Value {
                 let context = format!("{}::{}", enum_name, variant_name);
                 check_value_data(data, &variant_fields, &context, type_lookup)
             }
+            (Value::Task(inner), Type::Task(elem_type)) => inner.check_type(elem_type, type_lookup),
             (_, Type::Var(_)) => Ok(()),
             (_, Type::Function { .. }) => Err(Error::UnsupportedConversion(
                 "function args not supported".into(),
@@ -659,6 +666,10 @@ impl From<Value> for JSValue {
                 tag: Some(variant_name),
                 fields: value_data_to_fields(data),
             },
+            Value::Task(inner) => JSValue::Array {
+                tag: Some("Task".to_string()),
+                items: vec![JSValue::from(*inner)],
+            },
         }
     }
 }
@@ -790,6 +801,23 @@ impl Value {
                     .map(|(item, et)| Value::from_js_value(item, et, type_lookup))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(Value::Tuple(values))
+            }
+            (
+                JSValue::Array {
+                    tag: Some(ref t),
+                    items,
+                },
+                Type::Task(inner_type),
+            ) if t == "Task" => {
+                let inner_js = items
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| Error::TypeMismatch {
+                        from: "empty Task array".to_string(),
+                        to: "Task".to_string(),
+                    })?;
+                let inner = Value::from_js_value(inner_js, inner_type, type_lookup)?;
+                Ok(Value::Task(Box::new(inner)))
             }
             (
                 JSValue::Array {

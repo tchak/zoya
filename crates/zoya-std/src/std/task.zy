@@ -1,0 +1,10 @@
+impl<T> Task<T> {
+  #[builtin]
+  pub fn of(value: T) -> Task<T> ()
+
+  #[builtin]
+  pub fn map<U>(self, f: T -> U) -> Task<U> ()
+
+  #[builtin]
+  pub fn and_then<U>(self, f: T -> Task<U>) -> Task<U> ()
+}
