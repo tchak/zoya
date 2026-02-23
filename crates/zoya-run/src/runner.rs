@@ -1,7 +1,5 @@
-use zoya_check::check;
 use zoya_codegen::{codegen, format_export_path};
 use zoya_ir::{CheckedPackage, DefinitionLookup};
-use zoya_loader::{MemorySource, load_memory_package};
 use zoya_package::QualifiedPath;
 
 use zoya_value::Value;
@@ -20,7 +18,6 @@ enum EntryPoint {
 ///
 /// Use `Runner::new()` then choose an input source:
 /// - `.package(pkg, deps)` → `PackageRunner`
-/// - `.source(s)` → `SourceRunner`
 #[derive(Default)]
 pub struct Runner;
 
@@ -40,14 +37,6 @@ impl Runner {
             package,
             deps: deps.into_iter().collect(),
             entry_point: EntryPoint::Main(None),
-        }
-    }
-
-    /// Load, check, and run source code from a string.
-    pub fn source(self, source: &str) -> SourceRunner {
-        SourceRunner {
-            source: source.to_string(),
-            mode: zoya_loader::Mode::Dev,
         }
     }
 }
@@ -90,46 +79,6 @@ impl<'a> PackageRunner<'a> {
     pub async fn run_async(self) -> Result<Value, EvalError> {
         run_checked_async(self.package, &self.deps, &self.entry_point).await
     }
-}
-
-/// Runner configured to compile and run a source string.
-pub struct SourceRunner {
-    source: String,
-    mode: zoya_loader::Mode,
-}
-
-impl SourceRunner {
-    /// Set the compilation mode (default: `Mode::Dev`).
-    pub fn mode(mut self, mode: zoya_loader::Mode) -> Self {
-        self.mode = mode;
-        self
-    }
-
-    /// Compile and execute the source string synchronously.
-    ///
-    /// Creates a single-threaded tokio runtime internally. Use `run_async()`
-    /// when already inside a tokio runtime.
-    pub fn run(self) -> Result<Value, EvalError> {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|e| EvalError::RuntimeError(format!("failed to create tokio runtime: {e}")))?;
-        rt.block_on(self.run_async())
-    }
-
-    /// Compile and execute the source string asynchronously.
-    pub async fn run_async(self) -> Result<Value, EvalError> {
-        let std = zoya_std::std();
-        let mem_source = MemorySource::new().with_module("root", &self.source);
-        let package = load_memory_package(&mem_source, self.mode)?;
-        let checked = check(&package, &[std])?;
-        run_checked_async(&checked, &[std], &EntryPoint::Main(None)).await
-    }
-}
-
-/// Load, check, and run source code from a string (convenience function).
-pub fn run_source(source: &str) -> Result<Value, EvalError> {
-    Runner::new().source(source).run()
 }
 
 /// Internal: execute an already-checked package asynchronously.

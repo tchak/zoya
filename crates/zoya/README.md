@@ -112,31 +112,7 @@ Arguments are parsed according to the function's parameter types.
 
 ## Programmatic Usage
 
-For programmatic execution, use the [zoya-run](../zoya-run) crate:
-
-```rust
-use zoya_run::{Runner, run_source, run_path, Value};
-use std::path::Path;
-
-// Run from source string
-let result = run_source("pub fn main() -> Int { 42 }")?;
-assert_eq!(result, Value::Int(42));
-
-// Run from file
-let result = run_path(Path::new("program.zy"))?;
-println!("Result: {}", result);
-
-// Builder with options
-let result = Runner::new()
-    .path(Path::new("program.zy"))
-    .mode(zoya_loader::Mode::Test)
-    .run()?;
-
-// Run tests
-let test_runner = Runner::new().test(Path::new("src/main.zy"))?;
-let report = test_runner.run()?;
-println!("{} passed, {} failed", report.passed(), report.failed());
-```
+For programmatic execution, use the [zoya-run](../zoya-run) crate. See its README for details.
 
 ## Error Handling
 

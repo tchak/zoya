@@ -1,7 +1,19 @@
 use zoya_check::check;
 use zoya_loader::{MemorySource, load_memory_package};
 use zoya_package::QualifiedPath;
-use zoya_run::{EvalError, Runner, Value, run_source};
+use zoya_run::{EvalError, Runner, Value};
+
+fn run_source(source: &str) -> Result<Value, EvalError> {
+    run_source_with_mode(source, zoya_loader::Mode::Dev)
+}
+
+fn run_source_with_mode(source: &str, mode: zoya_loader::Mode) -> Result<Value, EvalError> {
+    let mem_source = MemorySource::new().with_module("root", source);
+    let package = load_memory_package(&mem_source, mode)?;
+    let std = zoya_std();
+    let checked = check(&package, &[std])?;
+    Runner::new().package(&checked, [std]).run()
+}
 use zoya_std::std as zoya_std;
 
 #[test]
@@ -1104,11 +1116,7 @@ fn test_run_dev_mode_strips_test_fn() {
         fn test_helper() -> Int { 99 }
         pub fn main() -> Int { 42 }
     "#;
-    let result = Runner::new()
-        .source(source)
-        .mode(zoya_loader::Mode::Dev)
-        .run()
-        .unwrap();
+    let result = run_source_with_mode(source, zoya_loader::Mode::Dev).unwrap();
     assert_eq!(result, Value::Int(42));
 }
 
@@ -1119,11 +1127,7 @@ fn test_run_test_mode_retains_test_fn() {
         fn test_helper() { () }
         pub fn main() -> () { test_helper() }
     "#;
-    let result = Runner::new()
-        .source(source)
-        .mode(zoya_loader::Mode::Test)
-        .run()
-        .unwrap();
+    let result = run_source_with_mode(source, zoya_loader::Mode::Test).unwrap();
     assert_eq!(result, Value::Tuple(vec![]));
 }
 
