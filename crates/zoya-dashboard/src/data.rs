@@ -31,6 +31,7 @@ pub struct RouteInfo {
     pub method: String,
     pub pathname: String,
     pub handler: String,
+    pub module: String,
     pub signature: String,
 }
 
@@ -113,6 +114,7 @@ impl DashboardData {
                     method: method_to_string(method).to_string(),
                     pathname: pathname.to_string(),
                     handler: path.last().to_string(),
+                    module: module_string(&path),
                     signature: format_signature(func),
                 })
             })

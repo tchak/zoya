@@ -110,7 +110,7 @@ enum BuildError {
 
 /// Try to build the package. Classifies errors as fatal or recoverable.
 fn try_build(path: &Path) -> Result<BuildResult, BuildError> {
-    let pkg = zoya_loader::load_package(path, Mode::Dev).map_err(|e| {
+    let pkg = zoya_loader::load_package(path, Mode::Test).map_err(|e| {
         if matches!(e, LoaderError::NoPackageToml { .. }) {
             BuildError::Fatal(e.into())
         } else {

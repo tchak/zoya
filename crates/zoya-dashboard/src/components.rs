@@ -4,6 +4,37 @@ use leptos::tachys::view::RenderHtml;
 
 use crate::data::{DashboardData, FunctionInfo, RouteInfo, TaskInfo, TestInfo};
 
+/// Group items by module path, sorted with root (empty module) first, then alphabetically.
+/// Items within each group are sorted by the provided sort function.
+fn group_by_module<T>(
+    mut items: Vec<T>,
+    module_fn: impl Fn(&T) -> &str,
+    sort_fn: impl Fn(&T, &T) -> std::cmp::Ordering,
+) -> Vec<(String, Vec<T>)> {
+    items.sort_by(|a, b| {
+        let ma = module_fn(a);
+        let mb = module_fn(b);
+        match (ma.is_empty(), mb.is_empty()) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => ma.cmp(mb).then_with(|| sort_fn(a, b)),
+        }
+    });
+
+    let mut groups: Vec<(String, Vec<T>)> = Vec::new();
+    for item in items {
+        let module = module_fn(&item).to_string();
+        if let Some(last) = groups.last_mut() {
+            if last.0 == module {
+                last.1.push(item);
+                continue;
+            }
+        }
+        groups.push((module, vec![item]));
+    }
+    groups
+}
+
 /// Render the full dashboard page to an HTML string.
 pub fn render_page(data: &DashboardData) -> String {
     let package_name = data.package_name.clone();
@@ -45,6 +76,7 @@ pub fn render_page(data: &DashboardData) -> String {
             method: r.method.clone(),
             pathname: r.pathname.clone(),
             handler: r.handler.clone(),
+            module: r.module.clone(),
             signature: r.signature.clone(),
         })
         .collect();
@@ -117,10 +149,10 @@ fn EmptyState(message: &'static str) -> impl IntoView {
 }
 
 #[component]
-fn ModuleLabel(module: String) -> impl IntoView {
+fn ModuleHeader(module: String) -> impl IntoView {
     (!module.is_empty()).then(|| {
         view! {
-            <span class="text-xs text-gray-400 ml-2">{module}</span>
+            <div class="text-xs font-medium text-gray-400 mb-1.5">{module}</div>
         }
     })
 }
@@ -132,22 +164,37 @@ fn FunctionsCard(functions: Vec<FunctionInfo>) -> impl IntoView {
             {if functions.is_empty() {
                 view! { <EmptyState message="No functions" /> }.into_any()
             } else {
+                let groups = group_by_module(
+                    functions,
+                    |f| f.module.as_str(),
+                    |a, b| a.name.cmp(&b.name),
+                );
                 view! {
-                    <ul class="space-y-1.5">
-                        {functions
+                    <div class="space-y-4">
+                        {groups
                             .into_iter()
-                            .map(|f| {
-                                let module = f.module.clone();
+                            .map(|(module, items)| {
                                 view! {
-                                    <li class="flex items-baseline">
-                                        <code class="text-sm text-indigo-600 font-mono">{f.name}</code>
-                                        <code class="text-xs text-gray-400 font-mono ml-2">{f.signature}</code>
-                                        <ModuleLabel module=module />
-                                    </li>
+                                    <div>
+                                        <ModuleHeader module=module />
+                                        <ul class="space-y-1.5">
+                                            {items
+                                                .into_iter()
+                                                .map(|f| {
+                                                    view! {
+                                                        <li class="flex items-baseline">
+                                                            <code class="text-sm text-indigo-600 font-mono">{f.name}</code>
+                                                            <code class="text-xs text-gray-400 font-mono ml-2">{f.signature}</code>
+                                                        </li>
+                                                    }
+                                                })
+                                                .collect::<Vec<_>>()}
+                                        </ul>
+                                    </div>
                                 }
                             })
                             .collect::<Vec<_>>()}
-                    </ul>
+                    </div>
                 }
                 .into_any()
             }}
@@ -162,21 +209,36 @@ fn TestsCard(tests: Vec<TestInfo>) -> impl IntoView {
             {if tests.is_empty() {
                 view! { <EmptyState message="No tests" /> }.into_any()
             } else {
+                let groups = group_by_module(
+                    tests,
+                    |t| t.module.as_str(),
+                    |a, b| a.name.cmp(&b.name),
+                );
                 view! {
-                    <ul class="space-y-1.5">
-                        {tests
+                    <div class="space-y-4">
+                        {groups
                             .into_iter()
-                            .map(|t| {
-                                let module = t.module.clone();
+                            .map(|(module, items)| {
                                 view! {
-                                    <li class="flex items-baseline">
-                                        <code class="text-sm text-gray-700 font-mono">{t.name}</code>
-                                        <ModuleLabel module=module />
-                                    </li>
+                                    <div>
+                                        <ModuleHeader module=module />
+                                        <ul class="space-y-1.5">
+                                            {items
+                                                .into_iter()
+                                                .map(|t| {
+                                                    view! {
+                                                        <li class="flex items-baseline">
+                                                            <code class="text-sm text-gray-700 font-mono">{t.name}</code>
+                                                        </li>
+                                                    }
+                                                })
+                                                .collect::<Vec<_>>()}
+                                        </ul>
+                                    </div>
                                 }
                             })
                             .collect::<Vec<_>>()}
-                    </ul>
+                    </div>
                 }
                 .into_any()
             }}
@@ -191,22 +253,37 @@ fn TasksCard(tasks: Vec<TaskInfo>) -> impl IntoView {
             {if tasks.is_empty() {
                 view! { <EmptyState message="No tasks" /> }.into_any()
             } else {
+                let groups = group_by_module(
+                    tasks,
+                    |t| t.module.as_str(),
+                    |a, b| a.name.cmp(&b.name),
+                );
                 view! {
-                    <ul class="space-y-1.5">
-                        {tasks
+                    <div class="space-y-4">
+                        {groups
                             .into_iter()
-                            .map(|t| {
-                                let module = t.module.clone();
+                            .map(|(module, items)| {
                                 view! {
-                                    <li class="flex items-baseline">
-                                        <code class="text-sm text-amber-600 font-mono">{t.name}</code>
-                                        <code class="text-xs text-gray-400 font-mono ml-2">{t.signature}</code>
-                                        <ModuleLabel module=module />
-                                    </li>
+                                    <div>
+                                        <ModuleHeader module=module />
+                                        <ul class="space-y-1.5">
+                                            {items
+                                                .into_iter()
+                                                .map(|t| {
+                                                    view! {
+                                                        <li class="flex items-baseline">
+                                                            <code class="text-sm text-amber-600 font-mono">{t.name}</code>
+                                                            <code class="text-xs text-gray-400 font-mono ml-2">{t.signature}</code>
+                                                        </li>
+                                                    }
+                                                })
+                                                .collect::<Vec<_>>()}
+                                        </ul>
+                                    </div>
                                 }
                             })
                             .collect::<Vec<_>>()}
-                    </ul>
+                    </div>
                 }
                 .into_any()
             }}
@@ -221,32 +298,49 @@ fn RoutesCard(routes: Vec<RouteInfo>) -> impl IntoView {
             {if routes.is_empty() {
                 view! { <EmptyState message="No routes" /> }.into_any()
             } else {
+                let groups = group_by_module(
+                    routes,
+                    |r| r.module.as_str(),
+                    |a, b| a.pathname.cmp(&b.pathname),
+                );
                 view! {
-                    <ul class="space-y-1.5">
-                        {routes
+                    <div class="space-y-4">
+                        {groups
                             .into_iter()
-                            .map(|r| {
-                                let badge_class = match r.method.as_str() {
-                                    "GET" => "bg-green-100 text-green-700",
-                                    "POST" => "bg-blue-100 text-blue-700",
-                                    "PUT" => "bg-yellow-100 text-yellow-700",
-                                    "PATCH" => "bg-orange-100 text-orange-700",
-                                    "DELETE" => "bg-red-100 text-red-700",
-                                    _ => "bg-gray-100 text-gray-700",
-                                };
+                            .map(|(module, items)| {
                                 view! {
-                                    <li class="flex items-baseline gap-2">
-                                        <span class=format!(
-                                            "inline-block px-1.5 py-0.5 rounded text-xs font-bold {badge_class}",
-                                        )>{r.method}</span>
-                                        <code class="text-sm text-gray-900 font-mono">{r.pathname}</code>
-                                        <code class="text-xs text-gray-400 font-mono">{r.handler}</code>
-                                        <code class="text-xs text-gray-400 font-mono">{r.signature}</code>
-                                    </li>
+                                    <div>
+                                        <ModuleHeader module=module />
+                                        <ul class="space-y-1.5">
+                                            {items
+                                                .into_iter()
+                                                .map(|r| {
+                                                    let badge_class = match r.method.as_str() {
+                                                        "GET" => "bg-green-100 text-green-700",
+                                                        "POST" => "bg-blue-100 text-blue-700",
+                                                        "PUT" => "bg-yellow-100 text-yellow-700",
+                                                        "PATCH" => "bg-orange-100 text-orange-700",
+                                                        "DELETE" => "bg-red-100 text-red-700",
+                                                        _ => "bg-gray-100 text-gray-700",
+                                                    };
+                                                    view! {
+                                                        <li class="flex items-baseline gap-2">
+                                                            <span class=format!(
+                                                                "inline-block px-1.5 py-0.5 rounded text-xs font-bold {badge_class}",
+                                                            )>{r.method}</span>
+                                                            <code class="text-sm text-gray-900 font-mono">{r.pathname}</code>
+                                                            <code class="text-xs text-gray-400 font-mono">{r.handler}</code>
+                                                            <code class="text-xs text-gray-400 font-mono">{r.signature}</code>
+                                                        </li>
+                                                    }
+                                                })
+                                                .collect::<Vec<_>>()}
+                                        </ul>
+                                    </div>
                                 }
                             })
                             .collect::<Vec<_>>()}
-                    </ul>
+                    </div>
                 }
                 .into_any()
             }}
