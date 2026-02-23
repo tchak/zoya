@@ -93,8 +93,7 @@ async fn handle_request(
     };
 
     let result = Runner::new(&state.checked, deps)
-        .entry(info.path.clone(), args)
-        .run_async()
+        .run_async(info.path.clone(), args)
         .await;
 
     match result {

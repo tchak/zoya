@@ -12,7 +12,7 @@ fn run_source_with_mode(source: &str, mode: zoya_loader::Mode) -> Result<Value, 
     let package = load_memory_package(&mem_source, mode)?;
     let std = zoya_std();
     let checked = check(&package, &[std])?;
-    Runner::new(&checked, [std]).run()
+    Runner::new(&checked, [std]).run(QualifiedPath::root().child("main"), vec![])
 }
 use zoya_std::std as zoya_std;
 
@@ -1143,8 +1143,7 @@ fn test_entry_runs_specific_function() {
     let package = load_memory_package(&mem_source, zoya_loader::Mode::Dev).unwrap();
     let checked = check(&package, &[]).unwrap();
     let result = Runner::new(&checked, [])
-        .entry(QualifiedPath::root().child("answer"), vec![])
-        .run()
+        .run(QualifiedPath::root().child("answer"), vec![])
         .unwrap();
     assert_eq!(result, Value::Int(42));
 }
@@ -1157,11 +1156,10 @@ fn test_entry_runs_function_in_submodule() {
     let package = load_memory_package(&source, zoya_loader::Mode::Dev).unwrap();
     let checked = check(&package, &[]).unwrap();
     let result = Runner::new(&checked, [])
-        .entry(
+        .run(
             QualifiedPath::root().child("utils").child("compute"),
             vec![],
         )
-        .run()
         .unwrap();
     assert_eq!(result, Value::Int(99));
 }
@@ -1175,7 +1173,7 @@ fn test_entry_error_on_nonexistent_function() {
     let package = load_memory_package(&mem_source, zoya_loader::Mode::Dev).unwrap();
     let checked = check(&package, &[]).unwrap();
     let path = QualifiedPath::root().child("nonexistent");
-    let result = Runner::new(&checked, []).entry(path, vec![]).run();
+    let result = Runner::new(&checked, []).run(path, vec![]);
     assert!(matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("not found")));
 }
 
@@ -1187,8 +1185,7 @@ fn test_entry_runs_main_in_submodule() {
     let package = load_memory_package(&source, zoya_loader::Mode::Dev).unwrap();
     let checked = check(&package, &[]).unwrap();
     let result = Runner::new(&checked, [])
-        .entry(QualifiedPath::root().child("sub").child("main"), vec![])
-        .run()
+        .run(QualifiedPath::root().child("sub").child("main"), vec![])
         .unwrap();
     assert_eq!(result, Value::Int(77));
 }
@@ -1202,15 +1199,12 @@ fn test_entry_error_on_arg_count_mismatch() {
     let mem_source = MemorySource::new().with_module("root", source);
     let package = load_memory_package(&mem_source, zoya_loader::Mode::Dev).unwrap();
     let checked = check(&package, &[]).unwrap();
-    let result = Runner::new(&checked, [])
-        .entry(QualifiedPath::root().child("add"), vec![Value::Int(1)])
-        .run();
+    let result =
+        Runner::new(&checked, []).run(QualifiedPath::root().child("add"), vec![Value::Int(1)]);
     assert!(
         matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("expects 2 argument(s), got 1"))
     );
-    let result = Runner::new(&checked, [])
-        .entry(QualifiedPath::root().child("add"), vec![])
-        .run();
+    let result = Runner::new(&checked, []).run(QualifiedPath::root().child("add"), vec![]);
     assert!(
         matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("expects 2 argument(s), got 0"))
     );
@@ -1226,11 +1220,10 @@ fn test_entry_with_args() {
     let package = load_memory_package(&mem_source, zoya_loader::Mode::Dev).unwrap();
     let checked = check(&package, &[]).unwrap();
     let result = Runner::new(&checked, [])
-        .entry(
+        .run(
             QualifiedPath::root().child("add"),
             vec![Value::Int(3), Value::Int(4)],
         )
-        .run()
         .unwrap();
     assert_eq!(result, Value::Int(7));
 }
@@ -1246,11 +1239,10 @@ fn test_entry_with_string_arg() {
     let std = zoya_std();
     let checked = check(&package, &[std]).unwrap();
     let result = Runner::new(&checked, [std])
-        .entry(
+        .run(
             QualifiedPath::root().child("len"),
             vec![Value::String("hello".into())],
         )
-        .run()
         .unwrap();
     assert_eq!(result, Value::Int(5));
 }
@@ -1264,12 +1256,10 @@ fn test_entry_arg_type_mismatch() {
     let mem_source = MemorySource::new().with_module("root", source);
     let package = load_memory_package(&mem_source, zoya_loader::Mode::Dev).unwrap();
     let checked = check(&package, &[]).unwrap();
-    let result = Runner::new(&checked, [])
-        .entry(
-            QualifiedPath::root().child("double"),
-            vec![Value::String("not an int".into())],
-        )
-        .run();
+    let result = Runner::new(&checked, []).run(
+        QualifiedPath::root().child("double"),
+        vec![Value::String("not an int".into())],
+    );
     assert!(matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("type mismatch")));
 }
 
@@ -1292,8 +1282,7 @@ fn test_entry_with_struct_arg() {
         data: zoya_run::ValueData::Struct(fields),
     };
     let result = Runner::new(&checked, [])
-        .entry(QualifiedPath::root().child("sum_point"), vec![point])
-        .run()
+        .run(QualifiedPath::root().child("sum_point"), vec![point])
         .unwrap();
     assert_eq!(result, Value::Int(30));
 }
@@ -1324,8 +1313,7 @@ fn test_entry_with_enum_arg() {
         data: zoya_run::ValueData::Tuple(vec![Value::Float(10.0)]),
     };
     let result = Runner::new(&checked, [std])
-        .entry(QualifiedPath::root().child("area"), vec![circle])
-        .run()
+        .run(QualifiedPath::root().child("area"), vec![circle])
         .unwrap();
     assert_eq!(result, Value::Float(314.0));
 }
@@ -1447,7 +1435,9 @@ fn test_task_fn_compiles_and_tasks_method_works() {
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0], QualifiedPath::root().child("my_task"));
 
-    let result = Runner::new(&checked, [std]).run().unwrap();
+    let result = Runner::new(&checked, [std])
+        .run(QualifiedPath::root().child("main"), vec![])
+        .unwrap();
     assert_eq!(result, Value::Int(42));
 }
 

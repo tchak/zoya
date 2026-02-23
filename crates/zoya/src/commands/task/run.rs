@@ -79,9 +79,7 @@ pub fn execute(
     }
 
     // Run the task function
-    let result = Runner::new(&checked, [std])
-        .entry(task_path, parsed_args)
-        .run()?;
+    let result = Runner::new(&checked, [std]).run(task_path, parsed_args)?;
 
     // Print result
     if json {
