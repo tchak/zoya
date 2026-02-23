@@ -4418,6 +4418,7 @@ dependencies = [
  "zoya-ast",
  "zoya-check",
  "zoya-codegen",
+ "zoya-dashboard",
  "zoya-fmt",
  "zoya-ir",
  "zoya-lexer",

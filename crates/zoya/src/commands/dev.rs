@@ -51,6 +51,10 @@ pub fn execute(path: &Path, port: u16) -> Result<()> {
             "  Listening on {}",
             style(format!("http://localhost:{port}")).bold()
         ));
+        let _ = term.write_line(&format!(
+            "  Dashboard at {}",
+            style(format!("http://localhost:{port}/_")).dim()
+        ));
         let _ = term.write_line(&format!("  {}", style("Watching for changes...").dim()));
 
         // Set up file watcher
@@ -118,7 +122,9 @@ fn try_build(path: &Path) -> Result<BuildResult, BuildError> {
     let checked = check(&pkg, &[std]).map_err(|e| BuildError::Recoverable(e.into()))?;
 
     let routes = extract_routes(&checked);
-    let router = zoya_router::router(&checked, &[std]);
+    let app_router = zoya_router::router(&checked, &[std]);
+    let dashboard_router = zoya_dashboard::dashboard(&checked, &[std]);
+    let router = app_router.nest("/_", dashboard_router);
 
     Ok(BuildResult { router, routes })
 }
