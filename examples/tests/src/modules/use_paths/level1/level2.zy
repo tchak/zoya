@@ -1,0 +1,3 @@
+use root::modules::use_paths::root_fn
+
+pub fn use_root() -> Int { root_fn() }

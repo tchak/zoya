@@ -1,0 +1,4 @@
+use root::modules::pub_mod::a::inner::deep
+use root::modules::pub_mod::a::top
+
+pub fn test_access() -> Int { deep() + top() }

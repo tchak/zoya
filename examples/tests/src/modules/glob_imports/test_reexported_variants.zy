@@ -1,0 +1,4 @@
+use root::modules::glob_imports::reexport_types::*
+
+#[test]
+fn test_glob_import_reexported_enum_variants() -> () assert_eq(match Red { Red => 1, Green => 2, Blue => 3 }, 1)

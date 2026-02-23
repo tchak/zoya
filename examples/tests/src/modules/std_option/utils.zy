@@ -1,0 +1,8 @@
+use std::option::{Option, Some, None}
+
+pub fn safe_div(a: Int, b: Int) -> Option<Int> {
+  match b == 0 {
+    true => None::<Int>,
+    false => Some(a / b),
+  }
+}

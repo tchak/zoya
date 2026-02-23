@@ -1,0 +1,36 @@
+pub mod utils
+pub mod other
+pub mod a
+pub mod b
+mod internal
+pub mod child_accessor
+pub mod types
+pub mod public_mod
+mod private_mod
+
+pub use self::utils::pub_helper
+use self::types::Color::Red
+
+#[test]
+fn test_pub_mod_accessible_from_sibling() -> () assert_eq(other::call_utils(), 42)
+
+#[test]
+fn test_pub_mod_accessible_from_unrelated() -> () assert_eq(b::test_access(), 3)
+
+#[test]
+fn test_private_mod_accessible_from_declaring_module() -> () assert_eq(internal::helper(), 42)
+
+#[test]
+fn test_private_mod_accessible_from_descendant() -> () assert_eq(child_accessor::test_access(), 42)
+
+#[test]
+fn test_nested_pub_mods_chain() -> () assert_eq(a::b::c::deep(), 42)
+
+#[test]
+fn test_pub_use_parses() -> () assert_eq(pub_helper(), 42)
+
+#[test]
+fn test_enum_through_pub_mod() -> () assert_eq(match Red { _ => 1 }, 1)
+
+#[test]
+fn test_pub_mod_parsing() -> () assert_eq(public_mod::value() + private_mod::value(), 30)

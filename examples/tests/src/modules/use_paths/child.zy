@@ -1,0 +1,4 @@
+use super::parent_fn
+
+pub fn use_parent() -> Int { parent_fn() }
+pub fn call_from_child() -> Int { parent_fn() }

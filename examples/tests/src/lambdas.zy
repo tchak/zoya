@@ -1,0 +1,96 @@
+#[test]
+fn test_simple_lambda() -> () {
+  let f = |x| x + 1;
+  assert_eq(f(41), 42)
+}
+
+#[test]
+fn test_multi_param() -> () {
+  let add = |x, y| x + y;
+  assert_eq(add(10, 32), 42)
+}
+
+#[test]
+fn test_with_type_annotation() -> () {
+  let f = |x: Int| -> Int x * 2;
+  assert_eq(f(21), 42)
+}
+
+#[test]
+fn test_block_body() -> () {
+  let f = |x| {
+    let y = x * 2;
+    y + 1
+  };
+  assert_eq(f(20), 41)
+}
+
+#[test]
+fn test_nested() -> () {
+  let add = |x| |y| x + y;
+  let add10 = add(10);
+  assert_eq(add10(32), 42)
+}
+
+#[test]
+fn test_polymorphic_identity() -> () {
+  let id = |x| x;
+  let a = id(42);
+  let unused = id(true);
+  assert_eq(a, 42)
+}
+
+#[test]
+fn test_polymorphic_const() -> () {
+  let const_ = |x| |n| x;
+  let always42 = const_(42);
+  assert_eq(always42(true), 42)
+}
+
+#[test]
+fn test_no_params() -> () {
+  let f = || 42;
+  assert_eq(f(), 42)
+}
+
+#[test]
+fn test_captures_outer_var() -> () {
+  let x = 10;
+  let f = |y| x + y;
+  assert_eq(f(32), 42)
+}
+
+#[test]
+fn test_function_type_annotation() -> () {
+  let f: Int -> Int = |x| x * 2;
+  assert_eq(f(21), 42)
+}
+
+#[test]
+fn test_multi_param_function_type() -> () {
+  let add: (Int, Int) -> Int = |x, y| x + y;
+  assert_eq(add(10, 32), 42)
+}
+
+#[test]
+fn test_no_param_function_type() -> () {
+  let f: () -> Int = || 42;
+  assert_eq(f(), 42)
+}
+
+fn apply(f: Int -> Int, x: Int) -> Int f(x)
+
+#[test]
+fn test_passed_to_function() -> () assert_eq(apply(|x| x * 2, 21), 42)
+
+#[test]
+fn test_tuple_param_destructuring() -> () {
+  let f = |(a, b)| a + b;
+  assert_eq(f((10, 32)), 42)
+}
+
+#[test]
+fn test_tuple_param_type_inference() -> () {
+  let swap = |(a, b)| (b, a);
+  assert_eq(swap((1, 2)), (2, 1))
+}

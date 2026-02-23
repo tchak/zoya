@@ -1,0 +1,17 @@
+mod math
+mod types
+
+use self::math::{add, mul}
+use self::types::{Color, helper}
+use self::types::Color::{Red, Green, Blue}
+
+#[test]
+fn test_group_import_basic() -> () assert_eq(add(1, mul(2, 3)), 7)
+
+#[test]
+fn test_group_import_enum_and_function() -> () {
+  assert_eq(match Color::Red { Color::Red => helper(), Color::Green => 2, Color::Blue => 3 }, 42)
+}
+
+#[test]
+fn test_group_import_enum_variants() -> () assert_eq(match Red { Red => 1, Green => 2, Blue => 3 }, 1)

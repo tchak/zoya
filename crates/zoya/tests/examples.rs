@@ -45,3 +45,20 @@ fn test_examples_std_tests() {
         report.results.len()
     );
 }
+
+#[test]
+fn test_examples_tests() {
+    let dir = project_root().join("examples/tests");
+    let std = zoya_std::std();
+    let package = load_package(&dir, zoya_loader::Mode::Test)
+        .map_err(|e| e.map_path(|p| p.to_string()))
+        .unwrap();
+    let checked = check(&package, &[std]).unwrap();
+    let report = TestRunner::new(&checked, [std]).run().unwrap();
+    assert!(
+        report.is_success(),
+        "{} test(s) failed out of {}",
+        report.failed(),
+        report.results.len()
+    );
+}

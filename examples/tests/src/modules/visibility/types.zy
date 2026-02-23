@@ -1,0 +1,2 @@
+pub struct Point { x: Int, y: Int }
+pub enum MyOption<T> { None, Some(T) }

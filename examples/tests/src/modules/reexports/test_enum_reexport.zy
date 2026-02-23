@@ -1,0 +1,7 @@
+use root::modules::reexports::type_reexporter::Color::Red
+
+#[test]
+fn test_pub_use_reexport_enum() -> () {
+  let x = Red;
+  assert_eq(match x { Red => 1, _ => 2 }, 1)
+}

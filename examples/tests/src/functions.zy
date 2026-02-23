@@ -1,0 +1,54 @@
+fn add(x: Int, y: Int) -> Int { x + y }
+fn square(x: Int) -> Int { x * x }
+fn double(x: Int) -> Int { x + x }
+
+#[test]
+fn test_calling_function() -> () assert_eq(add(10, 20), 30)
+
+#[test]
+fn test_multiple_functions() -> () assert_eq(square(double(3)), 36)
+
+fn square_no_braces(x: Int) -> Int x * x
+
+#[test]
+fn test_function_no_braces() -> () assert_eq(square_no_braces(5), 25)
+
+fn add_no_braces(x: Int, y: Int) -> Int x + y
+fn double_no_braces(x: Int) -> Int x * 2
+
+#[test]
+fn test_function_no_braces_multiple() -> () assert_eq(add_no_braces(double_no_braces(3), 4), 10)
+
+fn caller() -> Int { callee() }
+fn callee() -> Int { 42 }
+
+#[test]
+fn test_forward_reference() -> () assert_eq(caller(), 42)
+
+fn is_even(n: Int) -> Bool {
+  match n {
+    0 => true,
+    _ => is_odd(n - 1),
+  }
+}
+
+fn is_odd(n: Int) -> Bool {
+  match n {
+    0 => false,
+    _ => is_even(n - 1),
+  }
+}
+
+#[test]
+fn test_mutual_recursion_even() -> () assert(is_even(4))
+
+#[test]
+fn test_mutual_recursion_odd() -> () assert(is_odd(3))
+
+fn make_adder(n: Int) -> Int -> Int |x| x + n
+
+#[test]
+fn test_higher_order_function_returns_lambda() -> () {
+  let add5 = make_adder(5);
+  assert_eq(add5(37), 42)
+}

@@ -1,0 +1,5 @@
+pub struct Point { x: Int, y: Int }
+pub enum MyOption<T> { None, Some(T) }
+pub enum MyResult<T, E> { Ok(T), Err(E) }
+pub type IntPair = (Int, Int)
+pub struct Pair<A, B> { first: A, second: B }

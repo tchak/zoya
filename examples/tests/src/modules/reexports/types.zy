@@ -1,0 +1,2 @@
+pub enum Color { Red, Green, Blue }
+pub enum MyOption<T> { None, Some(T) }

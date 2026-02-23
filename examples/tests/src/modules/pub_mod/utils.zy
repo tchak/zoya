@@ -1,0 +1,2 @@
+pub fn helper() -> Int { 42 }
+pub fn pub_helper() -> Int { 42 }

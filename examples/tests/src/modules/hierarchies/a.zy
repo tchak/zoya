@@ -1,0 +1,4 @@
+use root::modules::hierarchies::common::base
+
+pub fn get_val() -> Int { 10 }
+pub fn from_a() -> Int { base() * 2 }

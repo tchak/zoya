@@ -1,0 +1,19 @@
+pub mod utils
+mod a
+mod b
+mod common
+pub mod parent
+
+pub fn grandparent_fn() -> Int { 77 }
+
+#[test]
+fn test_three_level_hierarchy() -> () assert_eq(utils::helpers::deep_fn(), 42)
+
+#[test]
+fn test_sibling_imports() -> () assert_eq(b::use_a(), 20)
+
+#[test]
+fn test_diamond_imports() -> () assert_eq(a::from_a() + b::from_b(), 25)
+
+#[test]
+fn test_grandchild_to_root_access() -> () assert_eq(parent::child::test_access(), 77)

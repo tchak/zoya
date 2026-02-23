@@ -1,0 +1,13 @@
+mod math
+mod types
+
+use self::math
+use self::types
+
+#[test]
+fn test_module_import_basic() -> () assert_eq(math::add(1, 2), 3)
+
+#[test]
+fn test_module_import_enum_variant() -> () {
+  assert_eq(match types::Color::Red { types::Color::Red => 1, types::Color::Green => 2, types::Color::Blue => 3 }, 1)
+}

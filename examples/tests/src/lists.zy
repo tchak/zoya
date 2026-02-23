@@ -1,0 +1,253 @@
+#[test]
+fn test_literal() -> () assert_eq([1, 2, 3], [1, 2, 3])
+
+#[test]
+fn test_empty() -> () {
+  let xs: List<Int> = [];
+  assert_eq(xs, [])
+}
+
+#[test]
+fn test_string_list() -> () assert_eq(["hello", "world"], ["hello", "world"])
+
+#[test]
+fn test_equality_true() -> () assert([1, 2, 3] == [1, 2, 3])
+
+#[test]
+fn test_equality_false_different_elements() -> () assert([1, 2, 3] != [1, 2, 4])
+
+#[test]
+fn test_equality_false_different_length() -> () assert([1, 2] != [1, 2, 3])
+
+#[test]
+fn test_inequality() -> () assert([1, 2] != [1, 3])
+
+#[test]
+fn test_empty_equality() -> () {
+  let a: List<Int> = [];
+  let b: List<Int> = [];
+  assert(a == b)
+}
+
+fn is_empty<T>(xs: List<T>) -> Bool {
+  match xs {
+    [] => true,
+    [_, ..] => false,
+  }
+}
+
+#[test]
+fn test_match_empty() -> () assert(is_empty([]))
+
+#[test]
+fn test_match_nonempty() -> () assert(is_empty([1, 2, 3]) == false)
+
+fn head_or_zero(xs: List<Int>) -> Int {
+  match xs {
+    [] => 0,
+    [x, ..] => x,
+  }
+}
+
+#[test]
+fn test_match_head() -> () assert_eq(head_or_zero([42, 1, 2]), 42)
+
+#[test]
+fn test_match_head_empty() -> () assert_eq(head_or_zero([]), 0)
+
+fn sum_pair(xs: List<Int>) -> Int {
+  match xs {
+    [a, b] => a + b,
+    _ => 0,
+  }
+}
+
+#[test]
+fn test_match_exact() -> () assert_eq(sum_pair([10, 20]), 30)
+
+#[test]
+fn test_match_exact_wrong_length() -> () assert_eq(sum_pair([1, 2, 3]), 0)
+
+fn starts_with_one(xs: List<Int>) -> Bool {
+  match xs {
+    [1, ..] => true,
+    [_, ..] => false,
+    [] => false,
+  }
+}
+
+#[test]
+fn test_match_literal_pattern() -> () assert(starts_with_one([1, 2, 3]))
+
+#[test]
+fn test_match_literal_pattern_not_matching() -> () assert(starts_with_one([2, 3, 4]) == false)
+
+fn len_check(xs: List<Int>) -> Bool {
+  match xs {
+    [] => true,
+    [_] => true,
+    [_, _] => true,
+    _ => false,
+  }
+}
+
+#[test]
+fn test_function_param() -> () assert(len_check([1, 2]))
+
+fn last_elem(xs: List<Int>) -> Int {
+  match xs {
+    [.., x] => x,
+    [] => 0,
+  }
+}
+
+#[test]
+fn test_match_suffix_pattern() -> () assert_eq(last_elem([1, 2, 3]), 3)
+
+#[test]
+fn test_match_suffix_pattern_single_elem() -> () assert_eq(last_elem([42]), 42)
+
+fn last_two(xs: List<Int>) -> Int {
+  match xs {
+    [.., a, b] => a + b,
+    [x] => x,
+    [] => 0,
+  }
+}
+
+#[test]
+fn test_match_suffix_two_elements() -> () assert_eq(last_two([1, 2, 3, 4]), 7)
+
+fn ends_with_zero(xs: List<Int>) -> Bool {
+  match xs {
+    [.., 0] => true,
+    [_, ..] => false,
+    [] => false,
+  }
+}
+
+#[test]
+fn test_match_suffix_literal_pattern() -> () assert(ends_with_zero([1, 2, 0]))
+
+fn first_and_last(xs: List<Int>) -> Int {
+  match xs {
+    [a, .., b] => a + b,
+    [a] => a,
+    [] => 0,
+  }
+}
+
+#[test]
+fn test_match_prefix_suffix_pattern() -> () assert_eq(first_and_last([1, 2, 3, 4]), 5)
+
+#[test]
+fn test_match_prefix_suffix_min_length() -> () assert_eq(first_and_last([10, 20]), 30)
+
+fn bookended_by_ones(xs: List<Int>) -> Bool {
+  match xs {
+    [1, .., 1] => true,
+    [_, ..] => false,
+    [] => false,
+  }
+}
+
+#[test]
+fn test_match_prefix_suffix_literals() -> () assert(bookended_by_ones([1, 2, 3, 1]))
+
+fn middle_free(xs: List<Int>) -> Int {
+  match xs {
+    [a, b, .., y, z] => a + b + y + z,
+    [a, b, c] => a + b + c,
+    [a, b] => a + b,
+    [a] => a,
+    [] => 0,
+  }
+}
+
+#[test]
+fn test_match_prefix_suffix_multiple() -> () assert_eq(middle_free([1, 2, 3, 4, 5, 6]), 14)
+
+fn sum_first_two(xs: List<Int>) -> Int {
+  match xs {
+    [a, b, ..] => {
+      let sum = a + b;
+      sum
+    },
+    [a] => a,
+    [] => 0,
+  }
+}
+
+#[test]
+fn test_match_block_with_list_pattern() -> () assert_eq(sum_first_two([5, 7, 9]), 12)
+
+#[test]
+fn test_index_in_bounds() -> () {
+  let xs = [10, 20, 30];
+  assert_eq(match xs[1] { Some(v) => v, None => -1 }, 20)
+}
+
+#[test]
+fn test_index_out_of_bounds() -> () {
+  let xs = [10, 20, 30];
+  assert_eq(match xs[5] { Some(v) => v, None => -1 }, -1)
+}
+
+#[test]
+fn test_index_negative() -> () {
+  let xs = [10, 20, 30];
+  assert_eq(match xs[-1] { Some(v) => v, None => -1 }, 30)
+}
+
+#[test]
+fn test_index_negative_out_of_bounds() -> () {
+  let xs = [10, 20, 30];
+  assert_eq(match xs[-10] { Some(v) => v, None => -1 }, -1)
+}
+
+#[test]
+fn test_index_variable() -> () {
+  let xs = [10, 20, 30];
+  let i = 2;
+  assert_eq(match xs[i] { Some(v) => v, None => -1 }, 30)
+}
+
+#[test]
+fn test_index_first_element() -> () {
+  assert_eq(match [1, 2, 3][0] { Some(v) => v, None => -1 }, 1)
+}
+
+#[test]
+fn test_spread_copy() -> () {
+  let xs = [1, 2, 3];
+  assert_eq([..xs], [1, 2, 3])
+}
+
+#[test]
+fn test_spread_with_items() -> () {
+  let xs = [2, 3];
+  assert_eq([1, ..xs, 4], [1, 2, 3, 4])
+}
+
+#[test]
+fn test_spread_multiple() -> () {
+  let a = [1, 2];
+  let b = [3, 4];
+  assert_eq([..a, ..b], [1, 2, 3, 4])
+}
+
+#[test]
+fn test_spread_empty() -> () {
+  let xs: List<Int> = [];
+  assert_eq([0, ..xs, 99], [0, 99])
+}
+
+fn double_list(list: List<Int>) -> List<Int> {
+  match list {
+    [] => [],
+    [head, rest @ ..] => [head * 2, ..double_list(rest)],
+  }
+}
+
+#[test]
+fn test_spread_with_function_call() -> () assert_eq(double_list([1, 2, 3]), [2, 4, 6])

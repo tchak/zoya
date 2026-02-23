@@ -1,0 +1,32 @@
+#[test]
+fn test_modulo_int() -> () assert_eq(10 % 3, 1)
+
+#[test]
+fn test_modulo_int_negative() -> () assert_eq(-7 % 3, -1)
+
+#[test]
+fn test_modulo_float() -> () assert_eq(10.5 % 3.0, 1.5)
+
+#[test]
+fn test_modulo_bigint() -> () assert_eq(10n % 3n, 1n)
+
+#[test]
+fn test_power_int() -> () assert_eq(2 ** 10, 1024)
+
+#[test]
+fn test_power_float() -> () assert_eq(2.0 ** 3.0, 8.0)
+
+#[test]
+fn test_power_bigint() -> () assert_eq(2n ** 10n, 1024n)
+
+#[test]
+fn test_power_right_associative() -> () assert_eq(2 ** 3 ** 2, 512)
+
+#[test]
+fn test_power_precedence() -> () assert_eq(2 * 3 ** 2, 18)
+
+#[test]
+fn test_power_zero_exponent() -> () assert_eq(5 ** 0, 1)
+
+#[test]
+fn test_modulo_precedence_same_as_mul() -> () assert_eq(2 + 10 % 3, 3)

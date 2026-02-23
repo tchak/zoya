@@ -1,0 +1,5 @@
+use std::option::{Option, Some}
+
+pub fn make_some(x: Int) -> Option<Int> { Some(x) }
+
+pub fn make_some_direct(x: Int) -> std::option::Option<Int> { std::option::Some(x) }

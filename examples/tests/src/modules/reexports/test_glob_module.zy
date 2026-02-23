@@ -1,0 +1,4 @@
+use root::modules::reexports::parent_reexporter::child::helper
+
+#[test]
+fn test_pub_use_glob_reexport_module() -> () assert_eq(helper(), 99)

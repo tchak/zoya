@@ -1,0 +1,93 @@
+#[test]
+fn test_literal() -> () assert_eq((42, "hello"), (42, "hello"))
+
+#[test]
+fn test_empty() -> () assert_eq((), ())
+
+#[test]
+fn test_single_element() -> () assert_eq((42,), (42,))
+
+#[test]
+fn test_equality_true() -> () assert((1, 2) == (1, 2))
+
+#[test]
+fn test_equality_false() -> () assert((1, 2) != (1, 3))
+
+#[test]
+fn test_inequality() -> () assert((1, 2) != (1, 3))
+
+fn first(t: (Int, String)) -> Int {
+  match t {
+    (x, _) => x,
+  }
+}
+
+#[test]
+fn test_match_exact() -> () assert_eq(first((10, "hello")), 10)
+
+fn get_first(t: (Int, Int, Int)) -> Int {
+  match t {
+    (x, ..) => x,
+  }
+}
+
+#[test]
+fn test_match_prefix() -> () assert_eq(get_first((1, 2, 3)), 1)
+
+fn get_last(t: (Int, Int, Int)) -> Int {
+  match t {
+    (.., z) => z,
+  }
+}
+
+#[test]
+fn test_match_suffix() -> () assert_eq(get_last((1, 2, 3)), 3)
+
+fn tuple_first_and_last(t: (Int, Int, Int)) -> Int {
+  match t {
+    (a, .., c) => a + c,
+  }
+}
+
+#[test]
+fn test_match_prefix_suffix() -> () assert_eq(tuple_first_and_last((1, 2, 3)), 4)
+
+fn get_int(t: (Int, String, Bool)) -> Int {
+  match t {
+    (x, _, _) => x,
+  }
+}
+
+#[test]
+fn test_heterogeneous() -> () assert_eq(get_int((42, "hello", true)), 42)
+
+#[test]
+fn test_with_list() -> () assert_eq((1, [2, 3]), (1, [2, 3]))
+
+fn process(t: (Int, Int)) -> Int {
+  match t {
+    (a, b) => {
+      let sum = a + b;
+      let product = a * b;
+      sum + product
+    }
+  }
+}
+
+#[test]
+fn test_match_block_with_tuple_pattern() -> () assert_eq(process((3, 4)), 19)
+
+#[test]
+fn test_index() -> () assert_eq((1, 2, 3).0, 1)
+
+#[test]
+fn test_index_second() -> () assert_eq((1, 2, 3).1, 2)
+
+#[test]
+fn test_index_chained() -> () assert_eq(((1, 2), (3, 4)).1.0, 3)
+
+#[test]
+fn test_index_in_expression() -> () {
+  let t = (10, 20, 30);
+  assert_eq(t.0 + t.2, 40)
+}

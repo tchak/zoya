@@ -1,0 +1,7 @@
+pub mod types
+pub mod facade
+
+use self::facade::*
+
+#[test]
+fn test_cascading_glob_reexport() -> () assert_eq(match Red { Red => 1, Blue => 2 }, 1)

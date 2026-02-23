@@ -1,0 +1,4 @@
+use root::modules::reexports::reexporter::helper
+
+#[test]
+fn test_pub_use_reexport_function() -> () assert_eq(helper(), 42)

@@ -1,0 +1,137 @@
+struct Point { x: Int, y: Int }
+struct Person { name: String, age: Int }
+struct Empty {}
+struct UnitStruct
+struct Pair<T, U> { first: T, second: U }
+struct Line { start: Point, end: Point }
+struct PairSame<T> { first: T, second: T }
+
+#[test]
+fn test_simple() -> () {
+  let p = Point { x: 10, y: 20 };
+  assert_eq(p.x + p.y, 30)
+}
+
+#[test]
+fn test_field_access() -> () {
+  let p = Person { name: "Alice", age: 30 };
+  assert_eq(p.name, "Alice")
+}
+
+#[test]
+fn test_empty() -> () {
+  let unused = Empty {};
+  assert_eq(42, 42)
+}
+
+#[test]
+fn test_unit_struct() -> () {
+  let e = UnitStruct;
+  assert_eq(match e { UnitStruct => 42 }, 42)
+}
+
+#[test]
+fn test_generic() -> () {
+  let p = Pair { first: 1, second: 2 };
+  assert_eq(p.first + p.second, 3)
+}
+
+#[test]
+fn test_match_exact() -> () {
+  let p = Point { x: 10, y: 20 };
+  assert_eq(match p { Point { x, y } => x + y }, 30)
+}
+
+#[test]
+fn test_match_partial() -> () {
+  let p = Point { x: 10, y: 20 };
+  assert_eq(match p { Point { x, .. } => x }, 10)
+}
+
+#[test]
+fn test_match_with_binding() -> () {
+  let p = Point { x: 10, y: 20 };
+  assert_eq(match p { Point { x: a, y: b } => a * b }, 200)
+}
+
+#[test]
+fn test_nested() -> () {
+  let l = Line {
+    start: Point { x: 0, y: 0 },
+    end: Point { x: 10, y: 20 }
+  };
+  assert_eq(l.end.x + l.end.y, 30)
+}
+
+#[test]
+fn test_field_shorthand() -> () {
+  let x = 10;
+  let y = 20;
+  let p = Point { x, y };
+  assert_eq(p.x + p.y, 30)
+}
+
+#[test]
+fn test_equality() -> () {
+  let p1 = Point { x: 10, y: 20 };
+  let p2 = Point { x: 10, y: 20 };
+  assert(p1 == p2)
+}
+
+#[test]
+fn test_inequality() -> () {
+  let p1 = Point { x: 10, y: 20 };
+  let p2 = Point { x: 10, y: 30 };
+  assert(p1 != p2)
+}
+
+#[test]
+fn test_spread_override_field() -> () {
+  let p = Point { x: 1, y: 2 };
+  let q = Point { x: 10, ..p };
+  assert_eq(q.x + q.y, 12)
+}
+
+#[test]
+fn test_spread_copy_all() -> () {
+  let p = Point { x: 1, y: 2 };
+  let q = Point { ..p };
+  assert_eq(q.x + q.y, 3)
+}
+
+#[test]
+fn test_spread_generic() -> () {
+  let p = PairSame { first: 10, second: 20 };
+  let q = PairSame { first: 99, ..p };
+  assert_eq(q.first + q.second, 119)
+}
+
+fn origin() -> Point {
+  Point { x: 0, y: 0 }
+}
+
+#[test]
+fn test_spread_from_function() -> () {
+  let p = Point { x: 5, ..origin() };
+  assert_eq(p.x + p.y, 5)
+}
+
+#[test]
+fn test_spread_all_fields_overridden() -> () {
+  let p = Point { x: 1, y: 2 };
+  let q = Point { x: 10, y: 20, ..p };
+  assert_eq(q.x + q.y, 30)
+}
+
+pub struct Node { value: Int, children: List<Node> }
+
+#[test]
+fn test_recursive_struct_field_access() -> () {
+  let child = Node { value: 10, children: [] };
+  let parent = Node { value: 1, children: [child] };
+  let result = match parent.children {
+    [first, ..] => first.value,
+    [] => 0,
+  };
+  assert_eq(result, 10)
+}

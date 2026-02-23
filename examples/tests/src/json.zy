@@ -1,0 +1,156 @@
+use std::json::{JSON, Number, parse, ParseError}
+
+fn json_tag(j: JSON) -> Int {
+  match j {
+    JSON::Null => 1,
+    JSON::Bool(_) => 2,
+    JSON::Number(_) => 3,
+    JSON::String(_) => 4,
+    JSON::Array(_) => 5,
+    JSON::Object(_) => 6,
+  }
+}
+
+fn first_or_null(items: List<JSON>) -> JSON {
+  match items {
+    [h, ..] => h,
+    [] => JSON::Null,
+  }
+}
+
+#[test]
+fn test_null() -> () {
+  let j = JSON::Null;
+  assert_eq(match j { JSON::Null => 1, _ => 0 }, 1)
+}
+
+#[test]
+fn test_bool() -> () {
+  let j = JSON::Bool(true);
+  assert(match j { JSON::Bool(b) => b, _ => false })
+}
+
+#[test]
+fn test_number_int() -> () {
+  let n = Number::Int(42);
+  let j = JSON::Number(n);
+  assert_eq(match j { JSON::Number(Number::Int(v)) => v, _ => 0 }, 42)
+}
+
+#[test]
+fn test_number_float() -> () {
+  let n = Number::Float(3.14);
+  let j = JSON::Number(n);
+  assert_eq(match j { JSON::Number(Number::Float(v)) => v, _ => 0.0 }, 3.14)
+}
+
+#[test]
+fn test_string() -> () {
+  let j = JSON::String("hello");
+  assert_eq(match j { JSON::String(s) => s, _ => "fail" }, "hello")
+}
+
+#[test]
+fn test_array() -> () {
+  let arr = JSON::Array([JSON::Null, JSON::Bool(true)]);
+  assert_eq(match arr { JSON::Array(_) => 1, _ => 0 }, 1)
+}
+
+#[test]
+fn test_object() -> () {
+  let obj = JSON::Object(Dict::from([("key", JSON::String("value"))]));
+  assert_eq(match obj { JSON::Object(_) => 1, _ => 0 }, 1)
+}
+
+#[test]
+fn test_exhaustive_match_inner() -> () {
+  let arr = JSON::Array([JSON::Null, JSON::Bool(true)]);
+  let result = match arr {
+    JSON::Array(items) => json_tag(first_or_null(items)),
+    _ => 0,
+  };
+  assert_eq(result, 1)
+}
+
+#[test]
+fn test_parse_int() -> () {
+  assert_eq(match parse("42") { Ok(JSON::Number(_)) => 1, _ => 0 }, 1)
+}
+
+#[test]
+fn test_parse_string() -> () {
+  let result = match parse("\"hello\"") {
+    Ok(JSON::String(s)) => match s == "hello" { true => 1, false => 0 },
+    _ => 0,
+  };
+  assert_eq(result, 1)
+}
+
+#[test]
+fn test_parse_null() -> () {
+  assert_eq(match parse("null") { Ok(JSON::Null) => 1, _ => 0 }, 1)
+}
+
+#[test]
+fn test_parse_bool() -> () {
+  let result = match parse("true") {
+    Ok(JSON::Bool(b)) => match b { true => 1, false => 0 },
+    _ => 0,
+  };
+  assert_eq(result, 1)
+}
+
+#[test]
+fn test_parse_array() -> () {
+  assert_eq(match parse("[1, 2, 3]") { Ok(JSON::Array(_)) => 1, _ => 0 }, 1)
+}
+
+#[test]
+fn test_parse_object() -> () {
+  assert_eq(match parse("{\"a\": 1}") { Ok(JSON::Object(_)) => 1, _ => 0 }, 1)
+}
+
+#[test]
+fn test_parse_invalid() -> () assert_eq(match parse("not json") { Err(ParseError::ParseError) => 1, _ => 0 }, 1)
+
+#[test]
+fn test_to_string_null() -> () assert_eq(JSON::Null.to_string(), "null")
+
+#[test]
+fn test_to_string_bool_true() -> () assert_eq(JSON::Bool(true).to_string(), "true")
+
+#[test]
+fn test_to_string_bool_false() -> () assert_eq(JSON::Bool(false).to_string(), "false")
+
+#[test]
+fn test_to_string_number_int() -> () {
+  assert_eq(JSON::Number(Number::Int(42)).to_string(), "42")
+}
+
+#[test]
+fn test_to_string_number_float() -> () {
+  assert_eq(JSON::Number(Number::Float(3.14)).to_string(), "3.14")
+}
+
+#[test]
+fn test_to_string_string() -> () {
+  assert_eq(JSON::String("hello").to_string(), "\"hello\"")
+}
+
+#[test]
+fn test_to_string_array() -> () {
+  assert_eq(JSON::Array([JSON::Number(Number::Int(1)), JSON::Number(Number::Int(2)), JSON::Number(Number::Int(3))]).to_string(), "[1,2,3]")
+}
+
+#[test]
+fn test_to_string_object() -> () {
+  assert_eq(JSON::Object(Dict::from([("key", JSON::String("value"))])).to_string(), "{\"key\":\"value\"}")
+}
+
+#[test]
+fn test_to_string_round_trip() -> () {
+  let original = JSON::Array([JSON::Number(Number::Int(1)), JSON::Bool(true), JSON::Null]);
+  let serialized = original.to_string();
+  let parsed = parse(serialized);
+  assert(parsed == Ok(original))
+}

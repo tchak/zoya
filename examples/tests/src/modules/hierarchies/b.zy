@@ -1,0 +1,5 @@
+use root::modules::hierarchies::a::get_val
+use root::modules::hierarchies::common::base
+
+pub fn use_a() -> Int { get_val() * 2 }
+pub fn from_b() -> Int { base() * 3 }

@@ -1,0 +1,55 @@
+use std::option::{Option, Some, None}
+
+#[test]
+fn test_match_some() -> () {
+  let x = Some(42);
+  assert_eq(match x { Some(v) => v, None => 0 }, 42)
+}
+
+#[test]
+fn test_match_none() -> () {
+  let x: Option<Int> = None::<Int>;
+  assert_eq(match x { Option::Some(v) => v, None => 0 }, 0)
+}
+
+#[test]
+fn test_match_with_qualified_patterns() -> () {
+  let x = Option::Some(10);
+  assert_eq(match x { Option::Some(v) => v * 2, Option::None => 0 }, 20)
+}
+
+fn unwrap_or(opt: Option<Int>, default: Int) -> Int {
+  match opt { Some(v) => v, None => default }
+}
+
+#[test]
+fn test_in_function_signature() -> () {
+  assert_eq(unwrap_or(Some(5), 0) + unwrap_or(None::<Int>, 10), 15)
+}
+
+#[test]
+fn test_with_string() -> () {
+  let x = Some("hello");
+  assert_eq(match x { Some(s) => s.len(), None => 0 }, 5)
+}
+
+#[test]
+fn test_direct_match_pattern() -> () {
+  let x = std::option::Some(42);
+  assert_eq(match x { std::option::Some(v) => v, std::option::Option::None => 0 }, 42)
+}
+
+#[test]
+fn test_direct_type_annotation() -> () {
+  let x: std::option::Option<Int> = std::option::Some(10);
+  assert_eq(match x { std::option::Some(v) => v + 1, std::option::Option::None => 0 }, 11)
+}
+
+#[test]
+fn test_glob_import() -> () assert_eq(match Some(42) { Some(v) => v, None => 0 }, 42)
+
+#[test]
+fn test_prelude_match_option_without_import() -> () {
+  let x = Some(42);
+  assert_eq(match x { Some(v) => v, None => 0 }, 42)
+}

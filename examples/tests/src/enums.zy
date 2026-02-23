@@ -1,0 +1,177 @@
+enum MyOption<T> { MyNone, MySome(T) }
+enum Message { Quit, Move { x: Int, y: Int }, Write(String) }
+enum Color { Red, Green, Blue }
+enum MyResult<T, E> { MyOk(T), MyErr(E) }
+
+#[test]
+fn test_unit_variant() -> () {
+  let x = MyOption::MyNone;
+  assert_eq(match x { MyOption::MyNone => 0, MyOption::MySome(v) => v }, 0)
+}
+
+#[test]
+fn test_tuple_variant() -> () {
+  let x = MyOption::MySome(42);
+  assert_eq(match x { MyOption::MyNone => 0, MyOption::MySome(v) => v }, 42)
+}
+
+#[test]
+fn test_struct_variant() -> () {
+  let msg = Message::Move { x: 10, y: 20 };
+  let result = match msg {
+    Message::Quit => 0,
+    Message::Move { x, y } => x + y,
+    Message::Write(s) => s.len()
+  };
+  assert_eq(result, 30)
+}
+
+fn handle_quit() -> Int {
+  let msg = Message::Quit;
+  match msg {
+    Message::Quit => 1,
+    Message::Move { x, y } => x + y,
+    Message::Write(s) => s.len()
+  }
+}
+
+fn handle_write() -> Int {
+  let msg = Message::Write("hello");
+  match msg {
+    Message::Quit => 0,
+    Message::Move { x, y } => x + y,
+    Message::Write(s) => s.len()
+  }
+}
+
+#[test]
+fn test_all_variant_types() -> () assert_eq(handle_quit() + handle_write(), 6)
+
+#[test]
+fn test_generic_multiple_types() -> () {
+  let x = MyOption::MySome(10);
+  let y = MyOption::MySome("hello");
+  let a = match x { MyOption::MySome(v) => v, MyOption::MyNone => 0 };
+  let b = match y { MyOption::MySome(s) => s.len(), MyOption::MyNone => 0 };
+  assert_eq(a + b, 15)
+}
+
+#[test]
+fn test_nested_pattern() -> () {
+  let x = MyOption::MySome((1, 2));
+  let result = match x {
+    MyOption::MyNone => 0,
+    MyOption::MySome((a, b)) => a + b
+  };
+  assert_eq(result, 3)
+}
+
+enum Msg2 { Quit2, Move2 { x: Int, y: Int, z: Int } }
+
+#[test]
+fn test_partial_struct_pattern() -> () {
+  let msg = Msg2::Move2 { x: 1, y: 2, z: 3 };
+  assert_eq(match msg { Msg2::Quit2 => 0, Msg2::Move2 { x, .. } => x }, 1)
+}
+
+#[test]
+fn test_match_multiple_unit_variants() -> () {
+  let x = Color::Blue;
+  let result = match x {
+    Color::Red => 1,
+    Color::Green => 2,
+    Color::Blue => 3
+  };
+  assert_eq(result, 3)
+}
+
+#[test]
+fn test_wildcard_pattern() -> () {
+  let msg = Message::Write("hello");
+  assert_eq(match msg { Message::Quit => 0, _ => 42 }, 42)
+}
+
+#[test]
+fn test_equality() -> () {
+  let x = MyOption::MySome(42);
+  let y = MyOption::MySome(42);
+  assert(x == y)
+}
+
+#[test]
+fn test_inequality() -> () {
+  let x = MyOption::MySome(42);
+  let y: MyOption<Int> = MyOption::MyNone;
+  assert(x != y)
+}
+
+#[test]
+fn test_multi_field_tuple() -> () {
+  let x = MyResult::MyOk(42);
+  assert_eq(match x { MyResult::MyOk(v) => v, MyResult::MyErr(e) => e }, 42)
+}
+
+fn identity<T>(x: T) -> T x
+
+#[test]
+fn test_turbofish_unit_variant() -> () {
+  let x = MyOption::MyNone::<Int>;
+  assert_eq(match x { MyOption::MyNone => 0, MyOption::MySome(v) => v }, 0)
+}
+
+#[test]
+fn test_turbofish_tuple_variant() -> () {
+  let x = MyOption::MySome::<Int>(42);
+  assert_eq(match x { MyOption::MyNone => 0, MyOption::MySome(v) => v }, 42)
+}
+
+#[test]
+fn test_turbofish_function_call() -> () assert_eq(identity::<Int>(42), 42)
+
+#[test]
+fn test_turbofish_multiple_type_args() -> () {
+  let x = MyResult::MyOk::<Int, String>(42);
+  assert_eq(match x { MyResult::MyOk(v) => v, MyResult::MyErr(_) => 0 }, 42)
+}
+
+pub struct TurbofishPair<A, B> { first: A, second: B }
+
+#[test]
+fn test_turbofish_named_struct_correct() -> () {
+  let p = TurbofishPair::<Int, String> { first: 42, second: "hello" };
+  assert_eq(p.first, 42)
+}
+
+pub enum Container<T> { Named { value: T } }
+
+#[test]
+fn test_turbofish_enum_struct_variant_correct() -> () {
+  let c = Container::Named::<Int> { value: 42 };
+  assert_eq(match c { Container::Named { value } => value }, 42)
+}
+
+pub enum Tree { Leaf(Int), Branch(List<Tree>) }
+
+fn get_value(t: Tree) -> Int {
+  match t {
+    Tree::Leaf(n) => n,
+    Tree::Branch(_) => -1,
+  }
+}
+
+fn first_child(children: List<Tree>) -> Tree {
+  match children {
+    [h, ..] => h,
+    [] => Tree::Leaf(0),
+  }
+}
+
+#[test]
+fn test_recursive_enum_exhaustive_match_inner() -> () {
+  let t = Tree::Branch([Tree::Leaf(1), Tree::Leaf(2)]);
+  let result = match t {
+    Tree::Branch(children) => get_value(first_child(children)),
+    Tree::Leaf(n) => n,
+  };
+  assert_eq(result, 1)
+}

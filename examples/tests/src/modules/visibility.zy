@@ -1,0 +1,37 @@
+mod utils
+pub mod child
+pub mod level1
+mod types
+
+fn private_helper() -> Int { 42 }
+fn root_secret() -> Int { 99 }
+
+#[test]
+fn test_pub_fn_accessible_everywhere() -> () assert_eq(utils::helper(), 42)
+
+#[test]
+fn test_private_fn_accessible_in_same_module() -> () assert_eq(private_helper(), 42)
+
+#[test]
+fn test_private_fn_accessible_in_child_module() -> () assert_eq(child::test_access(), 42)
+
+#[test]
+fn test_private_fn_accessible_in_deep_descendant() -> () {
+  assert_eq(level1::level2::level3::test_access(), 99)
+}
+
+#[test]
+fn test_struct_always_public() -> () {
+  let p = types::Point { x: 10, y: 20 };
+  assert_eq(p.x + p.y, 30)
+}
+
+#[test]
+fn test_enum_always_public() -> () {
+  let opt = types::MyOption::Some(42);
+  let result = match opt {
+    types::MyOption::Some(x) => x,
+    types::MyOption::None => 0,
+  };
+  assert_eq(result, 42)
+}

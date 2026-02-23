@@ -1,0 +1,64 @@
+struct Wrapper(Int)
+struct PairTS(String, Int)
+struct Box<T>(T)
+struct Triple(Int, Int, Int)
+struct PairTSInt(Int, Int)
+struct PairIntStr(Int, String)
+
+#[test]
+fn test_construct() -> () {
+  let w = Wrapper(42);
+  assert_eq(match w { Wrapper(n) => n }, 42)
+}
+
+#[test]
+fn test_two_fields() -> () {
+  let p = PairTS("hello", 5);
+  assert_eq(match p { PairTS(_, n) => n }, 5)
+}
+
+#[test]
+fn test_generic() -> () {
+  let b = Box("hello");
+  assert_eq(match b { Box(s) => s }, "hello")
+}
+
+#[test]
+fn test_match_prefix() -> () {
+  let t = Triple(1, 2, 3);
+  assert_eq(match t { Triple(a, ..) => a }, 1)
+}
+
+#[test]
+fn test_match_suffix() -> () {
+  let t = Triple(1, 2, 3);
+  assert_eq(match t { Triple(.., c) => c }, 3)
+}
+
+#[test]
+fn test_match_prefix_suffix() -> () {
+  let t = Triple(1, 2, 3);
+  assert_eq(match t { Triple(a, .., c) => a + c }, 4)
+}
+
+#[test]
+fn test_match_destructure() -> () {
+  let p = PairIntStr(42, "hello");
+  assert_eq(match p { PairIntStr(n, _) => n }, 42)
+}
+
+#[test]
+fn test_equality() -> () assert(PairTSInt(1, 2) == PairTSInt(1, 2))
+
+fn unwrap_wrapper(w: Wrapper) -> Int {
+  match w { Wrapper(n) => n }
+}
+
+#[test]
+fn test_as_function_arg() -> () assert_eq(unwrap_wrapper(Wrapper(99)), 99)
+
+#[test]
+fn test_index() -> () {
+  let p = PairIntStr(42, "hi");
+  assert_eq(p.0, 42)
+}

@@ -1,0 +1,4 @@
+use root::modules::reexports::math_reexporter::add
+
+#[test]
+fn test_pub_use_glob_reexport() -> () assert_eq(add(1, 2), 3)

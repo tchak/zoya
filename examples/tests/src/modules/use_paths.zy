@@ -1,0 +1,21 @@
+pub mod child
+pub mod level1
+
+use self::child::call_from_child
+
+pub fn parent_fn() -> Int { 42 }
+pub fn root_fn() -> Int { 100 }
+
+fn local_helper() -> Int { 42 }
+
+#[test]
+fn test_use_root_prefix() -> () assert_eq(call_from_child(), 42)
+
+#[test]
+fn test_use_self_prefix() -> () assert_eq(local_helper(), 42)
+
+#[test]
+fn test_use_super_prefix() -> () assert_eq(child::use_parent(), 42)
+
+#[test]
+fn test_use_super_nested() -> () assert_eq(level1::level2::use_root(), 100)

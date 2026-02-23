@@ -1,0 +1,221 @@
+enum MyOpt<T> { MyNone, MySome(T) }
+
+#[test]
+fn test_as_pattern_literal() -> () {
+  let x = 42;
+  assert_eq(match x { n @ 42 => n, _ => 0 }, 42)
+}
+
+#[test]
+fn test_as_pattern_with_enum() -> () {
+  let opt = MyOpt::MySome(10);
+  assert_eq(match opt { _ @ MyOpt::MySome(x) => x, MyOpt::MyNone => 0 }, 10)
+}
+
+#[test]
+fn test_list_rest_binding() -> () {
+  let xs = [1, 2, 3, 4];
+  let result = match xs {
+    [_, rest @ ..] => match rest { [a, ..] => a, [] => 0 },
+    [] => 0
+  };
+  assert_eq(result, 2)
+}
+
+#[test]
+fn test_list_rest_binding_suffix() -> () {
+  let xs = [1, 2, 3, 4];
+  let result = match xs {
+    [rest @ .., _] => match rest { [.., x] => x, [] => 0 },
+    [] => 0
+  };
+  assert_eq(result, 3)
+}
+
+#[test]
+fn test_list_rest_binding_middle() -> () {
+  let xs = [1, 2, 3, 4, 5];
+  let result = match xs {
+    [_, middle @ .., _] => match middle { [a, ..] => a, [] => 0 },
+    _ => 0
+  };
+  assert_eq(result, 2)
+}
+
+#[test]
+fn test_tuple_rest_binding() -> () {
+  let t = (1, 2, 3);
+  let result = match t {
+    (_, rest @ ..) => match rest { (a, _) => a }
+  };
+  assert_eq(result, 2)
+}
+
+#[test]
+fn test_tuple_rest_binding_suffix() -> () {
+  let t = (1, 2, 3, 4);
+  let result = match t {
+    (rest @ .., _) => match rest { (_, b, _) => b }
+  };
+  assert_eq(result, 2)
+}
+
+#[test]
+fn test_tuple_rest_binding_prefix_suffix() -> () {
+  let t = (10, 20, 30, 40);
+  let result = match t {
+    (_, rest @ .., _) => match rest { (a, b) => a + b }
+  };
+  assert_eq(result, 50)
+}
+
+#[test]
+fn test_let_tuple_destructuring() -> () {
+  let (a, b) = (1, 2);
+  assert_eq(a + b, 3)
+}
+
+#[test]
+fn test_let_tuple_nested_destructuring() -> () {
+  let (a, (b, c)) = (1, (2, 3));
+  assert_eq(a + b + c, 6)
+}
+
+struct Point { x: Int, y: Int }
+struct Point3 { x: Int, y: Int, z: Int }
+
+#[test]
+fn test_let_struct_destructuring() -> () {
+  let p = Point { x: 10, y: 20 };
+  let Point { x, y } = p;
+  assert_eq(x + y, 30)
+}
+
+#[test]
+fn test_let_struct_partial_destructuring() -> () {
+  let p = Point3 { x: 1, y: 2, z: 3 };
+  let Point3 { x, .. } = p;
+  assert_eq(x, 1)
+}
+
+#[test]
+fn test_let_tuple_rest_prefix() -> () {
+  let (first, ..) = (1, 2, 3, 4);
+  assert_eq(first, 1)
+}
+
+#[test]
+fn test_let_tuple_rest_suffix() -> () {
+  let (.., last) = (1, 2, 3, 4);
+  assert_eq(last, 4)
+}
+
+#[test]
+fn test_let_wildcard() -> () {
+  let unused = 42;
+  assert_eq(0, 0)
+}
+
+#[test]
+fn test_let_as_pattern() -> () {
+  let pair @ (a, b) = (1, 2);
+  let result = match pair { (x, y) => a + b + x + y };
+  assert_eq(result, 6)
+}
+
+#[test]
+fn test_let_empty_tuple() -> () {
+  let () = ();
+  assert_eq(42, 42)
+}
+
+fn swap((a, b): (Int, Int)) -> (Int, Int) (b, a)
+
+#[test]
+fn test_function_tuple_param_destructuring() -> () {
+  let (x, y) = swap((1, 2));
+  assert_eq(x * 10 + y, 21)
+}
+
+fn nested(((a, b), c): ((Int, Int), Int)) -> Int a + b + c
+
+#[test]
+fn test_function_nested_tuple_param() -> () assert_eq(nested(((1, 2), 3)), 6)
+
+fn get_x(Point { x, .. }: Point) -> Int x
+
+#[test]
+fn test_function_struct_param_destructuring() -> () {
+  assert_eq(get_x(Point { x: 42, y: 0 }), 42)
+}
+
+fn first_of_pair((a, _): (Int, Int)) -> Int a
+
+#[test]
+fn test_function_wildcard_param() -> () assert_eq(first_of_pair((5, 10)), 5)
+
+fn with_as(pair @ (a, b): (Int, Int)) -> Int {
+  let (x, y) = pair;
+  a + b + x + y
+}
+
+#[test]
+fn test_function_as_pattern_param() -> () assert_eq(with_as((1, 2)), 6)
+
+enum Data { Quad(Int, Int, Int, Int) }
+
+#[test]
+fn test_enum_tuple_rest_binding_prefix() -> () {
+  let d = Data::Quad(10, 20, 30, 40);
+  let result = match d {
+    Data::Quad(_, rest @ ..) => match rest { (a, b, c) => a + b + c }
+  };
+  assert_eq(result, 90)
+}
+
+#[test]
+fn test_enum_tuple_rest_binding_suffix() -> () {
+  let d = Data::Quad(10, 20, 30, 40);
+  let result = match d {
+    Data::Quad(rest @ .., _) => match rest { (a, b, c) => a + b + c }
+  };
+  assert_eq(result, 60)
+}
+
+#[test]
+fn test_enum_tuple_rest_binding_prefix_suffix() -> () {
+  let d = Data::Quad(10, 20, 30, 40);
+  let result = match d {
+    Data::Quad(_, rest @ .., _) => match rest { (a, b) => a + b }
+  };
+  assert_eq(result, 50)
+}
+
+struct Quad(Int, Int, Int, Int)
+
+#[test]
+fn test_tuple_struct_rest_binding_prefix() -> () {
+  let q = Quad(10, 20, 30, 40);
+  let result = match q {
+    Quad(_, rest @ ..) => match rest { (a, b, c) => a + b + c }
+  };
+  assert_eq(result, 90)
+}
+
+#[test]
+fn test_tuple_struct_rest_binding_suffix() -> () {
+  let q = Quad(10, 20, 30, 40);
+  let result = match q {
+    Quad(rest @ .., _) => match rest { (a, b, c) => a + b + c }
+  };
+  assert_eq(result, 60)
+}
+
+#[test]
+fn test_tuple_struct_rest_binding_prefix_suffix() -> () {
+  let q = Quad(10, 20, 30, 40);
+  let result = match q {
+    Quad(_, rest @ .., _) => match rest { (a, b) => a + b }
+  };
+  assert_eq(result, 50)
+}

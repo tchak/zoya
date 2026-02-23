@@ -1,0 +1,17 @@
+mod utils
+use self::utils::add
+
+fn helper() -> Int { 42 }
+fn secret() -> Int { 42 }
+
+#[test]
+fn test_qualified_call() -> () assert_eq(utils::add(1, 2), 3)
+
+#[test]
+fn test_with_use() -> () assert_eq(add(1, 2), 3)
+
+#[test]
+fn test_same_module_no_import() -> () assert_eq(helper(), 42)
+
+#[test]
+fn test_private_fn_same_module() -> () assert_eq(secret(), 42)

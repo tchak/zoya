@@ -523,8 +523,8 @@ pub fn check_pattern(
                 |name: &str,
                  ctx: &mut UnifyCtx|
                  -> Result<(TypedPattern, HashMap<String, Type>), TypeError> {
-                    // Enforce snake_case for variable bindings
-                    if !is_snake_case(name) {
+                    // Enforce snake_case for variable bindings (skip wildcard "_")
+                    if name != "_" && !is_snake_case(name) {
                         return Err(TypeError::NamingConvention {
                             kind: "variable".to_string(),
                             name: name.to_string(),
@@ -599,8 +599,8 @@ pub fn check_pattern(
         ),
 
         Pattern::As { name, pattern } => {
-            // Check variable name is snake_case
-            if !is_snake_case(name) {
+            // Check variable name is snake_case (skip wildcard "_")
+            if name != "_" && !is_snake_case(name) {
                 return Err(TypeError::NamingConvention {
                     kind: "variable".to_string(),
                     name: name.clone(),

@@ -1,0 +1,45 @@
+mod types
+
+use self::types::Point
+use self::types::MyOption::Some
+use self::types::MyOption::None
+use self::types::MyResult::Ok
+use self::types::MyResult::Err
+use self::types::IntPair
+use self::types::Pair
+
+#[test]
+fn test_import_struct_and_use() -> () {
+  let p = Point { x: 10, y: 20 };
+  assert_eq(p.x + p.y, 30)
+}
+
+#[test]
+fn test_import_struct_pattern_match() -> () {
+  let p = Point { x: 10, y: 20 };
+  assert_eq(match p { Point { x, y } => x * y }, 200)
+}
+
+#[test]
+fn test_import_enum_type_and_variants() -> () {
+  let opt = Some(42);
+  assert_eq(match opt { Some(x) => x, None => 0 }, 42)
+}
+
+#[test]
+fn test_import_enum_variant_in_pattern() -> () {
+  let r = Ok(100);
+  assert_eq(match r { Ok(v) => v, Err(e) => e }, 100)
+}
+
+#[test]
+fn test_import_type_alias() -> () {
+  let p: IntPair = (10, 20);
+  assert_eq(match p { (a, b) => a + b }, 30)
+}
+
+#[test]
+fn test_imported_generic_struct() -> () {
+  let p = Pair::<Int, Bool> { first: 42, second: true };
+  assert_eq(p.first, 42)
+}

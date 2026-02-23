@@ -1,0 +1,19 @@
+pub mod expressions
+pub mod functions
+pub mod lambdas
+pub mod lists
+pub mod tuples
+pub mod structs
+pub mod tuple_structs
+pub mod enums
+pub mod patterns
+pub mod type_aliases
+pub mod operators
+pub mod impls
+pub mod strings
+pub mod json
+pub mod std_option
+pub mod std_result
+pub mod modules
+
+pub fn main() -> () ()

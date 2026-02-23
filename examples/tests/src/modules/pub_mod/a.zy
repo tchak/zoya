@@ -1,0 +1,3 @@
+pub mod inner
+pub mod b
+pub fn top() -> Int { 1 }

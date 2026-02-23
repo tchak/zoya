@@ -1,0 +1,171 @@
+struct Point { x: Int, y: Int }
+
+impl Point {
+  fn sum(self) -> Int {
+    self.x + self.y
+  }
+
+  fn origin() -> Self {
+    Point { x: 0, y: 0 }
+  }
+
+  fn add(self, other: Point) -> Point {
+    Point { x: self.x + other.x, y: self.y + other.y }
+  }
+
+  fn mirror(self) -> Self {
+    Point { x: self.y, y: self.x }
+  }
+
+  fn distance_squared(self, other: Point) -> Int {
+    let dx = self.x - other.x;
+    let dy = self.y - other.y;
+    dx * dx + dy * dy
+  }
+}
+
+#[test]
+fn test_method_basic() -> () {
+  let p = Point { x: 3, y: 4 };
+  assert_eq(p.sum(), 7)
+}
+
+#[test]
+fn test_associated_function() -> () {
+  let p = Point::origin();
+  assert_eq(p.x + p.y, 0)
+}
+
+#[test]
+fn test_method_with_args() -> () {
+  let a = Point { x: 1, y: 2 };
+  let b = Point { x: 3, y: 4 };
+  let c = a.add(b);
+  assert_eq(c.x + c.y, 10)
+}
+
+struct Wrapper<T> { value: T }
+
+impl<T> Wrapper<T> {
+  fn unwrap(self) -> T {
+    self.value
+  }
+
+  fn new(v: T) -> Self {
+    Wrapper { value: v }
+  }
+}
+
+#[test]
+fn test_generic() -> () {
+  let w = Wrapper { value: 42 };
+  assert_eq(w.unwrap(), 42)
+}
+
+#[test]
+fn test_generic_associated_function() -> () {
+  let w = Wrapper::new(99);
+  assert_eq(w.value, 99)
+}
+
+enum Shape {
+  Circle(Int),
+  Square(Int),
+}
+
+impl Shape {
+  fn area(self) -> Int {
+    match self {
+      Shape::Circle(r) => r * r * 3,
+      Shape::Square(s) => s * s,
+    }
+  }
+}
+
+#[test]
+fn test_on_enum() -> () {
+  let c = Shape::Circle(5);
+  let s = Shape::Square(4);
+  assert_eq(c.area() + s.area(), 91)
+}
+
+enum Color { Red, Green, Blue }
+
+impl Color {
+  fn default() -> Self {
+    Color::Red
+  }
+}
+
+#[test]
+fn test_enum_associated_function() -> () {
+  let c = Color::default();
+  assert(match c { Color::Red => true, _ => false })
+}
+
+struct Counter { value: Int }
+
+impl Counter {
+  fn new() -> Self {
+    Counter { value: 0 }
+  }
+}
+
+impl Counter {
+  fn get(self) -> Int {
+    self.value
+  }
+}
+
+#[test]
+fn test_multiple_blocks() -> () {
+  let c = Counter::new();
+  assert_eq(c.get(), 0)
+}
+
+#[test]
+fn test_self_type_in_return() -> () {
+  let p = Point { x: 1, y: 2 };
+  let m = p.mirror();
+  assert_eq(m.x * 10 + m.y, 21)
+}
+
+struct Builder { value: Int }
+
+impl Builder {
+  fn new() -> Self {
+    Builder { value: 0 }
+  }
+  fn add(self, n: Int) -> Self {
+    Builder { value: self.value + n }
+  }
+  fn build(self) -> Int {
+    self.value
+  }
+}
+
+#[test]
+fn test_method_chaining() -> () {
+  assert_eq(Builder::new().add(10).add(20).add(12).build(), 42)
+}
+
+struct Foo { x: Int }
+
+impl Foo {
+  pub fn get(self) -> Int {
+    self.x
+  }
+}
+
+#[test]
+fn test_pub_method() -> () {
+  let f = Foo { x: 7 };
+  assert_eq(f.get(), 7)
+}
+
+#[test]
+fn test_method_with_let_block() -> () {
+  let a = Point { x: 1, y: 2 };
+  let b = Point { x: 4, y: 6 };
+  assert_eq(a.distance_squared(b), 25)
+}

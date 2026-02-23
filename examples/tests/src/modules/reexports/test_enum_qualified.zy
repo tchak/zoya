@@ -1,0 +1,7 @@
+use root::modules::reexports::type_reexporter
+
+#[test]
+fn test_pub_use_reexport_enum_via_qualified_path() -> () {
+  let x = type_reexporter::Color::Red;
+  assert_eq(match x { type_reexporter::Color::Red => 10, _ => 20 }, 10)
+}

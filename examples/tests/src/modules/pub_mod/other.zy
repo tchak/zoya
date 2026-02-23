@@ -1,0 +1,3 @@
+use root::modules::pub_mod::utils::helper
+
+pub fn call_utils() -> Int { helper() }

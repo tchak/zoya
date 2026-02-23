@@ -1,0 +1,3 @@
+use root::modules::hierarchies::grandparent_fn
+
+pub fn test_access() -> Int { grandparent_fn() }

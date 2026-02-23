@@ -1,0 +1,6 @@
+use root::modules::reexports::variant_reexporter::{Some, None}
+
+#[test]
+fn test_pub_use_glob_reexport_enum_variants() -> () {
+  assert_eq(match Some(42) { Some(x) => x, None => 0 }, 42)
+}

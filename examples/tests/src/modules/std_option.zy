@@ -1,0 +1,21 @@
+mod helper
+mod utils
+
+use std::option::{Option, Some, None}
+use self::helper::make_some
+use self::utils::safe_div
+
+#[test]
+fn test_multi_module_with_use() -> () assert_eq(make_some(42), Some(42))
+
+#[test]
+fn test_multi_module_match() -> () {
+  let a = safe_div(10, 2);
+  let b = safe_div(10, 0);
+  let va = match a { Some(v) => v, None => 0 };
+  let vb = match b { Some(v) => v, None => -1 };
+  assert_eq(va + vb, 4)
+}
+
+#[test]
+fn test_direct_multi_module() -> () assert_eq(helper::make_some_direct(42), std::option::Some(42))

@@ -1,0 +1,6 @@
+use root::modules::reexports::mixed_reexporter::{child, add}
+
+#[test]
+fn test_pub_use_group_reexport_module_and_items() -> () {
+  assert_eq(add(child::helper(), 1), 100)
+}

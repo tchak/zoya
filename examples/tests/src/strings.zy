@@ -1,0 +1,52 @@
+#[test]
+fn test_interpolated_simple() -> () {
+  let name = "world";
+  assert_eq($"hello {name}!", "hello world!")
+}
+
+#[test]
+fn test_interpolated_int() -> () {
+  let x = 42;
+  assert_eq($"value: {x}", "value: 42")
+}
+
+#[test]
+fn test_interpolated_float() -> () {
+  let x = 3.14;
+  assert_eq($"pi is {x}", "pi is 3.14")
+}
+
+#[test]
+fn test_interpolated_bigint() -> () {
+  let x = 42n;
+  assert_eq($"big: {x}", "big: 42")
+}
+
+#[test]
+fn test_interpolated_expression() -> () {
+  let x = 1;
+  let y = 2;
+  assert_eq($"sum: {x + y}", "sum: 3")
+}
+
+#[test]
+fn test_interpolated_method_call() -> () {
+  let name = "hello";
+  assert_eq($"upper: {name.to_uppercase()}", "upper: HELLO")
+}
+
+#[test]
+fn test_interpolated_literal_only() -> () assert_eq($"plain text", "plain text")
+
+#[test]
+fn test_interpolated_adjacent_expressions() -> () {
+  let a = "hello";
+  let b = "world";
+  assert_eq($"{a}{b}", "helloworld")
+}
+
+#[test]
+fn test_interpolated_escaped_braces() -> () assert_eq($"literal \{ brace \}", "literal { brace }")
+
+#[test]
+fn test_interpolated_empty() -> () assert_eq($"", "")

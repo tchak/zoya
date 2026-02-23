@@ -1,0 +1,6 @@
+use root::modules::reexports::variant_group_reexporter::{Red, Green, Blue}
+
+#[test]
+fn test_pub_use_group_reexport_enum_variants() -> () {
+  assert_eq(match Green { Red => 1, Green => 2, Blue => 3 }, 2)
+}

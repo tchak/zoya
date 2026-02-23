@@ -1,0 +1,5 @@
+#[test]
+fn test_prelude_match_result_without_import() -> () {
+  let x: Result<Int, String> = Ok(10);
+  assert_eq(match x { Ok(v) => v, Err(_) => 0 }, 10)
+}

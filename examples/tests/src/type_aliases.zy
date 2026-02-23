@@ -1,0 +1,35 @@
+type UserId = Int
+
+fn get_id() -> UserId { 42 }
+
+#[test]
+fn test_simple() -> () assert_eq(get_id(), 42)
+
+type Pair<A, B> = (A, B)
+
+fn make_pair() -> Pair<Int, Bool> { (1, true) }
+
+#[test]
+fn test_generic() -> () {
+  let (x, _) = make_pair();
+  assert_eq(x, 1)
+}
+
+type IntOp = (Int) -> Int
+
+fn apply(f: IntOp, x: Int) -> Int { f(x) }
+
+#[test]
+fn test_function_type() -> () assert_eq(apply(|x| x * 2, 21), 42)
+
+type Numbers = List<Int>
+
+fn sum(ns: Numbers) -> Int {
+  match ns {
+    [] => 0,
+    [x, rest @ ..] => x + sum(rest),
+  }
+}
+
+#[test]
+fn test_to_list() -> () assert_eq(sum([1, 2, 3, 4]), 10)

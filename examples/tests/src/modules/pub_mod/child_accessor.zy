@@ -1,0 +1,3 @@
+use root::modules::pub_mod::internal::helper
+
+pub fn test_access() -> Int { helper() }

@@ -1,0 +1,3 @@
+use super::private_helper
+
+pub fn test_access() -> Int { private_helper() }

@@ -1,0 +1,4 @@
+use root::modules::reexports::math_group_reexporter::add
+
+#[test]
+fn test_pub_use_group_reexport() -> () assert_eq(add(10, 20), 30)
