@@ -1,35 +1,49 @@
-use rquickjs::{CatchResultExt, Context, Ctx, FromJs, IntoJs, Runtime};
+use std::sync::atomic::{AtomicI32, Ordering};
+use std::time::Duration;
+
+use rquickjs::{AsyncContext, AsyncRuntime, CatchResultExt, Ctx, FromJs, IntoJs};
 
 use zoya_ir::{DefinitionLookup, Type};
 use zoya_value::{JSValue, Value};
 
-/// Create a runtime and context for plain script evaluation (no module system).
-pub(crate) fn create_runtime() -> Result<(Runtime, Context), EvalError> {
-    let runtime = Runtime::new()
+/// Create an async runtime and context for non-blocking script evaluation.
+pub(crate) async fn create_async_runtime() -> Result<(AsyncRuntime, AsyncContext), EvalError> {
+    let runtime = AsyncRuntime::new()
         .map_err(|e| EvalError::RuntimeError(format!("failed to create runtime: {e}")))?;
-    let context = Context::full(&runtime)
+    let context = AsyncContext::full(&runtime)
+        .await
         .map_err(|e| EvalError::RuntimeError(format!("failed to create context: {e}")))?;
-    context
-        .with(|ctx| {
-            inject_console(&ctx)?;
-            inject_timers(&ctx)
-        })
-        .map_err(|e| EvalError::RuntimeError(format!("failed to inject globals: {e}")))?;
     Ok((runtime, context))
+}
+
+/// Inject console and timer globals into the JS context.
+pub(crate) fn inject_globals(ctx: &Ctx<'_>) -> Result<(), EvalError> {
+    inject_console(ctx)
+        .and_then(|()| inject_timers(ctx))
+        .map_err(|e| EvalError::RuntimeError(format!("failed to inject globals: {e}")))
+}
+
+static NEXT_TIMER_ID: AtomicI32 = AtomicI32::new(1);
+
+/// setTimeout callback — named function to unify `Ctx<'js>` and `Function<'js>` lifetimes.
+fn set_timeout<'js>(ctx: Ctx<'js>, callback: rquickjs::Function<'js>, ms: u32) -> i32 {
+    let id = NEXT_TIMER_ID.fetch_add(1, Ordering::Relaxed);
+    ctx.spawn(async move {
+        tokio::time::sleep(Duration::from_millis(ms as u64)).await;
+        let _ = callback.call::<_, ()>(());
+    });
+    id
 }
 
 fn inject_timers(ctx: &Ctx<'_>) -> rquickjs::Result<()> {
     let globals = ctx.globals();
     globals.set(
         "setTimeout",
-        rquickjs::Function::new(
-            ctx.clone(),
-            |_ctx: Ctx<'_>, callback: rquickjs::Function<'_>, ms: u32| -> rquickjs::Result<i32> {
-                std::thread::sleep(std::time::Duration::from_millis(ms as u64));
-                callback.call::<_, ()>(())?;
-                Ok(0)
-            },
-        )?,
+        rquickjs::Function::new(ctx.clone(), set_timeout)?,
+    )?;
+    globals.set(
+        "clearTimeout",
+        rquickjs::Function::new(ctx.clone(), |_id: i32| {})?,
     )?;
     Ok(())
 }
@@ -71,11 +85,13 @@ fn parse_zoya_error(msg: &str) -> Option<(&str, Option<&str>)> {
     }
 }
 
-/// Evaluate a plain JS script and call an entry function.
+/// Evaluate a plain JS script and call an entry function asynchronously.
 ///
 /// First evaluates `code` to define all functions in the global scope,
 /// then calls `entry_func(args...)` and converts the result to a Zoya Value.
-pub(crate) fn eval_script(
+/// Uses `Promise::into_future()` to drive both the microtask queue and
+/// spawned async tasks (e.g. timers) to completion.
+pub(crate) async fn eval_script_async(
     ctx: &Ctx<'_>,
     code: &str,
     entry_func: &str,
@@ -110,10 +126,15 @@ pub(crate) fn eval_script(
         .catch(ctx)
         .map_err(map_js_error)?;
 
-    // Drive the Promise to completion (runs QuickJS job queue for microtasks/timers)
+    // Drive the Promise to completion — into_future() drives both the microtask
+    // queue and spawned async tasks (timers), unlike finish() which only drives microtasks
     let promise = rquickjs::Promise::from_value(promise_val)
         .map_err(|e| EvalError::RuntimeError(format!("expected promise: {e}")))?;
-    let resolved: rquickjs::Value = promise.finish().catch(ctx).map_err(map_js_error)?;
+    let resolved = promise
+        .into_future()
+        .await
+        .catch(ctx)
+        .map_err(map_js_error)?;
 
     // Convert resolved JS value to Zoya Value
     let js_val =

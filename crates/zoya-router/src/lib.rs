@@ -61,7 +61,7 @@ pub fn router(checked: &CheckedPackage, deps: &[&CheckedPackage]) -> Router {
     for (i, (_, method, pathname)) in routes_meta.iter().enumerate() {
         let axum_path = convert_pathname(pathname.as_str());
         let handler = move |State(state): State<Arc<AppState>>, parts: Parts, body: Bytes| async move {
-            handle_request(state, i, parts, body)
+            handle_request(state, i, parts, body).await
         };
 
         app = match method {
@@ -77,7 +77,7 @@ pub fn router(checked: &CheckedPackage, deps: &[&CheckedPackage]) -> Router {
 }
 
 /// Handle a single HTTP request by running the corresponding Zoya function.
-fn handle_request(
+async fn handle_request(
     state: Arc<AppState>,
     route_index: usize,
     parts: Parts,
@@ -95,7 +95,8 @@ fn handle_request(
     let result = Runner::new()
         .package(&state.checked, deps)
         .entry(info.path.clone(), args)
-        .run();
+        .run_async()
+        .await;
 
     match result {
         Ok(value) => match value_to_axum_response(value) {

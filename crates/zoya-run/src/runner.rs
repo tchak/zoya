@@ -72,9 +72,23 @@ impl<'a> PackageRunner<'a> {
         self
     }
 
-    /// Execute the package and return the result.
+    /// Execute the package synchronously and return the result.
+    ///
+    /// Creates a single-threaded tokio runtime internally. Use `run_async()`
+    /// when already inside a tokio runtime (e.g., HTTP handlers).
     pub fn run(self) -> Result<Value, EvalError> {
-        run_checked(self.package, &self.deps, &self.entry_point)
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| EvalError::RuntimeError(format!("failed to create tokio runtime: {e}")))?;
+        rt.block_on(self.run_async())
+    }
+
+    /// Execute the package asynchronously and return the result.
+    ///
+    /// Use this when already inside a tokio runtime (e.g., HTTP handlers).
+    pub async fn run_async(self) -> Result<Value, EvalError> {
+        run_checked_async(self.package, &self.deps, &self.entry_point).await
     }
 }
 
@@ -91,13 +105,25 @@ impl SourceRunner {
         self
     }
 
-    /// Compile and execute the source string.
+    /// Compile and execute the source string synchronously.
+    ///
+    /// Creates a single-threaded tokio runtime internally. Use `run_async()`
+    /// when already inside a tokio runtime.
     pub fn run(self) -> Result<Value, EvalError> {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| EvalError::RuntimeError(format!("failed to create tokio runtime: {e}")))?;
+        rt.block_on(self.run_async())
+    }
+
+    /// Compile and execute the source string asynchronously.
+    pub async fn run_async(self) -> Result<Value, EvalError> {
         let std = zoya_std::std();
         let mem_source = MemorySource::new().with_module("root", &self.source);
         let package = load_memory_package(&mem_source, self.mode)?;
         let checked = check(&package, &[std])?;
-        run_checked(&checked, &[std], &EntryPoint::Main(None))
+        run_checked_async(&checked, &[std], &EntryPoint::Main(None)).await
     }
 }
 
@@ -106,8 +132,8 @@ pub fn run_source(source: &str) -> Result<Value, EvalError> {
     Runner::new().source(source).run()
 }
 
-/// Internal: execute an already-checked package.
-fn run_checked(
+/// Internal: execute an already-checked package asynchronously.
+async fn run_checked_async(
     package: &CheckedPackage,
     deps: &[&CheckedPackage],
     entry_point: &EntryPoint,
@@ -166,18 +192,22 @@ fn run_checked(
     // Build the entry function name using the package name
     let entry_func = format_export_path(&function_path, &package.name);
 
-    // Create runtime (no module system needed)
-    let (_runtime, context) = eval::create_runtime()?;
+    // Create async runtime (no module system needed)
+    let (_runtime, context) = eval::create_async_runtime().await?;
 
-    // Evaluate the script and call the entry function
-    context.with(|ctx| {
-        eval::eval_script(
+    // Evaluate the script inside the async context
+    let code = output.code;
+    rquickjs::async_with!(context => |ctx| {
+        eval::inject_globals(&ctx)?;
+        eval::eval_script_async(
             &ctx,
-            &output.code,
+            &code,
             &entry_func,
             &args,
             return_type,
             &type_lookup,
         )
+        .await
     })
+    .await
 }

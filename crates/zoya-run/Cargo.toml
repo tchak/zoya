@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-rquickjs = { version = "0.9", features = ["bindgen", "loader"] }
+rquickjs = { version = "0.9", features = ["bindgen", "loader", "futures", "parallel"] }
+tokio = { version = "1", features = ["rt", "time"] }
 thiserror = "2"
 zoya-check = { path = "../zoya-check" }
 zoya-codegen = { path = "../zoya-codegen" }

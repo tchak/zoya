@@ -627,6 +627,7 @@ pub enum TypeError {
 type EnumInfo = (Vec<TypeVarId>, Vec<(String, EnumVariantType)>);
 type StructInfo = (Vec<TypeVarId>, Vec<(String, Type)>);
 
+#[derive(Clone)]
 pub struct DefinitionLookup {
     enums: HashMap<QualifiedPath, EnumInfo>,
     structs: HashMap<QualifiedPath, StructInfo>,
