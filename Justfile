@@ -34,6 +34,18 @@ generate-grammar:
 parse-all:
     cd editors/tree-sitter-zoya && npm run parse-all
 
+# Install local copy of zoya CLI
+install:
+    cargo install --path crates/zoya
+
+# Run dev server on examples/tests
+dev-tests:
+    cargo run -p zoya -- dev --package examples/tests
+
+# Run dev server on examples/std-tests
+dev-std-tests:
+    cargo run -p zoya -- dev --package examples/std-tests
+
 # Generate coverage report
 coverage:
     cargo llvm-cov --workspace --html
