@@ -28,9 +28,7 @@ let pkg = load_package(Path::new("src/main.zy"), Mode::Dev)?;
 let checked_pkg = check(&pkg, &[std])?;
 
 // Run the main function in the root module
-let result = Runner::new()
-    .package(&checked_pkg, [std])
-    .run()?;
+let result = Runner::new(&checked_pkg, [std]).run()?;
 println!("Result: {}", result);
 ```
 
@@ -40,9 +38,8 @@ println!("Result: {}", result);
 use zoya_run::Runner;
 
 // Run main() from the "repl" submodule
-let result = Runner::new()
-    .package(&checked_pkg, [std])
-    .module("repl")
+let result = Runner::new(&checked_pkg, [std])
+    .main_module("repl")
     .run()?;
 ```
 
@@ -54,8 +51,7 @@ use zoya_package::QualifiedPath;
 
 // Run any function by its qualified path, passing arguments
 let fn_path = QualifiedPath::root().child("add");
-let result = Runner::new()
-    .package(&checked_pkg, [std])
+let result = Runner::new(&checked_pkg, [std])
     .entry(fn_path, vec![Value::Int(1), Value::Int(2)])
     .run()?;
 assert_eq!(result, Value::Int(3));
@@ -64,21 +60,15 @@ assert_eq!(result, Value::Int(3));
 ## Public API
 
 ```rust
-/// Entry point — choose an input source.
-pub struct Runner;
+/// Runner for executing a checked Zoya package.
+pub struct Runner<'a>;
 
-impl Runner {
-    pub fn new() -> Self;
-    pub fn package<'a>(self, pkg: &'a CheckedPackage, deps: impl IntoIterator<Item = &'a CheckedPackage>) -> PackageRunner<'a>;
-}
-
-/// Run a pre-checked package. Optionally select a submodule.
-pub struct PackageRunner<'a>;
-
-impl PackageRunner<'_> {
-    pub fn module(self, module: impl Into<String>) -> Self;
+impl<'a> Runner<'a> {
+    pub fn new(pkg: &'a CheckedPackage, deps: impl IntoIterator<Item = &'a CheckedPackage>) -> Self;
+    pub fn main_module(self, module: impl Into<String>) -> Self;
     pub fn entry(self, path: QualifiedPath, args: Vec<Value>) -> Self;
     pub fn run(self) -> Result<Value, EvalError>;
+    pub async fn run_async(self) -> Result<Value, EvalError>;
 }
 
 ```

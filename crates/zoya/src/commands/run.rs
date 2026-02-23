@@ -22,7 +22,7 @@ pub fn execute(
     let value = match name {
         None => {
             // Default behavior: run main()
-            Runner::new().package(&checked, [std]).run()?
+            Runner::new(&checked, [std]).run()?
         }
         Some(fn_name) => {
             // Build qualified path from function name (e.g. "add" or "utils::helper")
@@ -86,8 +86,7 @@ pub fn execute(
             }
 
             // Run the function
-            Runner::new()
-                .package(&checked, [std])
+            Runner::new(&checked, [std])
                 .entry(fn_path, parsed_args)
                 .run()?
         }

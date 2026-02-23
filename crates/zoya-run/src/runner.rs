@@ -14,41 +14,25 @@ enum EntryPoint {
     Entry(QualifiedPath, Vec<Value>),
 }
 
-/// Entry point for building a run configuration.
-///
-/// Use `Runner::new()` then choose an input source:
-/// - `.package(pkg, deps)` → `PackageRunner`
-#[derive(Default)]
-pub struct Runner;
-
-impl Runner {
-    /// Create a new runner.
-    pub fn new() -> Self {
-        Runner
-    }
-
-    /// Run an already-checked package with its dependencies.
-    pub fn package<'a>(
-        self,
-        package: &'a CheckedPackage,
-        deps: impl IntoIterator<Item = &'a CheckedPackage>,
-    ) -> PackageRunner<'a> {
-        PackageRunner {
-            package,
-            deps: deps.into_iter().collect(),
-            entry_point: EntryPoint::Main(None),
-        }
-    }
-}
-
-/// Runner configured with a pre-checked package.
-pub struct PackageRunner<'a> {
+/// Runner for executing a checked Zoya package.
+pub struct Runner<'a> {
     package: &'a CheckedPackage,
     deps: Vec<&'a CheckedPackage>,
     entry_point: EntryPoint,
 }
 
-impl<'a> PackageRunner<'a> {
+impl<'a> Runner<'a> {
+    /// Create a new runner for the given package and its dependencies.
+    pub fn new(
+        package: &'a CheckedPackage,
+        deps: impl IntoIterator<Item = &'a CheckedPackage>,
+    ) -> Self {
+        Runner {
+            package,
+            deps: deps.into_iter().collect(),
+            entry_point: EntryPoint::Main(None),
+        }
+    }
     /// Select a submodule whose `main()` to run (e.g., `"repl"`).
     pub fn main_module(mut self, module: impl Into<String>) -> Self {
         self.entry_point = EntryPoint::Main(Some(module.into()));

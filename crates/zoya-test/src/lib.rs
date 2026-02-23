@@ -92,8 +92,7 @@ fn run_single_test(
     deps: &[&CheckedPackage],
     path: &QualifiedPath,
 ) -> Result<(), TestError> {
-    match Runner::new()
-        .package(package, deps.iter().copied())
+    match Runner::new(package, deps.iter().copied())
         .entry(path.clone(), vec![])
         .run()
     {

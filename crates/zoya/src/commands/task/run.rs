@@ -79,8 +79,7 @@ pub fn execute(
     }
 
     // Run the task function
-    let result = Runner::new()
-        .package(&checked, [std])
+    let result = Runner::new(&checked, [std])
         .entry(task_path, parsed_args)
         .run()?;
 

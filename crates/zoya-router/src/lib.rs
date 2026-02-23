@@ -92,8 +92,7 @@ async fn handle_request(
         vec![]
     };
 
-    let result = Runner::new()
-        .package(&state.checked, deps)
+    let result = Runner::new(&state.checked, deps)
         .entry(info.path.clone(), args)
         .run_async()
         .await;

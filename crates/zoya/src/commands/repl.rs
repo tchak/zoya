@@ -293,10 +293,7 @@ impl State {
                 .collect::<Result<Vec<_>>>()?;
 
             // Call combined main function via runner
-            let combined_value = Runner::new()
-                .package(&checked_pkg, [std])
-                .main_module("repl")
-                .run()?;
+            let combined_value = Runner::new(&checked_pkg, [std]).main_module("repl").run()?;
 
             // Unpack tuple result
             let individual_values = match combined_value {
