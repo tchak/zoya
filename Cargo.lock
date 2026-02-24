@@ -3502,6 +3502,7 @@ dependencies = [
  "zoya-check",
  "zoya-codegen",
  "zoya-ir",
+ "zoya-loader",
  "zoya-package",
  "zoya-std",
 ]

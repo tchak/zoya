@@ -2,15 +2,12 @@ use std::path::Path;
 
 use anyhow::Result;
 use console::{Term, style};
-use zoya_loader::Mode;
+use zoya_build::Mode;
 
 /// Type-check a file without executing it
 pub fn execute(path: &Path, mode: Mode) -> Result<()> {
-    // Load and parse package
-    let pkg = zoya_loader::load_package(path, mode)?;
-
     // Type check entire package with std
-    zoya_build::check(&pkg)?;
+    zoya_build::check_from_path(path, mode)?;
 
     // Success
     let term = Term::stderr();

@@ -2,17 +2,14 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use console::{Term, style};
-use zoya_loader::Mode;
+use zoya_build::Mode;
 
 /// Compile a file to JavaScript without executing
 pub fn execute(path: &Path, output: Option<&Path>, mode: Mode) -> Result<()> {
     let term = Term::stderr();
 
-    // Load and parse package
-    let pkg = zoya_loader::load_package(path, mode)?;
-
     // Type check and generate JS
-    let built = zoya_build::build(&pkg)?;
+    let built = zoya_build::build_from_path(path, mode)?;
 
     // Resolve output path: CLI arg > default "build" relative to package dir
     let base_dir = if path.is_dir() {
