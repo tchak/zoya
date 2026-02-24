@@ -10,10 +10,8 @@ path = "src/main.rs"
 [dependencies]
 zoya-ast = { path = "../zoya-ast" }
 zoya-build = { path = "../zoya-build" }
-zoya-codegen = { path = "../zoya-codegen" }
 zoya-dashboard = { path = "../zoya-dashboard" }
 zoya-fmt = { path = "../zoya-fmt" }
-zoya-ir = { path = "../zoya-ir" }
 zoya-lexer = { path = "../zoya-lexer" }
 zoya-loader = { path = "../zoya-loader" }
 zoya-package = { path = "../zoya-package" }

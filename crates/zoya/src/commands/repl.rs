@@ -600,7 +600,7 @@ mod tests {
         assert_eq!(
             results,
             vec![ReplResult::Expression(Value::Struct {
-                module: zoya_ir::QualifiedPath::root().child("repl"),
+                module: QualifiedPath::root().child("repl"),
                 name: "Point".to_string(),
                 data: zoya_run::ValueData::Struct(std::collections::HashMap::from([
                     ("x".to_string(), Value::Int(10)),
@@ -717,7 +717,7 @@ mod tests {
         assert_eq!(
             results,
             vec![ReplResult::Expression(Value::EnumVariant {
-                module: zoya_ir::QualifiedPath::root().child("repl"),
+                module: QualifiedPath::root().child("repl"),
                 enum_name: "Color".to_string(),
                 variant_name: "Red".to_string(),
                 data: ValueData::Unit,
@@ -734,7 +734,7 @@ mod tests {
         assert_eq!(
             results,
             vec![ReplResult::Expression(Value::EnumVariant {
-                module: zoya_ir::QualifiedPath::local("std".to_string()).child("option"),
+                module: QualifiedPath::local("std".to_string()).child("option"),
                 enum_name: "Option".to_string(),
                 variant_name: "Some".to_string(),
                 data: ValueData::Tuple(vec![Value::Int(42)]),
