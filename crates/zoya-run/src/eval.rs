@@ -4,6 +4,7 @@ use std::time::Duration;
 use rquickjs::{AsyncContext, AsyncRuntime, CatchResultExt, Ctx, FromJs, IntoJs};
 
 use zoya_ir::{DefinitionLookup, Type};
+use zoya_package::QualifiedPath;
 use zoya_value::{JSValue, Value};
 
 /// Create an async runtime and context for non-blocking script evaluation.
@@ -83,6 +84,62 @@ fn parse_zoya_error(msg: &str) -> Option<(&str, Option<&str>)> {
         Some((code, detail)) => Some((code, Some(detail))),
         None => Some((first_line, None)),
     }
+}
+
+/// Validate arguments, create a JS runtime, and execute a function from compiled code.
+///
+/// This is the shared implementation used by both `Runner::run_async()` and the
+/// free `run_async()` function.
+pub(crate) async fn run_code(
+    name: &str,
+    code: &str,
+    definitions: &DefinitionLookup,
+    entry: QualifiedPath,
+    args: Vec<Value>,
+) -> Result<Value, EvalError> {
+    // Find the function in the definitions
+    let func_def = definitions
+        .get_function(&entry)
+        .ok_or_else(|| EvalError::RuntimeError(format!("function {} not found", entry)))?;
+
+    // Validate argument count
+    if func_def.params.len() != args.len() {
+        return Err(EvalError::RuntimeError(format!(
+            "{}() expects {} argument(s), got {}",
+            entry.last(),
+            func_def.params.len(),
+            args.len()
+        )));
+    }
+
+    let return_type = func_def.return_type.clone();
+
+    // Validate each arg's type
+    for (i, (arg, param_type)) in args.iter().zip(func_def.params.iter()).enumerate() {
+        arg.check_type(param_type, definitions)
+            .map_err(|e| EvalError::RuntimeError(format!("argument {} type mismatch: {}", i, e)))?;
+    }
+
+    // Build the entry function name using the package name
+    let entry_func = zoya_codegen::format_export_path(&entry, name);
+
+    // Create async runtime (no module system needed)
+    let (_runtime, context) = create_async_runtime().await?;
+
+    // Evaluate the script inside the async context
+    rquickjs::async_with!(context => |ctx| {
+        inject_globals(&ctx)?;
+        eval_script_async(
+            &ctx,
+            code,
+            &entry_func,
+            &args,
+            return_type,
+            definitions,
+        )
+        .await
+    })
+    .await
 }
 
 /// Evaluate a plain JS script and call an entry function asynchronously.

@@ -3642,6 +3642,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "zoya-build",
  "zoya-check",
  "zoya-codegen",
  "zoya-ir",

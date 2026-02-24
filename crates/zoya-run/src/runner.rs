@@ -1,4 +1,4 @@
-use zoya_codegen::{codegen, format_export_path};
+use zoya_codegen::codegen;
 use zoya_ir::{CheckedPackage, DefinitionLookup};
 use zoya_package::QualifiedPath;
 
@@ -60,52 +60,6 @@ impl Runner {
         path: QualifiedPath,
         args: Vec<Value>,
     ) -> Result<Value, EvalError> {
-        // Find the function in the definitions
-        let func_def = self
-            .definitions
-            .get_function(&path)
-            .ok_or_else(|| EvalError::RuntimeError(format!("function {} not found", path)))?;
-
-        // Validate argument count
-        if func_def.params.len() != args.len() {
-            return Err(EvalError::RuntimeError(format!(
-                "{}() expects {} argument(s), got {}",
-                path.last(),
-                func_def.params.len(),
-                args.len()
-            )));
-        }
-
-        let return_type = func_def.return_type.clone();
-
-        // Validate each arg's type
-        for (i, (arg, param_type)) in args.iter().zip(func_def.params.iter()).enumerate() {
-            arg.check_type(param_type, &self.definitions).map_err(|e| {
-                EvalError::RuntimeError(format!("argument {} type mismatch: {}", i, e))
-            })?;
-        }
-
-        // Build the entry function name using the package name
-        let entry_func = format_export_path(&path, &self.name);
-
-        // Create async runtime (no module system needed)
-        let (_runtime, context) = eval::create_async_runtime().await?;
-
-        // Evaluate the script inside the async context
-        let code = &self.code;
-        let type_lookup = &self.definitions;
-        rquickjs::async_with!(context => |ctx| {
-            eval::inject_globals(&ctx)?;
-            eval::eval_script_async(
-                &ctx,
-                code,
-                &entry_func,
-                &args,
-                return_type,
-                type_lookup,
-            )
-            .await
-        })
-        .await
+        eval::run_code(&self.name, &self.code, &self.definitions, path, args).await
     }
 }

@@ -7,6 +7,7 @@ edition = "2024"
 rquickjs = { version = "0.9", features = ["bindgen", "loader", "futures", "parallel"] }
 tokio = { version = "1", features = ["rt", "time"] }
 thiserror = "2"
+zoya-build = { path = "../zoya-build" }
 zoya-codegen = { path = "../zoya-codegen" }
 zoya-ir = { path = "../zoya-ir" }
 zoya-loader = { path = "../zoya-loader" }
