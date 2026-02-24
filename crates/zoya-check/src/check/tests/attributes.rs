@@ -880,8 +880,12 @@ pub fn regular_fn() -> Int {
 "#,
     )
     .unwrap();
-    let routes = checked.routes();
-    assert_eq!(routes.len(), 2);
+    let route_count = checked
+        .items
+        .values()
+        .filter(|f| matches!(f.kind, zoya_ir::FunctionKind::Http(..)))
+        .count();
+    assert_eq!(route_count, 2);
 }
 
 #[test]

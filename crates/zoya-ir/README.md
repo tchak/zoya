@@ -51,19 +51,15 @@ fn process_package(pkg: &CheckedPackage) {
         }
     }
 
-    // Query HTTP routes
-    for (path, method, pathname) in pkg.routes() {
-        println!("{} {} -> {}", method.attr_name(), pathname.as_str(), path);
-    }
-
-    // Query job functions
-    for path in pkg.jobs() {
-        println!("job: {}", path);
-    }
-
-    // Query public functions
-    for path in pkg.fns() {
-        println!("fn: {}", path);
+    // Query functions by kind
+    for (path, func) in &pkg.items {
+        match &func.kind {
+            FunctionKind::Http(method, pathname) => {
+                println!("{} {} -> {}", method.attr_name(), pathname.as_str(), path);
+            }
+            FunctionKind::Job => println!("job: {}", path),
+            _ => {}
+        }
     }
 }
 ```

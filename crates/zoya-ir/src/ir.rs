@@ -421,64 +421,6 @@ pub struct CheckedPackage {
     pub reexports: std::collections::HashMap<QualifiedPath, QualifiedPath>,
 }
 
-impl CheckedPackage {
-    /// Return sorted paths of all `#[test]` functions in this package.
-    pub fn tests(&self) -> Vec<QualifiedPath> {
-        let mut tests: Vec<QualifiedPath> = self
-            .items
-            .iter()
-            .filter(|(_, func)| func.kind == FunctionKind::Test)
-            .map(|(path, _)| path.clone())
-            .collect();
-        tests.sort_by_key(|a| a.to_string());
-        tests
-    }
-
-    /// Return sorted paths of all `#[job]` functions in this package.
-    pub fn jobs(&self) -> Vec<QualifiedPath> {
-        let mut jobs: Vec<QualifiedPath> = self
-            .items
-            .iter()
-            .filter(|(_, func)| func.kind == FunctionKind::Job)
-            .map(|(path, _)| path.clone())
-            .collect();
-        jobs.sort_by_key(|a| a.to_string());
-        jobs
-    }
-
-    /// Return sorted paths of all public, non-test, non-job functions in this package.
-    pub fn fns(&self) -> Vec<QualifiedPath> {
-        let mut fns: Vec<QualifiedPath> = self
-            .items
-            .iter()
-            .filter(|(path, func)| {
-                matches!(func.kind, FunctionKind::Regular | FunctionKind::Builtin)
-                    && self.definitions.contains_key(path)
-            })
-            .map(|(path, _)| path.clone())
-            .collect();
-        fns.sort_by_key(|a| a.to_string());
-        fns
-    }
-
-    /// Return sorted (path, method, pathname) tuples for all HTTP route functions.
-    pub fn routes(&self) -> Vec<(QualifiedPath, &HttpMethod, &Pathname)> {
-        let mut routes: Vec<(QualifiedPath, &HttpMethod, &Pathname)> = self
-            .items
-            .iter()
-            .filter_map(|(path, func)| {
-                if let FunctionKind::Http(ref method, ref pathname) = func.kind {
-                    Some((path.clone(), method, pathname))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        routes.sort_by_key(|(path, _, _)| path.to_string());
-        routes
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

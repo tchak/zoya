@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use zoya_codegen::{CodegenOutput, codegen};
-use zoya_ir::{DefinitionLookup, QualifiedPath, TypeError, TypedPattern};
+use zoya_ir::{DefinitionLookup, FunctionKind, QualifiedPath, TypeError, TypedPattern};
 use zoya_package::Package;
 
 pub use zoya_ir::{FunctionType, HttpMethod, Pathname};
@@ -47,28 +47,36 @@ pub fn build(package: &Package) -> Result<BuildOutput, BuildError> {
     let checked = zoya_check::check(package, &[std])?;
     let output = codegen(&checked, &[std]);
     let definitions = DefinitionLookup::from_packages(&checked, &[std]);
-    let functions = checked
-        .fns()
-        .into_iter()
-        .map(|path| {
-            let param_names = checked.items[&path]
-                .params
-                .iter()
-                .map(|(pattern, _)| match pattern {
-                    TypedPattern::Var { name, .. } => name.clone(),
-                    _ => "_".to_string(),
-                })
-                .collect();
-            (path, param_names)
-        })
-        .collect();
-    let tests = checked.tests();
-    let jobs = checked.jobs();
-    let routes = checked
-        .routes()
-        .into_iter()
-        .map(|(p, m, pn)| (p, *m, pn.clone()))
-        .collect();
+    let mut functions = Vec::new();
+    let mut tests = Vec::new();
+    let mut jobs = Vec::new();
+    let mut routes = Vec::new();
+    for (path, func) in &checked.items {
+        match &func.kind {
+            FunctionKind::Regular | FunctionKind::Builtin => {
+                if checked.definitions.contains_key(path) {
+                    let param_names = func
+                        .params
+                        .iter()
+                        .map(|(pattern, _)| match pattern {
+                            TypedPattern::Var { name, .. } => name.clone(),
+                            _ => "_".to_string(),
+                        })
+                        .collect();
+                    functions.push((path.clone(), param_names));
+                }
+            }
+            FunctionKind::Test => tests.push(path.clone()),
+            FunctionKind::Job => jobs.push(path.clone()),
+            FunctionKind::Http(method, pathname) => {
+                routes.push((path.clone(), *method, pathname.clone()));
+            }
+        }
+    }
+    functions.sort_by_key(|(p, _)| p.to_string());
+    tests.sort_by_key(|p| p.to_string());
+    jobs.sort_by_key(|p| p.to_string());
+    routes.sort_by_key(|(p, _, _)| p.to_string());
     Ok(BuildOutput {
         name: checked.name.clone(),
         output,
