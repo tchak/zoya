@@ -1,5 +1,5 @@
 use serde::Serialize;
-use zoya_build::{BuildOutput, FunctionType, HttpMethod};
+use zoya_build::{BuildOutput, FunctionType};
 use zoya_package::QualifiedPath;
 
 /// All data needed to render the dashboard.
@@ -64,16 +64,6 @@ fn format_signature(func: &FunctionType) -> String {
     }
 }
 
-fn method_to_string(method: &HttpMethod) -> &'static str {
-    match method {
-        HttpMethod::Get => "GET",
-        HttpMethod::Post => "POST",
-        HttpMethod::Put => "PUT",
-        HttpMethod::Patch => "PATCH",
-        HttpMethod::Delete => "DELETE",
-    }
-}
-
 impl DashboardData {
     pub fn from_output(output: &BuildOutput) -> Self {
         let functions = output
@@ -117,7 +107,7 @@ impl DashboardData {
             .filter_map(|(path, method, pathname)| {
                 let func = output.definitions.get_function(path)?;
                 Some(RouteInfo {
-                    method: method_to_string(method).to_string(),
+                    method: method.to_string(),
                     pathname: pathname.to_string(),
                     handler: path.last().to_string(),
                     module: module_string(path),

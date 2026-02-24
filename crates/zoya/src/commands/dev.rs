@@ -10,7 +10,6 @@ use console::{Term, style};
 use notify::{RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 use tower::ServiceExt;
-use zoya_build::HttpMethod;
 use zoya_loader::{LoaderError, Mode};
 
 /// Shared state for the dev server, holding the current active router.
@@ -132,16 +131,7 @@ fn extract_routes(output: &zoya_build::BuildOutput) -> Vec<(String, String)> {
     output
         .routes
         .iter()
-        .map(|(_, method, pathname)| {
-            let method_str = match method {
-                HttpMethod::Get => "GET",
-                HttpMethod::Post => "POST",
-                HttpMethod::Put => "PUT",
-                HttpMethod::Patch => "PATCH",
-                HttpMethod::Delete => "DELETE",
-            };
-            (method_str.to_string(), pathname.to_string())
-        })
+        .map(|(_, method, pathname)| (method.to_string(), pathname.to_string()))
         .collect()
 }
 

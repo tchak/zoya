@@ -40,6 +40,18 @@ impl HttpMethod {
     }
 }
 
+impl fmt::Display for HttpMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            HttpMethod::Get => write!(f, "GET"),
+            HttpMethod::Post => write!(f, "POST"),
+            HttpMethod::Put => write!(f, "PUT"),
+            HttpMethod::Patch => write!(f, "PATCH"),
+            HttpMethod::Delete => write!(f, "DELETE"),
+        }
+    }
+}
+
 /// A validated URL pathname for HTTP routes.
 /// Must start with `/` and contain valid path segments.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
