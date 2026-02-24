@@ -3490,6 +3490,18 @@ name = "zoya-ast"
 version = "0.1.0"
 
 [[package]]
+name = "zoya-build"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.18",
+ "zoya-check",
+ "zoya-codegen",
+ "zoya-ir",
+ "zoya-package",
+ "zoya-std",
+]
+
+[[package]]
 name = "zoya-check"
 version = "0.1.0"
 dependencies = [
