@@ -1,5 +1,5 @@
 use zoya_codegen::{CodegenOutput, codegen};
-use zoya_ir::{DefinitionLookup, HttpMethod, Pathname, QualifiedPath, TypeError};
+use zoya_ir::{DefinitionLookup, HttpMethod, Pathname, QualifiedPath, TypeError, TypedPattern};
 use zoya_package::Package;
 
 #[derive(Debug, thiserror::Error)]
@@ -12,7 +12,7 @@ pub struct BuildOutput {
     pub name: String,
     pub output: CodegenOutput,
     pub definitions: DefinitionLookup,
-    pub functions: Vec<QualifiedPath>,
+    pub functions: Vec<(QualifiedPath, Vec<String>)>,
     pub tests: Vec<QualifiedPath>,
     pub tasks: Vec<QualifiedPath>,
     pub routes: Vec<(QualifiedPath, HttpMethod, Pathname)>,
@@ -29,7 +29,21 @@ pub fn build(package: &Package) -> Result<BuildOutput, BuildError> {
     let checked = zoya_check::check(package, &[std])?;
     let output = codegen(&checked, &[std]);
     let definitions = DefinitionLookup::from_packages(&checked, &[std]);
-    let functions = checked.fns();
+    let functions = checked
+        .fns()
+        .into_iter()
+        .map(|path| {
+            let param_names = checked.items[&path]
+                .params
+                .iter()
+                .map(|(pattern, _)| match pattern {
+                    TypedPattern::Var { name, .. } => name.clone(),
+                    _ => "_".to_string(),
+                })
+                .collect();
+            (path, param_names)
+        })
+        .collect();
     let tests = checked.tests();
     let tasks = checked.tasks();
     let routes = checked
