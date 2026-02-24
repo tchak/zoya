@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::{Result, anyhow, bail};
 use zoya_check::check;
-use zoya_ir::{DefinitionLookup, TypedPattern};
+use zoya_ir::TypedPattern;
 use zoya_loader::Mode;
 use zoya_package::QualifiedPath;
 use zoya_run::{Runner, Value};
@@ -63,8 +63,7 @@ pub fn execute(
         );
     }
 
-    // Build type lookup for struct/enum resolution
-    let type_lookup = DefinitionLookup::from_packages(&checked, &[std]);
+    let runner = Runner::new(&checked, [std]);
 
     // Parse each argument guided by the parameter type
     let mut parsed_args = Vec::with_capacity(args.len());
@@ -73,13 +72,13 @@ pub fn execute(
             TypedPattern::Var { name, .. } => name.as_str(),
             _ => "?",
         };
-        let value = Value::parse(arg_str, param_type, &type_lookup)
+        let value = Value::parse(arg_str, param_type, runner.definitions())
             .map_err(|e| anyhow!("argument {} ({param_name}): {e}", i + 1))?;
         parsed_args.push(value);
     }
 
     // Run the task function
-    let result = Runner::new(&checked, [std]).run(task_path, parsed_args)?;
+    let result = runner.run(task_path, parsed_args)?;
 
     // Print result
     if json {

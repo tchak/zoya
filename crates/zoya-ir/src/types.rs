@@ -631,6 +631,7 @@ type StructInfo = (Vec<TypeVarId>, Vec<(String, Type)>);
 pub struct DefinitionLookup {
     enums: HashMap<QualifiedPath, EnumInfo>,
     structs: HashMap<QualifiedPath, StructInfo>,
+    functions: HashMap<QualifiedPath, FunctionType>,
 }
 
 impl DefinitionLookup {
@@ -638,6 +639,7 @@ impl DefinitionLookup {
     pub fn from_definitions(definitions: &HashMap<QualifiedPath, Definition>) -> Self {
         let mut enums = HashMap::new();
         let mut structs = HashMap::new();
+        let mut functions = HashMap::new();
 
         for (path, def) in definitions {
             match def {
@@ -653,11 +655,18 @@ impl DefinitionLookup {
                         (struct_type.type_var_ids.clone(), struct_type.fields.clone()),
                     );
                 }
+                Definition::Function(func_type) => {
+                    functions.insert(path.clone(), func_type.clone());
+                }
                 _ => {}
             }
         }
 
-        DefinitionLookup { enums, structs }
+        DefinitionLookup {
+            enums,
+            structs,
+            functions,
+        }
     }
 
     /// Build lookup from a package and its dependencies.
@@ -685,6 +694,9 @@ impl DefinitionLookup {
                         (struct_type.type_var_ids.clone(), struct_type.fields.clone()),
                     );
                 }
+                Definition::Function(func_type) => {
+                    self.functions.insert(path.clone(), func_type.clone());
+                }
                 _ => {}
             }
         }
@@ -695,7 +707,13 @@ impl DefinitionLookup {
         DefinitionLookup {
             enums: HashMap::new(),
             structs: HashMap::new(),
+            functions: HashMap::new(),
         }
+    }
+
+    /// Look up a function definition by its qualified path.
+    pub fn get_function(&self, path: &QualifiedPath) -> Option<&FunctionType> {
+        self.functions.get(path)
     }
 
     /// Resolve enum variants: if the type carries empty variants (a stub),

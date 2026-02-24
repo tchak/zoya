@@ -1,7 +1,5 @@
-use std::collections::HashMap;
-
 use zoya_codegen::{codegen, format_export_path};
-use zoya_ir::{CheckedPackage, Definition, DefinitionLookup};
+use zoya_ir::{CheckedPackage, DefinitionLookup};
 use zoya_package::QualifiedPath;
 
 use zoya_value::Value;
@@ -10,33 +8,36 @@ use crate::eval::{self, EvalError};
 
 /// Runner for executing a checked Zoya package.
 ///
-/// Eagerly compiles the package to JavaScript and builds a type lookup
+/// Eagerly compiles the package to JavaScript and builds a definition lookup
 /// on construction, so that `run()`/`run_async()` can be called multiple
 /// times without repeating this work. Fully owned — no lifetime parameter.
 pub struct Runner {
     name: String,
-    definitions: HashMap<QualifiedPath, Definition>,
     code: String,
-    type_lookup: DefinitionLookup,
+    definitions: DefinitionLookup,
 }
 
 impl Runner {
     /// Create a new runner for the given package and its dependencies.
     ///
-    /// This eagerly runs codegen and builds the type lookup table.
+    /// This eagerly runs codegen and builds the definition lookup table.
     pub fn new<'a>(
         package: &'a CheckedPackage,
         deps: impl IntoIterator<Item = &'a CheckedPackage>,
     ) -> Self {
         let deps: Vec<_> = deps.into_iter().collect();
         let code = codegen(package, &deps).code;
-        let type_lookup = DefinitionLookup::from_packages(package, &deps);
+        let definitions = DefinitionLookup::from_packages(package, &deps);
         Runner {
             name: package.name.clone(),
-            definitions: package.definitions.clone(),
             code,
-            type_lookup,
+            definitions,
         }
+    }
+
+    /// Get the definition lookup table.
+    pub fn definitions(&self) -> &DefinitionLookup {
+        &self.definitions
     }
 
     /// Execute a function synchronously and return the result.
@@ -59,11 +60,10 @@ impl Runner {
         path: QualifiedPath,
         args: Vec<Value>,
     ) -> Result<Value, EvalError> {
-        // Find the function in the package definitions
+        // Find the function in the definitions
         let func_def = self
             .definitions
-            .get(&path)
-            .and_then(|d| d.as_function())
+            .get_function(&path)
             .ok_or_else(|| EvalError::RuntimeError(format!("function {} not found", path)))?;
 
         // Validate argument count
@@ -80,7 +80,7 @@ impl Runner {
 
         // Validate each arg's type
         for (i, (arg, param_type)) in args.iter().zip(func_def.params.iter()).enumerate() {
-            arg.check_type(param_type, &self.type_lookup).map_err(|e| {
+            arg.check_type(param_type, &self.definitions).map_err(|e| {
                 EvalError::RuntimeError(format!("argument {} type mismatch: {}", i, e))
             })?;
         }
@@ -93,7 +93,7 @@ impl Runner {
 
         // Evaluate the script inside the async context
         let code = &self.code;
-        let type_lookup = &self.type_lookup;
+        let type_lookup = &self.definitions;
         rquickjs::async_with!(context => |ctx| {
             eval::inject_globals(&ctx)?;
             eval::eval_script_async(

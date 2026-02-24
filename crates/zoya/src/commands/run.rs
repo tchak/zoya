@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::{Result, anyhow, bail};
 use zoya_check::check;
-use zoya_ir::{DefinitionLookup, TypedPattern};
+use zoya_ir::TypedPattern;
 use zoya_loader::Mode;
 use zoya_package::QualifiedPath;
 use zoya_run::{Runner, Value};
@@ -19,10 +19,12 @@ pub fn execute(
     let pkg = zoya_loader::load_package(path, mode)?;
     let checked = check(&pkg, &[std])?;
 
+    let runner = Runner::new(&checked, [std]);
+
     let value = match name {
         None => {
             // Default behavior: run main()
-            Runner::new(&checked, [std]).run(QualifiedPath::root().child("main"), vec![])?
+            runner.run(QualifiedPath::root().child("main"), vec![])?
         }
         Some(fn_name) => {
             // Build qualified path from function name (e.g. "add" or "utils::helper")
@@ -68,9 +70,6 @@ pub fn execute(
                 );
             }
 
-            // Build type lookup for struct/enum resolution
-            let type_lookup = DefinitionLookup::from_packages(&checked, &[std]);
-
             // Parse each argument guided by the parameter type
             let mut parsed_args = Vec::with_capacity(args.len());
             for (i, (arg_str, (pattern, param_type))) in
@@ -80,13 +79,13 @@ pub fn execute(
                     TypedPattern::Var { name, .. } => name.as_str(),
                     _ => "?",
                 };
-                let value = Value::parse(arg_str, param_type, &type_lookup)
+                let value = Value::parse(arg_str, param_type, runner.definitions())
                     .map_err(|e| anyhow!("argument {} ({param_name}): {e}", i + 1))?;
                 parsed_args.push(value);
             }
 
             // Run the function
-            Runner::new(&checked, [std]).run(fn_path, parsed_args)?
+            runner.run(fn_path, parsed_args)?
         }
     };
 
