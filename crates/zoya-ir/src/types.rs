@@ -205,6 +205,15 @@ pub struct FunctionType {
     pub return_type: Type,
 }
 
+impl FunctionType {
+    /// Format the function signature for display: `(Int, String) -> Bool`
+    pub fn pretty(&self) -> String {
+        let params: Vec<String> = self.params.iter().map(|ty| ty.pretty()).collect();
+        let ret = self.return_type.pretty();
+        format!("({}) -> {}", params.join(", "), ret)
+    }
+}
+
 /// The kind of a struct type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum StructTypeKind {

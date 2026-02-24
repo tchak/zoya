@@ -3,7 +3,6 @@ use std::path::Path;
 use anyhow::Result;
 use console::{Term, style};
 use zoya_build::{Mode, build_from_path};
-use zoya_ir::FunctionType;
 
 /// List all `#[task]` functions in a Zoya package or file
 pub fn execute(path: &Path, mode: Mode) -> Result<()> {
@@ -21,7 +20,7 @@ pub fn execute(path: &Path, mode: Mode) -> Result<()> {
         let sig = output
             .definitions
             .get_function(task_path)
-            .map(format_task_signature)
+            .map(|f| f.pretty())
             .unwrap_or_default();
         term.write_line(&format!(
             "  {}  {}",
@@ -45,13 +44,6 @@ fn format_task_path(segments: &[String]) -> String {
     } else {
         display_segments.join("::")
     }
-}
-
-/// Format a task function's type signature for display.
-fn format_task_signature(func: &FunctionType) -> String {
-    let params: Vec<String> = func.params.iter().map(|ty| ty.pretty()).collect();
-    let ret = func.return_type.pretty();
-    format!("({}) -> {}", params.join(", "), ret)
 }
 
 #[cfg(test)]

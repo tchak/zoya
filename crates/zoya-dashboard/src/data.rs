@@ -1,5 +1,5 @@
 use serde::Serialize;
-use zoya_build::{BuildOutput, FunctionType};
+use zoya_build::BuildOutput;
 use zoya_package::QualifiedPath;
 
 /// All data needed to render the dashboard.
@@ -52,18 +52,6 @@ fn module_string(path: &QualifiedPath) -> String {
     }
 }
 
-/// Format function parameters and return type into a signature string.
-fn format_signature(func: &FunctionType) -> String {
-    let params: Vec<String> = func.params.iter().map(|ty| ty.pretty()).collect();
-    let ret = func.return_type.pretty();
-
-    if params.is_empty() {
-        format!("() -> {ret}")
-    } else {
-        format!("({}) -> {ret}", params.join(", "))
-    }
-}
-
 impl DashboardData {
     pub fn from_output(output: &BuildOutput) -> Self {
         let functions = output
@@ -74,7 +62,7 @@ impl DashboardData {
                 Some(FunctionInfo {
                     name: path.last().to_string(),
                     module: module_string(path),
-                    signature: format_signature(func),
+                    signature: func.pretty(),
                 })
             })
             .collect();
@@ -96,7 +84,7 @@ impl DashboardData {
                 Some(TaskInfo {
                     name: path.last().to_string(),
                     module: module_string(path),
-                    signature: format_signature(func),
+                    signature: func.pretty(),
                 })
             })
             .collect();
@@ -111,7 +99,7 @@ impl DashboardData {
                     pathname: pathname.to_string(),
                     handler: path.last().to_string(),
                     module: module_string(path),
-                    signature: format_signature(func),
+                    signature: func.pretty(),
                 })
             })
             .collect();
