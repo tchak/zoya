@@ -6,7 +6,7 @@ use zoya_package::QualifiedPath;
 use crate::types::{Definition, Type};
 
 /// HTTP method for route functions
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum HttpMethod {
     Get,
     Post,
@@ -42,7 +42,7 @@ impl HttpMethod {
 
 /// A validated URL pathname for HTTP routes.
 /// Must start with `/` and contain valid path segments.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Pathname(String);
 
 impl Pathname {

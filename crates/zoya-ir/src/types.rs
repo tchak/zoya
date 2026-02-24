@@ -7,7 +7,7 @@ use zoya_package::QualifiedPath;
 use crate::ir::CheckedPackage;
 
 /// Unique identifier for a type variable
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct TypeVarId(pub usize);
 
 impl fmt::Display for TypeVarId {
@@ -16,7 +16,7 @@ impl fmt::Display for TypeVarId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Type {
     Int,
     BigInt,
@@ -54,7 +54,7 @@ pub enum Type {
 }
 
 /// Type information for an enum variant
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum EnumVariantType {
     /// Unit variant: `None`
     Unit,
@@ -184,7 +184,7 @@ impl fmt::Display for Type {
 }
 
 /// Function type signature (for named functions)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FunctionType {
     /// Visibility of the function
     pub visibility: Visibility,
@@ -201,7 +201,7 @@ pub struct FunctionType {
 }
 
 /// The kind of a struct type
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum StructTypeKind {
     /// Unit struct: `struct Empty`
     Unit,
@@ -627,7 +627,7 @@ pub enum TypeError {
 type EnumInfo = (Vec<TypeVarId>, Vec<(String, EnumVariantType)>);
 type StructInfo = (Vec<TypeVarId>, Vec<(String, Type)>);
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct DefinitionLookup {
     enums: HashMap<QualifiedPath, EnumInfo>,
     structs: HashMap<QualifiedPath, StructInfo>,

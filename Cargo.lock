@@ -3489,11 +3489,15 @@ dependencies = [
 [[package]]
 name = "zoya-ast"
 version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "zoya-build"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "thiserror 2.0.18",
  "zoya-check",
  "zoya-codegen",
@@ -3519,6 +3523,7 @@ name = "zoya-codegen"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "serde",
  "zoya-ast",
  "zoya-ir",
  "zoya-package",
@@ -3556,6 +3561,7 @@ dependencies = [
 name = "zoya-ir"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "thiserror 2.0.18",
  "zoya-ast",
  "zoya-package",
@@ -3591,6 +3597,7 @@ name = "zoya-package"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.18",
  "toml",

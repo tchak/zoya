@@ -212,7 +212,7 @@ pub struct Attribute {
 }
 
 /// Visibility of an item
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum Visibility {
     /// Private to the module (default)
     #[default]

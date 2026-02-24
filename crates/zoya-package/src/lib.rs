@@ -11,6 +11,7 @@ mod config;
 pub use config::{ConfigError, PackageConfig};
 pub use zoya_naming::RESERVED_NAMES;
 
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 use zoya_ast::{Item, Visibility};
 
@@ -107,6 +108,23 @@ impl QualifiedPath {
 impl std::fmt::Display for QualifiedPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0.join("::"))
+    }
+}
+
+impl Serialize for QualifiedPath {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for QualifiedPath {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        let segments: Vec<String> = s.split("::").map(String::from).collect();
+        if segments.is_empty() {
+            return Err(serde::de::Error::custom("QualifiedPath cannot be empty"));
+        }
+        Ok(QualifiedPath(segments))
     }
 }
 
@@ -208,5 +226,24 @@ mod tests {
         let path = QualifiedPath::local("x".to_string());
         let remapped = path.with_root("std");
         assert_eq!(remapped.segments(), &["x"]);
+    }
+
+    #[test]
+    fn test_qualified_path_serde_roundtrip() {
+        let path = QualifiedPath::root().child("utils").child("foo");
+        let json = serde_json::to_string(&path).unwrap();
+        assert_eq!(json, "\"root::utils::foo\"");
+        let deserialized: QualifiedPath = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, path);
+    }
+
+    #[test]
+    fn test_qualified_path_serde_as_map_key() {
+        let mut map = HashMap::new();
+        map.insert(QualifiedPath::root().child("a"), 1);
+        map.insert(QualifiedPath::root().child("b"), 2);
+        let json = serde_json::to_string(&map).unwrap();
+        let deserialized: HashMap<QualifiedPath, i32> = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, map);
     }
 }

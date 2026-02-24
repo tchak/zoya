@@ -5,7 +5,7 @@ use zoya_ir::{
 };
 
 /// Output of code generation containing JS code and content hash
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CodegenOutput {
     /// Generated JavaScript code
     pub code: String,

@@ -8,6 +8,7 @@ pub enum BuildError {
     Check(#[from] TypeError),
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct BuildOutput {
     pub name: String,
     pub output: CodegenOutput,

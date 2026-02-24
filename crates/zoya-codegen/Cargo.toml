@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 blake3 = "1"
+serde = { version = "1", features = ["derive"] }
 zoya-ast = { path = "../zoya-ast" }
 zoya-ir = { path = "../zoya-ir" }
 zoya-package = { path = "../zoya-package" }
