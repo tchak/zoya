@@ -1,11 +1,9 @@
 use std::path::Path;
 
 use anyhow::{Result, anyhow, bail};
-use zoya_check::check;
-use zoya_ir::TypedPattern;
-use zoya_loader::Mode;
+use zoya_build::{Mode, build_from_path};
 use zoya_package::QualifiedPath;
-use zoya_run::{Runner, Value};
+use zoya_run::Value;
 
 /// Run a Zoya package or file and print the result
 pub fn execute(
@@ -15,16 +13,12 @@ pub fn execute(
     args: &[String],
     json: bool,
 ) -> Result<()> {
-    let std = zoya_std::std();
-    let pkg = zoya_loader::load_package(path, mode)?;
-    let checked = check(&pkg, &[std])?;
-
-    let runner = Runner::new(&checked, [std]);
+    let output = build_from_path(path, mode)?;
 
     let value = match name {
         None => {
             // Default behavior: run main()
-            runner.run(QualifiedPath::root().child("main"), vec![])?
+            zoya_run::run(&output, QualifiedPath::root().child("main"), vec![])?
         }
         Some(fn_name) => {
             // Build qualified path from function name (e.g. "add" or "utils::helper")
@@ -34,11 +28,12 @@ pub fn execute(
             }
 
             // Verify this is a known public function
-            let fns = checked.fns();
-            if !fns.contains(&fn_path) {
-                let available: Vec<String> = fns
+            let matching = output.functions.iter().find(|(p, _)| p == &fn_path);
+            if matching.is_none() {
+                let available: Vec<String> = output
+                    .functions
                     .iter()
-                    .map(|p| {
+                    .map(|(p, _)| {
                         p.segments()
                             .iter()
                             .skip_while(|s| s.as_str() == "root")
@@ -55,11 +50,13 @@ pub fn execute(
                 bail!("function '{fn_name}' not found ({hint})");
             }
 
+            let (_, param_names) = matching.unwrap();
+
             // Get the function's typed signature
-            let func = checked
-                .items
-                .get(&fn_path)
-                .ok_or_else(|| anyhow!("function '{fn_name}' not found in items"))?;
+            let func = output
+                .definitions
+                .get_function(&fn_path)
+                .ok_or_else(|| anyhow!("function '{fn_name}' not found in definitions"))?;
 
             // Validate argument count
             if args.len() != func.params.len() {
@@ -72,20 +69,15 @@ pub fn execute(
 
             // Parse each argument guided by the parameter type
             let mut parsed_args = Vec::with_capacity(args.len());
-            for (i, (arg_str, (pattern, param_type))) in
-                args.iter().zip(func.params.iter()).enumerate()
-            {
-                let param_name = match pattern {
-                    TypedPattern::Var { name, .. } => name.as_str(),
-                    _ => "?",
-                };
-                let value = Value::parse(arg_str, param_type, runner.definitions())
+            for (i, (arg_str, param_type)) in args.iter().zip(func.params.iter()).enumerate() {
+                let param_name = param_names.get(i).map(|s| s.as_str()).unwrap_or("?");
+                let value = Value::parse(arg_str, param_type, &output.definitions)
                     .map_err(|e| anyhow!("argument {} ({param_name}): {e}", i + 1))?;
                 parsed_args.push(value);
             }
 
             // Run the function
-            runner.run(fn_path, parsed_args)?
+            zoya_run::run(&output, fn_path, parsed_args)?
         }
     };
 

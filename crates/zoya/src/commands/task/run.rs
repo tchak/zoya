@@ -1,11 +1,9 @@
 use std::path::Path;
 
 use anyhow::{Result, anyhow, bail};
-use zoya_check::check;
-use zoya_ir::TypedPattern;
-use zoya_loader::Mode;
+use zoya_build::{Mode, build_from_path};
 use zoya_package::QualifiedPath;
-use zoya_run::{Runner, Value};
+use zoya_run::Value;
 
 /// Run a `#[task]` function with CLI arguments parsed by type
 pub fn execute(
@@ -15,10 +13,7 @@ pub fn execute(
     json: bool,
     mode: Mode,
 ) -> Result<()> {
-    // Load and type-check
-    let pkg = zoya_loader::load_package(path, mode)?;
-    let std = zoya_std::std();
-    let checked = check(&pkg, &[std])?;
+    let output = build_from_path(path, mode)?;
 
     // Build qualified path from task name (e.g. "deploy" or "utils::migrate")
     let mut task_path = QualifiedPath::root();
@@ -27,9 +22,9 @@ pub fn execute(
     }
 
     // Verify this is a known task
-    let tasks = checked.tasks();
-    if !tasks.contains(&task_path) {
-        let available: Vec<String> = tasks
+    if !output.tasks.contains(&task_path) {
+        let available: Vec<String> = output
+            .tasks
             .iter()
             .map(|p| {
                 p.segments()
@@ -49,10 +44,10 @@ pub fn execute(
     }
 
     // Get the function's typed signature
-    let func = checked
-        .items
-        .get(&task_path)
-        .ok_or_else(|| anyhow!("task '{task_name}' not found in items"))?;
+    let func = output
+        .definitions
+        .get_function(&task_path)
+        .ok_or_else(|| anyhow!("task '{task_name}' not found in definitions"))?;
 
     // Validate argument count
     if args.len() != func.params.len() {
@@ -63,22 +58,16 @@ pub fn execute(
         );
     }
 
-    let runner = Runner::new(&checked, [std]);
-
     // Parse each argument guided by the parameter type
     let mut parsed_args = Vec::with_capacity(args.len());
-    for (i, (arg_str, (pattern, param_type))) in args.iter().zip(func.params.iter()).enumerate() {
-        let param_name = match pattern {
-            TypedPattern::Var { name, .. } => name.as_str(),
-            _ => "?",
-        };
-        let value = Value::parse(arg_str, param_type, runner.definitions())
-            .map_err(|e| anyhow!("argument {} ({param_name}): {e}", i + 1))?;
+    for (i, (arg_str, param_type)) in args.iter().zip(func.params.iter()).enumerate() {
+        let value = Value::parse(arg_str, param_type, &output.definitions)
+            .map_err(|e| anyhow!("argument {} : {e}", i + 1))?;
         parsed_args.push(value);
     }
 
     // Run the task function
-    let result = runner.run(task_path, parsed_args)?;
+    let result = zoya_run::run(&output, task_path, parsed_args)?;
 
     // Print result
     if json {

@@ -2,33 +2,25 @@ use std::path::Path;
 
 use anyhow::Result;
 use console::{Term, style};
-use zoya_check::check;
-use zoya_ir::pretty_type;
-use zoya_loader::Mode;
+use zoya_build::{Mode, build_from_path};
+use zoya_ir::FunctionType;
 
 /// List all `#[task]` functions in a Zoya package or file
 pub fn execute(path: &Path, mode: Mode) -> Result<()> {
     let term = Term::stderr();
 
-    // Load and parse package
-    let pkg = zoya_loader::load_package(path, mode)?;
+    let output = build_from_path(path, mode)?;
 
-    // Type check entire package with std
-    let std = zoya_std::std();
-    let checked = check(&pkg, &[std])?;
-
-    let tasks = checked.tasks();
-
-    if tasks.is_empty() {
+    if output.tasks.is_empty() {
         term.write_line(&format!("{}", style("no tasks found").yellow()))?;
         return Ok(());
     }
 
-    for task_path in &tasks {
+    for task_path in &output.tasks {
         let display = format_task_path(task_path.segments());
-        let sig = checked
-            .items
-            .get(task_path)
+        let sig = output
+            .definitions
+            .get_function(task_path)
             .map(format_task_signature)
             .unwrap_or_default();
         term.write_line(&format!(
@@ -56,9 +48,9 @@ fn format_task_path(segments: &[String]) -> String {
 }
 
 /// Format a task function's type signature for display.
-fn format_task_signature(func: &zoya_ir::TypedFunction) -> String {
-    let params: Vec<String> = func.params.iter().map(|(_, ty)| pretty_type(ty)).collect();
-    let ret = pretty_type(&func.return_type);
+fn format_task_signature(func: &FunctionType) -> String {
+    let params: Vec<String> = func.params.iter().map(|ty| ty.pretty()).collect();
+    let ret = func.return_type.pretty();
     format!("({}) -> {}", params.join(", "), ret)
 }
 
