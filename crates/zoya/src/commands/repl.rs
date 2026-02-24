@@ -1,135 +1,14 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, bail};
 use console::{Term, style};
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
 use zoya_ast::{Expr, FunctionDef, Item, LetBinding, Stmt, Visibility};
-use zoya_check::check;
-use zoya_ir::{CheckedPackage, Type, TypedExpr, TypedPattern};
 use zoya_package::{Module, Package, QualifiedPath};
-use zoya_run::{Runner, Value};
-
-/// Extract all variable bindings from a typed pattern.
-/// Returns a list of (name, type) pairs for each bound variable.
-fn extract_bindings(pattern: &TypedPattern) -> Vec<(String, Type)> {
-    let mut bindings = Vec::new();
-    extract_bindings_impl(pattern, &mut bindings);
-    bindings
-}
-
-fn extract_bindings_impl(pattern: &TypedPattern, bindings: &mut Vec<(String, Type)>) {
-    match pattern {
-        TypedPattern::Var { name, ty } => {
-            bindings.push((name.clone(), ty.clone()));
-        }
-        TypedPattern::As { name, ty, pattern } => {
-            bindings.push((name.clone(), ty.clone()));
-            extract_bindings_impl(pattern, bindings);
-        }
-        TypedPattern::Wildcard | TypedPattern::Literal(_) => {}
-        TypedPattern::ListEmpty | TypedPattern::TupleEmpty | TypedPattern::EnumUnit { .. } => {}
-        TypedPattern::ListExact { patterns, .. }
-        | TypedPattern::TupleExact { patterns, .. }
-        | TypedPattern::EnumTupleExact { patterns, .. }
-        | TypedPattern::StructTupleExact { patterns, .. } => {
-            for p in patterns {
-                extract_bindings_impl(p, bindings);
-            }
-        }
-        TypedPattern::ListPrefix {
-            patterns,
-            rest_binding,
-            ..
-        }
-        | TypedPattern::ListSuffix {
-            patterns,
-            rest_binding,
-            ..
-        }
-        | TypedPattern::TuplePrefix {
-            patterns,
-            rest_binding,
-            ..
-        }
-        | TypedPattern::TupleSuffix {
-            patterns,
-            rest_binding,
-            ..
-        }
-        | TypedPattern::EnumTuplePrefix {
-            patterns,
-            rest_binding,
-            ..
-        }
-        | TypedPattern::EnumTupleSuffix {
-            patterns,
-            rest_binding,
-            ..
-        }
-        | TypedPattern::StructTuplePrefix {
-            patterns,
-            rest_binding,
-            ..
-        }
-        | TypedPattern::StructTupleSuffix {
-            patterns,
-            rest_binding,
-            ..
-        } => {
-            for p in patterns {
-                extract_bindings_impl(p, bindings);
-            }
-            if let Some((name, ty)) = rest_binding {
-                bindings.push((name.clone(), ty.clone()));
-            }
-        }
-        TypedPattern::ListPrefixSuffix {
-            prefix,
-            suffix,
-            rest_binding,
-            ..
-        }
-        | TypedPattern::TuplePrefixSuffix {
-            prefix,
-            suffix,
-            rest_binding,
-            ..
-        }
-        | TypedPattern::EnumTuplePrefixSuffix {
-            prefix,
-            suffix,
-            rest_binding,
-            ..
-        }
-        | TypedPattern::StructTuplePrefixSuffix {
-            prefix,
-            suffix,
-            rest_binding,
-            ..
-        } => {
-            for p in prefix {
-                extract_bindings_impl(p, bindings);
-            }
-            for p in suffix {
-                extract_bindings_impl(p, bindings);
-            }
-            if let Some((name, ty)) = rest_binding {
-                bindings.push((name.clone(), ty.clone()));
-            }
-        }
-        TypedPattern::StructExact { fields, .. }
-        | TypedPattern::StructPartial { fields, .. }
-        | TypedPattern::EnumStructExact { fields, .. }
-        | TypedPattern::EnumStructPartial { fields, .. } => {
-            for (_, p) in fields {
-                extract_bindings_impl(p, bindings);
-            }
-        }
-    }
-}
+use zoya_run::Value;
 
 /// Result of processing a single REPL statement
 #[derive(Debug, Clone, PartialEq)]
@@ -142,8 +21,6 @@ pub enum ReplResult {
     EnumDefined(String),
     /// Type alias was defined
     TypeAliasDefined(String),
-    /// Let binding was created (may bind multiple names from pattern)
-    LetBinding { bindings: Vec<(String, Type)> },
     /// Expression was evaluated
     Expression(Value),
 }
@@ -208,14 +85,15 @@ impl State {
         let (blocks, new_lets) = partition_into_blocks(&self.accumulated_lets, &stmts);
 
         // Create synthetic run functions for each block
-        // Use run_{n} prefix
-        let mut run_function_names = Vec::new();
+        // Track (name, has_expr) so we only emit Expression results for blocks with expressions
+        let mut run_functions_info: Vec<(String, bool)> = Vec::new();
         let mut run_functions = Vec::new();
         for block in &blocks {
             let name = format!("run_{}", self.run_counter);
             self.run_counter += 1;
+            let has_expr = block.expr.is_some();
             run_functions.push(create_run_function(&name, block));
-            run_function_names.push(name);
+            run_functions_info.push((name, has_expr));
         }
 
         // Build module tree with accumulated items + new items + run functions
@@ -226,9 +104,8 @@ impl State {
 
         let pkg = build_repl_package(self.base_pkg.as_ref(), all_items);
 
-        // Type check the package with std
-        let std = zoya_std::std();
-        let checked_pkg = check(&pkg, &[std])?;
+        // Build (type check + codegen) the package
+        let output = zoya_build::build(&pkg)?;
 
         // Collect results
         let mut results = Vec::new();
@@ -255,29 +132,12 @@ impl State {
         }
 
         // Execute each run function individually
-        if !run_function_names.is_empty() {
-            let runner = Runner::new(&checked_pkg, [std]);
+        for (run_name, has_expr) in &run_functions_info {
+            let path = QualifiedPath::root().child("repl").child(run_name);
+            let value = zoya_run::run(&output, path, vec![])?;
 
-            for run_name in &run_function_names {
-                let typed_fn = find_typed_function(&checked_pkg, run_name).ok_or_else(|| {
-                    anyhow!("internal error: run function {} not found", run_name)
-                })?;
-                let return_type = typed_fn.return_type.clone();
-
-                let path = QualifiedPath::root().child("repl").child(run_name);
-                let value = runner.run(path, vec![])?;
-
-                if return_type == Type::Tuple(vec![]) {
-                    // Let-only block
-                    let all_bindings = extract_bindings_from_typed_expr(&typed_fn.body);
-                    if let Some(last_binding) = all_bindings.last() {
-                        results.push(ReplResult::LetBinding {
-                            bindings: last_binding.clone(),
-                        });
-                    }
-                } else {
-                    results.push(ReplResult::Expression(value));
-                }
+            if *has_expr {
+                results.push(ReplResult::Expression(value));
             }
         }
 
@@ -288,11 +148,6 @@ impl State {
             }
         }
         self.accumulated_lets = new_lets;
-
-        // If no blocks were created, we need to report let bindings from stmts directly
-        if blocks.is_empty() && !stmts.is_empty() {
-            // This shouldn't happen since partition_into_blocks always creates blocks for stmts
-        }
 
         Ok(results)
     }
@@ -314,7 +169,7 @@ fn partition_into_blocks(
             Stmt::Let(binding) => {
                 // Add to current lets
                 current_lets.push(binding.clone());
-                // Create a let-only block to report this binding
+                // Create a let-only block to type-check this binding
                 blocks.push(EvalBlock {
                     bindings: current_lets.clone(),
                     expr: None,
@@ -397,30 +252,6 @@ fn build_repl_package(base_pkg: Option<&Package>, items: Vec<Item>) -> Package {
     );
 
     Package { name, modules }
-}
-
-/// Find a typed function by name in the repl submodule of the checked package.
-fn find_typed_function<'a>(
-    pkg: &'a CheckedPackage,
-    name: &str,
-) -> Option<&'a zoya_ir::TypedFunction> {
-    let func_path = QualifiedPath::root().child("repl").child(name);
-    pkg.items.get(&func_path)
-}
-
-/// Extract binding information from a typed expression (for let-only blocks).
-/// Returns a list of binding groups, where each group is from a single let statement.
-fn extract_bindings_from_typed_expr(expr: &TypedExpr) -> Vec<Vec<(String, Type)>> {
-    let mut result = Vec::new();
-    if let TypedExpr::Block { bindings, .. } = expr {
-        for binding in bindings {
-            let binding_info = extract_bindings(&binding.pattern);
-            if !binding_info.is_empty() {
-                result.push(binding_info);
-            }
-        }
-    }
-    result
 }
 
 /// Get path to history file
@@ -514,16 +345,6 @@ pub fn execute(path: &Path) {
                                 ReplResult::Expression(value) => {
                                     println!("{}", value);
                                 }
-                                ReplResult::LetBinding { bindings } => {
-                                    for (name, ty) in bindings {
-                                        let _ = term.write_line(&format!(
-                                            "{} {}: {}",
-                                            style("let").cyan(),
-                                            name,
-                                            style(zoya_ir::pretty_type(&ty)).dim()
-                                        ));
-                                    }
-                                }
                             }
                         }
                     }
@@ -615,17 +436,6 @@ mod tests {
     }
 
     #[test]
-    fn test_repl_let_binding() {
-        let mut state = State::new(Path::new(".")).unwrap();
-        let results = state.eval("let x = 42").unwrap();
-        assert_eq!(results.len(), 1);
-        assert!(matches!(
-            &results[0],
-            ReplResult::LetBinding { bindings } if bindings.len() == 1 && bindings[0].0 == "x" && bindings[0].1 == Type::Int
-        ));
-    }
-
-    #[test]
     fn test_repl_state_persistence_let() {
         let mut state = State::new(Path::new(".")).unwrap();
         state.eval("let x = 10").unwrap();
@@ -700,14 +510,8 @@ mod tests {
     fn test_repl_multiple_statements() {
         let mut state = State::new(Path::new(".")).unwrap();
         let results = state.eval("let a = 1\nlet b = 2\na + b").unwrap();
-        assert_eq!(results.len(), 3);
-        assert!(
-            matches!(&results[0], ReplResult::LetBinding { bindings } if bindings.len() == 1 && bindings[0].0 == "a")
-        );
-        assert!(
-            matches!(&results[1], ReplResult::LetBinding { bindings } if bindings.len() == 1 && bindings[0].0 == "b")
-        );
-        assert_eq!(results[2], ReplResult::Expression(Value::Int(3)));
+        // Only expression blocks produce results now
+        assert_eq!(results, vec![ReplResult::Expression(Value::Int(3))]);
     }
 
     #[test]
@@ -827,14 +631,9 @@ mod tests {
     #[test]
     fn test_repl_let_tuple_destructure() {
         let mut state = State::new(Path::new(".")).unwrap();
+        // Let bindings no longer produce results, just verify they work
         let results = state.eval("let (a, b) = (1, 2)").unwrap();
-        assert_eq!(results.len(), 1);
-        assert!(matches!(
-            &results[0],
-            ReplResult::LetBinding { bindings } if bindings.len() == 2
-                && bindings[0].0 == "a" && bindings[0].1 == Type::Int
-                && bindings[1].0 == "b" && bindings[1].1 == Type::Int
-        ));
+        assert!(results.is_empty());
         // Verify bindings work
         let results = state.eval("a + b").unwrap();
         assert_eq!(results, vec![ReplResult::Expression(Value::Int(3))]);
@@ -866,11 +665,7 @@ mod tests {
         state.eval("struct Point { x: Int, y: Int }").unwrap();
         state.eval("let p = Point { x: 10, y: 20 }").unwrap();
         let results = state.eval("let Point { x, y } = p").unwrap();
-        assert_eq!(results.len(), 1);
-        assert!(matches!(
-            &results[0],
-            ReplResult::LetBinding { bindings } if bindings.len() == 2
-        ));
+        assert!(results.is_empty());
         // Verify bindings work
         let results = state.eval("x + y").unwrap();
         assert_eq!(results, vec![ReplResult::Expression(Value::Int(30))]);
@@ -882,11 +677,7 @@ mod tests {
         state.eval("struct Point { x: Int, y: Int }").unwrap();
         state.eval("let p = Point { x: 10, y: 20 }").unwrap();
         let results = state.eval("let Point { x, .. } = p").unwrap();
-        assert_eq!(results.len(), 1);
-        assert!(matches!(
-            &results[0],
-            ReplResult::LetBinding { bindings } if bindings.len() == 1 && bindings[0].0 == "x"
-        ));
+        assert!(results.is_empty());
         // Verify binding works
         let results = state.eval("x").unwrap();
         assert_eq!(results, vec![ReplResult::Expression(Value::Int(10))]);
@@ -896,14 +687,7 @@ mod tests {
     fn test_repl_let_as_pattern() {
         let mut state = State::new(Path::new(".")).unwrap();
         let results = state.eval("let p @ (a, b) = (1, 2)").unwrap();
-        assert_eq!(results.len(), 1);
-        assert!(matches!(
-            &results[0],
-            ReplResult::LetBinding { bindings } if bindings.len() == 3
-                && bindings[0].0 == "p"
-                && bindings[1].0 == "a"
-                && bindings[2].0 == "b"
-        ));
+        assert!(results.is_empty());
         // Verify all bindings work
         let results = state.eval("p").unwrap();
         assert_eq!(

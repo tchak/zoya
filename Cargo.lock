@@ -3471,7 +3471,6 @@ dependencies = [
  "tower",
  "zoya-ast",
  "zoya-build",
- "zoya-check",
  "zoya-codegen",
  "zoya-dashboard",
  "zoya-fmt",
@@ -3482,7 +3481,6 @@ dependencies = [
  "zoya-parser",
  "zoya-router",
  "zoya-run",
- "zoya-std",
  "zoya-test",
 ]
 

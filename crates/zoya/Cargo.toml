@@ -10,7 +10,6 @@ path = "src/main.rs"
 [dependencies]
 zoya-ast = { path = "../zoya-ast" }
 zoya-build = { path = "../zoya-build" }
-zoya-check = { path = "../zoya-check" }
 zoya-codegen = { path = "../zoya-codegen" }
 zoya-dashboard = { path = "../zoya-dashboard" }
 zoya-fmt = { path = "../zoya-fmt" }
@@ -21,7 +20,6 @@ zoya-package = { path = "../zoya-package" }
 zoya-parser = { path = "../zoya-parser" }
 zoya-router = { path = "../zoya-router" }
 zoya-run = { path = "../zoya-run" }
-zoya-std = { path = "../zoya-std" }
 zoya-test = { path = "../zoya-test" }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time"] }
 notify = "7"
