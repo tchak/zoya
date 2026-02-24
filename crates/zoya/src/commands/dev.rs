@@ -10,7 +10,8 @@ use console::{Term, style};
 use notify::{RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 use tower::ServiceExt;
-use zoya_loader::{LoaderError, Mode};
+use zoya_build::Mode;
+use zoya_loader::LoaderError;
 
 /// Shared state for the dev server, holding the current active router.
 struct DevState {
@@ -108,15 +109,13 @@ enum BuildError {
 
 /// Try to build the package. Classifies errors as fatal or recoverable.
 fn try_build(path: &Path) -> Result<BuildResult, BuildError> {
-    let pkg = zoya_loader::load_package(path, Mode::Test).map_err(|e| {
-        if matches!(e, LoaderError::NoPackageToml { .. }) {
+    let output = zoya_build::build_from_path(path, Mode::Test).map_err(|e| {
+        if matches!(e, zoya_build::BuildError::Load(LoaderError::NoPackageToml { .. })) {
             BuildError::Fatal(e.into())
         } else {
             BuildError::Recoverable(e.into())
         }
     })?;
-
-    let output = zoya_build::build(&pkg).map_err(|e| BuildError::Recoverable(e.into()))?;
 
     let routes = extract_routes(&output);
     let dashboard_router = zoya_dashboard::dashboard(&output, "/_");
