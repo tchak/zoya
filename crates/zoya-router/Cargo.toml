@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 axum = "0.8"
 http = "1"
-zoya-ir = { path = "../zoya-ir" }
+zoya-build = { path = "../zoya-build" }
 zoya-package = { path = "../zoya-package" }
 zoya-run = { path = "../zoya-run" }
 zoya-value = { path = "../zoya-value" }
@@ -15,6 +15,4 @@ zoya-value = { path = "../zoya-value" }
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
 tokio = { version = "1", features = ["full"] }
-zoya-check = { path = "../zoya-check" }
 zoya-loader = { path = "../zoya-loader" }
-zoya-std = { path = "../zoya-std" }

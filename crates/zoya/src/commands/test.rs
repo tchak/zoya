@@ -1,19 +1,18 @@
 use std::path::Path;
 
 use console::{Term, style};
-use zoya_check::check;
-use zoya_loader::load_package;
 use zoya_run::EvalError;
 use zoya_test::TestRunner;
 
 /// Run all `#[test]` functions in a Zoya package or file
 pub fn execute(path: &Path) -> Result<(), EvalError> {
     let term = Term::stderr();
-    let std = zoya_std::std();
-    let package =
-        load_package(path, zoya_loader::Mode::Test).map_err(|e| e.map_path(|p| p.to_string()))?;
-    let checked = check(&package, &[std])?;
-    let runner = TestRunner::new(&checked, [std]);
+    let output =
+        zoya_build::build_from_path(path, zoya_build::Mode::Test).map_err(|e| match e {
+            zoya_build::BuildError::Load(e) => EvalError::LoadError(e.map_path(|p| p.to_string())),
+            zoya_build::BuildError::Check(e) => EvalError::TypeError(e),
+        })?;
+    let runner = TestRunner::new(&output);
 
     if runner.tests.is_empty() {
         term.write_line(&format!("{}", style("no tests found").yellow()))

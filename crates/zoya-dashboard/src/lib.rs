@@ -7,7 +7,7 @@ use axum::extract::State;
 use axum::http::header;
 use axum::response::{Html, IntoResponse, Json};
 use axum::routing::get;
-use zoya_ir::CheckedPackage;
+use zoya_build::BuildOutput;
 
 use data::DashboardData;
 
@@ -23,10 +23,9 @@ struct AppState {
 /// Build an Axum `Router` that serves a dashboard SPA for a Zoya package.
 ///
 /// The dashboard displays functions, tests, tasks, and HTTP routes from the
-/// checked package. The SPA fetches data from a JSON API endpoint.
-pub fn dashboard(checked: &CheckedPackage, deps: &[&CheckedPackage], base_path: &str) -> Router {
-    let _ = deps; // reserved for future use
-    let data = DashboardData::from_package(checked);
+/// build output. The SPA fetches data from a JSON API endpoint.
+pub fn dashboard(output: &BuildOutput, base_path: &str) -> Router {
+    let data = DashboardData::from_output(output);
 
     // Inject <base> tag into HTML so relative URLs resolve correctly when nested
     let base_tag = format!("<base href=\"{base_path}/\">");

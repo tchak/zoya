@@ -2,18 +2,15 @@ use axum::body::Body;
 use http::Request;
 use http_body_util::BodyExt;
 use tower::ServiceExt;
-use zoya_check::check;
 use zoya_loader::{MemorySource, load_memory_package};
 use zoya_router::router;
-use zoya_std::std as zoya_std;
 
 /// Helper: compile a Zoya source string and build a router from it.
 fn build_router(source: &str) -> axum::Router {
-    let std = zoya_std();
     let mem = MemorySource::new().with_module("root", source);
     let package = load_memory_package(&mem, zoya_loader::Mode::Dev).unwrap();
-    let checked = check(&package, &[std]).unwrap();
-    router(&checked, &[std])
+    let output = zoya_build::build(&package).unwrap();
+    router(output)
 }
 
 /// Helper: send a request to a router and return (status, body string).

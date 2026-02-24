@@ -3541,11 +3541,9 @@ dependencies = [
  "serde_json",
  "tokio",
  "tower",
- "zoya-check",
- "zoya-ir",
+ "zoya-build",
  "zoya-loader",
  "zoya-package",
- "zoya-std",
 ]
 
 [[package]]
@@ -3625,12 +3623,10 @@ dependencies = [
  "http-body-util",
  "tokio",
  "tower",
- "zoya-check",
- "zoya-ir",
+ "zoya-build",
  "zoya-loader",
  "zoya-package",
  "zoya-run",
- "zoya-std",
  "zoya-value",
 ]
 
@@ -3668,12 +3664,9 @@ version = "0.1.0"
 dependencies = [
  "tempfile",
  "thiserror 2.0.18",
- "zoya-check",
- "zoya-ir",
- "zoya-loader",
+ "zoya-build",
  "zoya-package",
  "zoya-run",
- "zoya-std",
  "zoya-value",
 ]
 

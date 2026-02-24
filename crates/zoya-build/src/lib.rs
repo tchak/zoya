@@ -1,9 +1,10 @@
 use std::path::Path;
 
 use zoya_codegen::{CodegenOutput, codegen};
-use zoya_ir::{DefinitionLookup, HttpMethod, Pathname, QualifiedPath, TypeError, TypedPattern};
+use zoya_ir::{DefinitionLookup, QualifiedPath, TypeError, TypedPattern};
 use zoya_package::Package;
 
+pub use zoya_ir::{FunctionType, HttpMethod, Pathname};
 pub use zoya_loader::Mode;
 
 #[derive(Debug, thiserror::Error)]

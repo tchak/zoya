@@ -65,6 +65,11 @@ pub enum EnumVariantType {
 }
 
 impl Type {
+    /// Format this type as a human-readable string (e.g., `Int`, `List<String>`).
+    pub fn pretty(&self) -> String {
+        crate::display::pretty_type(self)
+    }
+
     /// Remap all embedded module paths, replacing "root" with a new name.
     pub fn with_root(self, name: &str) -> Self {
         match self {

@@ -1,7 +1,5 @@
 use std::path::Path;
 
-use zoya_check::check;
-use zoya_loader::load_package;
 use zoya_test::TestRunner;
 
 fn project_root() -> &'static Path {
@@ -15,12 +13,8 @@ fn project_root() -> &'static Path {
 #[test]
 fn test_examples_algorithms() {
     let dir = project_root().join("examples/algorithms");
-    let std = zoya_std::std();
-    let package = load_package(&dir, zoya_loader::Mode::Test)
-        .map_err(|e| e.map_path(|p| p.to_string()))
-        .unwrap();
-    let checked = check(&package, &[std]).unwrap();
-    let report = TestRunner::new(&checked, [std]).run().unwrap();
+    let output = zoya_build::build_from_path(&dir, zoya_build::Mode::Test).unwrap();
+    let report = TestRunner::new(&output).run().unwrap();
     assert!(
         report.is_success(),
         "{} test(s) failed out of {}",
@@ -32,12 +26,8 @@ fn test_examples_algorithms() {
 #[test]
 fn test_examples_std_tests() {
     let dir = project_root().join("examples/std-tests");
-    let std = zoya_std::std();
-    let package = load_package(&dir, zoya_loader::Mode::Test)
-        .map_err(|e| e.map_path(|p| p.to_string()))
-        .unwrap();
-    let checked = check(&package, &[std]).unwrap();
-    let report = TestRunner::new(&checked, [std]).run().unwrap();
+    let output = zoya_build::build_from_path(&dir, zoya_build::Mode::Test).unwrap();
+    let report = TestRunner::new(&output).run().unwrap();
     assert!(
         report.is_success(),
         "{} test(s) failed out of {}",
@@ -49,12 +39,8 @@ fn test_examples_std_tests() {
 #[test]
 fn test_examples_tests() {
     let dir = project_root().join("examples/tests");
-    let std = zoya_std::std();
-    let package = load_package(&dir, zoya_loader::Mode::Test)
-        .map_err(|e| e.map_path(|p| p.to_string()))
-        .unwrap();
-    let checked = check(&package, &[std]).unwrap();
-    let report = TestRunner::new(&checked, [std]).run().unwrap();
+    let output = zoya_build::build_from_path(&dir, zoya_build::Mode::Test).unwrap();
+    let report = TestRunner::new(&output).run().unwrap();
     assert!(
         report.is_success(),
         "{} test(s) failed out of {}",

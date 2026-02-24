@@ -1,5 +1,3 @@
-use zoya_check::check;
-use zoya_loader::load_package;
 use zoya_test::TestRunner;
 
 fn run_tests(source: &str) -> zoya_test::TestReport {
@@ -7,12 +5,8 @@ fn run_tests(source: &str) -> zoya_test::TestReport {
     let file = dir.path().join("test.zy");
     std::fs::write(&file, source).unwrap();
 
-    let std = zoya_std::std();
-    let package = load_package(&file, zoya_loader::Mode::Test)
-        .map_err(|e| e.map_path(|p| p.to_string()))
-        .unwrap();
-    let checked = check(&package, &[std]).unwrap();
-    TestRunner::new(&checked, [std]).run().unwrap()
+    let output = zoya_build::build_from_path(&file, zoya_build::Mode::Test).unwrap();
+    TestRunner::new(&output).run().unwrap()
 }
 
 #[test]

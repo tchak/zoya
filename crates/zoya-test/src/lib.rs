@@ -1,6 +1,6 @@
-use zoya_ir::CheckedPackage;
+use zoya_build::BuildOutput;
 use zoya_package::QualifiedPath;
-use zoya_run::{EvalError, Runner, Value, ValueData};
+use zoya_run::{EvalError, Value, ValueData};
 
 /// Structured error for test failures.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -49,23 +49,14 @@ impl TestReport {
 /// A test run: tests discovered, ready to execute.
 pub struct TestRunner<'a> {
     pub tests: Vec<QualifiedPath>,
-    package: &'a CheckedPackage,
-    deps: Vec<&'a CheckedPackage>,
+    output: &'a BuildOutput,
 }
 
 impl<'a> TestRunner<'a> {
-    /// Create a new test runner from a checked package and its dependencies.
-    pub fn new(
-        package: &'a CheckedPackage,
-        deps: impl IntoIterator<Item = &'a CheckedPackage>,
-    ) -> Self {
-        let deps: Vec<_> = deps.into_iter().collect();
-        let tests = package.tests();
-        TestRunner {
-            tests,
-            package,
-            deps,
-        }
+    /// Create a new test runner from a build output.
+    pub fn new(output: &'a BuildOutput) -> Self {
+        let tests = output.tests.clone();
+        TestRunner { tests, output }
     }
 
     /// Run all tests, returning a report.
@@ -75,10 +66,9 @@ impl<'a> TestRunner<'a> {
 
     /// Run all tests, calling `on_result` after each one completes.
     pub fn execute(self, mut on_result: impl FnMut(&TestResult)) -> Result<TestReport, EvalError> {
-        let runner = Runner::new(self.package, self.deps);
         let mut results = Vec::new();
         for path in self.tests {
-            let outcome = run_single_test(&runner, &path);
+            let outcome = run_single_test(self.output, &path);
             let result = TestResult { path, outcome };
             on_result(&result);
             results.push(result);
@@ -88,8 +78,8 @@ impl<'a> TestRunner<'a> {
 }
 
 /// Run a single test function and interpret its result.
-fn run_single_test(runner: &Runner, path: &QualifiedPath) -> Result<(), TestError> {
-    match runner.run(path.clone(), vec![]) {
+fn run_single_test(output: &BuildOutput, path: &QualifiedPath) -> Result<(), TestError> {
+    match zoya_run::run(output, path.clone(), vec![]) {
         Ok(value) => interpret_test_value(&value),
         Err(EvalError::Panic(msg)) => Err(TestError::Panic(msg)),
         Err(EvalError::RuntimeError(msg)) => Err(TestError::RuntimeError(msg)),

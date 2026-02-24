@@ -10,8 +10,7 @@ use console::{Term, style};
 use notify::{RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 use tower::ServiceExt;
-use zoya_check::check;
-use zoya_ir::{CheckedPackage, HttpMethod};
+use zoya_build::HttpMethod;
 use zoya_loader::{LoaderError, Mode};
 
 /// Shared state for the dev server, holding the current active router.
@@ -118,21 +117,20 @@ fn try_build(path: &Path) -> Result<BuildResult, BuildError> {
         }
     })?;
 
-    let std = zoya_std::std();
-    let checked = check(&pkg, &[std]).map_err(|e| BuildError::Recoverable(e.into()))?;
+    let output = zoya_build::build(&pkg).map_err(|e| BuildError::Recoverable(e.into()))?;
 
-    let routes = extract_routes(&checked);
-    let app_router = zoya_router::router(&checked, &[std]);
-    let dashboard_router = zoya_dashboard::dashboard(&checked, &[std], "/_");
+    let routes = extract_routes(&output);
+    let dashboard_router = zoya_dashboard::dashboard(&output, "/_");
+    let app_router = zoya_router::router(output);
     let router = app_router.nest("/_", dashboard_router);
 
     Ok(BuildResult { router, routes })
 }
 
 /// Extract route metadata for display.
-fn extract_routes(checked: &CheckedPackage) -> Vec<(String, String)> {
-    checked
-        .routes()
+fn extract_routes(output: &zoya_build::BuildOutput) -> Vec<(String, String)> {
+    output
+        .routes
         .iter()
         .map(|(_, method, pathname)| {
             let method_str = match method {

@@ -2,10 +2,8 @@ use axum::body::Body;
 use http::Request;
 use http_body_util::BodyExt;
 use tower::ServiceExt;
-use zoya_check::check;
 use zoya_dashboard::dashboard;
 use zoya_loader::{MemorySource, Mode, load_memory_package};
-use zoya_std::std as zoya_std;
 
 /// Helper: compile a Zoya source string and build a dashboard router from it.
 fn build_dashboard(source: &str) -> axum::Router {
@@ -14,11 +12,10 @@ fn build_dashboard(source: &str) -> axum::Router {
 
 /// Helper: compile with a specific mode.
 fn build_dashboard_with_mode(source: &str, mode: Mode) -> axum::Router {
-    let std = zoya_std();
     let mem = MemorySource::new().with_module("root", source);
     let package = load_memory_package(&mem, mode).unwrap();
-    let checked = check(&package, &[std]).unwrap();
-    dashboard(&checked, &[std], "")
+    let output = zoya_build::build(&package).unwrap();
+    dashboard(&output, "")
 }
 
 /// Helper: send a GET request to a path and return (status, body string).

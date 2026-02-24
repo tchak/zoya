@@ -7,7 +7,7 @@ edition = "2024"
 axum = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-zoya-ir = { path = "../zoya-ir" }
+zoya-build = { path = "../zoya-build" }
 zoya-package = { path = "../zoya-package" }
 
 [dev-dependencies]
@@ -15,6 +15,4 @@ http = "1"
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
 tokio = { version = "1", features = ["full"] }
-zoya-check = { path = "../zoya-check" }
 zoya-loader = { path = "../zoya-loader" }
-zoya-std = { path = "../zoya-std" }
