@@ -457,7 +457,7 @@ fn test_job_fn_with_params_is_valid() {
             typ: TypeAnnotation::Named(Path::simple("Int".to_string())),
         }],
         return_type: None,
-        body: Expr::Int(42),
+        body: Expr::Tuple(vec![]),
     })];
     let pkg = build_test_package(items);
     let result = check(&pkg, &[]);
@@ -465,7 +465,7 @@ fn test_job_fn_with_params_is_valid() {
 }
 
 #[test]
-fn test_job_fn_with_any_return_type_is_valid() {
+fn test_job_fn_with_int_return_type_is_error() {
     let items = vec![Item::Function(FunctionDef {
         leading_comments: vec![],
         attributes: vec![Attribute {
@@ -480,8 +480,78 @@ fn test_job_fn_with_any_return_type_is_valid() {
         body: Expr::Int(42),
     })];
     let pkg = build_test_package(items);
-    let result = check(&pkg, &[]);
-    assert!(result.is_ok());
+    let err = check(&pkg, &[]).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("must return (), Result<(), E>, Task<()>, or Task<Result<(), E>>")
+    );
+}
+
+#[test]
+fn test_job_fn_with_result_unit_return_is_valid() {
+    let result = check_source(
+        r#"
+#[job]
+pub fn my_job() -> Result<(), String> {
+  Result::Ok(())
+}
+"#,
+    );
+    assert!(result.is_ok(), "expected ok, got: {:?}", result);
+}
+
+#[test]
+fn test_job_fn_with_task_unit_return_is_valid() {
+    let result = check_source(
+        r#"
+#[job]
+pub fn my_job() -> Task<()> {
+  Task::of(())
+}
+"#,
+    );
+    assert!(result.is_ok(), "expected ok, got: {:?}", result);
+}
+
+#[test]
+fn test_job_fn_with_task_result_unit_return_is_valid() {
+    let result = check_source(
+        r#"
+#[job]
+pub fn my_job() -> Task<Result<(), String>> {
+  Task::of(Result::Ok(()))
+}
+"#,
+    );
+    assert!(result.is_ok(), "expected ok, got: {:?}", result);
+}
+
+#[test]
+fn test_job_fn_with_result_int_return_is_error() {
+    let err = check_source(
+        r#"
+#[job]
+pub fn my_job() -> Result<Int, String> {
+  Result::Ok(42)
+}
+"#,
+    )
+    .unwrap_err();
+    assert!(err.contains("must return (), Result<(), E>, Task<()>, or Task<Result<(), E>>"));
+}
+
+#[test]
+fn test_job_fn_with_task_int_return_is_error() {
+    let err = check_source(
+        r#"
+#[job]
+pub fn my_job() -> Task<Int> {
+  Task::of(42)
+}
+"#,
+    )
+    .unwrap_err();
+    assert!(err.contains("must return (), Result<(), E>, Task<()>, or Task<Result<(), E>>"));
 }
 
 // ============================================================================

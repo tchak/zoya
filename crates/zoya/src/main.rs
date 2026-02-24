@@ -126,9 +126,6 @@ enum JobCommand {
         /// Compilation mode (dev, test, release)
         #[arg(long, default_value = "dev")]
         mode: String,
-        /// Output result as JSON
-        #[arg(long)]
-        json: bool,
     },
 }
 
@@ -222,11 +219,10 @@ fn main() {
                 args,
                 package,
                 mode,
-                json,
             } => {
                 let path = package.unwrap_or_else(|| PathBuf::from("."));
                 let mode = parse_mode(&term, &mode);
-                if let Err(e) = commands::job::run::execute(&path, &name, &args, json, mode) {
+                if let Err(e) = commands::job::run::execute(&path, &name, &args, mode) {
                     handle_error(&term, e);
                 }
             }

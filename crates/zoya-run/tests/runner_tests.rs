@@ -1422,9 +1422,9 @@ fn test_set_repl_display() {
 fn test_job_fn_compiles_and_jobs_method_works() {
     let source = r#"
         #[job]
-        pub fn my_job() -> Int { 42 }
+        pub fn my_job() -> () { () }
 
-        pub fn main() -> Int { my_job() }
+        pub fn main() { my_job() }
     "#;
     let mem_source = MemorySource::new().with_module("root", source);
     let package = load_memory_package(&mem_source, zoya_loader::Mode::Dev).unwrap();
@@ -1438,26 +1438,26 @@ fn test_job_fn_compiles_and_jobs_method_works() {
     let result = Runner::new(&checked, [std])
         .run(QualifiedPath::root().child("main"), vec![])
         .unwrap();
-    assert_eq!(result, Value::Int(42));
+    assert_eq!(result, Value::Tuple(vec![]));
 }
 
 #[test]
 fn test_job_fn_with_params_compiles() {
     let source = r#"
         #[job]
-        pub fn my_job(x: Int) -> Int { x + 1 }
+        pub fn my_job(x: Int) -> () { () }
 
-        pub fn main() -> Int { my_job(41) }
+        pub fn main() { my_job(41) }
     "#;
     let result = run_source(source).unwrap();
-    assert_eq!(result, Value::Int(42));
+    assert_eq!(result, Value::Tuple(vec![]));
 }
 
 #[test]
 fn test_private_job_fn_is_discoverable() {
     let source = r#"
         #[job]
-        fn my_job() -> Int { 42 }
+        fn my_job() -> () { () }
 
         pub fn main() { () }
     "#;
@@ -1483,7 +1483,7 @@ fn test_fns_returns_pub_non_test_non_job_functions() {
         fn my_test() { () }
 
         #[job]
-        pub fn my_job() -> Int { 4 }
+        pub fn my_job() -> () { () }
 
         pub fn main() { () }
     "#;

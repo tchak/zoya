@@ -355,6 +355,31 @@ fn check_function(
         }
     }
 
+    // Validate: #[job] functions must return (), Result<(), E>, Task<()>, or Task<Result<(), E>>
+    if kind == FunctionKind::Job {
+        let resolved = ctx.resolve(&return_type);
+        let is_unit = |ty: &Type| matches!(ty, Type::Tuple(elems) if elems.is_empty());
+        let is_result_unit = |ty: &Type| {
+            matches!(ty, Type::Enum { name, type_args, .. }
+                if name == "Result" && type_args.first().is_some_and(is_unit))
+        };
+        let valid = match &resolved {
+            ty if is_unit(ty) => true,
+            ty if is_result_unit(ty) => true,
+            Type::Task(inner) if is_unit(inner) => true,
+            Type::Task(inner) if is_result_unit(inner) => true,
+            _ => false,
+        };
+        if !valid {
+            return Err(TypeError::InvalidAttribute {
+                message: format!(
+                    "#[job] function '{}' must return (), Result<(), E>, Task<()>, or Task<Result<(), E>>, but returns {}",
+                    func.name, resolved
+                ),
+            });
+        }
+    }
+
     // Validate: HTTP route functions must return Response
     if let FunctionKind::Http(ref method, _) = kind {
         let resolved = ctx.resolve(&return_type);

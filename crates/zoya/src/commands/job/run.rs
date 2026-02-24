@@ -6,7 +6,7 @@ use zoya_package::QualifiedPath;
 use zoya_run::Value;
 
 /// Run a `#[job]` function with CLI arguments parsed by type
-pub fn execute(path: &Path, job_name: &str, args: &[String], json: bool, mode: Mode) -> Result<()> {
+pub fn execute(path: &Path, job_name: &str, args: &[String], mode: Mode) -> Result<()> {
     let output = build_from_path(path, mode)?;
 
     // Build qualified path from job name (e.g. "deploy" or "utils::migrate")
@@ -63,13 +63,20 @@ pub fn execute(path: &Path, job_name: &str, args: &[String], json: bool, mode: M
     // Run the job function
     let result = zoya_run::run(&output, job_path, parsed_args)?;
 
-    // Print result
-    if json {
-        println!("{}", result.to_json_pretty());
-    } else {
-        println!("{}", result);
+    // Handle result: jobs return () or Result<(), E>
+    use zoya_run::ValueData;
+    match &result {
+        Value::Tuple(elems) if elems.is_empty() => Ok(()),
+        Value::EnumVariant {
+            variant_name,
+            data: ValueData::Tuple(fields),
+            ..
+        } if variant_name == "Err" && fields.len() == 1 => {
+            bail!("{}", fields[0]);
+        }
+        Value::EnumVariant { variant_name, .. } if variant_name == "Ok" => Ok(()),
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -84,12 +91,12 @@ mod tests {
             &file,
             r#"
             #[job]
-            pub fn add(x: Int, y: Int) -> Int { x + y }
+            pub fn add(x: Int, y: Int) -> () { () }
             "#,
         )
         .unwrap();
 
-        let result = execute(&file, "add", &["1".into(), "2".into()], false, Mode::Dev);
+        let result = execute(&file, "add", &["1".into(), "2".into()], Mode::Dev);
         assert!(result.is_ok());
     }
 
@@ -101,12 +108,12 @@ mod tests {
             &file,
             r#"
             #[job]
-            pub fn greet(name: String) -> String { name }
+            pub fn greet(name: String) -> () { () }
             "#,
         )
         .unwrap();
 
-        let result = execute(&file, "greet", &["world".into()], false, Mode::Dev);
+        let result = execute(&file, "greet", &["world".into()], Mode::Dev);
         assert!(result.is_ok());
     }
 
@@ -118,12 +125,12 @@ mod tests {
             &file,
             r#"
             #[job]
-            pub fn deploy() -> String { "done" }
+            pub fn deploy() -> () { () }
             "#,
         )
         .unwrap();
 
-        let result = execute(&file, "missing", &[], false, Mode::Dev);
+        let result = execute(&file, "missing", &[], Mode::Dev);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
@@ -136,12 +143,12 @@ mod tests {
             &file,
             r#"
             #[job]
-            pub fn add(x: Int, y: Int) -> Int { x + y }
+            pub fn add(x: Int, y: Int) -> () { () }
             "#,
         )
         .unwrap();
 
-        let result = execute(&file, "add", &["1".into()], false, Mode::Dev);
+        let result = execute(&file, "add", &["1".into()], Mode::Dev);
         assert!(result.is_err());
         assert!(
             result
@@ -159,12 +166,12 @@ mod tests {
             &file,
             r#"
             #[job]
-            pub fn double(n: Int) -> Int { n * 2 }
+            pub fn double(n: Int) -> () { () }
             "#,
         )
         .unwrap();
 
-        let result = execute(&file, "double", &["abc".into()], false, Mode::Dev);
+        let result = execute(&file, "double", &["abc".into()], Mode::Dev);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("argument 1"));
     }
@@ -177,12 +184,12 @@ mod tests {
             &file,
             r#"
             #[job]
-            pub fn deploy() -> String { "deployed" }
+            pub fn deploy() -> () { () }
             "#,
         )
         .unwrap();
 
-        let result = execute(&file, "deploy", &[], false, Mode::Dev);
+        let result = execute(&file, "deploy", &[], Mode::Dev);
         assert!(result.is_ok());
     }
 
@@ -194,12 +201,52 @@ mod tests {
             &file,
             r#"
             #[job]
-            pub fn identity(flag: Bool) -> Bool { flag }
+            pub fn identity(flag: Bool) -> () { () }
             "#,
         )
         .unwrap();
 
-        let result = execute(&file, "identity", &["true".into()], false, Mode::Dev);
+        let result = execute(&file, "identity", &["true".into()], Mode::Dev);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_run_job_result_err_propagates() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.zy");
+        std::fs::write(
+            &file,
+            r#"
+            #[job]
+            pub fn failing() -> Result<(), String> { Result::Err("something went wrong") }
+            "#,
+        )
+        .unwrap();
+
+        let result = execute(&file, "failing", &[], Mode::Dev);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("something went wrong")
+        );
+    }
+
+    #[test]
+    fn test_run_job_result_ok_succeeds() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.zy");
+        std::fs::write(
+            &file,
+            r#"
+            #[job]
+            pub fn succeeding() -> Result<(), String> { Result::Ok(()) }
+            "#,
+        )
+        .unwrap();
+
+        let result = execute(&file, "succeeding", &[], Mode::Dev);
         assert!(result.is_ok());
     }
 }

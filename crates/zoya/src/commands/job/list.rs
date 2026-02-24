@@ -58,10 +58,10 @@ mod tests {
             &file,
             r#"
             #[job]
-            pub fn deploy() -> String { "done" }
+            pub fn deploy() -> () { () }
 
             #[job]
-            pub fn migrate(n: Int) -> Int { n }
+            pub fn migrate(n: Int) -> () { () }
             "#,
         )
         .unwrap();
