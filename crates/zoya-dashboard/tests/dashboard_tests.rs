@@ -79,18 +79,18 @@ fn test_add() -> () assert_eq(add(1, 2), 3)
 }
 
 #[tokio::test]
-async fn test_dashboard_api_shows_tasks() {
+async fn test_dashboard_api_shows_jobs() {
     let app = build_dashboard(
         r#"
-#[task]
+#[job]
 pub fn deploy() -> () ()
 "#,
     );
     let (status, body) = get_request(app, "/api/data").await;
     assert_eq!(status, http::StatusCode::OK);
     let data: serde_json::Value = serde_json::from_str(&body).unwrap();
-    let tasks = data["tasks"].as_array().unwrap();
-    assert!(tasks.iter().any(|t| t["name"] == "deploy"));
+    let jobs = data["jobs"].as_array().unwrap();
+    assert!(jobs.iter().any(|t| t["name"] == "deploy"));
 }
 
 #[tokio::test]
@@ -123,7 +123,7 @@ async fn test_dashboard_api_empty_package() {
     let data: serde_json::Value = serde_json::from_str(&body).unwrap();
     assert_eq!(data["functions"].as_array().unwrap().len(), 0);
     assert_eq!(data["tests"].as_array().unwrap().len(), 0);
-    assert_eq!(data["tasks"].as_array().unwrap().len(), 0);
+    assert_eq!(data["jobs"].as_array().unwrap().len(), 0);
     assert_eq!(data["routes"].as_array().unwrap().len(), 0);
 }
 

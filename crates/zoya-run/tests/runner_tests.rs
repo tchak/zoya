@@ -1416,24 +1416,24 @@ fn test_set_repl_display() {
     }
 }
 
-// ── Task attribute tests ─────────────────────────────────────────────
+// ── Job attribute tests ──────────────────────────────────────────────
 
 #[test]
-fn test_task_fn_compiles_and_tasks_method_works() {
+fn test_job_fn_compiles_and_jobs_method_works() {
     let source = r#"
-        #[task]
-        pub fn my_task() -> Int { 42 }
+        #[job]
+        pub fn my_job() -> Int { 42 }
 
-        pub fn main() -> Int { my_task() }
+        pub fn main() -> Int { my_job() }
     "#;
     let mem_source = MemorySource::new().with_module("root", source);
     let package = load_memory_package(&mem_source, zoya_loader::Mode::Dev).unwrap();
     let std = zoya_std();
     let checked = check(&package, &[std]).unwrap();
 
-    let tasks = checked.tasks();
-    assert_eq!(tasks.len(), 1);
-    assert_eq!(tasks[0], QualifiedPath::root().child("my_task"));
+    let jobs = checked.jobs();
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0], QualifiedPath::root().child("my_job"));
 
     let result = Runner::new(&checked, [std])
         .run(QualifiedPath::root().child("main"), vec![])
@@ -1442,22 +1442,22 @@ fn test_task_fn_compiles_and_tasks_method_works() {
 }
 
 #[test]
-fn test_task_fn_with_params_compiles() {
+fn test_job_fn_with_params_compiles() {
     let source = r#"
-        #[task]
-        pub fn my_task(x: Int) -> Int { x + 1 }
+        #[job]
+        pub fn my_job(x: Int) -> Int { x + 1 }
 
-        pub fn main() -> Int { my_task(41) }
+        pub fn main() -> Int { my_job(41) }
     "#;
     let result = run_source(source).unwrap();
     assert_eq!(result, Value::Int(42));
 }
 
 #[test]
-fn test_private_task_fn_is_discoverable() {
+fn test_private_job_fn_is_discoverable() {
     let source = r#"
-        #[task]
-        fn my_task() -> Int { 42 }
+        #[job]
+        fn my_job() -> Int { 42 }
 
         pub fn main() { () }
     "#;
@@ -1466,13 +1466,13 @@ fn test_private_task_fn_is_discoverable() {
     let std = zoya_std();
     let checked = check(&package, &[std]).unwrap();
 
-    let tasks = checked.tasks();
-    assert_eq!(tasks.len(), 1);
-    assert_eq!(tasks[0], QualifiedPath::root().child("my_task"));
+    let jobs = checked.jobs();
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0], QualifiedPath::root().child("my_job"));
 }
 
 #[test]
-fn test_fns_returns_pub_non_test_non_task_functions() {
+fn test_fns_returns_pub_non_test_non_job_functions() {
     let source = r#"
         pub fn hello() -> Int { 1 }
         pub fn world() -> Int { 2 }
@@ -1482,8 +1482,8 @@ fn test_fns_returns_pub_non_test_non_task_functions() {
         #[test]
         fn my_test() { () }
 
-        #[task]
-        pub fn my_task() -> Int { 4 }
+        #[job]
+        pub fn my_job() -> Int { 4 }
 
         pub fn main() { () }
     "#;
@@ -1501,7 +1501,7 @@ fn test_fns_returns_pub_non_test_non_task_functions() {
 
     assert!(!fn_names.contains(&"root::my_test".to_string()));
 
-    assert!(!fn_names.contains(&"root::my_task".to_string()));
+    assert!(!fn_names.contains(&"root::my_job".to_string()));
 
     assert!(!fn_names.contains(&"root::private_fn".to_string()));
 }

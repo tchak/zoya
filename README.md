@@ -191,14 +191,14 @@ pub fn echo(request: Request) -> Response {
 
 The server automatically rebuilds when `.zy` files change.
 
-### Task Functions
+### Job Functions
 
-Define and run task functions with `#[task]`:
+Define and run job functions with `#[job]`:
 
 ```bash
-zoya task list               # List available task functions
-zoya task run deploy         # Run a task function
-zoya task run deploy -- arg1 # Run with arguments
+zoya job list               # List available job functions
+zoya job run deploy         # Run a job function
+zoya job run deploy -- arg1 # Run with arguments
 ```
 
 ## Language Tour

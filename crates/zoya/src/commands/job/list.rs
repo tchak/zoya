@@ -4,22 +4,22 @@ use anyhow::Result;
 use console::{Term, style};
 use zoya_build::{Mode, build_from_path};
 
-/// List all `#[task]` functions in a Zoya package or file
+/// List all `#[job]` functions in a Zoya package or file
 pub fn execute(path: &Path, mode: Mode) -> Result<()> {
     let term = Term::stderr();
 
     let output = build_from_path(path, mode)?;
 
-    if output.tasks.is_empty() {
-        term.write_line(&format!("{}", style("no tasks found").yellow()))?;
+    if output.jobs.is_empty() {
+        term.write_line(&format!("{}", style("no jobs found").yellow()))?;
         return Ok(());
     }
 
-    for task_path in &output.tasks {
-        let display = format_task_path(task_path.segments());
+    for job_path in &output.jobs {
+        let display = format_job_path(job_path.segments());
         let sig = output
             .definitions
-            .get_function(task_path)
+            .get_function(job_path)
             .map(|f| f.pretty())
             .unwrap_or_default();
         term.write_line(&format!(
@@ -32,8 +32,8 @@ pub fn execute(path: &Path, mode: Mode) -> Result<()> {
     Ok(())
 }
 
-/// Format a task path for display, stripping the "root" prefix.
-fn format_task_path(segments: &[String]) -> String {
+/// Format a job path for display, stripping the "root" prefix.
+fn format_job_path(segments: &[String]) -> String {
     let display_segments: Vec<&str> = segments
         .iter()
         .skip_while(|s| s.as_str() == "root")
@@ -51,16 +51,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_execute_with_tasks() {
+    fn test_execute_with_jobs() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zy");
         std::fs::write(
             &file,
             r#"
-            #[task]
+            #[job]
             pub fn deploy() -> String { "done" }
 
-            #[task]
+            #[job]
             pub fn migrate(n: Int) -> Int { n }
             "#,
         )
@@ -71,7 +71,7 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_no_tasks() {
+    fn test_execute_no_jobs() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zy");
         std::fs::write(&file, "pub fn main() -> Int { 42 }").unwrap();
@@ -87,18 +87,18 @@ mod tests {
     }
 
     #[test]
-    fn test_format_task_path_strips_root() {
+    fn test_format_job_path_strips_root() {
         let segments = vec![
             "root".to_string(),
             "utils".to_string(),
             "deploy".to_string(),
         ];
-        assert_eq!(format_task_path(&segments), "utils::deploy");
+        assert_eq!(format_job_path(&segments), "utils::deploy");
     }
 
     #[test]
-    fn test_format_task_path_simple() {
-        let segments = vec!["root".to_string(), "my_task".to_string()];
-        assert_eq!(format_task_path(&segments), "my_task");
+    fn test_format_job_path_simple() {
+        let segments = vec!["root".to_string(), "my_job".to_string()];
+        assert_eq!(format_job_path(&segments), "my_job");
     }
 }

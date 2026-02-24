@@ -12,7 +12,7 @@ This crate defines the untyped AST produced by the parser. These types represent
 - **Type annotations** - Named types, generics, tuples, function types
 - **Module structure** - Module declarations (`ModDecl`), use declarations (`UseDecl`)
 - **Visibility** - `Visibility` enum (`Private`, `Public`) for controlling item access
-- **Attributes** - `#[test]`, `#[builtin]`, `#[mode(test)]`, `#[get("/path")]`, `#[task]` annotations on items
+- **Attributes** - `#[test]`, `#[builtin]`, `#[mode(test)]`, `#[get("/path")]`, `#[job]` annotations on items
 
 ## Usage
 

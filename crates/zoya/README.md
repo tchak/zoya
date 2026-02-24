@@ -27,9 +27,9 @@ zoya test                          # Run tests in current package
 zoya test path/to/project          # Run tests at path
 zoya dev                           # Start HTTP dev server (port 3000)
 zoya dev --port 8080               # Dev server on custom port
-zoya task list                     # List available task functions
-zoya task run deploy               # Run a task function
-zoya task run deploy -- arg1       # Run task with arguments
+zoya job list                      # List available job functions
+zoya job run deploy                # Run a job function
+zoya job run deploy -- arg1        # Run job with arguments
 ```
 
 ## Init Project
@@ -87,16 +87,16 @@ zoya dev --port 8080         # Custom port
 
 Functions annotated with HTTP method attributes (`#[get("/path")]`, `#[post("/path")]`, etc.) become routes. The server automatically rebuilds when `.zy` files change, continuing to serve the last successful build on errors.
 
-## Task Functions
+## Job Functions
 
-Define functions with `#[task]` and run them from the CLI:
+Define functions with `#[job]` and run them from the CLI:
 
 ```bash
-zoya task list               # List all #[task] functions
-zoya task run deploy         # Run a task function
+zoya job list               # List all #[job] functions
+zoya job run deploy         # Run a job function
 ```
 
-Task functions can accept typed arguments parsed from the command line.
+Job functions can accept typed arguments parsed from the command line.
 
 ## Named Function Execution
 

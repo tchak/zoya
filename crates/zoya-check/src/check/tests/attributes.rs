@@ -282,15 +282,15 @@ fn test_test_fn_has_is_test_flag() {
 }
 
 #[test]
-fn test_task_attr_on_fn_is_valid() {
+fn test_job_attr_on_fn_is_valid() {
     let items = vec![Item::Function(FunctionDef {
         leading_comments: vec![],
         attributes: vec![Attribute {
-            name: "task".to_string(),
+            name: "job".to_string(),
             args: None,
         }],
         visibility: Visibility::Public,
-        name: "my_task".to_string(),
+        name: "my_job".to_string(),
         type_params: vec![],
         params: vec![],
         return_type: None,
@@ -302,11 +302,11 @@ fn test_task_attr_on_fn_is_valid() {
 }
 
 #[test]
-fn test_task_attr_on_struct_is_error() {
+fn test_job_attr_on_struct_is_error() {
     let items = vec![Item::Struct(StructDef {
         leading_comments: vec![],
         attributes: vec![Attribute {
-            name: "task".to_string(),
+            name: "job".to_string(),
             args: None,
         }],
         visibility: Visibility::Public,
@@ -316,16 +316,16 @@ fn test_task_attr_on_struct_is_error() {
     })];
     let pkg = build_test_package(items);
     let err = check(&pkg, &[]).unwrap_err();
-    assert!(err.to_string().contains("#[task]"));
+    assert!(err.to_string().contains("#[job]"));
     assert!(err.to_string().contains("struct"));
 }
 
 #[test]
-fn test_task_attr_on_enum_is_error() {
+fn test_job_attr_on_enum_is_error() {
     let items = vec![Item::Enum(EnumDef {
         leading_comments: vec![],
         attributes: vec![Attribute {
-            name: "task".to_string(),
+            name: "job".to_string(),
             args: None,
         }],
         visibility: Visibility::Public,
@@ -335,12 +335,12 @@ fn test_task_attr_on_enum_is_error() {
     })];
     let pkg = build_test_package(items);
     let err = check(&pkg, &[]).unwrap_err();
-    assert!(err.to_string().contains("#[task]"));
+    assert!(err.to_string().contains("#[job]"));
     assert!(err.to_string().contains("enum"));
 }
 
 #[test]
-fn test_builtin_and_task_conflict_is_error() {
+fn test_builtin_and_job_conflict_is_error() {
     let items = vec![Item::Function(FunctionDef {
         leading_comments: vec![],
         attributes: vec![
@@ -349,12 +349,12 @@ fn test_builtin_and_task_conflict_is_error() {
                 args: None,
             },
             Attribute {
-                name: "task".to_string(),
+                name: "job".to_string(),
                 args: None,
             },
         ],
         visibility: Visibility::Public,
-        name: "my_task".to_string(),
+        name: "my_job".to_string(),
         type_params: vec![],
         params: vec![],
         return_type: None,
@@ -364,11 +364,11 @@ fn test_builtin_and_task_conflict_is_error() {
     let err = check(&pkg, &[]).unwrap_err();
     assert!(err.to_string().contains("cannot have both"));
     assert!(err.to_string().contains("#[builtin]"));
-    assert!(err.to_string().contains("#[task]"));
+    assert!(err.to_string().contains("#[job]"));
 }
 
 #[test]
-fn test_test_and_task_conflict_is_error() {
+fn test_test_and_job_conflict_is_error() {
     let items = vec![Item::Function(FunctionDef {
         leading_comments: vec![],
         attributes: vec![
@@ -377,12 +377,12 @@ fn test_test_and_task_conflict_is_error() {
                 args: None,
             },
             Attribute {
-                name: "task".to_string(),
+                name: "job".to_string(),
                 args: None,
             },
         ],
         visibility: Visibility::Public,
-        name: "my_task".to_string(),
+        name: "my_job".to_string(),
         type_params: vec![],
         params: vec![],
         return_type: None,
@@ -392,19 +392,19 @@ fn test_test_and_task_conflict_is_error() {
     let err = check(&pkg, &[]).unwrap_err();
     assert!(err.to_string().contains("cannot have both"));
     assert!(err.to_string().contains("#[test]"));
-    assert!(err.to_string().contains("#[task]"));
+    assert!(err.to_string().contains("#[job]"));
 }
 
 #[test]
-fn test_private_task_fn_appears_in_definitions() {
+fn test_private_job_fn_appears_in_definitions() {
     let items = vec![Item::Function(FunctionDef {
         leading_comments: vec![],
         attributes: vec![Attribute {
-            name: "task".to_string(),
+            name: "job".to_string(),
             args: None,
         }],
         visibility: Visibility::Private,
-        name: "my_task".to_string(),
+        name: "my_job".to_string(),
         type_params: vec![],
         params: vec![],
         return_type: None,
@@ -412,23 +412,23 @@ fn test_private_task_fn_appears_in_definitions() {
     })];
     let pkg = build_test_package(items);
     let checked = check(&pkg, &[]).unwrap();
-    let path = QualifiedPath::root().child("my_task");
+    let path = QualifiedPath::root().child("my_job");
     assert!(
         checked.definitions.contains_key(&path),
-        "private #[task] function should appear in definitions"
+        "private #[job] function should appear in definitions"
     );
 }
 
 #[test]
-fn test_task_fn_has_is_task_flag() {
+fn test_job_fn_has_is_job_flag() {
     let items = vec![Item::Function(FunctionDef {
         leading_comments: vec![],
         attributes: vec![Attribute {
-            name: "task".to_string(),
+            name: "job".to_string(),
             args: None,
         }],
         visibility: Visibility::Public,
-        name: "my_task".to_string(),
+        name: "my_job".to_string(),
         type_params: vec![],
         params: vec![],
         return_type: None,
@@ -436,21 +436,21 @@ fn test_task_fn_has_is_task_flag() {
     })];
     let pkg = build_test_package(items);
     let checked = check(&pkg, &[]).unwrap();
-    let path = QualifiedPath::root().child("my_task");
+    let path = QualifiedPath::root().child("my_job");
     let func = checked.items.get(&path).unwrap();
-    assert_eq!(func.kind, zoya_ir::FunctionKind::Task);
+    assert_eq!(func.kind, zoya_ir::FunctionKind::Job);
 }
 
 #[test]
-fn test_task_fn_with_params_is_valid() {
+fn test_job_fn_with_params_is_valid() {
     let items = vec![Item::Function(FunctionDef {
         leading_comments: vec![],
         attributes: vec![Attribute {
-            name: "task".to_string(),
+            name: "job".to_string(),
             args: None,
         }],
         visibility: Visibility::Public,
-        name: "my_task".to_string(),
+        name: "my_job".to_string(),
         type_params: vec![],
         params: vec![Param {
             pattern: Pattern::Path(Path::simple("x".to_string())),
@@ -465,15 +465,15 @@ fn test_task_fn_with_params_is_valid() {
 }
 
 #[test]
-fn test_task_fn_with_any_return_type_is_valid() {
+fn test_job_fn_with_any_return_type_is_valid() {
     let items = vec![Item::Function(FunctionDef {
         leading_comments: vec![],
         attributes: vec![Attribute {
-            name: "task".to_string(),
+            name: "job".to_string(),
             args: None,
         }],
         visibility: Visibility::Public,
-        name: "my_task".to_string(),
+        name: "my_job".to_string(),
         type_params: vec![],
         params: vec![],
         return_type: Some(TypeAnnotation::Named(Path::simple("Int".to_string()))),
@@ -719,7 +719,7 @@ fn test_get_and_builtin_conflict_is_error() {
 }
 
 #[test]
-fn test_get_and_task_conflict_is_error() {
+fn test_get_and_job_conflict_is_error() {
     let items = vec![Item::Function(FunctionDef {
         leading_comments: vec![],
         attributes: vec![
@@ -728,7 +728,7 @@ fn test_get_and_task_conflict_is_error() {
                 args: Some(vec![AttributeArg::String("/test".to_string())]),
             },
             Attribute {
-                name: "task".to_string(),
+                name: "job".to_string(),
                 args: None,
             },
         ],

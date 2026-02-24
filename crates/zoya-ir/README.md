@@ -56,9 +56,9 @@ fn process_package(pkg: &CheckedPackage) {
         println!("{} {} -> {}", method.attr_name(), pathname.as_str(), path);
     }
 
-    // Query task functions
-    for path in pkg.tasks() {
-        println!("task: {}", path);
+    // Query job functions
+    for path in pkg.jobs() {
+        println!("job: {}", path);
     }
 
     // Query public functions
@@ -76,7 +76,7 @@ fn process_package(pkg: &CheckedPackage) {
 | `TypedExpr` | Expression with attached type information |
 | `TypedPattern` | Pattern with resolved types for codegen |
 | `TypedFunction` | Function with typed body, return type, and `FunctionKind` |
-| `FunctionKind` | Function classification: `Regular`, `Builtin`, `Test`, `Task`, `Http(HttpMethod, Pathname)` |
+| `FunctionKind` | Function classification: `Regular`, `Builtin`, `Test`, `Job`, `Http(HttpMethod, Pathname)` |
 | `HttpMethod` | HTTP method: `Get`, `Post`, `Put`, `Patch`, `Delete` |
 | `Pathname` | Validated URL pathname for HTTP routes |
 | `CheckedPackage` | Complete package of checked items, definitions, re-exports, and imports |

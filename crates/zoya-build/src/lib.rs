@@ -22,7 +22,7 @@ pub struct BuildOutput {
     pub definitions: DefinitionLookup,
     pub functions: Vec<(QualifiedPath, Vec<String>)>,
     pub tests: Vec<QualifiedPath>,
-    pub tasks: Vec<QualifiedPath>,
+    pub jobs: Vec<QualifiedPath>,
     pub routes: Vec<(QualifiedPath, HttpMethod, Pathname)>,
 }
 
@@ -63,7 +63,7 @@ pub fn build(package: &Package) -> Result<BuildOutput, BuildError> {
         })
         .collect();
     let tests = checked.tests();
-    let tasks = checked.tasks();
+    let jobs = checked.jobs();
     let routes = checked
         .routes()
         .into_iter()
@@ -75,7 +75,7 @@ pub fn build(package: &Package) -> Result<BuildOutput, BuildError> {
         definitions,
         functions,
         tests,
-        tasks,
+        jobs,
         routes,
     })
 }

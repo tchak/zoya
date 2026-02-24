@@ -2,7 +2,7 @@ export interface DashboardData {
   package_name: string;
   functions: FunctionInfo[];
   tests: TestInfo[];
-  tasks: TaskInfo[];
+  jobs: JobInfo[];
   routes: RouteInfo[];
 }
 
@@ -17,7 +17,7 @@ export interface TestInfo {
   module: string;
 }
 
-export interface TaskInfo {
+export interface JobInfo {
   name: string;
   module: string;
   signature: string;

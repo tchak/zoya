@@ -8,7 +8,7 @@ pub struct DashboardData {
     pub package_name: String,
     pub functions: Vec<FunctionInfo>,
     pub tests: Vec<TestInfo>,
-    pub tasks: Vec<TaskInfo>,
+    pub jobs: Vec<JobInfo>,
     pub routes: Vec<RouteInfo>,
 }
 
@@ -26,7 +26,7 @@ pub struct TestInfo {
 }
 
 #[derive(Clone, Serialize)]
-pub struct TaskInfo {
+pub struct JobInfo {
     pub name: String,
     pub module: String,
     pub signature: String,
@@ -76,12 +76,12 @@ impl DashboardData {
             })
             .collect();
 
-        let tasks = output
-            .tasks
+        let jobs = output
+            .jobs
             .iter()
             .filter_map(|path| {
                 let func = output.definitions.get_function(path)?;
-                Some(TaskInfo {
+                Some(JobInfo {
                     name: path.last().to_string(),
                     module: module_string(path),
                     signature: func.pretty(),
@@ -108,7 +108,7 @@ impl DashboardData {
             package_name: output.name.clone(),
             functions,
             tests,
-            tasks,
+            jobs,
             routes,
         }
     }

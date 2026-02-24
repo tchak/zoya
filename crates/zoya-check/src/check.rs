@@ -145,11 +145,11 @@ fn check_function(
         typed_params.push((typed_pattern, ctx.resolve(&ty)));
     }
 
-    // Check for #[builtin], #[test], #[task], and HTTP method attributes
+    // Check for #[builtin], #[test], #[job], and HTTP method attributes
     let kind = {
         let is_builtin = func.attributes.iter().any(|a| a.name == "builtin");
         let is_test = func.attributes.iter().any(|a| a.name == "test");
-        let is_task = func.attributes.iter().any(|a| a.name == "task");
+        let is_job = func.attributes.iter().any(|a| a.name == "job");
         let http_attr = func
             .attributes
             .iter()
@@ -162,8 +162,8 @@ fn check_function(
         if is_test {
             special_names.push("test");
         }
-        if is_task {
-            special_names.push("task");
+        if is_job {
+            special_names.push("job");
         }
         if let Some((method, _)) = &http_attr {
             special_names.push(method.attr_name());
@@ -182,8 +182,8 @@ fn check_function(
             FunctionKind::Builtin
         } else if is_test {
             FunctionKind::Test
-        } else if is_task {
-            FunctionKind::Task
+        } else if is_job {
+            FunctionKind::Job
         } else if let Some((method, attr)) = http_attr {
             let pathname_str = match &attr.args {
                 Some(args) if args.len() == 1 => match &args[0] {
@@ -2953,7 +2953,7 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
         }
     }
 
-    // Phase 0.7: Validate #[test], #[task], and HTTP method attribute usage
+    // Phase 0.7: Validate #[test], #[job], and HTTP method attribute usage
     // These are only valid on function definitions
     for path in &module_paths {
         if let Some(module) = pkg.modules.get(path) {
@@ -2967,7 +2967,7 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
                     Item::Impl(i) => (&i.attributes, "impl"),
                     Item::ModDecl(_) => unreachable!("mod decls are removed by the loader"),
                 };
-                for attr_name in &["test", "task", "get", "post", "put", "patch", "delete"] {
+                for attr_name in &["test", "job", "get", "post", "put", "patch", "delete"] {
                     if attrs.iter().any(|a| a.name == *attr_name) {
                         return Err(TypeError::InvalidAttribute {
                             message: format!(
@@ -3160,7 +3160,7 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
                 || checked_items.get(path).is_some_and(|f| {
                     matches!(
                         f.kind,
-                        FunctionKind::Test | FunctionKind::Task | FunctionKind::Http(_, _)
+                        FunctionKind::Test | FunctionKind::Job | FunctionKind::Http(_, _)
                     )
                 })
         })

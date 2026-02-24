@@ -100,7 +100,7 @@ pub enum FunctionKind {
     Regular,
     Builtin,
     Test,
-    Task,
+    Job,
     Http(HttpMethod, Pathname),
 }
 
@@ -434,19 +434,19 @@ impl CheckedPackage {
         tests
     }
 
-    /// Return sorted paths of all `#[task]` functions in this package.
-    pub fn tasks(&self) -> Vec<QualifiedPath> {
-        let mut tasks: Vec<QualifiedPath> = self
+    /// Return sorted paths of all `#[job]` functions in this package.
+    pub fn jobs(&self) -> Vec<QualifiedPath> {
+        let mut jobs: Vec<QualifiedPath> = self
             .items
             .iter()
-            .filter(|(_, func)| func.kind == FunctionKind::Task)
+            .filter(|(_, func)| func.kind == FunctionKind::Job)
             .map(|(path, _)| path.clone())
             .collect();
-        tasks.sort_by_key(|a| a.to_string());
-        tasks
+        jobs.sort_by_key(|a| a.to_string());
+        jobs
     }
 
-    /// Return sorted paths of all public, non-test, non-task functions in this package.
+    /// Return sorted paths of all public, non-test, non-job functions in this package.
     pub fn fns(&self) -> Vec<QualifiedPath> {
         let mut fns: Vec<QualifiedPath> = self
             .items

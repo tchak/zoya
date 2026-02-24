@@ -239,8 +239,8 @@ cargo run -p zoya -- test                        # Run tests
 cargo run -p zoya -- init my_project              # Create new project
 cargo run -p zoya -- dev                          # Start dev HTTP server
 cargo run -p zoya -- dev --port 8080              # Dev server on custom port
-cargo run -p zoya -- task list                    # List task functions
-cargo run -p zoya -- task run deploy              # Run a task function
+cargo run -p zoya -- job list                     # List job functions
+cargo run -p zoya -- job run deploy               # Run a job function
 cargo test --workspace                           # Run all Rust tests
 cargo clippy --workspace                         # Lint
 cd packages/zoya-runtime && npm run build        # Build JS runtime bundle
@@ -286,6 +286,10 @@ Types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`
 jj commit -m "feat(parser): add tuple patterns"
 jj commit -m "fix: resolve unification with recursive types"
 ```
+
+## Module Style
+
+**IMPORTANT: Never use `mod.rs` files.** This project uses Rust 2024 edition. Use the flat file pattern: `foo.rs` + `foo/bar.rs`, not `foo/mod.rs` + `foo/bar.rs`.
 
 ## Formatting
 

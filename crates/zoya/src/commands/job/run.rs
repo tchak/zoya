@@ -5,26 +5,20 @@ use zoya_build::{Mode, build_from_path};
 use zoya_package::QualifiedPath;
 use zoya_run::Value;
 
-/// Run a `#[task]` function with CLI arguments parsed by type
-pub fn execute(
-    path: &Path,
-    task_name: &str,
-    args: &[String],
-    json: bool,
-    mode: Mode,
-) -> Result<()> {
+/// Run a `#[job]` function with CLI arguments parsed by type
+pub fn execute(path: &Path, job_name: &str, args: &[String], json: bool, mode: Mode) -> Result<()> {
     let output = build_from_path(path, mode)?;
 
-    // Build qualified path from task name (e.g. "deploy" or "utils::migrate")
-    let mut task_path = QualifiedPath::root();
-    for segment in task_name.split("::") {
-        task_path = task_path.child(segment);
+    // Build qualified path from job name (e.g. "deploy" or "utils::migrate")
+    let mut job_path = QualifiedPath::root();
+    for segment in job_name.split("::") {
+        job_path = job_path.child(segment);
     }
 
-    // Verify this is a known task
-    if !output.tasks.contains(&task_path) {
+    // Verify this is a known job
+    if !output.jobs.contains(&job_path) {
         let available: Vec<String> = output
-            .tasks
+            .jobs
             .iter()
             .map(|p| {
                 p.segments()
@@ -36,23 +30,23 @@ pub fn execute(
             })
             .collect();
         let hint = if available.is_empty() {
-            "no tasks found in this package".to_string()
+            "no jobs found in this package".to_string()
         } else {
-            format!("available tasks: {}", available.join(", "))
+            format!("available jobs: {}", available.join(", "))
         };
-        bail!("task '{task_name}' not found ({hint})");
+        bail!("job '{job_name}' not found ({hint})");
     }
 
     // Get the function's typed signature
     let func = output
         .definitions
-        .get_function(&task_path)
-        .ok_or_else(|| anyhow!("task '{task_name}' not found in definitions"))?;
+        .get_function(&job_path)
+        .ok_or_else(|| anyhow!("job '{job_name}' not found in definitions"))?;
 
     // Validate argument count
     if args.len() != func.params.len() {
         bail!(
-            "task '{task_name}' expects {} argument(s), got {}",
+            "job '{job_name}' expects {} argument(s), got {}",
             func.params.len(),
             args.len()
         );
@@ -66,8 +60,8 @@ pub fn execute(
         parsed_args.push(value);
     }
 
-    // Run the task function
-    let result = zoya_run::run(&output, task_path, parsed_args)?;
+    // Run the job function
+    let result = zoya_run::run(&output, job_path, parsed_args)?;
 
     // Print result
     if json {
@@ -83,13 +77,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_run_task_simple() {
+    fn test_run_job_simple() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zy");
         std::fs::write(
             &file,
             r#"
-            #[task]
+            #[job]
             pub fn add(x: Int, y: Int) -> Int { x + y }
             "#,
         )
@@ -100,13 +94,13 @@ mod tests {
     }
 
     #[test]
-    fn test_run_task_string_arg() {
+    fn test_run_job_string_arg() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zy");
         std::fs::write(
             &file,
             r#"
-            #[task]
+            #[job]
             pub fn greet(name: String) -> String { name }
             "#,
         )
@@ -117,13 +111,13 @@ mod tests {
     }
 
     #[test]
-    fn test_run_task_not_found() {
+    fn test_run_job_not_found() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zy");
         std::fs::write(
             &file,
             r#"
-            #[task]
+            #[job]
             pub fn deploy() -> String { "done" }
             "#,
         )
@@ -135,13 +129,13 @@ mod tests {
     }
 
     #[test]
-    fn test_run_task_wrong_arg_count() {
+    fn test_run_job_wrong_arg_count() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zy");
         std::fs::write(
             &file,
             r#"
-            #[task]
+            #[job]
             pub fn add(x: Int, y: Int) -> Int { x + y }
             "#,
         )
@@ -158,13 +152,13 @@ mod tests {
     }
 
     #[test]
-    fn test_run_task_invalid_arg() {
+    fn test_run_job_invalid_arg() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zy");
         std::fs::write(
             &file,
             r#"
-            #[task]
+            #[job]
             pub fn double(n: Int) -> Int { n * 2 }
             "#,
         )
@@ -176,13 +170,13 @@ mod tests {
     }
 
     #[test]
-    fn test_run_task_no_args() {
+    fn test_run_job_no_args() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zy");
         std::fs::write(
             &file,
             r#"
-            #[task]
+            #[job]
             pub fn deploy() -> String { "deployed" }
             "#,
         )
@@ -193,13 +187,13 @@ mod tests {
     }
 
     #[test]
-    fn test_run_task_bool_arg() {
+    fn test_run_job_bool_arg() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.zy");
         std::fs::write(
             &file,
             r#"
-            #[task]
+            #[job]
             pub fn identity(flag: Bool) -> Bool { flag }
             "#,
         )

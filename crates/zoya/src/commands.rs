@@ -3,7 +3,7 @@ pub mod check;
 pub mod dev;
 pub mod fmt;
 pub mod init;
+pub mod job;
 pub mod repl;
 pub mod run;
-pub mod task;
 pub mod test;

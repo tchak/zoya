@@ -1,16 +1,16 @@
-import type { TaskInfo } from '../types';
+import type { JobInfo } from '../types';
 import { groupByModule } from '../utils';
 import { Card } from './Card';
 import { ModuleHeader } from './ModuleHeader';
 
-export function TasksCard({ tasks }: { tasks: TaskInfo[] }) {
+export function JobsCard({ jobs }: { jobs: JobInfo[] }) {
   return (
-    <Card title="Tasks">
-      {tasks.length === 0 ? (
-        <p className="text-gray-400 text-sm italic">No tasks</p>
+    <Card title="Jobs">
+      {jobs.length === 0 ? (
+        <p className="text-gray-400 text-sm italic">No jobs</p>
       ) : (
         <div className="space-y-4">
-          {groupByModule(tasks, (a, b) => a.name.localeCompare(b.name)).map(
+          {groupByModule(jobs, (a, b) => a.name.localeCompare(b.name)).map(
             ([module, items]) => (
               <div key={module}>
                 <ModuleHeader module={module} />

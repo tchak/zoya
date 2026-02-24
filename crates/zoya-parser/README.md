@@ -14,7 +14,7 @@ Transforms a token stream into an Abstract Syntax Tree using [Chumsky](https://g
 - List and tuple spread syntax
 - Module declarations with visibility (`pub mod`)
 - Use declarations with path prefixes (`root::`, `self::`, `super::`)
-- Attribute parsing (`#[test]`, `#[builtin]`, `#[mode(...)]`, `#[get("/path")]`, `#[task]`)
+- Attribute parsing (`#[test]`, `#[builtin]`, `#[mode(...)]`, `#[get("/path")]`, `#[job]`)
 - Error recovery and reporting with byte-offset spans
 
 ## Usage

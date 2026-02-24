@@ -77,10 +77,10 @@ enum Command {
         #[arg(short, long)]
         package: Option<PathBuf>,
     },
-    /// Manage task functions
-    Task {
+    /// Manage job functions
+    Job {
         #[command(subcommand)]
-        command: TaskCommand,
+        command: JobCommand,
     },
     /// Start a development server
     Dev {
@@ -102,8 +102,8 @@ enum Command {
 }
 
 #[derive(Subcommand)]
-enum TaskCommand {
-    /// List all #[task] functions in a package
+enum JobCommand {
+    /// List all #[job] functions in a package
     List {
         /// Path to a .zy file or directory with package.toml (defaults to current directory)
         #[arg(short, long)]
@@ -112,12 +112,12 @@ enum TaskCommand {
         #[arg(long, default_value = "dev")]
         mode: String,
     },
-    /// Run a #[task] function
+    /// Run a #[job] function
     #[command(trailing_var_arg = true)]
     Run {
-        /// Task name (e.g., "deploy" or "utils::migrate")
+        /// Job name (e.g., "deploy" or "utils::migrate")
         name: String,
-        /// Arguments to pass to the task function
+        /// Arguments to pass to the job function
         #[arg(allow_hyphen_values = true)]
         args: Vec<String>,
         /// Path to a .zy file or directory with package.toml
@@ -209,15 +209,15 @@ fn main() {
                 handle_error(&term, e);
             }
         }
-        Some(Command::Task { command }) => match command {
-            TaskCommand::List { package, mode } => {
+        Some(Command::Job { command }) => match command {
+            JobCommand::List { package, mode } => {
                 let path = package.unwrap_or_else(|| PathBuf::from("."));
                 let mode = parse_mode(&term, &mode);
-                if let Err(e) = commands::task::list::execute(&path, mode) {
+                if let Err(e) = commands::job::list::execute(&path, mode) {
                     handle_error(&term, e);
                 }
             }
-            TaskCommand::Run {
+            JobCommand::Run {
                 name,
                 args,
                 package,
@@ -226,7 +226,7 @@ fn main() {
             } => {
                 let path = package.unwrap_or_else(|| PathBuf::from("."));
                 let mode = parse_mode(&term, &mode);
-                if let Err(e) = commands::task::run::execute(&path, &name, &args, json, mode) {
+                if let Err(e) = commands::job::run::execute(&path, &name, &args, json, mode) {
                     handle_error(&term, e);
                 }
             }

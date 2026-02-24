@@ -91,13 +91,13 @@ zoya test -p program.zy          # Run tests in a single file
 |--------|-------------|
 | `-p, --package <path>` | Path to a `.zy` file or directory with `package.toml` (defaults to current directory) |
 
-### `zoya task list`
+### `zoya job list`
 
-List all `#[task]` functions in a package or file. Shows each task's path and type signature.
+List all `#[job]` functions in a package or file. Shows each job's path and type signature.
 
 ```bash
-zoya task list                   # List tasks in current package
-zoya task list -p program.zy    # List tasks in a single file
+zoya job list                   # List jobs in current package
+zoya job list -p program.zy    # List jobs in a single file
 ```
 
 | Option | Description |
