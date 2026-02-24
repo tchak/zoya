@@ -2,8 +2,6 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use console::{Term, style};
-use zoya_check::check;
-use zoya_codegen::codegen;
 use zoya_loader::Mode;
 
 /// Compile a file to JavaScript without executing
@@ -13,9 +11,8 @@ pub fn execute(path: &Path, output: Option<&Path>, mode: Mode) -> Result<()> {
     // Load and parse package
     let pkg = zoya_loader::load_package(path, mode)?;
 
-    // Type check entire package with std
-    let std = zoya_std::std();
-    let checked_pkg = check(&pkg, &[std])?;
+    // Type check and generate JS
+    let built = zoya_build::build(&pkg)?;
 
     // Resolve output path: CLI arg > default "build" relative to package dir
     let base_dir = if path.is_dir() {
@@ -27,9 +24,6 @@ pub fn execute(path: &Path, output: Option<&Path>, mode: Mode) -> Result<()> {
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| base_dir.join("build"));
 
-    // Generate single concatenated JS
-    let js_output = codegen(&checked_pkg, &[std]);
-
     // Create output directory if needed
     if !out_path.exists() {
         std::fs::create_dir_all(&out_path)
@@ -37,10 +31,10 @@ pub fn execute(path: &Path, output: Option<&Path>, mode: Mode) -> Result<()> {
     }
 
     // Write single JS file
-    let filename = format!("{}.js", checked_pkg.name);
+    let filename = format!("{}.js", built.name);
     let file_path = out_path.join(&filename);
 
-    std::fs::write(&file_path, &js_output.code)
+    std::fs::write(&file_path, &built.output.code)
         .with_context(|| format!("failed to write file '{}'", file_path.display()))?;
     let _ = term.write_line(&format!("  {}", style(&filename).dim()));
 

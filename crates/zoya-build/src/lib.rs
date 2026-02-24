@@ -1,4 +1,3 @@
-use zoya_check::check;
 use zoya_codegen::{CodegenOutput, codegen};
 use zoya_ir::{DefinitionLookup, TypeError};
 use zoya_package::Package;
@@ -15,9 +14,15 @@ pub struct BuildOutput {
     pub definitions: DefinitionLookup,
 }
 
+pub fn check(package: &Package) -> Result<(), BuildError> {
+    let std = zoya_std::std();
+    zoya_check::check(package, &[std])?;
+    Ok(())
+}
+
 pub fn build(package: &Package) -> Result<BuildOutput, BuildError> {
     let std = zoya_std::std();
-    let checked = check(package, &[std])?;
+    let checked = zoya_check::check(package, &[std])?;
     let output = codegen(&checked, &[std]);
     let definitions = DefinitionLookup::from_packages(&checked, &[std]);
     Ok(BuildOutput {

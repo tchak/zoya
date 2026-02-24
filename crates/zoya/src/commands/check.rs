@@ -2,7 +2,6 @@ use std::path::Path;
 
 use anyhow::Result;
 use console::{Term, style};
-use zoya_check::check;
 use zoya_loader::Mode;
 
 /// Type-check a file without executing it
@@ -11,8 +10,7 @@ pub fn execute(path: &Path, mode: Mode) -> Result<()> {
     let pkg = zoya_loader::load_package(path, mode)?;
 
     // Type check entire package with std
-    let std = zoya_std::std();
-    check(&pkg, &[std])?;
+    zoya_build::check(&pkg)?;
 
     // Success
     let term = Term::stderr();

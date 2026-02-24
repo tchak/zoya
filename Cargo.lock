@@ -3470,6 +3470,7 @@ dependencies = [
  "tokio",
  "tower",
  "zoya-ast",
+ "zoya-build",
  "zoya-check",
  "zoya-codegen",
  "zoya-dashboard",
