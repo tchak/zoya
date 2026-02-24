@@ -1,7 +1,9 @@
+use serde::Serialize;
 use zoya_ir::{CheckedPackage, HttpMethod, pretty_type};
 use zoya_package::QualifiedPath;
 
 /// All data needed to render the dashboard.
+#[derive(Clone, Serialize)]
 pub struct DashboardData {
     pub package_name: String,
     pub functions: Vec<FunctionInfo>,
@@ -10,23 +12,27 @@ pub struct DashboardData {
     pub routes: Vec<RouteInfo>,
 }
 
+#[derive(Clone, Serialize)]
 pub struct FunctionInfo {
     pub name: String,
     pub module: String,
     pub signature: String,
 }
 
+#[derive(Clone, Serialize)]
 pub struct TestInfo {
     pub name: String,
     pub module: String,
 }
 
+#[derive(Clone, Serialize)]
 pub struct TaskInfo {
     pub name: String,
     pub module: String,
     pub signature: String,
 }
 
+#[derive(Clone, Serialize)]
 pub struct RouteInfo {
     pub method: String,
     pub pathname: String,

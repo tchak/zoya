@@ -18,12 +18,12 @@ fn build_dashboard_with_mode(source: &str, mode: Mode) -> axum::Router {
     let mem = MemorySource::new().with_module("root", source);
     let package = load_memory_package(&mem, mode).unwrap();
     let checked = check(&package, &[std]).unwrap();
-    dashboard(&checked, &[std])
+    dashboard(&checked, &[std], "")
 }
 
-/// Helper: send a GET / request and return (status, body string).
-async fn get_dashboard(app: axum::Router) -> (http::StatusCode, String) {
-    let req = Request::builder().uri("/").body(Body::empty()).unwrap();
+/// Helper: send a GET request to a path and return (status, body string).
+async fn get_request(app: axum::Router, uri: &str) -> (http::StatusCode, String) {
+    let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
     let response = app.oneshot(req).await.unwrap();
     let status = response.status();
     let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
@@ -38,27 +38,32 @@ async fn test_dashboard_returns_200() {
 pub fn add(x: Int, y: Int) -> Int x + y
 "#,
     );
-    let (status, body) = get_dashboard(app).await;
+    let (status, body) = get_request(app, "/").await;
     assert_eq!(status, http::StatusCode::OK);
-    assert!(body.contains("<!DOCTYPE html>"));
+    assert!(body.contains("<!doctype html>"));
+    assert!(body.contains("<div id=\"root\">"));
 }
 
 #[tokio::test]
-async fn test_dashboard_shows_functions() {
+async fn test_dashboard_api_returns_json() {
     let app = build_dashboard(
         r#"
 pub fn add(x: Int, y: Int) -> Int x + y
 pub fn greet(name: String) -> String name
 "#,
     );
-    let (_, body) = get_dashboard(app).await;
-    assert!(body.contains("add"));
-    assert!(body.contains("greet"));
-    assert!(body.contains("Functions"));
+    let (status, body) = get_request(app, "/api/data").await;
+    assert_eq!(status, http::StatusCode::OK);
+    let data: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert!(data["functions"].is_array());
+    let functions = data["functions"].as_array().unwrap();
+    assert_eq!(functions.len(), 2);
+    assert!(functions.iter().any(|f| f["name"] == "add"));
+    assert!(functions.iter().any(|f| f["name"] == "greet"));
 }
 
 #[tokio::test]
-async fn test_dashboard_shows_tests() {
+async fn test_dashboard_api_shows_tests() {
     // Use Mode::Test so #[test] functions are included in the package
     let app = build_dashboard_with_mode(
         r#"
@@ -69,26 +74,30 @@ fn test_add() -> () assert_eq(add(1, 2), 3)
 "#,
         Mode::Test,
     );
-    let (_, body) = get_dashboard(app).await;
-    assert!(body.contains("test_add"));
-    assert!(body.contains("Tests"));
+    let (status, body) = get_request(app, "/api/data").await;
+    assert_eq!(status, http::StatusCode::OK);
+    let data: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let tests = data["tests"].as_array().unwrap();
+    assert!(tests.iter().any(|t| t["name"] == "test_add"));
 }
 
 #[tokio::test]
-async fn test_dashboard_shows_tasks() {
+async fn test_dashboard_api_shows_tasks() {
     let app = build_dashboard(
         r#"
 #[task]
 pub fn deploy() -> () ()
 "#,
     );
-    let (_, body) = get_dashboard(app).await;
-    assert!(body.contains("deploy"));
-    assert!(body.contains("Tasks"));
+    let (status, body) = get_request(app, "/api/data").await;
+    assert_eq!(status, http::StatusCode::OK);
+    let data: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let tasks = data["tasks"].as_array().unwrap();
+    assert!(tasks.iter().any(|t| t["name"] == "deploy"));
 }
 
 #[tokio::test]
-async fn test_dashboard_shows_routes() {
+async fn test_dashboard_api_shows_routes() {
     let app = build_dashboard(
         r#"
 use std::http::Response
@@ -100,19 +109,37 @@ pub fn hello() -> Response {
 }
 "#,
     );
-    let (_, body) = get_dashboard(app).await;
-    assert!(body.contains("GET"));
-    assert!(body.contains("/hello"));
-    assert!(body.contains("Routes"));
+    let (status, body) = get_request(app, "/api/data").await;
+    assert_eq!(status, http::StatusCode::OK);
+    let data: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let routes = data["routes"].as_array().unwrap();
+    assert_eq!(routes.len(), 1);
+    assert_eq!(routes[0]["method"], "GET");
+    assert_eq!(routes[0]["pathname"], "/hello");
 }
 
 #[tokio::test]
-async fn test_dashboard_empty_package() {
+async fn test_dashboard_api_empty_package() {
     let app = build_dashboard("");
-    let (status, body) = get_dashboard(app).await;
+    let (status, body) = get_request(app, "/api/data").await;
     assert_eq!(status, http::StatusCode::OK);
-    assert!(body.contains("No functions"));
-    assert!(body.contains("No tests"));
-    assert!(body.contains("No tasks"));
-    assert!(body.contains("No routes"));
+    let data: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(data["functions"].as_array().unwrap().len(), 0);
+    assert_eq!(data["tests"].as_array().unwrap().len(), 0);
+    assert_eq!(data["tasks"].as_array().unwrap().len(), 0);
+    assert_eq!(data["routes"].as_array().unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn test_dashboard_serves_js() {
+    let app = build_dashboard("");
+    let (status, _body) = get_request(app, "/assets/main.js").await;
+    assert_eq!(status, http::StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_dashboard_serves_css() {
+    let app = build_dashboard("");
+    let (status, _body) = get_request(app, "/assets/main.css").await;
+    assert_eq!(status, http::StatusCode::OK);
 }

@@ -123,7 +123,7 @@ fn try_build(path: &Path) -> Result<BuildResult, BuildError> {
 
     let routes = extract_routes(&checked);
     let app_router = zoya_router::router(&checked, &[std]);
-    let dashboard_router = zoya_dashboard::dashboard(&checked, &[std]);
+    let dashboard_router = zoya_dashboard::dashboard(&checked, &[std], "/_");
     let router = app_router.nest("/_", dashboard_router);
 
     Ok(BuildResult { router, routes })

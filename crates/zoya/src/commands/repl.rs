@@ -259,8 +259,9 @@ impl State {
             let runner = Runner::new(&checked_pkg, [std]);
 
             for run_name in &run_function_names {
-                let typed_fn = find_typed_function(&checked_pkg, run_name)
-                    .ok_or_else(|| anyhow!("internal error: run function {} not found", run_name))?;
+                let typed_fn = find_typed_function(&checked_pkg, run_name).ok_or_else(|| {
+                    anyhow!("internal error: run function {} not found", run_name)
+                })?;
                 let return_type = typed_fn.return_type.clone();
 
                 let path = QualifiedPath::root().child("repl").child(run_name);

@@ -63,6 +63,7 @@ crates/
 ├── zoya-naming/       # Naming conventions & validation
 ├── zoya-package/      # Package data structures & config
 ├── zoya-parser/       # Parser (chumsky)
+├── zoya-dashboard/    # Dev dashboard (React SPA, embeds built assets)
 ├── zoya-router/       # HTTP router (Axum integration)
 ├── zoya-run/          # Runtime execution (rquickjs)
 │   └── src/
@@ -104,10 +105,14 @@ editors/
     ├── extension.toml     # Extension manifest
     └── languages/zoya/    # Highlighting & config
 packages/
-└── zoya-runtime/      # JS runtime (TypeScript, bundled with tsdown)
-    ├── src/               # TypeScript source modules
+├── zoya-runtime/      # JS runtime (TypeScript, bundled with tsdown)
+│   ├── src/               # TypeScript source modules
+│   ├── tests/             # Vitest tests
+│   └── dist/              # Built bundle (committed, used by codegen)
+└── zoya-dashboard/    # Dashboard SPA (React, Vite, Tailwind v4)
+    ├── src/               # React components (TypeScript)
     ├── tests/             # Vitest tests
-    └── dist/              # Built bundle (committed, used by codegen)
+    └── dist/              # Built bundle (committed, embedded by crate)
 ```
 
 ## Zoya Syntax Quick Reference
@@ -241,6 +246,9 @@ cargo clippy --workspace                         # Lint
 cd packages/zoya-runtime && npm run build        # Build JS runtime bundle
 cd packages/zoya-runtime && npm test             # Run JS runtime tests
 cd packages/zoya-runtime && npm run typecheck    # Type-check JS runtime
+cd packages/zoya-dashboard && npm run build        # Build dashboard SPA
+cd packages/zoya-dashboard && npm test             # Run dashboard tests
+cd packages/zoya-dashboard && npm run typecheck    # Type-check dashboard
 cd editors/tree-sitter-zoya && npx tree-sitter generate  # Regenerate grammar
 cd editors/tree-sitter-zoya && npx tree-sitter test      # Run grammar tests
 cd editors/tree-sitter-zoya && npx tree-sitter parse FILE # Parse a .zy file
@@ -298,6 +306,7 @@ New features need tests at each pipeline stage:
 | `zoya-naming` | Name validation, case conversion |
 | `zoya-check` | Type inference, visibility, and errors |
 | `zoya-codegen` | Generated JS correctness |
+| `zoya-dashboard` | Dashboard API and asset serving |
 | `zoya-fmt` | Source code formatting |
 | `zoya-router` | HTTP routing and handler execution |
 | `zoya-run` | End-to-end execution |
