@@ -10,7 +10,7 @@ fn build_router(source: &str) -> axum::Router {
     let mem = MemorySource::new().with_module("root", source);
     let package = load_memory_package(&mem, zoya_loader::Mode::Dev).unwrap();
     let output = zoya_build::build(&package).unwrap();
-    router(output)
+    router(&output)
 }
 
 /// Helper: send a request to a router and return (status, body string).

@@ -32,7 +32,7 @@ struct AppState {
 /// Each function annotated with `#[get("/path")]`, `#[post("/path")]`, etc.
 /// becomes an HTTP route. Handlers are executed in a fresh QuickJS runtime
 /// per request.
-pub fn router(output: BuildOutput) -> Router {
+pub fn router(output: &BuildOutput) -> Router {
     let mut route_infos = Vec::with_capacity(output.routes.len());
     for (path, _, _) in &output.routes {
         let func = output
@@ -53,7 +53,7 @@ pub fn router(output: BuildOutput) -> Router {
         .collect();
 
     let state = Arc::new(AppState {
-        output,
+        output: output.clone(),
         routes: route_infos,
     });
 
