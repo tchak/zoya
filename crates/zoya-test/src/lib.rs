@@ -79,7 +79,7 @@ impl<'a> TestRunner<'a> {
 
 /// Run a single test function and interpret its result.
 fn run_single_test(output: &BuildOutput, path: &QualifiedPath) -> Result<(), TestError> {
-    match zoya_run::run(output, path.clone(), vec![]) {
+    match zoya_run::run(output, path, &[]) {
         Ok(value) => interpret_test_value(&value),
         Err(EvalError::Panic(msg)) => Err(TestError::Panic(msg)),
         Err(EvalError::RuntimeError(msg)) => Err(TestError::RuntimeError(msg)),

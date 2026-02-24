@@ -26,7 +26,7 @@ let output = build_from_path(Path::new("src/main.zy"), Mode::Dev)?;
 
 // Run the main function in the root module
 let path = QualifiedPath::root().child("main");
-let result = zoya_run::run(&output, path, vec![])?;
+let result = zoya_run::run(&output, &path, &[])?;
 println!("Result: {}", result);
 ```
 
@@ -38,7 +38,7 @@ use zoya_package::QualifiedPath;
 
 // Run any function by its qualified path, passing arguments
 let fn_path = QualifiedPath::root().child("add");
-let result = zoya_run::run(&output, fn_path, vec![Value::Int(1), Value::Int(2)])?;
+let result = zoya_run::run(&output, &fn_path, &[Value::Int(1), Value::Int(2)])?;
 assert_eq!(result, Value::Int(3));
 ```
 
@@ -46,10 +46,10 @@ assert_eq!(result, Value::Int(3));
 
 ```rust
 /// Execute a function from a `BuildOutput` synchronously.
-pub fn run(output: &BuildOutput, entry: QualifiedPath, args: Vec<Value>) -> Result<Value, EvalError>;
+pub fn run(output: &BuildOutput, entry: &QualifiedPath, args: &[Value]) -> Result<Value, EvalError>;
 
 /// Execute a function from a `BuildOutput` asynchronously.
-pub async fn run_async(output: &BuildOutput, entry: QualifiedPath, args: Vec<Value>) -> Result<Value, EvalError>;
+pub async fn run_async(output: &BuildOutput, entry: &QualifiedPath, args: &[Value]) -> Result<Value, EvalError>;
 ```
 
 ## Value Types

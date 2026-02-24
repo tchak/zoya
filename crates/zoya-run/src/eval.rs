@@ -93,12 +93,12 @@ pub(crate) async fn run_code(
     name: &str,
     code: &str,
     definitions: &DefinitionLookup,
-    entry: QualifiedPath,
-    args: Vec<Value>,
+    entry: &QualifiedPath,
+    args: &[Value],
 ) -> Result<Value, EvalError> {
     // Find the function in the definitions
     let func_def = definitions
-        .get_function(&entry)
+        .get_function(entry)
         .ok_or_else(|| EvalError::RuntimeError(format!("function {} not found", entry)))?;
 
     // Validate argument count
@@ -120,7 +120,7 @@ pub(crate) async fn run_code(
     }
 
     // Build the entry function name using the package name
-    let entry_func = zoya_codegen::format_export_path(&entry, name);
+    let entry_func = zoya_codegen::format_export_path(entry, name);
 
     // Create async runtime (no module system needed)
     let (_runtime, context) = create_async_runtime().await?;
@@ -132,7 +132,7 @@ pub(crate) async fn run_code(
             &ctx,
             code,
             &entry_func,
-            &args,
+            args,
             return_type,
             definitions,
         )

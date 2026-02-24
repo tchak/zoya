@@ -12,8 +12,8 @@ use zoya_package::QualifiedPath;
 /// when already inside a tokio runtime (e.g., HTTP handlers).
 pub fn run(
     output: &BuildOutput,
-    entry: QualifiedPath,
-    args: Vec<Value>,
+    entry: &QualifiedPath,
+    args: &[Value],
 ) -> Result<Value, EvalError> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -27,8 +27,8 @@ pub fn run(
 /// Use this when already inside a tokio runtime (e.g., HTTP handlers).
 pub async fn run_async(
     output: &BuildOutput,
-    entry: QualifiedPath,
-    args: Vec<Value>,
+    entry: &QualifiedPath,
+    args: &[Value],
 ) -> Result<Value, EvalError> {
     eval::run_code(
         &output.name,

@@ -91,7 +91,7 @@ async fn handle_request(
         vec![]
     };
 
-    let result = zoya_run::run_async(&state.output, info.path.clone(), args).await;
+    let result = zoya_run::run_async(&state.output, &info.path, &args).await;
 
     match result {
         Ok(value) => match value_to_axum_response(value) {

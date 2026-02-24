@@ -23,7 +23,7 @@ fn run_source(source: &str) -> Result<Value, EvalError> {
 
 fn run_source_with_mode(source: &str, mode: zoya_loader::Mode) -> Result<Value, EvalError> {
     let output = build_source_with_mode(source, mode)?;
-    zoya_run::run(&output, QualifiedPath::root().child("main"), vec![])
+    zoya_run::run(&output, &QualifiedPath::root().child("main"), &[])
 }
 
 #[test]
@@ -1150,7 +1150,7 @@ fn test_entry_runs_specific_function() {
         pub fn answer() -> Int { 42 }
     "#;
     let output = build_source(source).unwrap();
-    let result = zoya_run::run(&output, QualifiedPath::root().child("answer"), vec![]).unwrap();
+    let result = zoya_run::run(&output, &QualifiedPath::root().child("answer"), &[]).unwrap();
     assert_eq!(result, Value::Int(42));
 }
 
@@ -1163,8 +1163,8 @@ fn test_entry_runs_function_in_submodule() {
     let output = zoya_build::build(&package).unwrap();
     let result = zoya_run::run(
         &output,
-        QualifiedPath::root().child("utils").child("compute"),
-        vec![],
+        &QualifiedPath::root().child("utils").child("compute"),
+        &[],
     )
     .unwrap();
     assert_eq!(result, Value::Int(99));
@@ -1177,7 +1177,7 @@ fn test_entry_error_on_nonexistent_function() {
     "#;
     let output = build_source(source).unwrap();
     let path = QualifiedPath::root().child("nonexistent");
-    let result = zoya_run::run(&output, path, vec![]);
+    let result = zoya_run::run(&output, &path, &[]);
     assert!(matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("not found")));
 }
 
@@ -1190,8 +1190,8 @@ fn test_entry_runs_main_in_submodule() {
     let output = zoya_build::build(&package).unwrap();
     let result = zoya_run::run(
         &output,
-        QualifiedPath::root().child("sub").child("main"),
-        vec![],
+        &QualifiedPath::root().child("sub").child("main"),
+        &[],
     )
     .unwrap();
     assert_eq!(result, Value::Int(77));
@@ -1206,13 +1206,13 @@ fn test_entry_error_on_arg_count_mismatch() {
     let output = build_source(source).unwrap();
     let result = zoya_run::run(
         &output,
-        QualifiedPath::root().child("add"),
-        vec![Value::Int(1)],
+        &QualifiedPath::root().child("add"),
+        &[Value::Int(1)],
     );
     assert!(
         matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("expects 2 argument(s), got 1"))
     );
-    let result = zoya_run::run(&output, QualifiedPath::root().child("add"), vec![]);
+    let result = zoya_run::run(&output, &QualifiedPath::root().child("add"), &[]);
     assert!(
         matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("expects 2 argument(s), got 0"))
     );
@@ -1227,8 +1227,8 @@ fn test_entry_with_args() {
     let output = build_source(source).unwrap();
     let result = zoya_run::run(
         &output,
-        QualifiedPath::root().child("add"),
-        vec![Value::Int(3), Value::Int(4)],
+        &QualifiedPath::root().child("add"),
+        &[Value::Int(3), Value::Int(4)],
     )
     .unwrap();
     assert_eq!(result, Value::Int(7));
@@ -1243,8 +1243,8 @@ fn test_entry_with_string_arg() {
     let output = build_source(source).unwrap();
     let result = zoya_run::run(
         &output,
-        QualifiedPath::root().child("len"),
-        vec![Value::String("hello".into())],
+        &QualifiedPath::root().child("len"),
+        &[Value::String("hello".into())],
     )
     .unwrap();
     assert_eq!(result, Value::Int(5));
@@ -1259,8 +1259,8 @@ fn test_entry_arg_type_mismatch() {
     let output = build_source(source).unwrap();
     let result = zoya_run::run(
         &output,
-        QualifiedPath::root().child("double"),
-        vec![Value::String("not an int".into())],
+        &QualifiedPath::root().child("double"),
+        &[Value::String("not an int".into())],
     );
     assert!(matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("type mismatch")));
 }
@@ -1281,12 +1281,8 @@ fn test_entry_with_struct_arg() {
         module: QualifiedPath::root(),
         data: zoya_run::ValueData::Struct(fields),
     };
-    let result = zoya_run::run(
-        &output,
-        QualifiedPath::root().child("sum_point"),
-        vec![point],
-    )
-    .unwrap();
+    let result =
+        zoya_run::run(&output, &QualifiedPath::root().child("sum_point"), &[point]).unwrap();
     assert_eq!(result, Value::Int(30));
 }
 
@@ -1312,7 +1308,7 @@ fn test_entry_with_enum_arg() {
         module: QualifiedPath::root(),
         data: zoya_run::ValueData::Tuple(vec![Value::Float(10.0)]),
     };
-    let result = zoya_run::run(&output, QualifiedPath::root().child("area"), vec![circle]).unwrap();
+    let result = zoya_run::run(&output, &QualifiedPath::root().child("area"), &[circle]).unwrap();
     assert_eq!(result, Value::Float(314.0));
 }
 
@@ -1429,7 +1425,7 @@ fn test_job_fn_compiles_and_jobs_method_works() {
     assert_eq!(output.jobs.len(), 1);
     assert_eq!(output.jobs[0], QualifiedPath::root().child("my_job"));
 
-    let result = zoya_run::run(&output, QualifiedPath::root().child("main"), vec![]).unwrap();
+    let result = zoya_run::run(&output, &QualifiedPath::root().child("main"), &[]).unwrap();
     assert_eq!(result, Value::Tuple(vec![]));
 }
 

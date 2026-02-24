@@ -18,7 +18,7 @@ pub fn execute(
     let value = match name {
         None => {
             // Default behavior: run main()
-            zoya_run::run(&output, QualifiedPath::root().child("main"), vec![])?
+            zoya_run::run(&output, &QualifiedPath::root().child("main"), &[])?
         }
         Some(fn_name) => {
             // Build qualified path from function name (e.g. "add" or "utils::helper")
@@ -77,7 +77,7 @@ pub fn execute(
             }
 
             // Run the function
-            zoya_run::run(&output, fn_path, parsed_args)?
+            zoya_run::run(&output, &fn_path, &parsed_args)?
         }
     };
 
