@@ -3635,12 +3635,10 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "zoya-build",
- "zoya-check",
  "zoya-codegen",
  "zoya-ir",
  "zoya-loader",
  "zoya-package",
- "zoya-std",
  "zoya-value",
 ]
 

@@ -2,62 +2,54 @@
 
 Runtime execution for the Zoya programming language.
 
-Provides a builder-pattern API to run Zoya programs by compiling to JavaScript and executing via QuickJS.
+Provides a function-based API to run Zoya programs by compiling to JavaScript and executing via QuickJS.
 
 ## Features
 
-- **Builder pattern** - Composable, type-safe run configuration
-- **Package execution** - Run type-checked packages with module and dependency support
-- **Custom entry points** - Run any function by path with arguments
-- **Value marshaling** - Convert JavaScript results to typed Zoya values
+- **Simple API** — Free functions `run()` and `run_async()` operate on `BuildOutput`
+- **Package execution** — Run type-checked packages with module and dependency support
+- **Custom entry points** — Run any function by path with arguments
+- **Value marshaling** — Convert JavaScript results to typed Zoya values
 
 ## Usage
 
-### Run a checked package
+### Run a built package
 
 ```rust
-use zoya_check::check;
-use zoya_loader::{load_package, Mode};
-use zoya_run::Runner;
-use zoya_std::std;
+use zoya_build::build_from_path;
+use zoya_loader::Mode;
+use zoya_package::QualifiedPath;
 use std::path::Path;
 
-// Load and type-check with standard library
-let std = std();
-let pkg = load_package(Path::new("src/main.zy"), Mode::Dev)?;
-let checked_pkg = check(&pkg, &[std])?;
+// Build (load, type-check, codegen)
+let output = build_from_path(Path::new("src/main.zy"), Mode::Dev)?;
 
 // Run the main function in the root module
 let path = QualifiedPath::root().child("main");
-let result = Runner::new(&checked_pkg, [std]).run(path, vec![])?;
+let result = zoya_run::run(&output, path, vec![])?;
 println!("Result: {}", result);
 ```
 
 ### Run a specific function with arguments
 
 ```rust
-use zoya_run::{Runner, Value};
+use zoya_run::Value;
 use zoya_package::QualifiedPath;
 
 // Run any function by its qualified path, passing arguments
 let fn_path = QualifiedPath::root().child("add");
-let result = Runner::new(&checked_pkg, [std])
-    .run(fn_path, vec![Value::Int(1), Value::Int(2)])?;
+let result = zoya_run::run(&output, fn_path, vec![Value::Int(1), Value::Int(2)])?;
 assert_eq!(result, Value::Int(3));
 ```
 
 ## Public API
 
 ```rust
-/// Runner for executing a checked Zoya package.
-pub struct Runner;
+/// Execute a function from a `BuildOutput` synchronously.
+pub fn run(output: &BuildOutput, entry: QualifiedPath, args: Vec<Value>) -> Result<Value, EvalError>;
 
-impl Runner {
-    pub fn new(pkg: &CheckedPackage, deps: impl IntoIterator<Item = &CheckedPackage>) -> Self;
-    pub fn run(&self, path: QualifiedPath, args: Vec<Value>) -> Result<Value, EvalError>;
-    pub async fn run_async(&self, path: QualifiedPath, args: Vec<Value>) -> Result<Value, EvalError>;
-}
-
+/// Execute a function from a `BuildOutput` asynchronously.
+pub async fn run_async(output: &BuildOutput, entry: QualifiedPath, args: Vec<Value>) -> Result<Value, EvalError>;
 ```
 
 ## Value Types
@@ -94,9 +86,8 @@ pub enum EvalError {
 
 ## Dependencies
 
-- [zoya-codegen](../zoya-codegen) - JavaScript code generation
+- [zoya-build](../zoya-build) - Build pipeline (check + codegen)
 - [zoya-ir](../zoya-ir) - Typed IR and type definitions
-- [zoya-loader](../zoya-loader) - Package file loading
 - [zoya-package](../zoya-package) - Package data structures
 - [zoya-value](../zoya-value) - Runtime value types and serialization
 - [rquickjs](https://github.com/aspect-build/rquickjs) - JavaScript runtime (QuickJS)

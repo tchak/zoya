@@ -16,5 +16,3 @@ zoya-value = { path = "../zoya-value", features = ["quickjs"] }
 
 [dev-dependencies]
 tempfile = "3"
-zoya-check = { path = "../zoya-check" }
-zoya-std = { path = "../zoya-std" }

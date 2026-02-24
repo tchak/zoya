@@ -88,8 +88,7 @@ fn parse_zoya_error(msg: &str) -> Option<(&str, Option<&str>)> {
 
 /// Validate arguments, create a JS runtime, and execute a function from compiled code.
 ///
-/// This is the shared implementation used by both `Runner::run_async()` and the
-/// free `run_async()` function.
+/// This is the implementation backing the public `run()` and `run_async()` functions.
 pub(crate) async fn run_code(
     name: &str,
     code: &str,
