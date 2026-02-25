@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use apalis::prelude::*;
 use serde::{Deserialize, Serialize};
+use tower::layer::util::Identity;
 use zoya_build::BuildOutput;
 use zoya_package::QualifiedPath;
 use zoya_run::EvalError;
@@ -85,12 +86,15 @@ pub fn validate(output: &BuildOutput, request: &JobRequest) -> Result<(), JobErr
 ///
 /// Validates the request before enqueuing. Returns early with a `JobError`
 /// if validation fails (fail-fast on structural errors).
-pub async fn enqueue(
-    storage: &mut MemoryStorage<JobRequest>,
+pub async fn enqueue<S>(
+    storage: &mut S,
     output: &BuildOutput,
     path: QualifiedPath,
     args: Vec<Value>,
-) -> Result<(), JobError> {
+) -> Result<(), JobError>
+where
+    S: MessageQueue<JobRequest>,
+{
     let request = JobRequest { path, args };
     validate(output, &request)?;
     storage
@@ -100,9 +104,9 @@ pub async fn enqueue(
 }
 
 /// Shared state for the job worker.
-struct JobWorkerState {
+struct JobWorkerState<S> {
     output: BuildOutput,
-    storage: MemoryStorage<JobRequest>,
+    storage: S,
 }
 
 /// Create and run an apalis worker that processes `JobRequest` items.
@@ -111,10 +115,20 @@ struct JobWorkerState {
 /// function via `zoya_run::run_async()`. Non-retryable validation errors
 /// are logged and skipped; transient errors (panics, runtime errors, job
 /// errors) are returned as `Err` so apalis can retry them.
-pub async fn worker(
-    storage: MemoryStorage<JobRequest>,
+pub async fn worker<S>(
+    storage: S,
     output: BuildOutput,
-) -> Result<(), std::io::Error> {
+) -> Result<(), std::io::Error>
+where
+    S: MessageQueue<JobRequest>
+        + Backend<Request<JobRequest, S::Context>, Layer = Identity>
+        + Clone
+        + Send
+        + Sync
+        + 'static,
+    S::Context: Send + Sync + 'static,
+    <S as Backend<Request<JobRequest, S::Context>>>::Stream: Unpin + Send + 'static,
+{
     let state = Arc::new(JobWorkerState {
         output,
         storage: storage.clone(),
@@ -125,13 +139,19 @@ pub async fn worker(
             WorkerBuilder::new(&state.output.name)
                 .data(state.clone())
                 .backend(storage)
-                .build_fn(handle_job),
+                .build_fn(handle_job::<S>),
         )
         .run()
         .await
 }
 
-async fn handle_job(request: JobRequest, state: Data<Arc<JobWorkerState>>) -> Result<(), JobError> {
+async fn handle_job<S>(
+    request: JobRequest,
+    state: Data<Arc<JobWorkerState<S>>>,
+) -> Result<(), JobError>
+where
+    S: MessageQueue<JobRequest> + Clone + Send + Sync + 'static,
+{
     // Re-validate on the worker side
     if let Err(e) = validate(&state.output, &request) {
         if !e.is_retryable() {
