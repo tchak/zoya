@@ -1093,7 +1093,7 @@ fn needs_deep_equality(ty: &Type) -> bool {
 
 /// Format a qualified path as a JS export name, replacing the "root" prefix with the package name.
 /// e.g., root::main with pkg_name "myapp" -> $myapp$main
-pub fn format_export_path(path: &QualifiedPath, pkg_name: &str) -> String {
+fn format_export_path(path: &QualifiedPath, pkg_name: &str) -> String {
     let segments = path.segments();
     let renamed: Vec<&str> = std::iter::once(pkg_name)
         .chain(segments[1..].iter().map(|s| s.as_str()))

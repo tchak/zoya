@@ -119,8 +119,12 @@ pub(crate) async fn run_code(
             .map_err(|e| EvalError::RuntimeError(format!("argument {} type mismatch: {}", i, e)))?;
     }
 
-    // Build the entry function name using the package name
-    let entry_func = zoya_codegen::format_export_path(entry, name);
+    // Build the qualified path for $$run: root::main with pkg "myapp" → "myapp::main"
+    let segments = entry.segments();
+    let run_path = std::iter::once(name)
+        .chain(segments[1..].iter().map(|s| s.as_str()))
+        .collect::<Vec<_>>()
+        .join("::");
 
     // Create async runtime (no module system needed)
     let (_runtime, context) = create_async_runtime().await?;
@@ -131,7 +135,7 @@ pub(crate) async fn run_code(
         eval_script_async(
             &ctx,
             code,
-            &entry_func,
+            &run_path,
             args,
             return_type,
             definitions,
@@ -141,16 +145,16 @@ pub(crate) async fn run_code(
     .await
 }
 
-/// Evaluate a plain JS script and call an entry function asynchronously.
+/// Evaluate a plain JS script and call an entry function via `$$run`.
 ///
 /// First evaluates `code` to define all functions in the global scope,
-/// then calls `entry_func(args...)` and converts the result to a Zoya Value.
-/// Uses `Promise::into_future()` to drive both the microtask queue and
-/// spawned async tasks (e.g. timers) to completion.
+/// then calls `$$run(qualified_path, ...args)` which handles JS↔Zoya
+/// value conversion internally. Uses `Promise::into_future()` to drive
+/// both the microtask queue and spawned async tasks (e.g. timers).
 pub(crate) async fn eval_script_async(
     ctx: &Ctx<'_>,
     code: &str,
-    entry_func: &str,
+    qualified_path: &str,
     args: &[Value],
     result_type: Type,
     type_lookup: &DefinitionLookup,
@@ -158,27 +162,29 @@ pub(crate) async fn eval_script_async(
     // Define all functions in global scope
     let _: rquickjs::Value = ctx.eval(code).catch(ctx).map_err(map_js_error)?;
 
-    // Inject args as global variables
+    // Get the $$run function from globals
     let globals = ctx.globals();
-    for (i, arg) in args.iter().enumerate() {
+    let run_fn: rquickjs::Function = globals
+        .get("$$run")
+        .map_err(|e| EvalError::RuntimeError(format!("$$run not found: {e}")))?;
+
+    // Build args: qualified path string followed by each Value converted to JSValue
+    let mut js_args = Vec::with_capacity(args.len() + 1);
+    js_args.push(
+        rquickjs::String::from_str(ctx.clone(), qualified_path)
+            .map_err(|e| EvalError::RuntimeError(e.to_string()))?
+            .into_value(),
+    );
+    for arg in args {
         let js_arg: rquickjs::Value = JSValue::from(arg.clone())
             .into_js(ctx)
             .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-        globals
-            .set(format!("__zoya_arg{i}"), js_arg)
-            .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+        js_args.push(js_arg);
     }
 
-    // Build call expression — wrap each arg in $$js_to_zoya() to convert
-    // JSValue representation back to internal Zoya representation (HAMT sets/dicts)
-    let arg_list = (0..args.len())
-        .map(|i| format!("$$js_to_zoya(__zoya_arg{i})"))
-        .collect::<Vec<_>>()
-        .join(",");
-
-    // $$zoya_to_js is async, so it always returns a Promise
-    let promise_val: rquickjs::Value = ctx
-        .eval(format!("$$zoya_to_js({}({}))", entry_func, arg_list))
+    // Call $$run — returns a Promise<JSValue>
+    let promise_val: rquickjs::Value = run_fn
+        .call((rquickjs::function::Rest(js_args),))
         .catch(ctx)
         .map_err(map_js_error)?;
 

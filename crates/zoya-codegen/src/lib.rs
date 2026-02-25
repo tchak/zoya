@@ -1,4 +1,4 @@
 mod codegen;
 pub mod error_codes;
 
-pub use codegen::{CodegenOutput, codegen, format_export_path};
+pub use codegen::{CodegenOutput, codegen};
