@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt;
 
 use zoya_ast::{BinOp, UnaryOp};
@@ -416,9 +417,9 @@ impl TypedExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CheckedPackage {
     pub name: String,
-    pub items: std::collections::HashMap<QualifiedPath, TypedFunction>,
-    pub definitions: std::collections::HashMap<QualifiedPath, Definition>,
-    pub reexports: std::collections::HashMap<QualifiedPath, QualifiedPath>,
+    pub items: HashMap<QualifiedPath, TypedFunction>,
+    pub definitions: HashMap<QualifiedPath, Definition>,
+    pub reexports: HashMap<QualifiedPath, QualifiedPath>,
 }
 
 #[cfg(test)]

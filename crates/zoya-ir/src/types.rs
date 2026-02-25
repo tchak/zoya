@@ -651,36 +651,9 @@ pub struct DefinitionLookup {
 impl DefinitionLookup {
     /// Build lookup from the global definitions table.
     pub fn from_definitions(definitions: &HashMap<QualifiedPath, Definition>) -> Self {
-        let mut enums = HashMap::new();
-        let mut structs = HashMap::new();
-        let mut functions = HashMap::new();
-
-        for (path, def) in definitions {
-            match def {
-                Definition::Enum(enum_type) if !enum_type.variants.is_empty() => {
-                    enums.insert(
-                        path.clone(),
-                        (enum_type.type_var_ids.clone(), enum_type.variants.clone()),
-                    );
-                }
-                Definition::Struct(struct_type) if !struct_type.fields.is_empty() => {
-                    structs.insert(
-                        path.clone(),
-                        (struct_type.type_var_ids.clone(), struct_type.fields.clone()),
-                    );
-                }
-                Definition::Function(func_type) => {
-                    functions.insert(path.clone(), func_type.clone());
-                }
-                _ => {}
-            }
-        }
-
-        DefinitionLookup {
-            enums,
-            structs,
-            functions,
-        }
+        let mut lookup = Self::empty();
+        lookup.add_definitions(definitions);
+        lookup
     }
 
     /// Build lookup from a package and its dependencies.

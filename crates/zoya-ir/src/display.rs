@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Write;
 
 use crate::{Type, TypeVarId};
 
@@ -69,62 +70,93 @@ impl TypeVarNamer {
         }
     }
 
-    /// Format a type using assigned names.
-    fn format(&self, ty: &Type) -> String {
+    /// Write a type using assigned names into the buffer.
+    fn write(&self, buf: &mut String, ty: &Type) {
         match ty {
-            Type::Int => "Int".to_string(),
-            Type::BigInt => "BigInt".to_string(),
-            Type::Float => "Float".to_string(),
-            Type::Bool => "Bool".to_string(),
-            Type::String => "String".to_string(),
-            Type::List(elem) => format!("List<{}>", self.format(elem)),
-            Type::Set(elem) => format!("Set<{}>", self.format(elem)),
-            Type::Task(elem) => format!("Task<{}>", self.format(elem)),
-            Type::Dict(key, val) => format!("Dict<{}, {}>", self.format(key), self.format(val)),
-            Type::Tuple(elems) => {
-                let elem_strs: Vec<String> = elems.iter().map(|e| self.format(e)).collect();
-                format!("({})", elem_strs.join(", "))
+            Type::Int => buf.push_str("Int"),
+            Type::BigInt => buf.push_str("BigInt"),
+            Type::Float => buf.push_str("Float"),
+            Type::Bool => buf.push_str("Bool"),
+            Type::String => buf.push_str("String"),
+            Type::List(elem) => {
+                buf.push_str("List<");
+                self.write(buf, elem);
+                buf.push('>');
             }
-            Type::Var(id) => self
-                .names
-                .get(id)
-                .cloned()
-                .unwrap_or_else(|| format!("?{}", id.0)),
+            Type::Set(elem) => {
+                buf.push_str("Set<");
+                self.write(buf, elem);
+                buf.push('>');
+            }
+            Type::Task(elem) => {
+                buf.push_str("Task<");
+                self.write(buf, elem);
+                buf.push('>');
+            }
+            Type::Dict(key, val) => {
+                buf.push_str("Dict<");
+                self.write(buf, key);
+                buf.push_str(", ");
+                self.write(buf, val);
+                buf.push('>');
+            }
+            Type::Tuple(elems) => {
+                buf.push('(');
+                for (i, e) in elems.iter().enumerate() {
+                    if i > 0 {
+                        buf.push_str(", ");
+                    }
+                    self.write(buf, e);
+                }
+                buf.push(')');
+            }
+            Type::Var(id) => match self.names.get(id) {
+                Some(name) => buf.push_str(name),
+                None => write!(buf, "?{}", id.0).unwrap(),
+            },
             Type::Function { params, ret } => {
                 if params.is_empty() {
-                    format!("() -> {}", self.format(ret))
+                    buf.push_str("() -> ");
+                    self.write(buf, ret);
                 } else if params.len() == 1 {
-                    let param_str = self.format(&params[0]);
                     // Wrap function types in parentheses when they are parameters
-                    let param_str = if matches!(params[0], Type::Function { .. }) {
-                        format!("({})", param_str)
+                    if matches!(params[0], Type::Function { .. }) {
+                        buf.push('(');
+                        self.write(buf, &params[0]);
+                        buf.push(')');
                     } else {
-                        param_str
-                    };
-                    format!("{} -> {}", param_str, self.format(ret))
+                        self.write(buf, &params[0]);
+                    }
+                    buf.push_str(" -> ");
+                    self.write(buf, ret);
                 } else {
-                    let param_strs: Vec<String> = params.iter().map(|p| self.format(p)).collect();
-                    format!("({}) -> {}", param_strs.join(", "), self.format(ret))
+                    buf.push('(');
+                    for (i, p) in params.iter().enumerate() {
+                        if i > 0 {
+                            buf.push_str(", ");
+                        }
+                        self.write(buf, p);
+                    }
+                    buf.push_str(") -> ");
+                    self.write(buf, ret);
                 }
             }
             Type::Struct {
                 name, type_args, ..
-            } => {
-                if type_args.is_empty() {
-                    name.clone()
-                } else {
-                    let args: Vec<String> = type_args.iter().map(|t| self.format(t)).collect();
-                    format!("{}<{}>", name, args.join(", "))
-                }
             }
-            Type::Enum {
+            | Type::Enum {
                 name, type_args, ..
             } => {
-                if type_args.is_empty() {
-                    name.clone()
-                } else {
-                    let args: Vec<String> = type_args.iter().map(|t| self.format(t)).collect();
-                    format!("{}<{}>", name, args.join(", "))
+                buf.push_str(name);
+                if !type_args.is_empty() {
+                    buf.push('<');
+                    for (i, t) in type_args.iter().enumerate() {
+                        if i > 0 {
+                            buf.push_str(", ");
+                        }
+                        self.write(buf, t);
+                    }
+                    buf.push('>');
                 }
             }
         }
@@ -156,7 +188,9 @@ impl TypeVarNamer {
 pub fn pretty_type(ty: &Type) -> String {
     let mut namer = TypeVarNamer::new();
     namer.collect_vars(ty);
-    namer.format(ty)
+    let mut buf = String::new();
+    namer.write(&mut buf, ty);
+    buf
 }
 
 #[cfg(test)]
