@@ -603,6 +603,44 @@ impl Value {
             _ => Err(TerminationError::UnexpectedReturn(format!("{self}"))),
         }
     }
+
+    /// Convert a Job enum variant value into (function_path, args).
+    ///
+    /// Looks up the variant name in the provided jobs mapping to resolve
+    /// the qualified path of the job function.
+    pub fn as_job(
+        &self,
+        jobs: &[(QualifiedPath, String)],
+    ) -> Result<(QualifiedPath, Vec<Value>), Error> {
+        match self {
+            Value::EnumVariant {
+                enum_name,
+                variant_name,
+                module,
+                data,
+            } if enum_name == "Job" && module == &QualifiedPath::root() => {
+                let path = jobs
+                    .iter()
+                    .find(|(_, name)| name == variant_name)
+                    .map(|(p, _)| p.clone())
+                    .ok_or_else(|| Error::UnknownVariant(variant_name.clone()))?;
+                let args = match data {
+                    ValueData::Unit => vec![],
+                    ValueData::Tuple(values) => values.clone(),
+                    ValueData::Struct(_) => {
+                        return Err(Error::UnsupportedConversion(
+                            "Job variants cannot have struct data".into(),
+                        ));
+                    }
+                };
+                Ok((path, args))
+            }
+            _ => Err(Error::TypeMismatch {
+                from: self.type_name().to_string(),
+                to: "Job".to_string(),
+            }),
+        }
+    }
 }
 
 /// Intermediate representation of a JavaScript value, decoupled from QuickJS runtime.
@@ -1484,6 +1522,95 @@ mod tests {
         assert!(matches!(
             value.termination(),
             Err(TerminationError::UnexpectedReturn(_))
+        ));
+    }
+
+    #[test]
+    fn as_job_unit_variant() {
+        let path = QualifiedPath::new(vec!["root".into(), "app".into(), "deploy".into()]);
+        let jobs = vec![(path.clone(), "Deploy".to_string())];
+        let value = Value::EnumVariant {
+            enum_name: "Job".to_string(),
+            variant_name: "Deploy".to_string(),
+            module: QualifiedPath::root(),
+            data: ValueData::Unit,
+        };
+        let (result_path, args) = value.as_job(&jobs).unwrap();
+        assert_eq!(result_path, path);
+        assert!(args.is_empty());
+    }
+
+    #[test]
+    fn as_job_tuple_variant() {
+        let path =
+            QualifiedPath::new(vec!["root".into(), "app".into(), "send_email".into()]);
+        let jobs = vec![(path.clone(), "SendEmail".to_string())];
+        let value = Value::EnumVariant {
+            enum_name: "Job".to_string(),
+            variant_name: "SendEmail".to_string(),
+            module: QualifiedPath::root(),
+            data: ValueData::Tuple(vec![Value::String("hello@example.com".to_string())]),
+        };
+        let (result_path, args) = value.as_job(&jobs).unwrap();
+        assert_eq!(result_path, path);
+        assert_eq!(args, vec![Value::String("hello@example.com".to_string())]);
+    }
+
+    #[test]
+    fn as_job_unknown_variant() {
+        let jobs = vec![(
+            QualifiedPath::new(vec!["root".into(), "app".into(), "deploy".into()]),
+            "Deploy".to_string(),
+        )];
+        let value = Value::EnumVariant {
+            enum_name: "Job".to_string(),
+            variant_name: "Unknown".to_string(),
+            module: QualifiedPath::root(),
+            data: ValueData::Unit,
+        };
+        assert!(matches!(
+            value.as_job(&jobs),
+            Err(Error::UnknownVariant(name)) if name == "Unknown"
+        ));
+    }
+
+    #[test]
+    fn as_job_not_enum() {
+        let jobs = vec![];
+        let value = Value::Int(42);
+        assert!(matches!(
+            value.as_job(&jobs),
+            Err(Error::TypeMismatch { to, .. }) if to == "Job"
+        ));
+    }
+
+    #[test]
+    fn as_job_wrong_enum() {
+        let jobs = vec![];
+        let value = Value::EnumVariant {
+            enum_name: "Option".to_string(),
+            variant_name: "Some".to_string(),
+            module: QualifiedPath::root(),
+            data: ValueData::Tuple(vec![Value::Int(1)]),
+        };
+        assert!(matches!(
+            value.as_job(&jobs),
+            Err(Error::TypeMismatch { to, .. }) if to == "Job"
+        ));
+    }
+
+    #[test]
+    fn as_job_wrong_module() {
+        let jobs = vec![];
+        let value = Value::EnumVariant {
+            enum_name: "Job".to_string(),
+            variant_name: "Deploy".to_string(),
+            module: QualifiedPath::new(vec!["root".into(), "other".into()]),
+            data: ValueData::Unit,
+        };
+        assert!(matches!(
+            value.as_job(&jobs),
+            Err(Error::TypeMismatch { to, .. }) if to == "Job"
         ));
     }
 }
