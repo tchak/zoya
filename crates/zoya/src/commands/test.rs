@@ -45,10 +45,19 @@ pub fn execute(path: &Path) -> Result<(), EvalError> {
         }
         match &result.outcome {
             Ok(()) => {
+                let jobs_suffix = if result.jobs.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        " {}",
+                        style(format!("({} jobs enqueued)", result.jobs.len())).dim()
+                    )
+                };
                 let _ = term.write_line(&format!(
-                    " {}  {}",
+                    " {}  {}{}",
                     style("PASS").green().bold(),
-                    style(&display).bold()
+                    style(&display).bold(),
+                    jobs_suffix
                 ));
             }
             Err(_) => {

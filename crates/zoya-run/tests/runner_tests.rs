@@ -1150,7 +1150,9 @@ fn test_entry_runs_specific_function() {
         pub fn answer() -> Int { 42 }
     "#;
     let output = build_source(source).unwrap();
-    let result = zoya_run::run(&output, &QualifiedPath::root().child("answer"), &[]).unwrap().0;
+    let result = zoya_run::run(&output, &QualifiedPath::root().child("answer"), &[])
+        .unwrap()
+        .0;
     assert_eq!(result, Value::Int(42));
 }
 
@@ -1287,8 +1289,9 @@ fn test_entry_with_struct_arg() {
         module: QualifiedPath::root(),
         data: zoya_run::ValueData::Struct(fields),
     };
-    let result =
-        zoya_run::run(&output, &QualifiedPath::root().child("sum_point"), &[point]).unwrap().0;
+    let result = zoya_run::run(&output, &QualifiedPath::root().child("sum_point"), &[point])
+        .unwrap()
+        .0;
     assert_eq!(result, Value::Int(30));
 }
 
@@ -1314,7 +1317,9 @@ fn test_entry_with_enum_arg() {
         module: QualifiedPath::root(),
         data: zoya_run::ValueData::Tuple(vec![Value::Float(10.0)]),
     };
-    let result = zoya_run::run(&output, &QualifiedPath::root().child("area"), &[circle]).unwrap().0;
+    let result = zoya_run::run(&output, &QualifiedPath::root().child("area"), &[circle])
+        .unwrap()
+        .0;
     assert_eq!(result, Value::Float(314.0));
 }
 
@@ -1434,7 +1439,9 @@ fn test_job_fn_compiles_and_jobs_method_works() {
         (QualifiedPath::root().child("my_job"), "MyJob".into())
     );
 
-    let result = zoya_run::run(&output, &QualifiedPath::root().child("main"), &[]).unwrap().0;
+    let result = zoya_run::run(&output, &QualifiedPath::root().child("main"), &[])
+        .unwrap()
+        .0;
     assert_eq!(result, Value::Tuple(vec![]));
 }
 

@@ -3113,11 +3113,7 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
                         let name_segments: Vec<&str> =
                             segments.iter().skip(1).map(|s| s.as_str()).collect();
                         let variant_name = to_pascal_case(&name_segments.join("_"));
-                        job_variants.push((
-                            variant_name,
-                            func_path.clone(),
-                            ft.params.clone(),
-                        ));
+                        job_variants.push((variant_name, func_path.clone(), ft.params.clone()));
                     }
                 }
             }

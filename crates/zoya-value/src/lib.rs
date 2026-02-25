@@ -614,10 +614,7 @@ impl Value {
     ///
     /// Looks up the variant name in the provided jobs mapping to resolve
     /// the qualified path of the job function.
-    pub fn as_job(
-        &self,
-        jobs: &[(QualifiedPath, String)],
-    ) -> Result<Job, Error> {
+    pub fn as_job(&self, jobs: &[(QualifiedPath, String)]) -> Result<Job, Error> {
         match self {
             Value::EnumVariant {
                 enum_name,
@@ -1558,12 +1555,18 @@ mod tests {
         };
         let job = value.as_job(&jobs).unwrap();
         assert_eq!(job.path, path);
-        assert_eq!(job.args, vec![Value::String("hello@example.com".to_string())]);
+        assert_eq!(
+            job.args,
+            vec![Value::String("hello@example.com".to_string())]
+        );
     }
 
     #[test]
     fn as_job_unknown_variant() {
-        let jobs = vec![(QualifiedPath::from("root::app::deploy"), "Deploy".to_string())];
+        let jobs = vec![(
+            QualifiedPath::from("root::app::deploy"),
+            "Deploy".to_string(),
+        )];
         let value = Value::EnumVariant {
             enum_name: "Job".to_string(),
             variant_name: "Unknown".to_string(),

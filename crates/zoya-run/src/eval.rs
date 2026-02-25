@@ -241,8 +241,8 @@ async fn eval_script_async(
             let item: rquickjs::Value = arr
                 .get(i)
                 .map_err(|e| EvalError::RuntimeError(format!("failed to read job[{i}]: {e}")))?;
-            let js_val = JSValue::from_js(ctx, item)
-                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+            let js_val =
+                JSValue::from_js(ctx, item).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
             jobs.push(js_val);
         }
         jobs

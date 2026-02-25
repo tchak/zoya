@@ -115,10 +115,7 @@ struct JobWorkerState<S> {
 /// function via `zoya_run::run_async()`. Non-retryable validation errors
 /// are logged and skipped; transient errors (panics, runtime errors, job
 /// errors) are returned as `Err` so apalis can retry them.
-pub async fn worker<S>(
-    storage: S,
-    output: BuildOutput,
-) -> Result<(), std::io::Error>
+pub async fn worker<S>(storage: S, output: BuildOutput) -> Result<(), std::io::Error>
 where
     S: MessageQueue<JobRequest>
         + Backend<Request<JobRequest, S::Context>, Layer = Identity>
@@ -462,8 +459,8 @@ mod tests {
         Error = JobError,
         Future = impl Send,
     > + Send
-           + Sync
-           + Clone {
+    + Sync
+    + Clone {
         let state = Arc::new(JobWorkerState { output, storage });
         tower::service_fn(move |req: Request<JobRequest, ()>| {
             let state = state.clone();

@@ -1,6 +1,7 @@
 use zoya_build::BuildOutput;
 use zoya_package::QualifiedPath;
 use zoya_run::{EvalError, TerminationError};
+use zoya_value::Job;
 
 /// Structured error for test failures.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -20,6 +21,7 @@ pub enum TestError {
 pub struct TestResult {
     pub path: QualifiedPath,
     pub outcome: Result<(), TestError>,
+    pub jobs: Vec<Job>,
 }
 
 /// Summary of all test results.
@@ -68,8 +70,12 @@ impl<'a> TestRunner<'a> {
     pub fn execute(self, mut on_result: impl FnMut(&TestResult)) -> Result<TestReport, EvalError> {
         let mut results = Vec::new();
         for path in self.tests {
-            let outcome = run_single_test(self.output, &path);
-            let result = TestResult { path, outcome };
+            let (jobs, outcome) = run_single_test(self.output, &path);
+            let result = TestResult {
+                path,
+                outcome,
+                jobs,
+            };
             on_result(&result);
             results.push(result);
         }
@@ -78,16 +84,22 @@ impl<'a> TestRunner<'a> {
 }
 
 /// Run a single test function and interpret its result.
-fn run_single_test(output: &BuildOutput, path: &QualifiedPath) -> Result<(), TestError> {
+fn run_single_test(
+    output: &BuildOutput,
+    path: &QualifiedPath,
+) -> (Vec<Job>, Result<(), TestError>) {
     match zoya_run::run(output, path, &[]) {
-        Ok((value, _jobs)) => value.termination().map_err(|e| match e {
-            TerminationError::Failed(msg) => TestError::Failed(msg),
-            TerminationError::UnexpectedReturn(msg) => TestError::UnexpectedReturn(msg),
-        }),
-        Err(EvalError::Panic(msg)) => Err(TestError::Panic(msg)),
-        Err(EvalError::RuntimeError(msg)) => Err(TestError::RuntimeError(msg)),
-        Err(EvalError::LoadError(e)) => Err(TestError::RuntimeError(e.to_string())),
-        Err(EvalError::TypeError(e)) => Err(TestError::RuntimeError(e.to_string())),
+        Ok((value, jobs)) => {
+            let outcome = value.termination().map_err(|e| match e {
+                TerminationError::Failed(msg) => TestError::Failed(msg),
+                TerminationError::UnexpectedReturn(msg) => TestError::UnexpectedReturn(msg),
+            });
+            (jobs, outcome)
+        }
+        Err(EvalError::Panic(msg)) => (vec![], Err(TestError::Panic(msg))),
+        Err(EvalError::RuntimeError(msg)) => (vec![], Err(TestError::RuntimeError(msg))),
+        Err(EvalError::LoadError(e)) => (vec![], Err(TestError::RuntimeError(e.to_string()))),
+        Err(EvalError::TypeError(e)) => (vec![], Err(TestError::RuntimeError(e.to_string()))),
     }
 }
 
@@ -102,10 +114,12 @@ mod tests {
                 TestResult {
                     path: QualifiedPath::root().child("test_a"),
                     outcome: Ok(()),
+                    jobs: vec![],
                 },
                 TestResult {
                     path: QualifiedPath::root().child("test_b"),
                     outcome: Ok(()),
+                    jobs: vec![],
                 },
             ],
         };
@@ -122,10 +136,12 @@ mod tests {
                 TestResult {
                     path: QualifiedPath::root().child("test_a"),
                     outcome: Ok(()),
+                    jobs: vec![],
                 },
                 TestResult {
                     path: QualifiedPath::root().child("test_b"),
                     outcome: Err(TestError::Failed("failed".to_string())),
+                    jobs: vec![],
                 },
             ],
         };
