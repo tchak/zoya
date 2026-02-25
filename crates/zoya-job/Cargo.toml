@@ -7,8 +7,6 @@ edition = "2024"
 apalis = { version = "0.7", features = ["retry"] }
 apalis-sql = { version = "0.7", features = ["sqlite", "migrate"] }
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 thiserror = "2"
 tracing = "0.1"
 zoya-build = { path = "../zoya-build" }

@@ -3,19 +3,11 @@ use std::sync::Arc;
 use apalis::prelude::*;
 use apalis_sql::sqlite::SqliteStorage;
 pub use apalis_sql::sqlx;
-use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use zoya_build::BuildOutput;
 use zoya_package::QualifiedPath;
 use zoya_run::EvalError;
-use zoya_value::{Job, TerminationError, Value};
-
-/// A serializable job request for background execution.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct JobRequest {
-    pub path: QualifiedPath,
-    pub args: Vec<Value>,
-}
+use zoya_value::{Job, TerminationError};
 
 /// Errors that can occur during job validation or execution.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -52,7 +44,7 @@ impl JobError {
 /// 1. The path refers to a known job function
 /// 2. The argument count matches the parameter count
 /// 3. Each argument matches the expected parameter type
-pub fn validate(output: &BuildOutput, request: &JobRequest) -> Result<(), JobError> {
+pub fn validate(output: &BuildOutput, request: &Job) -> Result<(), JobError> {
     // Check the path exists in the jobs list
     if !output.jobs.iter().any(|(p, _)| p == &request.path) {
         return Err(JobError::NotFound(request.path.to_string()));
@@ -89,22 +81,20 @@ pub fn validate(output: &BuildOutput, request: &JobRequest) -> Result<(), JobErr
 /// Validates the request before enqueuing. Returns early with a `JobError`
 /// if validation fails (fail-fast on structural errors).
 pub async fn enqueue(
-    storage: &mut SqliteStorage<JobRequest>,
+    storage: &mut SqliteStorage<Job>,
     output: &BuildOutput,
-    path: QualifiedPath,
-    args: Vec<Value>,
+    job: Job,
 ) -> Result<(), JobError> {
-    let request = JobRequest { path, args };
-    validate(output, &request)?;
+    validate(output, &job)?;
     storage
-        .push(request)
+        .push(job)
         .await
         .map_err(|_| JobError::RuntimeError("failed to enqueue job".to_string()))?;
     Ok(())
 }
 
 /// Create an in-memory SQLite job storage (for tests and development).
-pub async fn memory_storage() -> Result<SqliteStorage<JobRequest>, JobError> {
+pub async fn memory_storage() -> Result<SqliteStorage<Job>, JobError> {
     let pool = SqlitePool::connect("sqlite::memory:")
         .await
         .map_err(|e| JobError::RuntimeError(format!("failed to connect: {e}")))?;
@@ -116,7 +106,7 @@ pub async fn memory_storage() -> Result<SqliteStorage<JobRequest>, JobError> {
 
 /// List all defined jobs and their pending enqueued instances from SQL storage.
 pub async fn list(
-    storage: &SqliteStorage<JobRequest>,
+    storage: &SqliteStorage<Job>,
     output: &BuildOutput,
 ) -> Result<Vec<(QualifiedPath, String, Vec<Job>)>, JobError> {
     // Fetch all pending jobs, paginating through results
@@ -142,10 +132,7 @@ pub async fn list(
             let jobs = pending
                 .iter()
                 .filter(|r| r.args.path == *path)
-                .map(|r| Job {
-                    path: r.args.path.clone(),
-                    args: r.args.args.clone(),
-                })
+                .map(|r| r.args.clone())
                 .collect();
             (path.clone(), variant_name.clone(), jobs)
         })
@@ -157,17 +144,17 @@ pub async fn list(
 /// Shared state for the job worker.
 struct JobWorkerState {
     output: BuildOutput,
-    storage: SqliteStorage<JobRequest>,
+    storage: SqliteStorage<Job>,
 }
 
-/// Create and run an apalis worker that processes `JobRequest` items.
+/// Create and run an apalis worker that processes `Job` items.
 ///
 /// The worker re-validates each request before execution, then runs the
 /// function via `zoya_run::run_async()`. Non-retryable validation errors
 /// are logged and skipped; transient errors (panics, runtime errors, job
 /// errors) are returned as `Err` so apalis can retry them.
 pub async fn worker(
-    storage: SqliteStorage<JobRequest>,
+    storage: SqliteStorage<Job>,
     output: BuildOutput,
 ) -> Result<(), std::io::Error> {
     let state = Arc::new(JobWorkerState {
@@ -186,7 +173,7 @@ pub async fn worker(
         .await
 }
 
-async fn handle_job(request: JobRequest, state: Data<Arc<JobWorkerState>>) -> Result<(), JobError> {
+async fn handle_job(request: Job, state: Data<Arc<JobWorkerState>>) -> Result<(), JobError> {
     // Re-validate on the worker side
     if let Err(e) = validate(&state.output, &request) {
         if !e.is_retryable() {
@@ -207,7 +194,7 @@ async fn handle_job(request: JobRequest, state: Data<Arc<JobWorkerState>>) -> Re
             if result.is_ok() {
                 for job in jobs {
                     let mut storage = state.storage.clone();
-                    if let Err(e) = enqueue(&mut storage, &state.output, job.path, job.args).await {
+                    if let Err(e) = enqueue(&mut storage, &state.output, job).await {
                         tracing::warn!("failed to enqueue child job: {e}");
                     }
                 }
@@ -223,6 +210,7 @@ async fn handle_job(request: JobRequest, state: Data<Arc<JobWorkerState>>) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zoya_value::Value;
 
     // ── JobError::is_retryable tests ────────────────────────────────
 
@@ -273,7 +261,7 @@ mod tests {
     #[test]
     fn validate_not_found() {
         let output = empty_output();
-        let request = JobRequest {
+        let request = Job {
             path: QualifiedPath::root().child("missing"),
             args: vec![],
         };
@@ -320,8 +308,10 @@ mod tests {
         enqueue(
             &mut storage,
             &output,
-            QualifiedPath::root().child("my_job"),
-            vec![],
+            Job {
+                path: QualifiedPath::root().child("my_job"),
+                args: vec![],
+            },
         )
         .await
         .unwrap();
@@ -342,8 +332,10 @@ mod tests {
         let err = enqueue(
             &mut storage,
             &output,
-            QualifiedPath::root().child("missing"),
-            vec![],
+            Job {
+                path: QualifiedPath::root().child("missing"),
+                args: vec![],
+            },
         )
         .await
         .unwrap_err();
@@ -362,8 +354,10 @@ mod tests {
         let err = enqueue(
             &mut storage,
             &output,
-            QualifiedPath::root().child("my_job"),
-            vec![],
+            Job {
+                path: QualifiedPath::root().child("my_job"),
+                args: vec![],
+            },
         )
         .await
         .unwrap_err();
@@ -388,8 +382,10 @@ mod tests {
         let err = enqueue(
             &mut storage,
             &output,
-            QualifiedPath::root().child("my_job"),
-            vec![Value::String("hello".to_string())],
+            Job {
+                path: QualifiedPath::root().child("my_job"),
+                args: vec![Value::String("hello".to_string())],
+            },
         )
         .await
         .unwrap_err();
@@ -408,7 +404,7 @@ mod tests {
         );
         let storage = memory_storage().await.unwrap();
         let state = Arc::new(JobWorkerState { output, storage });
-        let request = JobRequest {
+        let request = Job {
             path: QualifiedPath::root().child("my_job"),
             args: vec![],
         };
@@ -426,7 +422,7 @@ mod tests {
         );
         let storage = memory_storage().await.unwrap();
         let state = Arc::new(JobWorkerState { output, storage });
-        let request = JobRequest {
+        let request = Job {
             path: QualifiedPath::root().child("add"),
             args: vec![Value::Int(1), Value::Int(2)],
         };
@@ -444,7 +440,7 @@ mod tests {
         );
         let storage = memory_storage().await.unwrap();
         let state = Arc::new(JobWorkerState { output, storage });
-        let request = JobRequest {
+        let request = Job {
             path: QualifiedPath::root().child("bad_job"),
             args: vec![],
         };
@@ -462,7 +458,7 @@ mod tests {
         );
         let storage = memory_storage().await.unwrap();
         let state = Arc::new(JobWorkerState { output, storage });
-        let request = JobRequest {
+        let request = Job {
             path: QualifiedPath::root().child("missing"),
             args: vec![],
         };
@@ -475,9 +471,9 @@ mod tests {
 
     fn make_service(
         output: BuildOutput,
-        storage: SqliteStorage<JobRequest>,
+        storage: SqliteStorage<Job>,
     ) -> impl tower::Service<
-        Request<JobRequest, ()>,
+        Request<Job, ()>,
         Response = (),
         Error = JobError,
         Future = impl Send,
@@ -485,7 +481,7 @@ mod tests {
     + Sync
     + Clone {
         let state = Arc::new(JobWorkerState { output, storage });
-        tower::service_fn(move |req: Request<JobRequest, ()>| {
+        tower::service_fn(move |req: Request<Job, ()>| {
             let state = state.clone();
             async move { handle_job(req.args, Data::new(state)).await }
         })
@@ -502,12 +498,12 @@ mod tests {
         let storage = memory_storage().await.unwrap();
         let svc = make_service(output, storage);
 
-        let mem = MemoryStorage::<JobRequest>::new();
+        let mem = MemoryStorage::<Job>::new();
         let (mut tester, poller) = apalis_core::test_utils::TestWrapper::new_with_service(mem, svc);
         tokio::spawn(poller);
 
         tester
-            .enqueue(JobRequest {
+            .enqueue(Job {
                 path: QualifiedPath::root().child("my_job"),
                 args: vec![],
             })
@@ -529,12 +525,12 @@ mod tests {
         let storage = memory_storage().await.unwrap();
         let svc = make_service(output, storage);
 
-        let mem = MemoryStorage::<JobRequest>::new();
+        let mem = MemoryStorage::<Job>::new();
         let (mut tester, poller) = apalis_core::test_utils::TestWrapper::new_with_service(mem, svc);
         tokio::spawn(poller);
 
         tester
-            .enqueue(JobRequest {
+            .enqueue(Job {
                 path: QualifiedPath::root().child("bad_job"),
                 args: vec![],
             })
@@ -557,12 +553,12 @@ mod tests {
         let storage = memory_storage().await.unwrap();
         let svc = make_service(output, storage);
 
-        let mem = MemoryStorage::<JobRequest>::new();
+        let mem = MemoryStorage::<Job>::new();
         let (mut tester, poller) = apalis_core::test_utils::TestWrapper::new_with_service(mem, svc);
         tokio::spawn(poller);
 
         tester
-            .enqueue(JobRequest {
+            .enqueue(Job {
                 path: QualifiedPath::root().child("greet"),
                 args: vec![Value::String("world".to_string())],
             })
@@ -591,24 +587,30 @@ mod tests {
         enqueue(
             &mut storage,
             &output,
-            QualifiedPath::root().child("job_a"),
-            vec![],
+            Job {
+                path: QualifiedPath::root().child("job_a"),
+                args: vec![],
+            },
         )
         .await
         .unwrap();
         enqueue(
             &mut storage,
             &output,
-            QualifiedPath::root().child("job_a"),
-            vec![],
+            Job {
+                path: QualifiedPath::root().child("job_a"),
+                args: vec![],
+            },
         )
         .await
         .unwrap();
         enqueue(
             &mut storage,
             &output,
-            QualifiedPath::root().child("job_b"),
-            vec![Value::Int(42)],
+            Job {
+                path: QualifiedPath::root().child("job_b"),
+                args: vec![Value::Int(42)],
+            },
         )
         .await
         .unwrap();

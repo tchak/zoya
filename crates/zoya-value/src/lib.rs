@@ -52,7 +52,7 @@ impl PartialEq for ValueData {
 
 impl Eq for ValueData {}
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Job {
     pub path: QualifiedPath,
     pub args: Vec<Value>,
