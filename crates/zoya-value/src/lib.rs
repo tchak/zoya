@@ -24,6 +24,14 @@ pub enum Error {
     ParseError(String),
 }
 
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum TerminationError {
+    #[error("{0}")]
+    Failed(String),
+    #[error("unexpected return value: {0}")]
+    UnexpectedReturn(String),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ValueData {
     Unit,
@@ -560,6 +568,39 @@ impl Value {
                 from: self.type_name().to_string(),
                 to: expected.to_string(),
             }),
+        }
+    }
+
+    /// Interpret this value as a termination result.
+    ///
+    /// - `()` → Ok
+    /// - `Result::Ok(...)` → Ok
+    /// - `Result::Err(e)` → Err (failed)
+    /// - `Task(inner)` → recurse
+    /// - anything else → unexpected return
+    pub fn termination(&self) -> Result<(), TerminationError> {
+        match self {
+            Value::Tuple(elems) if elems.is_empty() => Ok(()),
+            Value::EnumVariant {
+                enum_name,
+                variant_name,
+                data: ValueData::Tuple(_),
+                ..
+            } if enum_name == "Result" && variant_name == "Ok" => Ok(()),
+            Value::EnumVariant {
+                enum_name,
+                variant_name,
+                data: ValueData::Tuple(values),
+                ..
+            } if enum_name == "Result" && variant_name == "Err" => {
+                let msg = values
+                    .first()
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "failed".to_string());
+                Err(TerminationError::Failed(msg))
+            }
+            Value::Task(inner) => inner.termination(),
+            _ => Err(TerminationError::UnexpectedReturn(format!("{self}"))),
         }
     }
 }
@@ -1360,5 +1401,89 @@ mod tests {
             ret: Box::new(Type::Int),
         };
         assert!(Value::Int(42).check_type(&ty, &lookup).is_err());
+    }
+
+    // ── termination tests ───────────────────────────────────────────
+
+    #[test]
+    fn termination_unit() {
+        let value = Value::Tuple(vec![]);
+        assert_eq!(value.termination(), Ok(()));
+    }
+
+    #[test]
+    fn termination_result_ok() {
+        let value = Value::EnumVariant {
+            module: QualifiedPath::root(),
+            enum_name: "Result".to_string(),
+            variant_name: "Ok".to_string(),
+            data: ValueData::Tuple(vec![Value::Tuple(vec![])]),
+        };
+        assert_eq!(value.termination(), Ok(()));
+    }
+
+    #[test]
+    fn termination_result_err() {
+        let value = Value::EnumVariant {
+            module: QualifiedPath::root(),
+            enum_name: "Result".to_string(),
+            variant_name: "Err".to_string(),
+            data: ValueData::Tuple(vec![Value::String("something failed".to_string())]),
+        };
+        let err = value.termination().unwrap_err();
+        assert!(matches!(err, TerminationError::Failed(_)));
+        assert!(err.to_string().contains("something failed"));
+    }
+
+    #[test]
+    fn termination_wrong_enum_name() {
+        let value = Value::EnumVariant {
+            module: QualifiedPath::root(),
+            enum_name: "Option".to_string(),
+            variant_name: "Ok".to_string(),
+            data: ValueData::Tuple(vec![Value::Tuple(vec![])]),
+        };
+        assert!(matches!(
+            value.termination(),
+            Err(TerminationError::UnexpectedReturn(_))
+        ));
+    }
+
+    #[test]
+    fn termination_task_unit() {
+        let value = Value::Task(Box::new(Value::Tuple(vec![])));
+        assert_eq!(value.termination(), Ok(()));
+    }
+
+    #[test]
+    fn termination_task_result_ok() {
+        let value = Value::Task(Box::new(Value::EnumVariant {
+            module: QualifiedPath::root(),
+            enum_name: "Result".to_string(),
+            variant_name: "Ok".to_string(),
+            data: ValueData::Tuple(vec![Value::Tuple(vec![])]),
+        }));
+        assert_eq!(value.termination(), Ok(()));
+    }
+
+    #[test]
+    fn termination_task_result_err() {
+        let value = Value::Task(Box::new(Value::EnumVariant {
+            module: QualifiedPath::root(),
+            enum_name: "Result".to_string(),
+            variant_name: "Err".to_string(),
+            data: ValueData::Tuple(vec![Value::String("async failed".to_string())]),
+        }));
+        let err = value.termination().unwrap_err();
+        assert!(err.to_string().contains("async failed"));
+    }
+
+    #[test]
+    fn termination_unexpected_value() {
+        let value = Value::Int(42);
+        assert!(matches!(
+            value.termination(),
+            Err(TerminationError::UnexpectedReturn(_))
+        ));
     }
 }

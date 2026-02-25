@@ -2,7 +2,7 @@ mod eval;
 
 pub use eval::EvalError;
 pub use zoya_build::BuildOutput;
-pub use zoya_value::{Value, ValueData};
+pub use zoya_value::{TerminationError, Value, ValueData};
 
 use zoya_package::QualifiedPath;
 

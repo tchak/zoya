@@ -1,6 +1,6 @@
 use zoya_build::BuildOutput;
 use zoya_package::QualifiedPath;
-use zoya_run::{EvalError, Value, ValueData};
+use zoya_run::{EvalError, TerminationError};
 
 /// Structured error for test failures.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -80,7 +80,10 @@ impl<'a> TestRunner<'a> {
 /// Run a single test function and interpret its result.
 fn run_single_test(output: &BuildOutput, path: &QualifiedPath) -> Result<(), TestError> {
     match zoya_run::run(output, path, &[]) {
-        Ok(value) => interpret_test_value(&value),
+        Ok(value) => value.termination().map_err(|e| match e {
+            TerminationError::Failed(msg) => TestError::Failed(msg),
+            TerminationError::UnexpectedReturn(msg) => TestError::UnexpectedReturn(msg),
+        }),
         Err(EvalError::Panic(msg)) => Err(TestError::Panic(msg)),
         Err(EvalError::RuntimeError(msg)) => Err(TestError::RuntimeError(msg)),
         Err(EvalError::LoadError(e)) => Err(TestError::RuntimeError(e.to_string())),
@@ -88,116 +91,9 @@ fn run_single_test(output: &BuildOutput, path: &QualifiedPath) -> Result<(), Tes
     }
 }
 
-/// Interpret a test function's return value as pass/fail.
-fn interpret_test_value(value: &Value) -> Result<(), TestError> {
-    match value {
-        Value::Tuple(elems) if elems.is_empty() => Ok(()),
-        Value::EnumVariant {
-            enum_name,
-            variant_name,
-            data: ValueData::Tuple(_),
-            ..
-        } if enum_name == "Result" && variant_name == "Ok" => Ok(()),
-        Value::EnumVariant {
-            enum_name,
-            variant_name,
-            data: ValueData::Tuple(values),
-            ..
-        } if enum_name == "Result" && variant_name == "Err" => {
-            let msg = values
-                .first()
-                .map(|v| v.to_string())
-                .unwrap_or_else(|| "test failed".to_string());
-            Err(TestError::Failed(msg))
-        }
-        Value::Task(inner) => interpret_test_value(inner),
-        _ => Err(TestError::UnexpectedReturn(format!("{value}"))),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_interpret_unit_return() {
-        let value = Value::Tuple(vec![]);
-        assert_eq!(interpret_test_value(&value), Ok(()));
-    }
-
-    #[test]
-    fn test_interpret_result_ok_unit() {
-        let value = Value::EnumVariant {
-            module: QualifiedPath::root(),
-            enum_name: "Result".to_string(),
-            variant_name: "Ok".to_string(),
-            data: ValueData::Tuple(vec![Value::Tuple(vec![])]),
-        };
-        assert_eq!(interpret_test_value(&value), Ok(()));
-    }
-
-    #[test]
-    fn test_interpret_result_err() {
-        let value = Value::EnumVariant {
-            module: QualifiedPath::root(),
-            enum_name: "Result".to_string(),
-            variant_name: "Err".to_string(),
-            data: ValueData::Tuple(vec![Value::String("something failed".to_string())]),
-        };
-        assert!(interpret_test_value(&value).is_err());
-        assert!(
-            interpret_test_value(&value)
-                .unwrap_err()
-                .to_string()
-                .contains("something failed")
-        );
-    }
-
-    #[test]
-    fn test_interpret_wrong_enum_name() {
-        let value = Value::EnumVariant {
-            module: QualifiedPath::root(),
-            enum_name: "Option".to_string(),
-            variant_name: "Ok".to_string(),
-            data: ValueData::Tuple(vec![Value::Tuple(vec![])]),
-        };
-        assert!(interpret_test_value(&value).is_err());
-    }
-
-    #[test]
-    fn test_interpret_task_unit() {
-        let value = Value::Task(Box::new(Value::Tuple(vec![])));
-        assert_eq!(interpret_test_value(&value), Ok(()));
-    }
-
-    #[test]
-    fn test_interpret_task_result_ok() {
-        let value = Value::Task(Box::new(Value::EnumVariant {
-            module: QualifiedPath::root(),
-            enum_name: "Result".to_string(),
-            variant_name: "Ok".to_string(),
-            data: ValueData::Tuple(vec![Value::Tuple(vec![])]),
-        }));
-        assert_eq!(interpret_test_value(&value), Ok(()));
-    }
-
-    #[test]
-    fn test_interpret_task_result_err() {
-        let value = Value::Task(Box::new(Value::EnumVariant {
-            module: QualifiedPath::root(),
-            enum_name: "Result".to_string(),
-            variant_name: "Err".to_string(),
-            data: ValueData::Tuple(vec![Value::String("async failed".to_string())]),
-        }));
-        let err = interpret_test_value(&value).unwrap_err();
-        assert!(err.to_string().contains("async failed"));
-    }
-
-    #[test]
-    fn test_interpret_unexpected_value() {
-        let value = Value::Int(42);
-        assert!(interpret_test_value(&value).is_err());
-    }
 
     #[test]
     fn test_report_all_pass() {

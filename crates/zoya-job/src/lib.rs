@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use zoya_build::BuildOutput;
 use zoya_package::QualifiedPath;
 use zoya_run::EvalError;
-use zoya_value::{Value, ValueData};
+use zoya_value::{TerminationError, Value};
 
 /// A serializable job request for background execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -139,43 +139,12 @@ async fn handle_job(request: JobRequest, state: Data<Arc<JobWorkerState>>) -> Re
 
     // Execute the job function
     match zoya_run::run_async(&state.output, &request.path, &request.args).await {
-        Ok(value) => interpret_job_result(&value),
+        Ok(value) => value.termination().map_err(|e| match e {
+            TerminationError::Failed(msg) => JobError::JobReturnedError(msg),
+            TerminationError::UnexpectedReturn(msg) => JobError::RuntimeError(msg),
+        }),
         Err(EvalError::Panic(msg)) => Err(JobError::Panic(msg)),
         Err(e) => Err(JobError::RuntimeError(e.to_string())),
-    }
-}
-
-/// Interpret a job function's return value.
-///
-/// - `()` → Ok
-/// - `Result::Ok(...)` → Ok
-/// - `Result::Err(e)` → Err (retryable)
-/// - `Task(inner)` → recurse
-pub fn interpret_job_result(value: &Value) -> Result<(), JobError> {
-    match value {
-        Value::Tuple(elems) if elems.is_empty() => Ok(()),
-        Value::EnumVariant {
-            enum_name,
-            variant_name,
-            data: ValueData::Tuple(_),
-            ..
-        } if enum_name == "Result" && variant_name == "Ok" => Ok(()),
-        Value::EnumVariant {
-            enum_name,
-            variant_name,
-            data: ValueData::Tuple(values),
-            ..
-        } if enum_name == "Result" && variant_name == "Err" => {
-            let msg = values
-                .first()
-                .map(|v| v.to_string())
-                .unwrap_or_else(|| "job failed".to_string());
-            Err(JobError::JobReturnedError(msg))
-        }
-        Value::Task(inner) => interpret_job_result(inner),
-        _ => Err(JobError::RuntimeError(format!(
-            "unexpected job return value: {value}"
-        ))),
     }
 }
 
@@ -225,76 +194,6 @@ mod tests {
     #[test]
     fn job_returned_error_is_retryable() {
         assert!(JobError::JobReturnedError("failed".into()).is_retryable());
-    }
-
-    // ── interpret_job_result tests ──────────────────────────────────
-
-    #[test]
-    fn interpret_unit_ok() {
-        let value = Value::Tuple(vec![]);
-        assert_eq!(interpret_job_result(&value), Ok(()));
-    }
-
-    #[test]
-    fn interpret_result_ok() {
-        let value = Value::EnumVariant {
-            module: QualifiedPath::root(),
-            enum_name: "Result".to_string(),
-            variant_name: "Ok".to_string(),
-            data: ValueData::Tuple(vec![Value::Tuple(vec![])]),
-        };
-        assert_eq!(interpret_job_result(&value), Ok(()));
-    }
-
-    #[test]
-    fn interpret_result_err() {
-        let value = Value::EnumVariant {
-            module: QualifiedPath::root(),
-            enum_name: "Result".to_string(),
-            variant_name: "Err".to_string(),
-            data: ValueData::Tuple(vec![Value::String("something failed".to_string())]),
-        };
-        let err = interpret_job_result(&value).unwrap_err();
-        assert!(err.is_retryable());
-        assert!(err.to_string().contains("something failed"));
-    }
-
-    #[test]
-    fn interpret_task_unit() {
-        let value = Value::Task(Box::new(Value::Tuple(vec![])));
-        assert_eq!(interpret_job_result(&value), Ok(()));
-    }
-
-    #[test]
-    fn interpret_task_result_ok() {
-        let value = Value::Task(Box::new(Value::EnumVariant {
-            module: QualifiedPath::root(),
-            enum_name: "Result".to_string(),
-            variant_name: "Ok".to_string(),
-            data: ValueData::Tuple(vec![Value::Tuple(vec![])]),
-        }));
-        assert_eq!(interpret_job_result(&value), Ok(()));
-    }
-
-    #[test]
-    fn interpret_task_result_err() {
-        let value = Value::Task(Box::new(Value::EnumVariant {
-            module: QualifiedPath::root(),
-            enum_name: "Result".to_string(),
-            variant_name: "Err".to_string(),
-            data: ValueData::Tuple(vec![Value::String("async failed".to_string())]),
-        }));
-        let err = interpret_job_result(&value).unwrap_err();
-        assert!(err.is_retryable());
-        assert!(err.to_string().contains("async failed"));
-    }
-
-    #[test]
-    fn interpret_unexpected_value() {
-        let value = Value::Int(42);
-        let err = interpret_job_result(&value).unwrap_err();
-        assert!(err.is_retryable()); // RuntimeError is retryable
-        assert!(err.to_string().contains("unexpected job return value"));
     }
 
     // ── validate tests ─────────────────────────────────────────────
