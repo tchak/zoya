@@ -131,10 +131,17 @@ export function $$js_to_zoya(v: JSValue): Value {
   return v;
 }
 
+const $$jobs: Value[] = [];
+
+export function $$enqueue(job: Value): Value[] {
+  $$jobs.push(job);
+  return []; // unit
+}
+
 export async function $$run(
   qualified_path: string,
   ...args: JSValue[]
-): Promise<JSValue> {
+): Promise<{ value: JSValue; jobs: JSValue[] }> {
   const js_name = '$' + qualified_path.replace(/::/g, '$');
   const fn = (globalThis as Record<string, unknown>)[js_name];
   if (typeof fn !== 'function') {
@@ -148,5 +155,9 @@ export async function $$run(
   }
   const zoya_args = args.map($$js_to_zoya);
   const result = fn(...zoya_args);
-  return $$zoya_to_js(result);
+  const collected = $$jobs.splice(0);
+  return {
+    value: await $$zoya_to_js(result),
+    jobs: await Promise.all(collected.map($$zoya_to_js)),
+  };
 }

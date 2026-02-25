@@ -192,15 +192,21 @@ pub(crate) async fn eval_script_async(
     // queue and spawned async tasks (timers), unlike finish() which only drives microtasks
     let promise = rquickjs::Promise::from_value(promise_val)
         .map_err(|e| EvalError::RuntimeError(format!("expected promise: {e}")))?;
-    let resolved = promise
+    let resolved: rquickjs::Value = promise
         .into_future()
         .await
         .catch(ctx)
         .map_err(map_js_error)?;
 
-    // Convert resolved JS value to Zoya Value
+    // $$run returns { value, jobs } — extract the value field, discard jobs for now
+    let result_obj = resolved
+        .as_object()
+        .ok_or_else(|| EvalError::RuntimeError("$$run returned non-object".into()))?;
+    let value_field: rquickjs::Value = result_obj
+        .get("value")
+        .map_err(|e| EvalError::RuntimeError(format!("missing value field: {e}")))?;
     let js_val =
-        JSValue::from_js(ctx, resolved).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+        JSValue::from_js(ctx, value_field).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
     Value::from_js_value(js_val, &result_type, type_lookup).map_err(EvalError::from)
 }
 

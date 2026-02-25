@@ -586,12 +586,22 @@
 		}
 		return v;
 	}
+	const $$jobs = [];
+	function $$enqueue(job) {
+		$$jobs.push(job);
+		return [];
+	}
 	async function $$run(qualified_path, ...args) {
 		const js_name = "$" + qualified_path.replace(/::/g, "$");
 		const fn = globalThis[js_name];
 		if (typeof fn !== "function") $$throw("PANIC", `function not found: ${qualified_path}`);
 		if (fn.length !== args.length) $$throw("PANIC", `arity mismatch for ${qualified_path}: expected ${fn.length} arguments, got ${args.length}`);
-		return $$zoya_to_js(fn(...args.map($$js_to_zoya)));
+		const result = fn(...args.map($$js_to_zoya));
+		const collected = $$jobs.splice(0);
+		return {
+			value: await $$zoya_to_js(result),
+			jobs: await Promise.all(collected.map($$zoya_to_js))
+		};
 	}
 
 //#endregion
@@ -866,6 +876,7 @@
 		$$zoya_to_js,
 		$$js_to_zoya,
 		$$run,
+		$$enqueue,
 		$$Dict,
 		$$Set,
 		$$Int,

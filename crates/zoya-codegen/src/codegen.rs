@@ -1046,7 +1046,7 @@ impl<'a> PackageCodegen<'a> {
             "root::io::delay" => "return $$Task.delay($ms);".to_string(),
 
             // Job enqueueing
-            "root::enqueue" => "console.log(JSON.stringify($job)); return [];".to_string(),
+            "root::enqueue" => "return $$enqueue($job);".to_string(),
 
             _ => panic!(
                 "no builtin JS implementation for '{}' — every #[builtin] function must have a codegen entry",
