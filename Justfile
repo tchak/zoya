@@ -1,5 +1,5 @@
-# Run all tests (Rust + JS + tree-sitter)
-test-all: test test-runtime test-grammar
+# Run all tests (Rust + JS + dashboard + tree-sitter)
+test-all: test test-runtime test-dashboard test-grammar
 
 # Run Rust tests
 test *args:
@@ -8,6 +8,10 @@ test *args:
 # Run JS runtime tests
 test-runtime:
     cd packages/zoya-runtime && npm test
+
+# Run dashboard tests
+test-dashboard:
+    cd packages/zoya-dashboard && npm test
 
 # Run tree-sitter grammar tests
 test-grammar:
@@ -25,6 +29,10 @@ fmt:
 # Build JS runtime bundle
 build-runtime:
     cd packages/zoya-runtime && npm run build
+
+# Build dashboard SPA
+build-dashboard:
+    cd packages/zoya-dashboard && npm run build
 
 # Regenerate tree-sitter parser from grammar.js
 generate-grammar:
