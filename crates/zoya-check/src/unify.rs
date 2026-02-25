@@ -51,12 +51,18 @@ impl UnifyCtx {
 
     /// Resolve a type by following type variable bindings.
     /// Returns the most concrete type known for the given type.
-    pub fn resolve(&self, ty: &Type) -> Type {
+    /// Uses path compression: after resolving a chain like ?1 → ?2 → ?3 → Int,
+    /// updates ?1 to point directly to Int for O(1) future lookups.
+    pub fn resolve(&mut self, ty: &Type) -> Type {
         match ty {
             Type::Var(id) => {
-                if let Some(bound) = self.substitutions.get(id) {
-                    // Recursively resolve in case of chained bindings
-                    self.resolve(bound)
+                if let Some(bound) = self.substitutions.get(id).cloned() {
+                    let resolved = self.resolve(&bound);
+                    // Path compression: point directly to final type
+                    if resolved != bound {
+                        self.substitutions.insert(*id, resolved.clone());
+                    }
+                    resolved
                 } else {
                     ty.clone()
                 }
@@ -105,7 +111,7 @@ impl UnifyCtx {
     }
 
     /// Resolve type variables within an enum variant type.
-    fn resolve_variant_type(&self, vt: &EnumVariantType) -> EnumVariantType {
+    fn resolve_variant_type(&mut self, vt: &EnumVariantType) -> EnumVariantType {
         match vt {
             EnumVariantType::Unit => EnumVariantType::Unit,
             EnumVariantType::Tuple(types) => {
@@ -122,7 +128,7 @@ impl UnifyCtx {
 
     /// Check if a type variable occurs in a type (occurs check).
     /// This prevents infinite types like T = List<T>.
-    fn occurs(&self, var_id: TypeVarId, ty: &Type) -> bool {
+    fn occurs(&mut self, var_id: TypeVarId, ty: &Type) -> bool {
         let ty = self.resolve(ty);
         match ty {
             Type::Var(id) => id == var_id,
@@ -155,7 +161,7 @@ impl UnifyCtx {
     }
 
     /// Check if a type variable occurs in an enum variant type.
-    fn occurs_in_variant(&self, var_id: TypeVarId, vt: &EnumVariantType) -> bool {
+    fn occurs_in_variant(&mut self, var_id: TypeVarId, vt: &EnumVariantType) -> bool {
         match vt {
             EnumVariantType::Unit => false,
             EnumVariantType::Tuple(types) => types.iter().any(|t| self.occurs(var_id, t)),
@@ -337,7 +343,7 @@ impl UnifyCtx {
     }
 
     /// Collect all free (unbound) type variables in a type.
-    pub fn free_vars(&self, ty: &Type) -> HashSet<TypeVarId> {
+    pub fn free_vars(&mut self, ty: &Type) -> HashSet<TypeVarId> {
         let ty = self.resolve(ty);
         match ty {
             Type::Var(id) => {
@@ -353,19 +359,31 @@ impl UnifyCtx {
                 set.extend(self.free_vars(&val));
                 set
             }
-            Type::Tuple(elems) => elems.iter().flat_map(|e| self.free_vars(e)).collect(),
+            Type::Tuple(elems) => {
+                let mut set = HashSet::new();
+                for e in &elems {
+                    set.extend(self.free_vars(e));
+                }
+                set
+            }
             Type::Function { params, ret } => {
-                let mut set: HashSet<TypeVarId> =
-                    params.iter().flat_map(|p| self.free_vars(p)).collect();
+                let mut set = HashSet::new();
+                for p in &params {
+                    set.extend(self.free_vars(p));
+                }
                 set.extend(self.free_vars(&ret));
                 set
             }
             Type::Struct {
                 type_args, fields, ..
             } => {
-                let mut set: HashSet<TypeVarId> =
-                    type_args.iter().flat_map(|t| self.free_vars(t)).collect();
-                set.extend(fields.iter().flat_map(|(_, t)| self.free_vars(t)));
+                let mut set = HashSet::new();
+                for t in &type_args {
+                    set.extend(self.free_vars(t));
+                }
+                for (_, t) in &fields {
+                    set.extend(self.free_vars(t));
+                }
                 set
             }
             Type::Enum {
@@ -373,10 +391,12 @@ impl UnifyCtx {
                 variants,
                 ..
             } => {
-                let mut set: HashSet<TypeVarId> =
-                    type_args.iter().flat_map(|t| self.free_vars(t)).collect();
-                for (_, vt) in variants {
-                    set.extend(self.free_vars_in_variant(&vt));
+                let mut set = HashSet::new();
+                for t in &type_args {
+                    set.extend(self.free_vars(t));
+                }
+                for (_, vt) in &variants {
+                    set.extend(self.free_vars_in_variant(vt));
                 }
                 set
             }
@@ -385,12 +405,22 @@ impl UnifyCtx {
     }
 
     /// Collect free type variables in an enum variant type.
-    fn free_vars_in_variant(&self, vt: &EnumVariantType) -> HashSet<TypeVarId> {
+    fn free_vars_in_variant(&mut self, vt: &EnumVariantType) -> HashSet<TypeVarId> {
         match vt {
             EnumVariantType::Unit => HashSet::new(),
-            EnumVariantType::Tuple(types) => types.iter().flat_map(|t| self.free_vars(t)).collect(),
+            EnumVariantType::Tuple(types) => {
+                let mut set = HashSet::new();
+                for t in types {
+                    set.extend(self.free_vars(t));
+                }
+                set
+            }
             EnumVariantType::Struct(fields) => {
-                fields.iter().flat_map(|(_, t)| self.free_vars(t)).collect()
+                let mut set = HashSet::new();
+                for (_, t) in fields {
+                    set.extend(self.free_vars(t));
+                }
+                set
             }
         }
     }
@@ -398,7 +428,7 @@ impl UnifyCtx {
     /// Generalize a type to a type scheme by quantifying over type variables
     /// that are free in the type but not in the given set of "fixed" variables.
     /// The fixed variables typically come from the outer environment.
-    pub fn generalize(&self, ty: &Type, fixed_vars: &HashSet<TypeVarId>) -> TypeScheme {
+    pub fn generalize(&mut self, ty: &Type, fixed_vars: &HashSet<TypeVarId>) -> TypeScheme {
         let ty = self.resolve(ty);
         let ty_vars = self.free_vars(&ty);
         let quantified: Vec<TypeVarId> = ty_vars.difference(fixed_vars).cloned().collect();
@@ -661,7 +691,7 @@ mod tests {
 
     #[test]
     fn test_free_vars_concrete() {
-        let ctx = UnifyCtx::new();
+        let mut ctx = UnifyCtx::new();
         assert!(ctx.free_vars(&Type::Int).is_empty());
         assert!(ctx.free_vars(&Type::String).is_empty());
     }
@@ -692,7 +722,7 @@ mod tests {
 
     #[test]
     fn test_generalize_no_free_vars() {
-        let ctx = UnifyCtx::new();
+        let mut ctx = UnifyCtx::new();
         let ty = Type::Function {
             params: vec![Type::Int],
             ret: Box::new(Type::Bool),

@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use zoya_ast::{
     AttributeArg, BinOp, Expr, FunctionDef, ImplBlock, ImplMethod, Item, LetBinding, ListElement,
@@ -31,30 +32,30 @@ use zoya_naming::{is_pascal_case, is_snake_case, to_pascal_case, to_snake_case};
 #[derive(Debug, Clone, Default)]
 pub struct TypeEnv {
     /// All named definitions (functions, structs, enums, type aliases, modules) in a unified namespace
-    pub definitions: HashMap<QualifiedPath, Definition>,
+    pub definitions: Rc<HashMap<QualifiedPath, Definition>>,
     /// Local variable types (type schemes for let polymorphism)
     pub locals: HashMap<String, TypeScheme>,
     /// Per-module import tables: module_path -> (local_name -> qualified_path)
     /// Includes both item imports and module imports.
-    pub imports: HashMap<QualifiedPath, ImportTable>,
+    pub imports: Rc<HashMap<QualifiedPath, ImportTable>>,
     /// Re-export path mappings: re-export_path -> original_path
     /// Used to resolve re-exports to their original definition locations for codegen.
     /// Includes both item re-exports and module re-exports.
-    pub reexports: HashMap<QualifiedPath, QualifiedPath>,
+    pub reexports: Rc<HashMap<QualifiedPath, QualifiedPath>>,
 }
 
 impl TypeEnv {
     pub fn with_locals(&self, locals: HashMap<String, TypeScheme>) -> Self {
         TypeEnv {
-            definitions: self.definitions.clone(),
+            definitions: Rc::clone(&self.definitions),
             locals,
-            imports: self.imports.clone(),
-            reexports: self.reexports.clone(),
+            imports: Rc::clone(&self.imports),
+            reexports: Rc::clone(&self.reexports),
         }
     }
 
     /// Collect all free type variables in the environment
-    pub fn free_vars(&self, ctx: &UnifyCtx) -> HashSet<TypeVarId> {
+    pub fn free_vars(&self, ctx: &mut UnifyCtx) -> HashSet<TypeVarId> {
         let mut set = HashSet::new();
         for scheme in self.locals.values() {
             // Free vars in scheme = free vars in type - quantified vars
@@ -69,7 +70,7 @@ impl TypeEnv {
     /// Currently allows overwrites (needed for REPL redefinition).
     /// Future: add collision detection for different definition kinds.
     pub fn register(&mut self, path: QualifiedPath, def: Definition) {
-        self.definitions.insert(path, def);
+        Rc::make_mut(&mut self.definitions).insert(path, def);
     }
 }
 
@@ -2511,7 +2512,7 @@ fn check_interpolated_string(
 fn resolve_enum_variants(
     variants: &[(String, EnumVariantType)],
     instantiation: &HashMap<TypeVarId, Type>,
-    ctx: &UnifyCtx,
+    ctx: &mut UnifyCtx,
 ) -> Vec<(String, EnumVariantType)> {
     variants
         .iter()
@@ -2801,7 +2802,7 @@ fn register_reexport(
             name: local_name.to_string(),
         });
         env.register(reexport_path.clone(), reexport_def);
-        env.reexports.insert(reexport_path, qualified.clone());
+        Rc::make_mut(&mut env.reexports).insert(reexport_path, qualified.clone());
         return Ok(());
     }
 
@@ -2816,8 +2817,7 @@ fn register_reexport(
     let reexport_path = module_path.child(local_name);
 
     env.register(reexport_path.clone(), make_reexport_definition(&def));
-    env.reexports
-        .insert(reexport_path.clone(), qualified.clone());
+    Rc::make_mut(&mut env.reexports).insert(reexport_path.clone(), qualified.clone());
 
     // If re-exporting an enum, also re-export all its variants
     if let Definition::Enum(ref enum_type) = def {
@@ -2829,7 +2829,7 @@ fn register_reexport(
                 variant_path.clone(),
                 Definition::EnumVariant(reexported_enum, variant_type.clone()),
             );
-            env.reexports.insert(variant_path, original_variant_path);
+            Rc::make_mut(&mut env.reexports).insert(variant_path, original_variant_path);
         }
     }
 
@@ -2912,7 +2912,7 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
         for (reexport, original) in &dep.reexports {
             let remapped_reexport = reexport.with_root(&dep.name);
             let remapped_original = original.with_root(&dep.name);
-            env.reexports.insert(remapped_reexport, remapped_original);
+            Rc::make_mut(&mut env.reexports).insert(remapped_reexport, remapped_original);
         }
     }
 
@@ -2940,7 +2940,7 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
             if !pkg_uses.is_empty() {
                 let item_imports =
                     resolve_module_imports(&pkg_uses, path, &env.definitions, &env.reexports)?;
-                env.imports
+                Rc::make_mut(&mut env.imports)
                     .entry(path.clone())
                     .or_default()
                     .extend(item_imports);
@@ -2968,7 +2968,9 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
                 .collect();
 
             for path in &module_paths {
-                let module_imports = env.imports.entry(path.clone()).or_default();
+                let module_imports = Rc::make_mut(&mut env.imports)
+                    .entry(path.clone())
+                    .or_default();
                 for (name, qpath) in &prelude_items {
                     module_imports
                         .entry(name.clone())
@@ -3037,7 +3039,7 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
                         &env.reexports,
                     )
                 {
-                    env.imports
+                    Rc::make_mut(&mut env.imports)
                         .entry(path.clone())
                         .or_default()
                         .extend(item_imports);
@@ -3072,7 +3074,7 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
                         &env.reexports,
                     )
                 {
-                    env.imports
+                    Rc::make_mut(&mut env.imports)
                         .entry(path.clone())
                         .or_default()
                         .extend(item_imports);
@@ -3195,7 +3197,9 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
 
         // Inject Job, its variants, and enqueue into every module's imports
         for path in &module_paths {
-            let module_imports = env.imports.entry(path.clone()).or_default();
+            let module_imports = Rc::make_mut(&mut env.imports)
+                .entry(path.clone())
+                .or_default();
             module_imports
                 .entry("Job".to_string())
                 .or_insert_with(|| job_enum_path.clone());
@@ -3274,7 +3278,7 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
                 .collect();
             let item_imports =
                 resolve_module_imports(&uses, path, &env.definitions, &env.reexports)?;
-            env.imports
+            Rc::make_mut(&mut env.imports)
                 .entry(path.clone())
                 .or_default()
                 .extend(item_imports);
@@ -3768,7 +3772,9 @@ fn check_module_bodies(
                 ctx.clear_substitutions();
                 let typed = check_function_in_module(func, current_module, env, ctx, package_name)?;
                 let func_path = current_module.child(&func.name);
-                if let Some(Definition::Function(ft)) = env.definitions.get_mut(&func_path) {
+                if let Some(Definition::Function(ft)) =
+                    Rc::make_mut(&mut env.definitions).get_mut(&func_path)
+                {
                     ft.return_type = typed.return_type.clone();
                 }
                 checked_items.push((func_path, typed));
@@ -3796,7 +3802,7 @@ fn check_module_bodies(
                     )?;
                     // Update the definition's return type
                     if let Some(Definition::ImplMethod(imt)) =
-                        env.definitions.get_mut(&method_qpath)
+                        Rc::make_mut(&mut env.definitions).get_mut(&method_qpath)
                     {
                         imt.return_type = typed.return_type.clone();
                     }
