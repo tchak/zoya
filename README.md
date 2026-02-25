@@ -55,10 +55,13 @@ Zoya is organized as a Cargo workspace with multiple crates:
 |-------|-------------|
 | [zoya](crates/zoya) | Main compiler and CLI |
 | [zoya-ast](crates/zoya-ast) | Abstract Syntax Tree types |
+| [zoya-build](crates/zoya-build) | Build orchestration (load + check + codegen) |
 | [zoya-check](crates/zoya-check) | Type checker with Hindley-Milner inference |
 | [zoya-codegen](crates/zoya-codegen) | JavaScript code generation |
+| [zoya-dashboard](crates/zoya-dashboard) | Dev dashboard (embedded React SPA) |
 | [zoya-fmt](crates/zoya-fmt) | Source code formatter |
 | [zoya-ir](crates/zoya-ir) | Typed IR and type definitions |
+| [zoya-job](crates/zoya-job) | Background job processing (SQLite + apalis) |
 | [zoya-lexer](crates/zoya-lexer) | Tokenizer (logos) |
 | [zoya-loader](crates/zoya-loader) | Package file loading |
 | [zoya-naming](crates/zoya-naming) | Naming conventions and validation |
@@ -67,6 +70,7 @@ Zoya is organized as a Cargo workspace with multiple crates:
 | [zoya-router](crates/zoya-router) | HTTP router (Axum) |
 | [zoya-run](crates/zoya-run) | Runtime execution (QuickJS) |
 | [zoya-std](crates/zoya-std) | Standard library |
+| [zoya-test](crates/zoya-test) | Test runner |
 | [zoya-value](crates/zoya-value) | Runtime value types and serialization |
 
 ## Usage
@@ -125,12 +129,12 @@ let add: (?0, ?0) -> ?0
 ### Run a File
 
 ```bash
-zoya run program.zy         # Run a single file
-zoya run                      # Run package in current directory
-zoya run path/to/project      # Run package at path
-zoya run --mode test          # Run in test mode
-zoya run --json               # Output result as JSON
-zoya run -- add 1 2           # Run a named function with arguments
+zoya run                          # Run main in current directory
+zoya run -p program.zy           # Run main from a file
+zoya run -p path/to/project     # Run main from a project
+zoya run --mode test              # Run in test mode
+zoya run --json                   # Output result as JSON
+zoya run add 1 2                  # Run a named function with arguments
 ```
 
 ### Type Check Only
@@ -138,30 +142,31 @@ zoya run -- add 1 2           # Run a named function with arguments
 Validate types without executing:
 
 ```bash
-zoya check program.zy       # Check a single file
-zoya check                    # Check package in current directory
+zoya check                        # Check package in current directory
+zoya check -p program.zy        # Check a single file
 ```
 
 ### Compile to JavaScript
 
 ```bash
-zoya build program.zy           # Output to stdout
-zoya build program.zy -o out.js # Output to file
+zoya build                          # Output to stdout
+zoya build -p program.zy          # Compile a file
+zoya build -p program.zy -o out.js # Output to file
 ```
 
 ### Format Source Code
 
 ```bash
 zoya fmt                     # Format all .zy files in current directory
-zoya fmt program.zy          # Format a single file
+zoya fmt -p program.zy     # Format a single file
 zoya fmt --check             # Check formatting without writing
 ```
 
 ### Run Tests
 
 ```bash
-zoya test                    # Run tests in current package
-zoya test path/to/project    # Run tests at path
+zoya test                        # Run tests in current package
+zoya test -p path/to/project    # Run tests at path
 ```
 
 ### Development Server
@@ -198,7 +203,7 @@ Define and run job functions with `#[job]`:
 ```bash
 zoya job list               # List available job functions
 zoya job run deploy         # Run a job function
-zoya job run deploy -- arg1 # Run with arguments
+zoya job run deploy arg1    # Run with arguments
 ```
 
 ## Language Tour
@@ -226,6 +231,7 @@ Zoya has the following built-in types:
 | `List<T>` | `[1, 2, 3]`, `[]` |
 | `Dict<K, V>` | persistent hash map |
 | `Set<T>` | persistent hash set |
+| `Bytes` | binary data |
 | `(T, U, ...)` | `(1, "hello")`, `()`, `(42,)` |
 | `T -> U` | `Int -> Bool`, `(Int, Int) -> Int` |
 

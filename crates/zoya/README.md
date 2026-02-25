@@ -8,28 +8,30 @@ This is the main binary crate that provides the `zoya` CLI tool for compiling an
 
 ```bash
 zoya init my_project                # Create a new project
-zoya repl                          # Start interactive REPL
-zoya repl file.zy                # REPL with file preloaded
-zoya run file.zy                 # Execute a file
-zoya run                           # Run package in current directory
-zoya run path/to/project           # Run package at path
-zoya run --mode test               # Run in test mode
-zoya run --json file.zy          # Output result as JSON
-zoya run -- add 1 2                # Run a named function with arguments
-zoya check file.zy               # Type-check without running
-zoya check                         # Check package in current directory
-zoya build file.zy               # Compile to JavaScript (stdout)
-zoya build file.zy -o out.js     # Compile to file
-zoya fmt                           # Format source files in current directory
-zoya fmt file.zy                 # Format a single file
-zoya fmt --check                   # Check formatting without writing
-zoya test                          # Run tests in current package
-zoya test path/to/project          # Run tests at path
-zoya dev                           # Start HTTP dev server (port 3000)
-zoya dev --port 8080               # Dev server on custom port
-zoya job list                      # List available job functions
-zoya job run deploy                # Run a job function
-zoya job run deploy -- arg1        # Run job with arguments
+zoya repl                           # Start interactive REPL
+zoya repl -p file.zy               # REPL with package loaded
+zoya run                            # Run main in current directory
+zoya run -p file.zy                # Run main from a file
+zoya run -p path/to/project        # Run main from a project
+zoya run --mode test                # Run in test mode
+zoya run --json                     # Output result as JSON
+zoya run add 1 2                    # Run a named function with arguments
+zoya run --json add 1 2            # Run named function, output as JSON
+zoya check                          # Type-check package in current directory
+zoya check -p file.zy              # Type-check a file
+zoya build                          # Compile to JavaScript (stdout)
+zoya build -p file.zy              # Compile a file
+zoya build -p file.zy -o out.js   # Compile to file
+zoya fmt                            # Format source files in current directory
+zoya fmt -p file.zy               # Format a single file
+zoya fmt --check                    # Check formatting without writing
+zoya test                           # Run tests in current package
+zoya test -p path/to/project       # Run tests at path
+zoya dev                            # Start HTTP dev server (port 3000)
+zoya dev --port 8080                # Dev server on custom port
+zoya job list                       # List available job functions
+zoya job run deploy                 # Run a job function
+zoya job run deploy arg1            # Run job with arguments
 ```
 
 ## Init Project
@@ -38,7 +40,7 @@ Create a new Zoya project with `zoya init`:
 
 ```bash
 zoya init my_project
-zoya init my_project --name custom_name
+zoya init my_project -n custom_name
 ```
 
 This creates a directory with `package.toml` and `src/main.zy`.
@@ -47,7 +49,7 @@ This creates a directory with `package.toml` and `src/main.zy`.
 
 - Persistent function and type definitions across inputs
 - Let bindings accumulate in scope
-- Load files with `zoya repl file.zy`
+- Load a package with `zoya repl -p file.zy`
 - Expression evaluation with immediate results
 
 ```
@@ -103,9 +105,9 @@ Job functions can accept typed arguments parsed from the command line.
 Run any public function by name, with type-guided argument parsing:
 
 ```bash
-zoya run -- add 1 2          # Calls add(1, 2) with Int arguments
-zoya run -- greet             # Calls greet() with no arguments
-zoya run --json -- add 1 2   # Output result as JSON
+zoya run add 1 2             # Calls add(1, 2) with Int arguments
+zoya run greet               # Calls greet() with no arguments
+zoya run --json add 1 2     # Output result as JSON
 ```
 
 Arguments are parsed according to the function's parameter types.
@@ -132,10 +134,13 @@ All errors are reported to stderr via `fatal()` which prints `"error: <message>"
 ## Dependencies
 
 - [zoya-ast](../zoya-ast) - AST types
+- [zoya-build](../zoya-build) - Build orchestration
 - [zoya-check](../zoya-check) - Type checker
 - [zoya-codegen](../zoya-codegen) - JavaScript code generation
+- [zoya-dashboard](../zoya-dashboard) - Dev dashboard SPA
 - [zoya-fmt](../zoya-fmt) - Source code formatter
 - [zoya-ir](../zoya-ir) - Typed IR and type definitions
+- [zoya-job](../zoya-job) - Background job processing
 - [zoya-lexer](../zoya-lexer) - Tokenizer
 - [zoya-loader](../zoya-loader) - Package file loading
 - [zoya-package](../zoya-package) - Package data structures and config
@@ -143,6 +148,8 @@ All errors are reported to stderr via `fatal()` which prints `"error: <message>"
 - [zoya-router](../zoya-router) - HTTP router for dev server
 - [zoya-run](../zoya-run) - Runtime execution
 - [zoya-std](../zoya-std) - Standard library
+- [zoya-test](../zoya-test) - Test runner
+- [zoya-value](../zoya-value) - Runtime value types
 - [axum](https://github.com/tokio-rs/axum) - HTTP framework (dev server)
 - [clap](https://github.com/clap-rs/clap) - CLI argument parsing
 - [console](https://github.com/console-rs/console) - Terminal styling and colors

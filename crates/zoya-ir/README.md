@@ -83,6 +83,7 @@ fn process_package(pkg: &CheckedPackage) {
 | `EnumType` | Enum definition with visibility, module, variants |
 | `TypeAliasType` | Type alias with visibility, module, underlying type |
 | `ImplMethodType` | Method definition with target type, self param, type params |
+| `DefinitionLookup` | Indexed lookup table for enums, structs, and functions across packages |
 | `TypeScheme` | Polymorphic type with quantified type variables |
 | `Visibility` | Re-exported `Private`/`Public` enum from `zoya-ast` |
 

@@ -2,7 +2,7 @@
 
 HTTP router for the Zoya programming language.
 
-Builds an [Axum](https://github.com/tokio-rs/axum) `Router` from a type-checked Zoya package. Functions annotated with HTTP method attributes (`#[get("/path")]`, `#[post("/path")]`, etc.) become HTTP route handlers executed in a fresh QuickJS runtime per request.
+Builds an [Axum](https://github.com/tokio-rs/axum) `Router` from a `BuildOutput`. Functions annotated with HTTP method attributes (`#[get("/path")]`, `#[post("/path")]`, etc.) become HTTP route handlers executed in a fresh QuickJS runtime per request.
 
 ## Features
 
@@ -14,19 +14,16 @@ Builds an [Axum](https://github.com/tokio-rs/axum) `Router` from a type-checked 
 ## Usage
 
 ```rust
-use zoya_check::check;
-use zoya_loader::{load_package, Mode};
+use zoya_build::build_from_path;
+use zoya_loader::Mode;
 use zoya_router::router;
-use zoya_std::std;
 use std::path::Path;
 
-// Load and type-check a package
-let std = std();
-let pkg = load_package(Path::new("src/main.zy"), Mode::Dev)?;
-let checked = check(&pkg, &[std])?;
+// Build the package
+let output = build_from_path(Path::new("my_project"), Mode::Dev)?;
 
 // Build an Axum router from HTTP-annotated functions
-let app = router(&checked, &[std]);
+let app = router(&output);
 
 // Serve with Axum
 let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
@@ -63,17 +60,17 @@ Pathnames must start with `/` and may contain path parameters (e.g., `/users/:id
 ## Public API
 
 ```rust
-/// Build an Axum `Router` from a checked Zoya package.
+/// Build an Axum `Router` from a Zoya build output.
 ///
 /// Each function annotated with `#[get("/path")]`, `#[post("/path")]`, etc.
 /// becomes an HTTP route. Handlers are executed in a fresh QuickJS runtime
 /// per request.
-pub fn router(checked: &CheckedPackage, deps: &[&CheckedPackage]) -> Router;
+pub fn router(output: &BuildOutput) -> Router;
 ```
 
 ## Dependencies
 
-- [zoya-ir](../zoya-ir) - Typed IR (for `CheckedPackage`, `HttpMethod`)
+- [zoya-build](../zoya-build) - Build pipeline (for `BuildOutput`)
 - [zoya-package](../zoya-package) - Package data structures
 - [zoya-run](../zoya-run) - Runtime execution (QuickJS)
 - [zoya-value](../zoya-value) - Runtime value types

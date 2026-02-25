@@ -54,22 +54,23 @@ crates/
 │           ├── test.rs    # Test command
 │           └── dev.rs     # Dev server command
 ├── zoya-ast/          # Untyped AST types
+├── zoya-build/        # Build orchestration (load + check + codegen)
 ├── zoya-check/        # Type checker (Hindley-Milner)
 ├── zoya-codegen/      # JavaScript code generation
+├── zoya-dashboard/    # Dev dashboard (React SPA, embeds built assets)
 ├── zoya-fmt/          # Source code formatter (pretty)
 ├── zoya-ir/           # Typed IR and type definitions
+├── zoya-job/          # Background job processing (SQLite + apalis)
 ├── zoya-lexer/        # Tokenizer (logos)
 ├── zoya-loader/       # Package file loading
 ├── zoya-naming/       # Naming conventions & validation
 ├── zoya-package/      # Package data structures & config
 ├── zoya-parser/       # Parser (chumsky)
-├── zoya-dashboard/    # Dev dashboard (React SPA, embeds built assets)
 ├── zoya-router/       # HTTP router (Axum integration)
 ├── zoya-run/          # Runtime execution (rquickjs)
 │   └── src/
 │       ├── lib.rs         # Public API
-│       ├── eval.rs        # JS execution
-│       └── runner.rs      # Run functions
+│       └── eval.rs        # JS execution
 ├── zoya-test/         # Test runner (TestRunner, TestReport)
 ├── zoya-std/          # Standard library
     └── src/
@@ -88,7 +89,9 @@ crates/
             ├── set.zy         # Set<T> methods
             ├── io.zy          # IO operations
             ├── json.zy        # JSON type and methods
-            └── http.zy        # HTTP Request/Response types
+            ├── http.zy        # HTTP Request/Response types
+            ├── bytes.zy       # Bytes type
+            └── task.zy        # Task/job utilities
 └── zoya-value/        # Runtime value types & serialization
     └── src/
         └── lib.rs         # Value, JSValue, serde support
@@ -211,9 +214,11 @@ All crates use [`thiserror`](https://github.com/dtolnay/thiserror) for structure
 | `zoya-package` | `ConfigError` | TOML config loading (IO, parse, validation) |
 | `zoya-ir` | `TypeError` | 30+ structured variants (type mismatch, unbound, arity, visibility, exhaustiveness, etc.) |
 | `zoya-loader` | `LoaderError<P>` | Module loading — embeds `LexError`/`ParseError` as `#[source]` |
+| `zoya-build` | `BuildError` | Unified load + type-check errors — `#[from]` for `LoaderError` and `TypeError` |
 | `zoya-value` | `Error` | Runtime value conversion errors |
 | `zoya-run` | `EvalError` | Runtime execution: `Panic`, `RuntimeError`, `LoadError`, `TypeError` |
 | `zoya-test` | `TestError` | Per-test errors: `Panic`, `RuntimeError`, `Failed`, `UnexpectedReturn` |
+| `zoya-job` | `JobError` | Job validation/execution: `NotFound`, `ArityMismatch`, `TypeMismatch`, `Panic`, `RuntimeError` |
 | `zoya-std` | `StdError` | Std library loading — `#[from]` for `LoaderError` and `TypeError` |
 | `zoya` | `InitError` | Project creation errors |
 
@@ -228,19 +233,19 @@ All crates use [`thiserror`](https://github.com/dtolnay/thiserror) for structure
 
 ```bash
 cargo run -p zoya -- repl                        # REPL
-cargo run -p zoya -- run --package file.zy       # Run file
+cargo run -p zoya -- run -p file.zy              # Run file
 cargo run -p zoya -- run                         # Run package in current directory
 cargo run -p zoya -- run --json                  # Output result as JSON
-cargo run -p zoya -- check --package file.zy     # Type-check only
-cargo run -p zoya -- build --package file.zy     # Compile to JS
+cargo run -p zoya -- check -p file.zy            # Type-check only
+cargo run -p zoya -- build -p file.zy            # Compile to JS
 cargo run -p zoya -- fmt                         # Format current package
 cargo run -p zoya -- fmt --check                 # Check formatting
 cargo run -p zoya -- test                        # Run tests
-cargo run -p zoya -- init my_project              # Create new project
-cargo run -p zoya -- dev                          # Start dev HTTP server
-cargo run -p zoya -- dev --port 8080              # Dev server on custom port
-cargo run -p zoya -- job list                     # List job functions
-cargo run -p zoya -- job run deploy               # Run a job function
+cargo run -p zoya -- init my_project             # Create new project
+cargo run -p zoya -- dev                         # Start dev HTTP server
+cargo run -p zoya -- dev --port 8080             # Dev server on custom port
+cargo run -p zoya -- job list                    # List job functions
+cargo run -p zoya -- job run deploy              # Run a job function
 cargo test --workspace                           # Run all Rust tests
 cargo clippy --workspace                         # Lint
 cd packages/zoya-runtime && npm run build        # Build JS runtime bundle
@@ -310,8 +315,10 @@ New features need tests at each pipeline stage:
 | `zoya-naming` | Name validation, case conversion |
 | `zoya-check` | Type inference, visibility, and errors |
 | `zoya-codegen` | Generated JS correctness |
+| `zoya-build` | Build pipeline integration |
 | `zoya-dashboard` | Dashboard API and asset serving |
 | `zoya-fmt` | Source code formatting |
+| `zoya-job` | Job validation, enqueueing, and worker execution |
 | `zoya-router` | HTTP routing and handler execution |
 | `zoya-run` | End-to-end execution |
 | `zoya-test` | Test runner and reporting |

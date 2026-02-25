@@ -126,6 +126,8 @@ impl Response {
 - **json** - JSON type, `Number` enum, `parse` function, `ParseError` enum
 - **http** - HTTP types (`Request`, `Response`, `Method`, `Body`, `Headers`)
 - **set** - Set methods (`new`, `insert`, `remove`, `union`, `intersection`, etc.)
+- **bytes** - `Bytes` type for binary data
+- **task** - Task/job support utilities
 - **prelude** - Re-exports all standard types and variants for automatic injection
 
 ### Built-in Functions
@@ -175,7 +177,9 @@ root
 ├── prelude    # Re-exports for auto-injection
 ├── result     # Result<T, E> enum and methods
 ├── set        # Set<T> methods
-└── string     # String methods
+├── string     # String methods
+├── bytes      # Bytes type
+└── task       # Task/job utilities
 ```
 
 ## Error Handling
