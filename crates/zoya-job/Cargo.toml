@@ -1,0 +1,21 @@
+[package]
+name = "zoya-job"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+apalis = { version = "0.7", features = ["retry"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tracing = "0.1"
+zoya-build = { path = "../zoya-build" }
+zoya-ir = { path = "../zoya-ir" }
+zoya-package = { path = "../zoya-package" }
+zoya-run = { path = "../zoya-run" }
+zoya-value = { path = "../zoya-value" }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+tempfile = "3"
+zoya-codegen = { path = "../zoya-codegen" }

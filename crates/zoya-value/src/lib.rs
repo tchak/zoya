@@ -5,6 +5,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use serde::ser::{SerializeMap, SerializeSeq};
+use serde::{Deserialize, Serialize};
 use zoya_ir::{DefinitionLookup, EnumVariantType, QualifiedPath, Type};
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -23,7 +24,7 @@ pub enum Error {
     ParseError(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ValueData {
     Unit,
     Tuple(Vec<Value>),
@@ -65,7 +66,7 @@ impl Hash for ValueData {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Value {
     Int(i64),
     BigInt(i64),
@@ -74,7 +75,9 @@ pub enum Value {
     String(String),
     List(Vec<Value>),
     Tuple(Vec<Value>),
+    #[serde(with = "set_serde")]
     Set(HashSet<Value>),
+    #[serde(with = "dict_serde")]
     Dict(HashMap<Value, Value>),
     Struct {
         name: String,
@@ -296,6 +299,57 @@ fn qualified_type_name(module: &QualifiedPath, name: &str) -> String {
     segments.join("::")
 }
 
+/// Serde module for round-trip serialization of `HashSet<Value>` as `Vec<Value>`.
+mod set_serde {
+    use super::Value;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::collections::HashSet;
+
+    pub fn serialize<S: Serializer>(
+        set: &HashSet<Value>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let vec: Vec<&Value> = set.iter().collect();
+        vec.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<HashSet<Value>, D::Error> {
+        let vec = Vec::<Value>::deserialize(deserializer)?;
+        Ok(vec.into_iter().collect())
+    }
+}
+
+/// Serde module for round-trip serialization of `HashMap<Value, Value>` as `Vec<(Value, Value)>`.
+mod dict_serde {
+    use super::Value;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::collections::HashMap;
+
+    pub fn serialize<S: Serializer>(
+        map: &HashMap<Value, Value>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let vec: Vec<(&Value, &Value)> = map.iter().collect();
+        vec.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<HashMap<Value, Value>, D::Error> {
+        let vec = Vec::<(Value, Value)>::deserialize(deserializer)?;
+        Ok(vec.into_iter().collect())
+    }
+}
+
+/// Lossy JSON wrapper used by `to_json()` / `to_json_pretty()`.
+///
+/// Produces a simplified JSON representation intended for human consumption
+/// and API output (e.g. `--json` flag). Not suitable for round-tripping.
+struct SimpleJson<'a>(&'a Value);
+
+/// Serialize struct/enum data using the lossy `SimpleJson` representation for nested values.
 fn serialize_data<S: serde::Serializer>(
     serializer: S,
     type_name: &str,
@@ -308,40 +362,46 @@ fn serialize_data<S: serde::Serializer>(
             map.end()
         }
         ValueData::Tuple(values) => {
+            let wrapped: Vec<SimpleJson> = values.iter().map(SimpleJson).collect();
             let mut map = serializer.serialize_map(Some(2))?;
             map.serialize_entry("type", type_name)?;
-            map.serialize_entry("data", values)?;
+            map.serialize_entry("data", &wrapped)?;
             map.end()
         }
         ValueData::Struct(fields) => {
+            let wrapped: HashMap<&String, SimpleJson> =
+                fields.iter().map(|(k, v)| (k, SimpleJson(v))).collect();
             let mut map = serializer.serialize_map(Some(2))?;
             map.serialize_entry("type", type_name)?;
-            map.serialize_entry("data", fields)?;
+            map.serialize_entry("data", &wrapped)?;
             map.end()
         }
     }
 }
 
-impl serde::Serialize for Value {
+impl Serialize for SimpleJson<'_> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self {
+        match self.0 {
             Value::Int(n) => serializer.serialize_i64(*n),
             Value::Float(f) => serializer.serialize_f64(*f),
             Value::BigInt(n) => serializer.serialize_str(&n.to_string()),
             Value::Bool(b) => serializer.serialize_bool(*b),
             Value::String(s) => serializer.serialize_str(s),
-            Value::Tuple(values) | Value::List(values) => values.serialize(serializer),
+            Value::Tuple(values) | Value::List(values) => {
+                let wrapped: Vec<SimpleJson> = values.iter().map(SimpleJson).collect();
+                wrapped.serialize(serializer)
+            }
             Value::Set(values) => {
                 let mut seq = serializer.serialize_seq(Some(values.len()))?;
                 for v in values {
-                    seq.serialize_element(v)?;
+                    seq.serialize_element(&SimpleJson(v))?;
                 }
                 seq.end()
             }
             Value::Dict(entries) => {
                 let mut seq = serializer.serialize_seq(Some(entries.len()))?;
                 for (k, v) in entries {
-                    seq.serialize_element(&(k, v))?;
+                    seq.serialize_element(&(SimpleJson(k), SimpleJson(v)))?;
                 }
                 seq.end()
             }
@@ -359,7 +419,7 @@ impl serde::Serialize for Value {
                 let type_name = qualified_type_name(module, &name);
                 serialize_data(serializer, &type_name, data)
             }
-            Value::Task(inner) => inner.serialize(serializer),
+            Value::Task(inner) => SimpleJson(inner).serialize(serializer),
         }
     }
 }
@@ -378,11 +438,11 @@ impl Value {
     }
 
     pub fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap()
+        serde_json::to_string(&SimpleJson(self)).unwrap()
     }
 
     pub fn to_json_pretty(&self) -> String {
-        serde_json::to_string_pretty(self).unwrap()
+        serde_json::to_string_pretty(&SimpleJson(self)).unwrap()
     }
 
     pub fn type_name(&self) -> &'static str {
