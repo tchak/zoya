@@ -21,10 +21,16 @@ test-grammar:
 lint:
     cargo clippy --workspace
     cargo fmt --check
+    cd packages/zoya-runtime && npm run lint
+    cd packages/zoya-runtime && npm run format:check
+    cd packages/zoya-dashboard && npm run lint
+    cd packages/zoya-dashboard && npm run format:check
 
-# Format Rust code
+# Format code
 fmt:
     cargo fmt
+    cd packages/zoya-runtime && npm run format
+    cd packages/zoya-dashboard && npm run format
 
 # Build JS runtime bundle
 build-runtime:
