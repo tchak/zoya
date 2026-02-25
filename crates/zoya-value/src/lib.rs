@@ -451,9 +451,9 @@ impl Value {
     pub fn parse(
         input: &str,
         expected: &Type,
-        type_lookup: &DefinitionLookup,
+        definitions: &DefinitionLookup,
     ) -> Result<Value, Error> {
-        parse::parse_value(input, expected, type_lookup)
+        parse::parse_value(input, expected, definitions)
     }
 
     pub fn to_json(&self) -> String {
@@ -482,7 +482,7 @@ impl Value {
     }
 
     /// Validate that this value matches an expected Zoya type.
-    pub fn check_type(&self, expected: &Type, type_lookup: &DefinitionLookup) -> Result<(), Error> {
+    pub fn check_type(&self, expected: &Type, definitions: &DefinitionLookup) -> Result<(), Error> {
         match (self, expected) {
             (Value::Int(_), Type::Int) => Ok(()),
             (Value::BigInt(_), Type::BigInt) => Ok(()),
@@ -491,7 +491,7 @@ impl Value {
             (Value::String(_), Type::String) => Ok(()),
             (Value::List(items), Type::List(elem_type)) => {
                 for item in items {
-                    item.check_type(elem_type, type_lookup)?;
+                    item.check_type(elem_type, definitions)?;
                 }
                 Ok(())
             }
@@ -503,20 +503,20 @@ impl Value {
                     });
                 }
                 for (item, ty) in items.iter().zip(types.iter()) {
-                    item.check_type(ty, type_lookup)?;
+                    item.check_type(ty, definitions)?;
                 }
                 Ok(())
             }
             (Value::Set(items), Type::Set(elem_type)) => {
                 for item in items {
-                    item.check_type(elem_type, type_lookup)?;
+                    item.check_type(elem_type, definitions)?;
                 }
                 Ok(())
             }
             (Value::Dict(entries), Type::Dict(key_type, val_type)) => {
                 for (k, v) in entries {
-                    k.check_type(key_type, type_lookup)?;
-                    v.check_type(val_type, type_lookup)?;
+                    k.check_type(key_type, definitions)?;
+                    v.check_type(val_type, definitions)?;
                 }
                 Ok(())
             }
@@ -536,8 +536,8 @@ impl Value {
                     });
                 }
                 let resolved_fields =
-                    type_lookup.resolve_struct_fields(module, name, type_fields, type_args);
-                check_value_data(data, &resolved_fields, name, type_lookup)
+                    definitions.resolve_struct_fields(module, name, type_fields, type_args);
+                check_value_data(data, &resolved_fields, name, definitions)
             }
             (
                 Value::EnumVariant {
@@ -560,7 +560,7 @@ impl Value {
                     });
                 }
                 let resolved_variants =
-                    type_lookup.resolve_enum_variants(module, enum_name, variants, type_args);
+                    definitions.resolve_enum_variants(module, enum_name, variants, type_args);
                 let variant_type = resolved_variants
                     .iter()
                     .find(|(vname, _)| vname == variant_name)
@@ -568,9 +568,9 @@ impl Value {
                     .ok_or_else(|| Error::UnknownVariant(variant_name.clone()))?;
                 let variant_fields = variant_type_to_fields(variant_type);
                 let context = format!("{}::{}", enum_name, variant_name);
-                check_value_data(data, &variant_fields, &context, type_lookup)
+                check_value_data(data, &variant_fields, &context, definitions)
             }
-            (Value::Task(inner), Type::Task(elem_type)) => inner.check_type(elem_type, type_lookup),
+            (Value::Task(inner), Type::Task(elem_type)) => inner.check_type(elem_type, definitions),
             (_, Type::Var(_)) => Ok(()),
             (_, Type::Function { .. }) => Err(Error::UnsupportedConversion(
                 "function args not supported".into(),
@@ -699,7 +699,7 @@ fn check_value_data(
     data: &ValueData,
     expected_fields: &[(String, Type)],
     context_name: &str,
-    type_lookup: &DefinitionLookup,
+    definitions: &DefinitionLookup,
 ) -> Result<(), Error> {
     match data {
         ValueData::Unit => {
@@ -712,13 +712,13 @@ fn check_value_data(
         }
         ValueData::Tuple(values) => {
             for (val, (_, field_type)) in values.iter().zip(expected_fields.iter()) {
-                val.check_type(field_type, type_lookup)?;
+                val.check_type(field_type, definitions)?;
             }
         }
         ValueData::Struct(map) => {
             for (field_name, field_type) in expected_fields {
                 if let Some(val) = map.get(field_name) {
-                    val.check_type(field_type, type_lookup)?;
+                    val.check_type(field_type, definitions)?;
                 } else {
                     return Err(Error::MissingField(field_name.clone()));
                 }
@@ -731,7 +731,7 @@ fn check_value_data(
 fn convert_js_fields_to_value_data(
     fields: &HashMap<String, JSValue>,
     expected_fields: &[(String, Type)],
-    type_lookup: &DefinitionLookup,
+    definitions: &DefinitionLookup,
 ) -> Result<ValueData, Error> {
     if expected_fields.is_empty() {
         Ok(ValueData::Unit)
@@ -741,7 +741,7 @@ fn convert_js_fields_to_value_data(
             let js_field = fields
                 .get(field_name)
                 .ok_or_else(|| Error::MissingField(field_name.clone()))?;
-            let field_value = Value::from_js_value(js_field.clone(), field_type, type_lookup)?;
+            let field_value = Value::from_js_value(js_field.clone(), field_type, definitions)?;
             values.push(field_value);
         }
         Ok(ValueData::Tuple(values))
@@ -751,7 +751,7 @@ fn convert_js_fields_to_value_data(
             let js_field = fields
                 .get(field_name)
                 .ok_or_else(|| Error::MissingField(field_name.clone()))?;
-            let field_value = Value::from_js_value(js_field.clone(), field_type, type_lookup)?;
+            let field_value = Value::from_js_value(js_field.clone(), field_type, definitions)?;
             map.insert(field_name.clone(), field_value);
         }
         Ok(ValueData::Struct(map))
@@ -914,7 +914,7 @@ impl Value {
     pub fn from_js_value(
         js: JSValue,
         ty: &Type,
-        type_lookup: &DefinitionLookup,
+        definitions: &DefinitionLookup,
     ) -> Result<Value, Error> {
         match (js, ty) {
             (JSValue::Int(n), Type::Int) => Ok(Value::Int(n)),
@@ -937,7 +937,7 @@ impl Value {
             (JSValue::Array { tag: None, items }, Type::List(elem_type)) => {
                 let values = items
                     .into_iter()
-                    .map(|item| Value::from_js_value(item, elem_type, type_lookup))
+                    .map(|item| Value::from_js_value(item, elem_type, definitions))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(Value::List(values))
             }
@@ -945,7 +945,7 @@ impl Value {
                 let values = items
                     .into_iter()
                     .zip(elem_types.iter())
-                    .map(|(item, et)| Value::from_js_value(item, et, type_lookup))
+                    .map(|(item, et)| Value::from_js_value(item, et, definitions))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(Value::Tuple(values))
             }
@@ -963,7 +963,7 @@ impl Value {
                         from: "empty Task array".to_string(),
                         to: "Task".to_string(),
                     })?;
-                let inner = Value::from_js_value(inner_js, inner_type, type_lookup)?;
+                let inner = Value::from_js_value(inner_js, inner_type, definitions)?;
                 Ok(Value::Task(Box::new(inner)))
             }
             (
@@ -975,7 +975,7 @@ impl Value {
             ) if t == "Set" => {
                 let values = items
                     .into_iter()
-                    .map(|item| Value::from_js_value(item, elem_type, type_lookup))
+                    .map(|item| Value::from_js_value(item, elem_type, definitions))
                     .collect::<Result<HashSet<_>, _>>()?;
                 Ok(Value::Set(values))
             }
@@ -992,9 +992,9 @@ impl Value {
                         if pair.len() == 2 {
                             let mut iter = pair.into_iter();
                             let key =
-                                Value::from_js_value(iter.next().unwrap(), key_type, type_lookup)?;
+                                Value::from_js_value(iter.next().unwrap(), key_type, definitions)?;
                             let val =
-                                Value::from_js_value(iter.next().unwrap(), val_type, type_lookup)?;
+                                Value::from_js_value(iter.next().unwrap(), val_type, definitions)?;
                             map.insert(key, val);
                         } else {
                             return Err(Error::TypeMismatch {
@@ -1021,8 +1021,8 @@ impl Value {
                 },
             ) => {
                 let resolved_fields =
-                    type_lookup.resolve_struct_fields(module, name, type_fields, type_args);
-                let data = convert_js_fields_to_value_data(&fields, &resolved_fields, type_lookup)?;
+                    definitions.resolve_struct_fields(module, name, type_fields, type_args);
+                let data = convert_js_fields_to_value_data(&fields, &resolved_fields, definitions)?;
                 Ok(Value::Struct {
                     module: module.clone(),
                     name: name.clone(),
@@ -1042,14 +1042,14 @@ impl Value {
                 },
             ) => {
                 let resolved_variants =
-                    type_lookup.resolve_enum_variants(module, enum_name, variants, type_args);
+                    definitions.resolve_enum_variants(module, enum_name, variants, type_args);
                 let variant_type = resolved_variants
                     .iter()
                     .find(|(vname, _)| vname == &variant_name)
                     .map(|(_, vt)| vt)
                     .ok_or_else(|| Error::UnknownVariant(variant_name.clone()))?;
                 let variant_fields = variant_type_to_fields(variant_type);
-                let data = convert_js_fields_to_value_data(&fields, &variant_fields, type_lookup)?;
+                let data = convert_js_fields_to_value_data(&fields, &variant_fields, definitions)?;
 
                 Ok(Value::EnumVariant {
                     module: module.clone(),

@@ -150,7 +150,7 @@ use zoya_ir::Type;
 
 // Convert JSValue back to Value using type information
 let js = JSValue::Int(42);
-let val = Value::from_js_value(js, &Type::Int, &type_lookup)?;
+let val = Value::from_js_value(js, &Type::Int, &definitions)?;
 assert_eq!(val, Value::Int(42));
 ```
 

@@ -176,7 +176,7 @@ async fn eval_script_async(
     qualified_path: &str,
     args: &[Value],
     result_type: Type,
-    type_lookup: &DefinitionLookup,
+    definitions: &DefinitionLookup,
 ) -> Result<(Value, Vec<JSValue>), EvalError> {
     // Define all functions in global scope
     let _: rquickjs::Value = ctx.eval(code).catch(ctx).map_err(map_js_error)?;
@@ -226,7 +226,7 @@ async fn eval_script_async(
         .map_err(|e| EvalError::RuntimeError(format!("missing value field: {e}")))?;
     let js_val =
         JSValue::from_js(ctx, value_field).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-    let value = Value::from_js_value(js_val, &result_type, type_lookup).map_err(EvalError::from)?;
+    let value = Value::from_js_value(js_val, &result_type, definitions).map_err(EvalError::from)?;
 
     // Extract the jobs array
     let jobs_field: rquickjs::Value = result_obj

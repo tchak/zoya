@@ -181,30 +181,30 @@ impl Parser {
         Ok(())
     }
 
-    fn parse(&mut self, expected: &Type, type_lookup: &DefinitionLookup) -> Result<Value, Error> {
+    fn parse(&mut self, expected: &Type, definitions: &DefinitionLookup) -> Result<Value, Error> {
         match expected {
             Type::String => self.parse_string(),
             Type::Int => self.parse_int(),
             Type::BigInt => self.parse_bigint(),
             Type::Float => self.parse_float(),
             Type::Bool => self.parse_bool(),
-            Type::List(elem) => self.parse_list(elem, type_lookup),
-            Type::Tuple(types) => self.parse_tuple(types, type_lookup),
-            Type::Set(elem) => self.parse_set(elem, type_lookup),
-            Type::Dict(key, val) => self.parse_dict(key, val, type_lookup),
+            Type::List(elem) => self.parse_list(elem, definitions),
+            Type::Tuple(types) => self.parse_tuple(types, definitions),
+            Type::Set(elem) => self.parse_set(elem, definitions),
+            Type::Dict(key, val) => self.parse_dict(key, val, definitions),
             Type::Struct {
                 module,
                 name,
                 type_args,
                 fields,
-            } => self.parse_struct(module, name, type_args, fields, type_lookup),
+            } => self.parse_struct(module, name, type_args, fields, definitions),
             Type::Enum {
                 module,
                 name,
                 type_args,
                 variants,
-            } => self.parse_enum(module, name, type_args, variants, type_lookup),
-            Type::Task(inner) => self.parse_task(inner, type_lookup),
+            } => self.parse_enum(module, name, type_args, variants, definitions),
+            Type::Task(inner) => self.parse_task(inner, definitions),
             Type::Var(_) => Err(Error::ParseError("type variables are not supported".into())),
             Type::Function { .. } => {
                 Err(Error::ParseError("function types are not supported".into()))
@@ -267,7 +267,7 @@ impl Parser {
     fn parse_task(
         &mut self,
         inner_type: &Type,
-        type_lookup: &DefinitionLookup,
+        definitions: &DefinitionLookup,
     ) -> Result<Value, Error> {
         match self.advance() {
             Token::Ident(ref name) if name == "Task" => {}
@@ -279,7 +279,7 @@ impl Parser {
             }
         }
         self.expect_token(Token::LParen)?;
-        let inner = self.parse(inner_type, type_lookup)?;
+        let inner = self.parse(inner_type, definitions)?;
         self.expect_token(Token::RParen)?;
         Ok(Value::Task(Box::new(inner)))
     }
@@ -287,12 +287,12 @@ impl Parser {
     fn parse_list(
         &mut self,
         elem_type: &Type,
-        type_lookup: &DefinitionLookup,
+        definitions: &DefinitionLookup,
     ) -> Result<Value, Error> {
         self.expect_token(Token::LBracket)?;
         let mut items = Vec::new();
         while !matches!(self.peek(), Token::RBracket) {
-            items.push(self.parse(elem_type, type_lookup)?);
+            items.push(self.parse(elem_type, definitions)?);
             if matches!(self.peek(), Token::Comma) {
                 self.advance();
             } else {
@@ -306,7 +306,7 @@ impl Parser {
     fn parse_tuple(
         &mut self,
         types: &[Type],
-        type_lookup: &DefinitionLookup,
+        definitions: &DefinitionLookup,
     ) -> Result<Value, Error> {
         self.expect_token(Token::LParen)?;
         let mut items = Vec::new();
@@ -314,7 +314,7 @@ impl Parser {
             if i > 0 {
                 self.expect_token(Token::Comma)?;
             }
-            items.push(self.parse(ty, type_lookup)?);
+            items.push(self.parse(ty, definitions)?);
         }
         // Allow trailing comma
         if matches!(self.peek(), Token::Comma) {
@@ -327,12 +327,12 @@ impl Parser {
     fn parse_set(
         &mut self,
         elem_type: &Type,
-        type_lookup: &DefinitionLookup,
+        definitions: &DefinitionLookup,
     ) -> Result<Value, Error> {
         self.expect_token(Token::LBrace)?;
         let mut items = HashSet::new();
         while !matches!(self.peek(), Token::RBrace) {
-            items.insert(self.parse(elem_type, type_lookup)?);
+            items.insert(self.parse(elem_type, definitions)?);
             if matches!(self.peek(), Token::Comma) {
                 self.advance();
             } else {
@@ -347,14 +347,14 @@ impl Parser {
         &mut self,
         key_type: &Type,
         val_type: &Type,
-        type_lookup: &DefinitionLookup,
+        definitions: &DefinitionLookup,
     ) -> Result<Value, Error> {
         self.expect_token(Token::LBrace)?;
         let mut entries = HashMap::new();
         while !matches!(self.peek(), Token::RBrace) {
-            let key = self.parse(key_type, type_lookup)?;
+            let key = self.parse(key_type, definitions)?;
             self.expect_token(Token::Colon)?;
-            let val = self.parse(val_type, type_lookup)?;
+            let val = self.parse(val_type, definitions)?;
             entries.insert(key, val);
             if matches!(self.peek(), Token::Comma) {
                 self.advance();
@@ -372,9 +372,9 @@ impl Parser {
         name: &str,
         type_args: &[Type],
         fields: &[(String, Type)],
-        type_lookup: &DefinitionLookup,
+        definitions: &DefinitionLookup,
     ) -> Result<Value, Error> {
-        let resolved_fields = type_lookup.resolve_struct_fields(module, name, fields, type_args);
+        let resolved_fields = definitions.resolve_struct_fields(module, name, fields, type_args);
 
         // Expect the struct name
         match self.advance() {
@@ -392,10 +392,10 @@ impl Parser {
             ValueData::Unit
         } else if resolved_fields[0].0.starts_with('$') {
             // Tuple struct: Name(val, val, ...)
-            self.parse_tuple_data(&resolved_fields, type_lookup)?
+            self.parse_tuple_data(&resolved_fields, definitions)?
         } else {
             // Named struct: Name { field: val, ... }
-            self.parse_struct_data(&resolved_fields, type_lookup)?
+            self.parse_struct_data(&resolved_fields, definitions)?
         };
 
         Ok(Value::Struct {
@@ -411,10 +411,10 @@ impl Parser {
         enum_name: &str,
         type_args: &[Type],
         variants: &[(String, EnumVariantType)],
-        type_lookup: &DefinitionLookup,
+        definitions: &DefinitionLookup,
     ) -> Result<Value, Error> {
         let resolved_variants =
-            type_lookup.resolve_enum_variants(module, enum_name, variants, type_args);
+            definitions.resolve_enum_variants(module, enum_name, variants, type_args);
 
         // Parse variant name — supports both `Variant` and `Enum::Variant`
         let variant_name = match self.advance() {
@@ -463,9 +463,9 @@ impl Parser {
         let data = if variant_fields.is_empty() {
             ValueData::Unit
         } else if variant_fields[0].0.starts_with('$') {
-            self.parse_tuple_data(&variant_fields, type_lookup)?
+            self.parse_tuple_data(&variant_fields, definitions)?
         } else {
-            self.parse_struct_data(&variant_fields, type_lookup)?
+            self.parse_struct_data(&variant_fields, definitions)?
         };
 
         Ok(Value::EnumVariant {
@@ -480,7 +480,7 @@ impl Parser {
     fn parse_tuple_data(
         &mut self,
         fields: &[(String, Type)],
-        type_lookup: &DefinitionLookup,
+        definitions: &DefinitionLookup,
     ) -> Result<ValueData, Error> {
         self.expect_token(Token::LParen)?;
         let mut values = Vec::new();
@@ -488,7 +488,7 @@ impl Parser {
             if i > 0 {
                 self.expect_token(Token::Comma)?;
             }
-            values.push(self.parse(ty, type_lookup)?);
+            values.push(self.parse(ty, definitions)?);
         }
         // Allow trailing comma
         if matches!(self.peek(), Token::Comma) {
@@ -502,7 +502,7 @@ impl Parser {
     fn parse_struct_data(
         &mut self,
         fields: &[(String, Type)],
-        type_lookup: &DefinitionLookup,
+        definitions: &DefinitionLookup,
     ) -> Result<ValueData, Error> {
         self.expect_token(Token::LBrace)?;
 
@@ -523,7 +523,7 @@ impl Parser {
                 .get(field_name.as_str())
                 .ok_or_else(|| Error::ParseError(format!("unknown field: '{field_name}'")))?;
             self.expect_token(Token::Colon)?;
-            let val = self.parse(field_type, type_lookup)?;
+            let val = self.parse(field_type, definitions)?;
             values.insert(field_name, val);
 
             if matches!(self.peek(), Token::Comma) {
@@ -555,7 +555,7 @@ impl Parser {
 pub(crate) fn parse_value(
     input: &str,
     expected: &Type,
-    type_lookup: &DefinitionLookup,
+    definitions: &DefinitionLookup,
 ) -> Result<Value, Error> {
     // String special case: return raw input, no tokenization
     if matches!(expected, Type::String) {
@@ -564,7 +564,7 @@ pub(crate) fn parse_value(
 
     let tokens = tokenize(input)?;
     let mut parser = Parser::new(tokens);
-    let value = parser.parse(expected, type_lookup)?;
+    let value = parser.parse(expected, definitions)?;
     parser.expect_eof()?;
     Ok(value)
 }
