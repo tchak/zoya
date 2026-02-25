@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
 use apalis::prelude::*;
+use apalis_sql::sqlite::SqliteStorage;
+pub use apalis_sql::sqlx;
 use serde::{Deserialize, Serialize};
-use tower::layer::util::Identity;
+use sqlx::SqlitePool;
 use zoya_build::BuildOutput;
 use zoya_package::QualifiedPath;
 use zoya_run::EvalError;
-use zoya_value::{TerminationError, Value};
+use zoya_value::{Job, TerminationError, Value};
 
 /// A serializable job request for background execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,27 +88,76 @@ pub fn validate(output: &BuildOutput, request: &JobRequest) -> Result<(), JobErr
 ///
 /// Validates the request before enqueuing. Returns early with a `JobError`
 /// if validation fails (fail-fast on structural errors).
-pub async fn enqueue<S>(
-    storage: &mut S,
+pub async fn enqueue(
+    storage: &mut SqliteStorage<JobRequest>,
     output: &BuildOutput,
     path: QualifiedPath,
     args: Vec<Value>,
-) -> Result<(), JobError>
-where
-    S: MessageQueue<JobRequest>,
-{
+) -> Result<(), JobError> {
     let request = JobRequest { path, args };
     validate(output, &request)?;
     storage
-        .enqueue(request)
+        .push(request)
         .await
-        .map_err(|_| JobError::RuntimeError("failed to enqueue job".to_string()))
+        .map_err(|_| JobError::RuntimeError("failed to enqueue job".to_string()))?;
+    Ok(())
+}
+
+/// Create an in-memory SQLite job storage (for tests and development).
+pub async fn memory_storage() -> Result<SqliteStorage<JobRequest>, JobError> {
+    let pool = SqlitePool::connect("sqlite::memory:")
+        .await
+        .map_err(|e| JobError::RuntimeError(format!("failed to connect: {e}")))?;
+    SqliteStorage::setup(&pool)
+        .await
+        .map_err(|e| JobError::RuntimeError(format!("failed to run migrations: {e}")))?;
+    Ok(SqliteStorage::new(pool))
+}
+
+/// List all defined jobs and their pending enqueued instances from SQL storage.
+pub async fn list(
+    storage: &SqliteStorage<JobRequest>,
+    output: &BuildOutput,
+) -> Result<Vec<(QualifiedPath, String, Vec<Job>)>, JobError> {
+    // Fetch all pending jobs, paginating through results
+    let mut pending = Vec::new();
+    let mut page = 1;
+    loop {
+        let batch = storage
+            .list_jobs(&State::Pending, page)
+            .await
+            .map_err(|e| JobError::RuntimeError(e.to_string()))?;
+        if batch.is_empty() {
+            break;
+        }
+        pending.extend(batch);
+        page += 1;
+    }
+
+    // Group by job definition
+    let result = output
+        .jobs
+        .iter()
+        .map(|(path, variant_name)| {
+            let jobs = pending
+                .iter()
+                .filter(|r| r.args.path == *path)
+                .map(|r| Job {
+                    path: r.args.path.clone(),
+                    args: r.args.args.clone(),
+                })
+                .collect();
+            (path.clone(), variant_name.clone(), jobs)
+        })
+        .collect();
+
+    Ok(result)
 }
 
 /// Shared state for the job worker.
-struct JobWorkerState<S> {
+struct JobWorkerState {
     output: BuildOutput,
-    storage: S,
+    storage: SqliteStorage<JobRequest>,
 }
 
 /// Create and run an apalis worker that processes `JobRequest` items.
@@ -115,17 +166,10 @@ struct JobWorkerState<S> {
 /// function via `zoya_run::run_async()`. Non-retryable validation errors
 /// are logged and skipped; transient errors (panics, runtime errors, job
 /// errors) are returned as `Err` so apalis can retry them.
-pub async fn worker<S>(storage: S, output: BuildOutput) -> Result<(), std::io::Error>
-where
-    S: MessageQueue<JobRequest>
-        + Backend<Request<JobRequest, S::Context>, Layer = Identity>
-        + Clone
-        + Send
-        + Sync
-        + 'static,
-    S::Context: Send + Sync + 'static,
-    <S as Backend<Request<JobRequest, S::Context>>>::Stream: Unpin + Send + 'static,
-{
+pub async fn worker(
+    storage: SqliteStorage<JobRequest>,
+    output: BuildOutput,
+) -> Result<(), std::io::Error> {
     let state = Arc::new(JobWorkerState {
         output,
         storage: storage.clone(),
@@ -136,19 +180,13 @@ where
             WorkerBuilder::new(&state.output.name)
                 .data(state.clone())
                 .backend(storage)
-                .build_fn(handle_job::<S>),
+                .build_fn(handle_job),
         )
         .run()
         .await
 }
 
-async fn handle_job<S>(
-    request: JobRequest,
-    state: Data<Arc<JobWorkerState<S>>>,
-) -> Result<(), JobError>
-where
-    S: MessageQueue<JobRequest> + Clone + Send + Sync + 'static,
-{
+async fn handle_job(request: JobRequest, state: Data<Arc<JobWorkerState>>) -> Result<(), JobError> {
     // Re-validate on the worker side
     if let Err(e) = validate(&state.output, &request) {
         if !e.is_retryable() {
@@ -278,7 +316,7 @@ mod tests {
             pub fn my_job() -> () { () }
         "#,
         );
-        let mut storage = MemoryStorage::<JobRequest>::new();
+        let mut storage = memory_storage().await.unwrap();
         enqueue(
             &mut storage,
             &output,
@@ -288,11 +326,8 @@ mod tests {
         .await
         .unwrap();
 
-        let dequeued = storage.dequeue().await.unwrap();
-        assert!(dequeued.is_some());
-        let request = dequeued.unwrap();
-        assert_eq!(request.path, QualifiedPath::root().child("my_job"));
-        assert!(request.args.is_empty());
+        let len = storage.len().await.unwrap();
+        assert_eq!(len, 1);
     }
 
     #[tokio::test]
@@ -303,7 +338,7 @@ mod tests {
             pub fn my_job() -> () { () }
         "#,
         );
-        let mut storage = MemoryStorage::<JobRequest>::new();
+        let mut storage = memory_storage().await.unwrap();
         let err = enqueue(
             &mut storage,
             &output,
@@ -323,7 +358,7 @@ mod tests {
             pub fn my_job(x: Int) -> () { () }
         "#,
         );
-        let mut storage = MemoryStorage::<JobRequest>::new();
+        let mut storage = memory_storage().await.unwrap();
         let err = enqueue(
             &mut storage,
             &output,
@@ -349,7 +384,7 @@ mod tests {
             pub fn my_job(x: Int) -> () { () }
         "#,
         );
-        let mut storage = MemoryStorage::<JobRequest>::new();
+        let mut storage = memory_storage().await.unwrap();
         let err = enqueue(
             &mut storage,
             &output,
@@ -371,11 +406,8 @@ mod tests {
             pub fn my_job() -> () { () }
         "#,
         );
-        let storage = MemoryStorage::<JobRequest>::new();
-        let state = Arc::new(JobWorkerState {
-            output,
-            storage: storage.clone(),
-        });
+        let storage = memory_storage().await.unwrap();
+        let state = Arc::new(JobWorkerState { output, storage });
         let request = JobRequest {
             path: QualifiedPath::root().child("my_job"),
             args: vec![],
@@ -392,11 +424,8 @@ mod tests {
             pub fn add(x: Int, y: Int) -> () { () }
         "#,
         );
-        let storage = MemoryStorage::<JobRequest>::new();
-        let state = Arc::new(JobWorkerState {
-            output,
-            storage: storage.clone(),
-        });
+        let storage = memory_storage().await.unwrap();
+        let state = Arc::new(JobWorkerState { output, storage });
         let request = JobRequest {
             path: QualifiedPath::root().child("add"),
             args: vec![Value::Int(1), Value::Int(2)],
@@ -413,11 +442,8 @@ mod tests {
             pub fn bad_job() -> () { panic("boom") }
         "#,
         );
-        let storage = MemoryStorage::<JobRequest>::new();
-        let state = Arc::new(JobWorkerState {
-            output,
-            storage: storage.clone(),
-        });
+        let storage = memory_storage().await.unwrap();
+        let state = Arc::new(JobWorkerState { output, storage });
         let request = JobRequest {
             path: QualifiedPath::root().child("bad_job"),
             args: vec![],
@@ -434,11 +460,8 @@ mod tests {
             pub fn my_job() -> () { () }
         "#,
         );
-        let storage = MemoryStorage::<JobRequest>::new();
-        let state = Arc::new(JobWorkerState {
-            output,
-            storage: storage.clone(),
-        });
+        let storage = memory_storage().await.unwrap();
+        let state = Arc::new(JobWorkerState { output, storage });
         let request = JobRequest {
             path: QualifiedPath::root().child("missing"),
             args: vec![],
@@ -452,7 +475,7 @@ mod tests {
 
     fn make_service(
         output: BuildOutput,
-        storage: MemoryStorage<JobRequest>,
+        storage: SqliteStorage<JobRequest>,
     ) -> impl tower::Service<
         Request<JobRequest, ()>,
         Response = (),
@@ -476,11 +499,11 @@ mod tests {
             pub fn my_job() -> () { () }
         "#,
         );
-        let storage = MemoryStorage::<JobRequest>::new();
-        let svc = make_service(output, storage.clone());
+        let storage = memory_storage().await.unwrap();
+        let svc = make_service(output, storage);
 
-        let (mut tester, poller) =
-            apalis_core::test_utils::TestWrapper::new_with_service(storage, svc);
+        let mem = MemoryStorage::<JobRequest>::new();
+        let (mut tester, poller) = apalis_core::test_utils::TestWrapper::new_with_service(mem, svc);
         tokio::spawn(poller);
 
         tester
@@ -503,11 +526,11 @@ mod tests {
             pub fn bad_job() -> () { panic("boom") }
         "#,
         );
-        let storage = MemoryStorage::<JobRequest>::new();
-        let svc = make_service(output, storage.clone());
+        let storage = memory_storage().await.unwrap();
+        let svc = make_service(output, storage);
 
-        let (mut tester, poller) =
-            apalis_core::test_utils::TestWrapper::new_with_service(storage, svc);
+        let mem = MemoryStorage::<JobRequest>::new();
+        let (mut tester, poller) = apalis_core::test_utils::TestWrapper::new_with_service(mem, svc);
         tokio::spawn(poller);
 
         tester
@@ -531,11 +554,11 @@ mod tests {
             pub fn greet(name: String) -> () { () }
         "#,
         );
-        let storage = MemoryStorage::<JobRequest>::new();
-        let svc = make_service(output, storage.clone());
+        let storage = memory_storage().await.unwrap();
+        let svc = make_service(output, storage);
 
-        let (mut tester, poller) =
-            apalis_core::test_utils::TestWrapper::new_with_service(storage, svc);
+        let mem = MemoryStorage::<JobRequest>::new();
+        let (mut tester, poller) = apalis_core::test_utils::TestWrapper::new_with_service(mem, svc);
         tokio::spawn(poller);
 
         tester
@@ -548,5 +571,71 @@ mod tests {
 
         let (_, result) = tester.execute_next().await.unwrap();
         assert_eq!(result, Ok("()".to_string()));
+    }
+
+    // ── list tests ──────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn list_with_enqueued_jobs() {
+        let output = build_source(
+            r#"
+            #[job]
+            pub fn job_a() -> () { () }
+
+            #[job]
+            pub fn job_b(x: Int) -> () { () }
+        "#,
+        );
+        let mut storage = memory_storage().await.unwrap();
+
+        enqueue(
+            &mut storage,
+            &output,
+            QualifiedPath::root().child("job_a"),
+            vec![],
+        )
+        .await
+        .unwrap();
+        enqueue(
+            &mut storage,
+            &output,
+            QualifiedPath::root().child("job_a"),
+            vec![],
+        )
+        .await
+        .unwrap();
+        enqueue(
+            &mut storage,
+            &output,
+            QualifiedPath::root().child("job_b"),
+            vec![Value::Int(42)],
+        )
+        .await
+        .unwrap();
+
+        let jobs = list(&storage, &output).await.unwrap();
+        assert_eq!(jobs.len(), 2);
+
+        let (_, _, enqueued_a) = jobs.iter().find(|(p, _, _)| p.last() == "job_a").unwrap();
+        assert_eq!(enqueued_a.len(), 2);
+
+        let (_, _, enqueued_b) = jobs.iter().find(|(p, _, _)| p.last() == "job_b").unwrap();
+        assert_eq!(enqueued_b.len(), 1);
+        assert_eq!(enqueued_b[0].args, vec![Value::Int(42)]);
+    }
+
+    #[tokio::test]
+    async fn list_empty_storage() {
+        let output = build_source(
+            r#"
+            #[job]
+            pub fn my_job() -> () { () }
+        "#,
+        );
+        let storage = memory_storage().await.unwrap();
+
+        let jobs = list(&storage, &output).await.unwrap();
+        assert_eq!(jobs.len(), 1);
+        assert!(jobs[0].2.is_empty());
     }
 }

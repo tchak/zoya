@@ -5,7 +5,8 @@ edition = "2024"
 
 [dependencies]
 apalis = { version = "0.7", features = ["retry"] }
-tower = "0.5"
+apalis-sql = { version = "0.7", features = ["sqlite", "migrate"] }
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
@@ -19,6 +20,7 @@ zoya-value = { path = "../zoya-value" }
 [dev-dependencies]
 apalis-core = { version = "0.7", features = ["test-utils"] }
 tokio = { version = "1", features = ["full"] }
+tower = "0.5"
 tempfile = "3"
 zoya-codegen = { path = "../zoya-codegen" }
 zoya-loader = { path = "../zoya-loader" }
