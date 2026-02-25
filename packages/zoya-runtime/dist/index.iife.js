@@ -330,77 +330,6 @@
 	}
 
 //#endregion
-//#region src/task.ts
-	const $$Task = {
-		of(value) {
-			return Object.freeze({
-				$task: true,
-				run: () => Promise.resolve(value)
-			});
-		},
-		map(task, f) {
-			return Object.freeze({
-				$task: true,
-				run: () => task.run().then(f)
-			});
-		},
-		and_then(task, f) {
-			return Object.freeze({
-				$task: true,
-				run: () => task.run().then((v) => f(v).run())
-			});
-		},
-		all(tasks) {
-			return Object.freeze({
-				$task: true,
-				run: () => Promise.all(tasks.map((t) => t.run()))
-			});
-		},
-		tap(task, f) {
-			return Object.freeze({
-				$task: true,
-				run: () => task.run().then((v) => {
-					f(v);
-					return v;
-				})
-			});
-		},
-		zip(a, b) {
-			return Object.freeze({
-				$task: true,
-				run: () => Promise.all([a.run(), b.run()])
-			});
-		},
-		zip3(a, b, c) {
-			return Object.freeze({
-				$task: true,
-				run: () => Promise.all([
-					a.run(),
-					b.run(),
-					c.run()
-				])
-			});
-		},
-		zip4(a, b, c, d) {
-			return Object.freeze({
-				$task: true,
-				run: () => Promise.all([
-					a.run(),
-					b.run(),
-					c.run(),
-					d.run()
-				])
-			});
-		},
-		delay(ms) {
-			return Object.freeze({
-				$task: true,
-				run: () => new Promise((r) => setTimeout(() => r([]), ms))
-			});
-		}
-	};
-
-//#endregion
 //#region src/json.ts
 	function $$json_to_zoya(v) {
 		if (v === null) return { $tag: "Null" };
@@ -443,73 +372,6 @@
 			case "Array": return v.$0.map($$zoya_to_json);
 			case "Object": return Object.fromEntries($$Dict.entries(v.$0).map(([k, val]) => [k, $$zoya_to_json(val)]));
 		}
-	}
-	async function $$zoya_to_js(v) {
-		if (v === null || v === void 0 || typeof v === "boolean" || typeof v === "number" || typeof v === "string" || typeof v === "bigint" || typeof v === "function") return v;
-		if (Array.isArray(v)) {
-			const result = [];
-			for (let i = 0; i < v.length; i++) result.push(await $$zoya_to_js(v[i]));
-			const tagged = v;
-			if (tagged.$tag) result.$tag = tagged.$tag;
-			return result;
-		}
-		if (typeof v === "object") {
-			const obj = v;
-			if (obj.$task === true) {
-				const run = obj.run;
-				const arr = [await $$zoya_to_js(await run())];
-				arr.$tag = "Task";
-				return arr;
-			}
-			if (obj.$$set === true) {
-				const keys = $$Dict.keys(obj.$$data);
-				const result = [];
-				for (let i = 0; i < keys.length; i++) result.push(await $$zoya_to_js(keys[i]));
-				result.$tag = "Set";
-				return result;
-			}
-			if (obj.$$hamt === true) {
-				const entries = $$Dict.entries(v);
-				const result = [];
-				for (let i = 0; i < entries.length; i++) result.push([await $$zoya_to_js(entries[i][0]), await $$zoya_to_js(entries[i][1])]);
-				result.$tag = "Dict";
-				return result;
-			}
-			const out = {};
-			const keys = Object.keys(obj);
-			for (let i = 0; i < keys.length; i++) out[keys[i]] = await $$zoya_to_js(obj[keys[i]]);
-			return out;
-		}
-		return v;
-	}
-	function $$js_to_zoya(v) {
-		if (v === null || v === void 0 || typeof v === "boolean" || typeof v === "number" || typeof v === "string" || typeof v === "bigint") return v;
-		if (Array.isArray(v)) {
-			const tagged = v;
-			if (tagged.$tag === "Task") return $$Task.of($$js_to_zoya(v[0]));
-			if (tagged.$tag === "Set") return $$Set_from(v.map($$js_to_zoya));
-			if (tagged.$tag === "Dict") return $$Dict.from(v.map((e) => {
-				const pair = e;
-				return [$$js_to_zoya(pair[0]), $$js_to_zoya(pair[1])];
-			}));
-			return v.map($$js_to_zoya);
-		}
-		if (typeof v === "object") {
-			const obj = v;
-			const out = {};
-			const keys = Object.keys(obj);
-			for (let i = 0; i < keys.length; i++) out[keys[i]] = $$js_to_zoya(obj[keys[i]]);
-			return out;
-		}
-		return v;
-	}
-	function $$Set_from(items) {
-		let d = $$Dict.empty();
-		for (let i = 0; i < items.length; i++) d = $$Dict.insert(d, items[i], true);
-		return Object.freeze({
-			$$set: true,
-			$$data: d
-		});
 	}
 
 //#endregion
@@ -591,6 +453,146 @@
 			return wrap(d);
 		}
 	};
+
+//#endregion
+//#region src/task.ts
+	const $$Task = {
+		of(value) {
+			return Object.freeze({
+				$task: true,
+				run: () => Promise.resolve(value)
+			});
+		},
+		map(task, f) {
+			return Object.freeze({
+				$task: true,
+				run: () => task.run().then(f)
+			});
+		},
+		and_then(task, f) {
+			return Object.freeze({
+				$task: true,
+				run: () => task.run().then((v) => f(v).run())
+			});
+		},
+		all(tasks) {
+			return Object.freeze({
+				$task: true,
+				run: () => Promise.all(tasks.map((t) => t.run()))
+			});
+		},
+		tap(task, f) {
+			return Object.freeze({
+				$task: true,
+				run: () => task.run().then((v) => {
+					f(v);
+					return v;
+				})
+			});
+		},
+		zip(a, b) {
+			return Object.freeze({
+				$task: true,
+				run: () => Promise.all([a.run(), b.run()])
+			});
+		},
+		zip3(a, b, c) {
+			return Object.freeze({
+				$task: true,
+				run: () => Promise.all([
+					a.run(),
+					b.run(),
+					c.run()
+				])
+			});
+		},
+		zip4(a, b, c, d) {
+			return Object.freeze({
+				$task: true,
+				run: () => Promise.all([
+					a.run(),
+					b.run(),
+					c.run(),
+					d.run()
+				])
+			});
+		},
+		delay(ms) {
+			return Object.freeze({
+				$task: true,
+				run: () => new Promise((r) => setTimeout(() => r([]), ms))
+			});
+		}
+	};
+
+//#endregion
+//#region src/zoya.ts
+	async function $$zoya_to_js(v) {
+		if (v === null || v === void 0 || typeof v === "boolean" || typeof v === "number" || typeof v === "string" || typeof v === "bigint" || typeof v === "function") return v;
+		if (Array.isArray(v)) {
+			const result = [];
+			for (let i = 0; i < v.length; i++) result.push(await $$zoya_to_js(v[i]));
+			const tagged = v;
+			if (tagged.$tag) result.$tag = tagged.$tag;
+			return result;
+		}
+		if (typeof v === "object") {
+			const obj = v;
+			if (obj.$task === true) {
+				const run = obj.run;
+				const arr = [await $$zoya_to_js(await run())];
+				arr.$tag = "Task";
+				return arr;
+			}
+			if (obj.$$set === true) {
+				const keys = $$Dict.keys(obj.$$data);
+				const result = [];
+				for (let i = 0; i < keys.length; i++) result.push(await $$zoya_to_js(keys[i]));
+				result.$tag = "Set";
+				return result;
+			}
+			if (obj.$$hamt === true) {
+				const entries = $$Dict.entries(v);
+				const result = [];
+				for (let i = 0; i < entries.length; i++) result.push([await $$zoya_to_js(entries[i][0]), await $$zoya_to_js(entries[i][1])]);
+				result.$tag = "Dict";
+				return result;
+			}
+			const out = {};
+			const keys = Object.keys(obj);
+			for (let i = 0; i < keys.length; i++) out[keys[i]] = await $$zoya_to_js(obj[keys[i]]);
+			return out;
+		}
+		return v;
+	}
+	function $$js_to_zoya(v) {
+		if (v === null || v === void 0 || typeof v === "boolean" || typeof v === "number" || typeof v === "string" || typeof v === "bigint") return v;
+		if (Array.isArray(v)) {
+			const tagged = v;
+			if (tagged.$tag === "Task") return $$Task.of($$js_to_zoya(v[0]));
+			if (tagged.$tag === "Set") return $$Set.from(v.map($$js_to_zoya));
+			if (tagged.$tag === "Dict") return $$Dict.from(v.map((e) => {
+				const pair = e;
+				return [$$js_to_zoya(pair[0]), $$js_to_zoya(pair[1])];
+			}));
+			return v.map($$js_to_zoya);
+		}
+		if (typeof v === "object") {
+			const obj = v;
+			const out = {};
+			const keys = Object.keys(obj);
+			for (let i = 0; i < keys.length; i++) out[keys[i]] = $$js_to_zoya(obj[keys[i]]);
+			return out;
+		}
+		return v;
+	}
+	async function $$run(qualified_path, ...args) {
+		const js_name = "$" + qualified_path.replace(/::/g, "$");
+		const fn = globalThis[js_name];
+		if (typeof fn !== "function") $$throw("PANIC", `function not found: ${qualified_path}`);
+		if (fn.length !== args.length) $$throw("PANIC", `arity mismatch for ${qualified_path}: expected ${fn.length} arguments, got ${args.length}`);
+		return $$zoya_to_js(fn(...args.map($$js_to_zoya)));
+	}
 
 //#endregion
 //#region src/int.ts
@@ -863,6 +865,7 @@
 		$$zoya_to_json,
 		$$zoya_to_js,
 		$$js_to_zoya,
+		$$run,
 		$$Dict,
 		$$Set,
 		$$Int,

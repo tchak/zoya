@@ -1,3 +1,8 @@
+export interface TaskValue {
+  readonly $task: true;
+  run(): Promise<unknown>;
+}
+
 export const $$Task = {
   of(value: unknown) {
     return Object.freeze({ $task: true, run: () => Promise.resolve(value) });
@@ -23,10 +28,7 @@ export const $$Task = {
       run: () => Promise.all(tasks.map((t) => t.run())),
     });
   },
-  tap(
-    task: { run: () => Promise<unknown> },
-    f: (x: unknown) => void,
-  ) {
+  tap(task: { run: () => Promise<unknown> }, f: (x: unknown) => void) {
     return Object.freeze({
       $task: true,
       run: () =>
@@ -36,10 +38,7 @@ export const $$Task = {
         }),
     });
   },
-  zip(
-    a: { run: () => Promise<unknown> },
-    b: { run: () => Promise<unknown> },
-  ) {
+  zip(a: { run: () => Promise<unknown> }, b: { run: () => Promise<unknown> }) {
     return Object.freeze({
       $task: true,
       run: () => Promise.all([a.run(), b.run()]),

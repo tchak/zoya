@@ -9,12 +9,8 @@ import {
   $$pow_bigint,
 } from './arithmetic';
 import { $$list_idx } from './list-idx';
-import {
-  $$json_to_zoya,
-  $$zoya_to_json,
-  $$zoya_to_js,
-  $$js_to_zoya,
-} from './json';
+import { $$json_to_zoya, $$zoya_to_json } from './json';
+import { $$zoya_to_js, $$js_to_zoya, $$run } from './zoya';
 import { $$Dict } from './hamt';
 import { $$Set } from './set';
 import { $$Int } from './int';
@@ -40,6 +36,7 @@ Object.assign(globalThis, {
   $$zoya_to_json,
   $$zoya_to_js,
   $$js_to_zoya,
+  $$run,
   $$Dict,
   $$Set,
   $$Int,

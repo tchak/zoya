@@ -1,6 +1,6 @@
 import { $$Dict } from './hamt';
 
-interface SetValue {
+export interface SetValue {
   readonly $$set: true;
   readonly $$data: ReturnType<typeof $$Dict.empty>;
 }

@@ -29,6 +29,8 @@ interface InternalNode {
 
 type HamtNode = LeafNode | CollisionNode | InternalNode;
 
+export type DictValue = HamtNode;
+
 // --- Hashing ---
 
 function $$hash(v: unknown): number {
