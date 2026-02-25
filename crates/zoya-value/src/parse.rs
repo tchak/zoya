@@ -804,7 +804,7 @@ mod tests {
     // ── Structs ───────────────────────────────────────────────────
 
     fn root() -> QualifiedPath {
-        QualifiedPath::new(vec!["root".into()])
+        QualifiedPath::root()
     }
 
     #[test]

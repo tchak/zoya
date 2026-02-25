@@ -1641,7 +1641,7 @@ fn find_impl_method<'a>(
                     return Some((root_path, imt));
                 }
                 // Try std::<mod>::<Type>::<method> (when std is a dependency)
-                let std_path = QualifiedPath::new(vec!["std".to_string()])
+                let std_path = QualifiedPath::from("std")
                     .child(mod_name)
                     .child(prim_type_name)
                     .child(method);
@@ -2353,7 +2353,7 @@ fn check_list_index(
     // Look up the Option definition to get its module path
     // Try both root:: (when type-checking std itself) and std:: (for user code)
     let find_option_module = |prefix: &str| -> Option<QualifiedPath> {
-        let qpath = QualifiedPath::new(vec![prefix.into(), "option".into(), "Option".into()]);
+        let qpath = QualifiedPath::from(prefix).child("option").child("Option");
         env.definitions
             .get(&qpath)
             .or_else(|| {
@@ -2368,7 +2368,7 @@ fn check_list_index(
     };
     let option_module = find_option_module("root")
         .or_else(|| find_option_module("std"))
-        .unwrap_or_else(|| QualifiedPath::new(vec!["std".into(), "option".into()]));
+        .unwrap_or_else(|| QualifiedPath::from("std::option"));
     let option_ty = Type::Enum {
         module: option_module,
         name: "Option".to_string(),
@@ -2953,7 +2953,7 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
     // every module so they can be used without explicit imports, including in
     // function signatures resolved during Phase 1.
     if pkg.name != "std" {
-        let prelude_path = QualifiedPath::new(vec!["std".into(), "prelude".into()]);
+        let prelude_path = QualifiedPath::from("std::prelude");
         if env.definitions.contains_key(&prelude_path) {
             let prelude_items: Vec<(String, QualifiedPath)> = env
                 .definitions

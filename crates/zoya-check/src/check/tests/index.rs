@@ -17,7 +17,7 @@ fn test_list_index_returns_option() {
     assert_eq!(
         ty,
         Type::Enum {
-            module: QualifiedPath::new(vec!["std".into(), "option".into()]),
+            module: QualifiedPath::from("std::option"),
             name: "Option".to_string(),
             type_args: vec![Type::Int],
             variants: vec![

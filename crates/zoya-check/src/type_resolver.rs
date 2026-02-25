@@ -490,7 +490,7 @@ mod tests {
     }
 
     fn qpath(path: &str) -> QualifiedPath {
-        QualifiedPath::new(path.split("::").map(|s| s.to_string()).collect())
+        QualifiedPath::from(path)
     }
 
     // ========================================================================

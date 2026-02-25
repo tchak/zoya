@@ -1126,7 +1126,7 @@ mod tests {
     fn serialize_struct_unit() {
         let val = Value::Struct {
             name: "Foo".into(),
-            module: QualifiedPath::new(vec!["root".into()]),
+            module: QualifiedPath::root(),
             data: ValueData::Unit,
         };
         assert_eq!(val.to_json(), r#"{"type":"Foo"}"#);
@@ -1136,7 +1136,7 @@ mod tests {
     fn serialize_struct_tuple() {
         let val = Value::Struct {
             name: "Point".into(),
-            module: QualifiedPath::new(vec!["root".into()]),
+            module: QualifiedPath::root(),
             data: ValueData::Tuple(vec![Value::Int(1), Value::Int(2)]),
         };
         assert_eq!(val.to_json(), r#"{"type":"Point","data":[1,2]}"#);
@@ -1148,7 +1148,7 @@ mod tests {
         fields.insert("x".into(), Value::Int(10));
         let val = Value::Struct {
             name: "Point".into(),
-            module: QualifiedPath::new(vec!["root".into()]),
+            module: QualifiedPath::root(),
             data: ValueData::Struct(fields),
         };
         assert_eq!(val.to_json(), r#"{"type":"Point","data":{"x":10}}"#);
@@ -1158,7 +1158,7 @@ mod tests {
     fn serialize_struct_in_module() {
         let val = Value::Struct {
             name: "Foo".into(),
-            module: QualifiedPath::new(vec!["root".into(), "mymod".into()]),
+            module: QualifiedPath::from("root::mymod"),
             data: ValueData::Unit,
         };
         assert_eq!(val.to_json(), r#"{"type":"mymod::Foo"}"#);
@@ -1168,7 +1168,7 @@ mod tests {
     fn serialize_struct_in_nested_module() {
         let val = Value::Struct {
             name: "Bar".into(),
-            module: QualifiedPath::new(vec!["root".into(), "a".into(), "b".into()]),
+            module: QualifiedPath::from("root::a::b"),
             data: ValueData::Tuple(vec![Value::Int(1)]),
         };
         assert_eq!(val.to_json(), r#"{"type":"a::b::Bar","data":[1]}"#);
@@ -1179,7 +1179,7 @@ mod tests {
         let val = Value::EnumVariant {
             enum_name: "Color".into(),
             variant_name: "Red".into(),
-            module: QualifiedPath::new(vec!["root".into()]),
+            module: QualifiedPath::root(),
             data: ValueData::Unit,
         };
         assert_eq!(val.to_json(), r#"{"type":"Color::Red"}"#);
@@ -1190,7 +1190,7 @@ mod tests {
         let val = Value::EnumVariant {
             enum_name: "Shape".into(),
             variant_name: "Circle".into(),
-            module: QualifiedPath::new(vec!["root".into()]),
+            module: QualifiedPath::root(),
             data: ValueData::Tuple(vec![Value::Float(5.0)]),
         };
         assert_eq!(val.to_json(), r#"{"type":"Shape::Circle","data":[5.0]}"#);
@@ -1203,7 +1203,7 @@ mod tests {
         let val = Value::EnumVariant {
             enum_name: "Result".into(),
             variant_name: "Ok".into(),
-            module: QualifiedPath::new(vec!["root".into()]),
+            module: QualifiedPath::root(),
             data: ValueData::Struct(fields),
         };
         assert_eq!(
@@ -1217,7 +1217,7 @@ mod tests {
         let val = Value::EnumVariant {
             enum_name: "Color".into(),
             variant_name: "Red".into(),
-            module: QualifiedPath::new(vec!["root".into(), "graphics".into()]),
+            module: QualifiedPath::from("root::graphics"),
             data: ValueData::Unit,
         };
         assert_eq!(val.to_json(), r#"{"type":"graphics::Color::Red"}"#);
@@ -1227,7 +1227,7 @@ mod tests {
     fn serialize_nested() {
         let inner = Value::Struct {
             name: "Unit".into(),
-            module: QualifiedPath::new(vec!["root".into()]),
+            module: QualifiedPath::root(),
             data: ValueData::Unit,
         };
         let val = Value::List(vec![inner, Value::Int(42)]);
@@ -1336,7 +1336,7 @@ mod tests {
     #[test]
     fn check_type_struct_ok() {
         let lookup = empty_lookup();
-        let module = QualifiedPath::new(vec!["root".into()]);
+        let module = QualifiedPath::root();
         let val = Value::Struct {
             name: "Point".into(),
             module: module.clone(),
@@ -1359,7 +1359,7 @@ mod tests {
     #[test]
     fn check_type_struct_name_mismatch() {
         let lookup = empty_lookup();
-        let module = QualifiedPath::new(vec!["root".into()]);
+        let module = QualifiedPath::root();
         let val = Value::Struct {
             name: "Point".into(),
             module: module.clone(),
@@ -1377,7 +1377,7 @@ mod tests {
     #[test]
     fn check_type_enum_ok() {
         let lookup = empty_lookup();
-        let module = QualifiedPath::new(vec!["root".into()]);
+        let module = QualifiedPath::root();
         let val = Value::EnumVariant {
             enum_name: "Color".into(),
             variant_name: "Red".into(),
@@ -1399,7 +1399,7 @@ mod tests {
     #[test]
     fn check_type_enum_name_mismatch() {
         let lookup = empty_lookup();
-        let module = QualifiedPath::new(vec!["root".into()]);
+        let module = QualifiedPath::root();
         let val = Value::EnumVariant {
             enum_name: "Color".into(),
             variant_name: "Red".into(),

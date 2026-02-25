@@ -7,7 +7,7 @@ use zoya_ast::{
 use zoya_ir::{Definition, FunctionType, QualifiedPath, Type, TypeScheme, Visibility};
 
 fn qpath(path: &str) -> QualifiedPath {
-    QualifiedPath::new(path.split("::").map(|s| s.to_string()).collect())
+    QualifiedPath::from(path)
 }
 
 use crate::check::{TypeEnv, check, check_expr};

@@ -6,12 +6,12 @@ use zoya_value::{Value, ValueData};
 
 /// Module path for `std::http` types.
 fn http_module() -> QualifiedPath {
-    QualifiedPath::new(vec!["std".into(), "http".into()])
+    QualifiedPath::from("std::http")
 }
 
 /// Module path for `std::option` types.
 fn option_module() -> QualifiedPath {
-    QualifiedPath::new(vec!["std".into(), "option".into()])
+    QualifiedPath::from("std::option")
 }
 
 /// Build `Option::None` as a Zoya Value.

@@ -135,11 +135,7 @@ impl Serialize for QualifiedPath {
 impl<'de> Deserialize<'de> for QualifiedPath {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let s = String::deserialize(deserializer)?;
-        let segments: Vec<String> = s.split("::").map(String::from).collect();
-        if segments.is_empty() {
-            return Err(serde::de::Error::custom("QualifiedPath cannot be empty"));
-        }
-        Ok(QualifiedPath(segments))
+        Ok(QualifiedPath::from(s.as_str()))
     }
 }
 

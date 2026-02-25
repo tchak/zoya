@@ -11,7 +11,7 @@ use crate::unify::UnifyCtx;
 use super::{build_test_package, build_test_package_with_expr, find_test_function_in};
 
 fn qpath(path: &str) -> QualifiedPath {
-    QualifiedPath::new(path.split("::").map(|s| s.to_string()).collect())
+    QualifiedPath::from(path)
 }
 
 #[test]

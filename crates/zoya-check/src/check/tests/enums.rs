@@ -5,7 +5,7 @@ use crate::check::{TypeEnv, check_expr};
 use crate::unify::UnifyCtx;
 
 fn qpath(path: &str) -> QualifiedPath {
-    QualifiedPath::new(path.split("::").map(|s| s.to_string()).collect())
+    QualifiedPath::from(path)
 }
 
 fn env_with_message_enum() -> TypeEnv {

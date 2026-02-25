@@ -120,11 +120,7 @@ pub(crate) async fn run_code(
     }
 
     // Build the qualified path for $$run: root::main with pkg "myapp" → "myapp::main"
-    let segments = entry.segments();
-    let run_path = std::iter::once(name)
-        .chain(segments[1..].iter().map(|s| s.as_str()))
-        .collect::<Vec<_>>()
-        .join("::");
+    let run_path = entry.with_root(name).to_string();
 
     // Create async runtime (no module system needed)
     let (_runtime, context) = create_async_runtime().await?;
