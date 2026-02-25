@@ -212,35 +212,35 @@ fn write_comma_separated(
 ) -> fmt::Result {
     for (i, item) in items.into_iter().enumerate() {
         if i > 0 {
-            write!(f, ", ")?;
+            f.write_str(", ")?;
         }
-        write!(f, "{}", item)?;
+        write!(f, "{item}")?;
     }
     Ok(())
 }
 
-fn write_data(f: &mut fmt::Formatter<'_>, prefix: &str, data: &ValueData) -> fmt::Result {
+fn write_value_data(f: &mut fmt::Formatter<'_>, data: &ValueData) -> fmt::Result {
     match data {
-        ValueData::Unit => write!(f, "{}", prefix),
+        ValueData::Unit => Ok(()),
         ValueData::Tuple(values) => {
-            write!(f, "{}(", prefix)?;
+            f.write_str("(")?;
             write_comma_separated(f, values)?;
-            write!(f, ")")
+            f.write_str(")")
         }
         ValueData::Struct(map) => {
             if map.is_empty() {
-                write!(f, "{} {{}}", prefix)
+                f.write_str(" {}")
             } else {
-                write!(f, "{} {{ ", prefix)?;
+                f.write_str(" { ")?;
                 let mut keys: Vec<&String> = map.keys().collect();
                 keys.sort();
                 for (i, k) in keys.iter().enumerate() {
                     if i > 0 {
-                        write!(f, ", ")?;
+                        f.write_str(", ")?;
                     }
-                    write!(f, "{}: {}", k, map[*k])?;
+                    write!(f, "{k}: {}", map[*k])?;
                 }
-                write!(f, " }}")
+                f.write_str(" }")
             }
         }
     }
@@ -268,25 +268,28 @@ impl fmt::Display for Value {
                     write!(f, ")")
                 }
             }
-            Value::Struct { name, data, .. } => write_data(f, name, data),
+            Value::Struct { name, data, .. } => {
+                f.write_str(name)?;
+                write_value_data(f, data)
+            }
             Value::Set(items) => {
-                write!(f, "{{")?;
+                f.write_str("{")?;
                 let mut sorted: Vec<_> = items.iter().collect();
-                sorted.sort_by_key(|a| a.to_string());
+                sorted.sort_by_cached_key(|a| a.to_string());
                 write_comma_separated(f, sorted)?;
-                write!(f, "}}")
+                f.write_str("}")
             }
             Value::Dict(entries) => {
-                write!(f, "{{")?;
+                f.write_str("{")?;
                 let mut sorted: Vec<_> = entries.iter().collect();
-                sorted.sort_by(|a, b| a.0.to_string().cmp(&b.0.to_string()));
+                sorted.sort_by_cached_key(|(k, _)| k.to_string());
                 for (i, (k, v)) in sorted.iter().enumerate() {
                     if i > 0 {
-                        write!(f, ", ")?;
+                        f.write_str(", ")?;
                     }
-                    write!(f, "{}: {}", k, v)?;
+                    write!(f, "{k}: {v}")?;
                 }
-                write!(f, "}}")
+                f.write_str("}")
             }
             Value::EnumVariant {
                 enum_name,
@@ -294,8 +297,10 @@ impl fmt::Display for Value {
                 data,
                 ..
             } => {
-                let path = format!("{}::{}", enum_name, variant_name);
-                write_data(f, &path, data)
+                f.write_str(enum_name)?;
+                f.write_str("::")?;
+                f.write_str(variant_name)?;
+                write_value_data(f, data)
             }
             Value::Task(inner) => write!(f, "Task({})", inner),
         }

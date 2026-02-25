@@ -472,12 +472,8 @@ mod tests {
     fn make_service(
         output: BuildOutput,
         storage: SqliteStorage<Job>,
-    ) -> impl tower::Service<
-        Request<Job, ()>,
-        Response = (),
-        Error = JobError,
-        Future = impl Send,
-    > + Send
+    ) -> impl tower::Service<Request<Job, ()>, Response = (), Error = JobError, Future = impl Send>
+    + Send
     + Sync
     + Clone {
         let state = Arc::new(JobWorkerState { output, storage });

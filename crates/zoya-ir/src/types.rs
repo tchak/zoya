@@ -140,49 +140,60 @@ impl EnumVariantType {
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Type::Int => write!(f, "Int"),
-            Type::BigInt => write!(f, "BigInt"),
-            Type::Float => write!(f, "Float"),
-            Type::Bool => write!(f, "Bool"),
-            Type::String => write!(f, "String"),
-            Type::List(elem) => write!(f, "List<{}>", elem),
-            Type::Set(elem) => write!(f, "Set<{}>", elem),
-            Type::Task(elem) => write!(f, "Task<{}>", elem),
-            Type::Dict(key, val) => write!(f, "Dict<{}, {}>", key, val),
+            Type::Int => f.write_str("Int"),
+            Type::BigInt => f.write_str("BigInt"),
+            Type::Float => f.write_str("Float"),
+            Type::Bool => f.write_str("Bool"),
+            Type::String => f.write_str("String"),
+            Type::List(elem) => write!(f, "List<{elem}>"),
+            Type::Set(elem) => write!(f, "Set<{elem}>"),
+            Type::Task(elem) => write!(f, "Task<{elem}>"),
+            Type::Dict(key, val) => write!(f, "Dict<{key}, {val}>"),
             Type::Tuple(elems) => {
-                let elem_strs: Vec<String> = elems.iter().map(|e| e.to_string()).collect();
-                write!(f, "({})", elem_strs.join(", "))
+                f.write_str("(")?;
+                for (i, e) in elems.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "{e}")?;
+                }
+                f.write_str(")")
             }
-            Type::Var(id) => write!(f, "{}", id),
+            Type::Var(id) => write!(f, "{id}"),
             Type::Function { params, ret } => {
                 if params.is_empty() {
-                    write!(f, "() -> {}", ret)
+                    write!(f, "() -> {ret}")
                 } else if params.len() == 1 {
-                    write!(f, "{} -> {}", params[0], ret)
+                    write!(f, "{} -> {ret}", params[0])
                 } else {
-                    let param_strs: Vec<String> = params.iter().map(|p| p.to_string()).collect();
-                    write!(f, "({}) -> {}", param_strs.join(", "), ret)
+                    f.write_str("(")?;
+                    for (i, p) in params.iter().enumerate() {
+                        if i > 0 {
+                            f.write_str(", ")?;
+                        }
+                        write!(f, "{p}")?;
+                    }
+                    write!(f, ") -> {ret}")
                 }
             }
             Type::Struct {
                 name, type_args, ..
-            } => {
-                if type_args.is_empty() {
-                    write!(f, "{}", name)
-                } else {
-                    let args: Vec<String> = type_args.iter().map(|t| t.to_string()).collect();
-                    write!(f, "{}<{}>", name, args.join(", "))
-                }
             }
-            Type::Enum {
+            | Type::Enum {
                 name, type_args, ..
             } => {
-                if type_args.is_empty() {
-                    write!(f, "{}", name)
-                } else {
-                    let args: Vec<String> = type_args.iter().map(|t| t.to_string()).collect();
-                    write!(f, "{}<{}>", name, args.join(", "))
+                f.write_str(name)?;
+                if !type_args.is_empty() {
+                    f.write_str("<")?;
+                    for (i, t) in type_args.iter().enumerate() {
+                        if i > 0 {
+                            f.write_str(", ")?;
+                        }
+                        write!(f, "{t}")?;
+                    }
+                    f.write_str(">")?;
                 }
+                Ok(())
             }
         }
     }

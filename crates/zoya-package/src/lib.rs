@@ -122,7 +122,13 @@ impl From<&str> for QualifiedPath {
 
 impl std::fmt::Display for QualifiedPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0.join("::"))
+        for (i, seg) in self.0.iter().enumerate() {
+            if i > 0 {
+                f.write_str("::")?;
+            }
+            f.write_str(seg)?;
+        }
+        Ok(())
     }
 }
 
