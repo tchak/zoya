@@ -8,7 +8,7 @@ use zoya_package::QualifiedPath;
 use zoya_value::{JSValue, Value};
 
 /// Create an async runtime and context for non-blocking script evaluation.
-pub(crate) async fn create_async_runtime() -> Result<(AsyncRuntime, AsyncContext), EvalError> {
+async fn create_async_runtime() -> Result<(AsyncRuntime, AsyncContext), EvalError> {
     let runtime = AsyncRuntime::new()
         .map_err(|e| EvalError::RuntimeError(format!("failed to create runtime: {e}")))?;
     let context = AsyncContext::full(&runtime)
@@ -18,7 +18,7 @@ pub(crate) async fn create_async_runtime() -> Result<(AsyncRuntime, AsyncContext
 }
 
 /// Inject console and timer globals into the JS context.
-pub(crate) fn inject_globals(ctx: &Ctx<'_>) -> Result<(), EvalError> {
+fn inject_globals(ctx: &Ctx<'_>) -> Result<(), EvalError> {
     inject_console(ctx)
         .and_then(|()| inject_timers(ctx))
         .map_err(|e| EvalError::RuntimeError(format!("failed to inject globals: {e}")))
@@ -151,7 +151,7 @@ pub(crate) async fn run_code(
 /// then calls `$$run(qualified_path, ...args)` which handles JS↔Zoya
 /// value conversion internally. Uses `Promise::into_future()` to drive
 /// both the microtask queue and spawned async tasks (e.g. timers).
-pub(crate) async fn eval_script_async(
+async fn eval_script_async(
     ctx: &Ctx<'_>,
     code: &str,
     qualified_path: &str,
