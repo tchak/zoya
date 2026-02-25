@@ -1527,7 +1527,7 @@ mod tests {
 
     #[test]
     fn as_job_unit_variant() {
-        let path = QualifiedPath::new(vec!["root".into(), "app".into(), "deploy".into()]);
+        let path = QualifiedPath::from("root::app::deploy");
         let jobs = vec![(path.clone(), "Deploy".to_string())];
         let value = Value::EnumVariant {
             enum_name: "Job".to_string(),
@@ -1542,8 +1542,7 @@ mod tests {
 
     #[test]
     fn as_job_tuple_variant() {
-        let path =
-            QualifiedPath::new(vec!["root".into(), "app".into(), "send_email".into()]);
+        let path = QualifiedPath::from("root::app::send_email");
         let jobs = vec![(path.clone(), "SendEmail".to_string())];
         let value = Value::EnumVariant {
             enum_name: "Job".to_string(),
@@ -1558,10 +1557,7 @@ mod tests {
 
     #[test]
     fn as_job_unknown_variant() {
-        let jobs = vec![(
-            QualifiedPath::new(vec!["root".into(), "app".into(), "deploy".into()]),
-            "Deploy".to_string(),
-        )];
+        let jobs = vec![(QualifiedPath::from("root::app::deploy"), "Deploy".to_string())];
         let value = Value::EnumVariant {
             enum_name: "Job".to_string(),
             variant_name: "Unknown".to_string(),
@@ -1605,7 +1601,7 @@ mod tests {
         let value = Value::EnumVariant {
             enum_name: "Job".to_string(),
             variant_name: "Deploy".to_string(),
-            module: QualifiedPath::new(vec!["root".into(), "other".into()]),
+            module: QualifiedPath::from("root::other"),
             data: ValueData::Unit,
         };
         assert!(matches!(

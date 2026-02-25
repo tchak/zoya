@@ -105,6 +105,21 @@ impl QualifiedPath {
     }
 }
 
+impl From<Vec<&str>> for QualifiedPath {
+    fn from(segments: Vec<&str>) -> Self {
+        assert!(!segments.is_empty(), "QualifiedPath cannot be empty");
+        QualifiedPath(segments.into_iter().map(String::from).collect())
+    }
+}
+
+impl From<&str> for QualifiedPath {
+    fn from(s: &str) -> Self {
+        let segments: Vec<String> = s.split("::").map(String::from).collect();
+        assert!(!segments.is_empty(), "QualifiedPath cannot be empty");
+        QualifiedPath(segments)
+    }
+}
+
 impl std::fmt::Display for QualifiedPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0.join("::"))
@@ -226,6 +241,26 @@ mod tests {
         let path = QualifiedPath::local("x".to_string());
         let remapped = path.with_root("std");
         assert_eq!(remapped.segments(), &["x"]);
+    }
+
+    #[test]
+    fn test_qualified_path_from_vec_str() {
+        let path = QualifiedPath::from(vec!["root", "app", "deploy"]);
+        assert_eq!(path.segments(), &["root", "app", "deploy"]);
+        assert_eq!(path.to_string(), "root::app::deploy");
+    }
+
+    #[test]
+    fn test_qualified_path_from_str() {
+        let path = QualifiedPath::from("root::app::deploy");
+        assert_eq!(path.segments(), &["root", "app", "deploy"]);
+        assert_eq!(path.to_string(), "root::app::deploy");
+    }
+
+    #[test]
+    fn test_qualified_path_from_str_single() {
+        let path = QualifiedPath::from("root");
+        assert_eq!(path.segments(), &["root"]);
     }
 
     #[test]
