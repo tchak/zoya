@@ -27,6 +27,7 @@ pub enum Type {
     Set(Box<Type>),             // Set with element type
     Dict(Box<Type>, Box<Type>), // Dict with key and value types
     Task(Box<Type>),            // Task with result type (lazy async)
+    Bytes,                      // Raw binary data (backed by Uint8Array in JS)
     Tuple(Vec<Type>),           // Tuple with element types (heterogeneous, fixed size)
     Var(TypeVarId),             // Unification type variable
     Function {
@@ -145,6 +146,7 @@ impl fmt::Display for Type {
             Type::Float => f.write_str("Float"),
             Type::Bool => f.write_str("Bool"),
             Type::String => f.write_str("String"),
+            Type::Bytes => f.write_str("Bytes"),
             Type::List(elem) => write!(f, "List<{elem}>"),
             Type::Set(elem) => write!(f, "Set<{elem}>"),
             Type::Task(elem) => write!(f, "Task<{elem}>"),
@@ -836,7 +838,9 @@ pub fn substitute_type_vars(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Ty
                 .collect(),
         },
         // Concrete types don't contain type vars
-        Type::Int | Type::BigInt | Type::Float | Type::Bool | Type::String => ty.clone(),
+        Type::Int | Type::BigInt | Type::Float | Type::Bool | Type::String | Type::Bytes => {
+            ty.clone()
+        }
     }
 }
 

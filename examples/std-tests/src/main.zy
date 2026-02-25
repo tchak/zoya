@@ -1,6 +1,7 @@
 pub mod int
 pub mod float
 pub mod bigint
+pub mod bytes
 pub mod string
 pub mod list
 pub mod dict

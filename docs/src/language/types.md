@@ -13,6 +13,7 @@ Zoya has the following built-in types:
 | `Set<T>` | `Set::new()`, `s.insert(v)` — immutable set |
 | `Dict<K, V>` | `Dict::new()`, `d.insert(k, v)` — immutable dictionary |
 | `Task<T>` | `Task::of(42)`, `t.map(f)` — lazy async computation |
+| `Bytes` | `Bytes::from_string("hi")`, `Bytes::from_list([72, 105])` — raw binary data |
 | `(T, U, ...)` | `(1, "hello")`, `()`, `(42,)`, `(..a, ..b)` — access elements with `.0`, `.1` |
 | `T -> U` | `Int -> Bool`, `(Int, Int) -> Int` |
 

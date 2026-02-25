@@ -1042,6 +1042,16 @@ impl<'a> PackageCodegen<'a> {
             "root::task::Task::zip3" => "return $$Task.zip3($a, $b, $c);".to_string(),
             "root::task::Task::zip4" => "return $$Task.zip4($a, $b, $c, $d);".to_string(),
 
+            // Bytes methods
+            "root::bytes::Bytes::len" => "return $$Bytes.len($self);".to_string(),
+            "root::bytes::Bytes::get" => "return $$Bytes.get($self, $index);".to_string(),
+            "root::bytes::Bytes::slice" => "return $$Bytes.slice($self, $start, $end);".to_string(),
+            "root::bytes::Bytes::concat" => "return $$Bytes.concat($self, $other);".to_string(),
+            "root::bytes::Bytes::to_list" => "return $$Bytes.to_list($self);".to_string(),
+            "root::bytes::Bytes::from_list" => "return $$Bytes.from_list($list);".to_string(),
+            "root::bytes::Bytes::to_string" => "return $$Bytes.to_string($self);".to_string(),
+            "root::bytes::Bytes::from_string" => "return $$Bytes.from_string($s);".to_string(),
+
             // IO functions
             "root::io::delay" => "return $$Task.delay($ms);".to_string(),
 
@@ -1088,6 +1098,7 @@ fn needs_deep_equality(ty: &Type) -> bool {
         Type::List(_)
             | Type::Set(_)
             | Type::Dict(_, _)
+            | Type::Bytes
             | Type::Tuple(_)
             | Type::Struct { .. }
             | Type::Enum { .. }

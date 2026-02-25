@@ -1,0 +1,32 @@
+use std::bytes::Bytes
+
+#[test]
+fn test_from_string() -> () assert_eq(Bytes::from_string("hello").len(), 5)
+
+#[test]
+fn test_to_string() -> () assert_eq(Bytes::from_string("hello").to_string(), "hello")
+
+#[test]
+fn test_is_empty() -> () assert_eq(Bytes::from_string("").is_empty(), true)
+
+#[test]
+fn test_get() -> () assert_eq(Bytes::from_list([72]).get(0), Option::Some(72))
+
+#[test]
+fn test_get_out_of_bounds() -> () assert_eq(Bytes::from_list([72]).get(5), Option::None)
+
+#[test]
+fn test_slice() -> () assert_eq(Bytes::from_string("hello").slice(0, 2).to_string(), "he")
+
+#[test]
+fn test_concat() -> () {
+  let a = Bytes::from_string("he");
+  let b = Bytes::from_string("llo");
+  assert_eq(a.concat(b).to_string(), "hello")
+}
+
+#[test]
+fn test_to_list() -> () assert_eq(Bytes::from_list([1, 2, 3]).to_list(), [1, 2, 3])
+
+#[test]
+fn test_from_list() -> () assert_eq(Bytes::from_list([104, 105]).to_string(), "hi")

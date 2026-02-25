@@ -105,6 +105,7 @@ pub enum Value {
         data: ValueData,
     },
     Task(Box<Value>),
+    Bytes(Vec<u8>),
 }
 
 impl PartialEq for Value {
@@ -146,6 +147,7 @@ impl PartialEq for Value {
                 },
             ) => en1 == en2 && vn1 == vn2 && m1 == m2 && d1 == d2,
             (Value::Task(a), Value::Task(b)) => a == b,
+            (Value::Bytes(a), Value::Bytes(b)) => a == b,
             _ => false,
         }
     }
@@ -202,6 +204,7 @@ impl Hash for Value {
                 data.hash(state);
             }
             Value::Task(inner) => inner.hash(state),
+            Value::Bytes(data) => data.hash(state),
         }
     }
 }
@@ -303,6 +306,16 @@ impl fmt::Display for Value {
                 write_value_data(f, data)
             }
             Value::Task(inner) => write!(f, "Task({})", inner),
+            Value::Bytes(data) => {
+                f.write_str("Bytes([")?;
+                for (i, byte) in data.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "{:02x}", byte)?;
+                }
+                f.write_str("])")
+            }
         }
     }
 }
@@ -439,6 +452,13 @@ impl Serialize for SimpleJson<'_> {
                 serialize_data(serializer, &type_name, data)
             }
             Value::Task(inner) => SimpleJson(inner).serialize(serializer),
+            Value::Bytes(data) => {
+                let mut seq = serializer.serialize_seq(Some(data.len()))?;
+                for byte in data {
+                    seq.serialize_element(byte)?;
+                }
+                seq.end()
+            }
         }
     }
 }
@@ -478,6 +498,7 @@ impl Value {
             Value::Struct { .. } => "Struct",
             Value::EnumVariant { .. } => "EnumVariant",
             Value::Task(_) => "Task",
+            Value::Bytes(_) => "Bytes",
         }
     }
 
@@ -571,6 +592,7 @@ impl Value {
                 check_value_data(data, &variant_fields, &context, definitions)
             }
             (Value::Task(inner), Type::Task(elem_type)) => inner.check_type(elem_type, definitions),
+            (Value::Bytes(_), Type::Bytes) => Ok(()),
             (_, Type::Var(_)) => Ok(()),
             (_, Type::Function { .. }) => Err(Error::UnsupportedConversion(
                 "function args not supported".into(),
@@ -667,6 +689,7 @@ pub enum JSValue {
         tag: Option<String>,
         fields: HashMap<String, JSValue>,
     },
+    Bytes(Vec<u8>),
 }
 
 impl JSValue {
@@ -679,6 +702,7 @@ impl JSValue {
             JSValue::String(_) => "String",
             JSValue::Array { .. } => "Array",
             JSValue::Object { .. } => "Object",
+            JSValue::Bytes(_) => "Bytes",
         }
     }
 }
@@ -817,6 +841,7 @@ impl From<Value> for JSValue {
                 tag: Some("Task".to_string()),
                 items: vec![JSValue::from(*inner)],
             },
+            Value::Bytes(data) => JSValue::Bytes(data),
         }
     }
 }
@@ -851,6 +876,9 @@ impl<'js> rquickjs::IntoJs<'js> for JSValue {
                 }
                 obj.into_js(ctx)
             }
+            JSValue::Bytes(data) => {
+                rquickjs::TypedArray::<u8>::new(ctx.clone(), data)?.into_js(ctx)
+            }
         }
     }
 }
@@ -859,6 +887,10 @@ impl<'js> rquickjs::IntoJs<'js> for JSValue {
 impl<'js> rquickjs::FromJs<'js> for JSValue {
     #[allow(clippy::only_used_in_recursion)]
     fn from_js(ctx: &rquickjs::Ctx<'js>, value: rquickjs::Value<'js>) -> rquickjs::Result<Self> {
+        // Check for Uint8Array before other object/array checks
+        if let Ok(typed_array) = rquickjs::TypedArray::<u8>::from_value(value.clone()) {
+            return Ok(JSValue::Bytes(typed_array.as_bytes().unwrap().to_vec()));
+        }
         if value.is_bool() {
             return Ok(JSValue::Bool(value.as_bool().unwrap()));
         }
@@ -934,6 +966,7 @@ impl Value {
             (JSValue::BigInt(n), Type::BigInt) => Ok(Value::BigInt(n)),
             (JSValue::Bool(b), Type::Bool) => Ok(Value::Bool(b)),
             (JSValue::String(s), Type::String) => Ok(Value::String(s)),
+            (JSValue::Bytes(data), Type::Bytes) => Ok(Value::Bytes(data)),
             (JSValue::Array { tag: None, items }, Type::List(elem_type)) => {
                 let values = items
                     .into_iter()

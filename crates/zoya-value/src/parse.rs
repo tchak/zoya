@@ -204,6 +204,7 @@ impl Parser {
                 type_args,
                 variants,
             } => self.parse_enum(module, name, type_args, variants, definitions),
+            Type::Bytes => self.parse_bytes(definitions),
             Type::Task(inner) => self.parse_task(inner, definitions),
             Type::Var(_) => Err(Error::ParseError("type variables are not supported".into())),
             Type::Function { .. } => {
@@ -262,6 +263,29 @@ impl Parser {
                 tok.describe()
             ))),
         }
+    }
+
+    fn parse_bytes(&mut self, definitions: &DefinitionLookup) -> Result<Value, Error> {
+        self.expect_token(Token::LBracket)?;
+        let mut bytes = Vec::new();
+        while !matches!(self.peek(), Token::RBracket) {
+            let val = self.parse(&Type::Int, definitions)?;
+            if let Value::Int(n) = val {
+                if !(0..=255).contains(&n) {
+                    return Err(Error::ParseError(format!(
+                        "byte value out of range: {n} (expected 0..255)"
+                    )));
+                }
+                bytes.push(n as u8);
+            }
+            if matches!(self.peek(), Token::Comma) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        self.expect_token(Token::RBracket)?;
+        Ok(Value::Bytes(bytes))
     }
 
     fn parse_task(

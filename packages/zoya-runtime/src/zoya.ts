@@ -1,10 +1,10 @@
-import { $$Dict } from './hamt';
-import { $$Set } from './set';
-import { $$Task } from './task';
 import { $$throw } from './error';
 import type { DictValue } from './hamt';
+import { $$Dict } from './hamt';
 import type { SetValue } from './set';
+import { $$Set } from './set';
 import type { TaskValue } from './task';
+import { $$Task } from './task';
 
 // JSValue — external representation crossing the JS<->Rust boundary
 export type JSValue =
@@ -12,6 +12,7 @@ export type JSValue =
   | number
   | bigint
   | string
+  | Uint8Array
   | JSValueArray
   | JSValueObject;
 interface JSValueArray extends Array<JSValue> {
@@ -29,6 +30,7 @@ export type Value =
   | bigint
   | string
   | Value[]
+  | Uint8Array
   | SetValue
   | DictValue
   | TaskValue
@@ -36,16 +38,20 @@ export type Value =
   | { [key: string]: Value };
 
 export async function $$zoya_to_js(v: Value): Promise<JSValue> {
+  if (v === null || v === undefined) {
+    $$throw('PANIC', `unexpected ${v} in $$zoya_to_js`);
+  }
+  if (typeof v === 'function') {
+    $$throw('PANIC', 'unexpected function in $$zoya_to_js');
+  }
   if (
-    v === null ||
-    v === undefined ||
     typeof v === 'boolean' ||
     typeof v === 'number' ||
     typeof v === 'string' ||
-    typeof v === 'bigint' ||
-    typeof v === 'function'
+    typeof v === 'bigint'
   )
-    return v as unknown as JSValue;
+    return v;
+  if (v instanceof Uint8Array) return v;
   if (Array.isArray(v)) {
     const result = [];
     for (let i = 0; i < v.length; i++) result.push(await $$zoya_to_js(v[i]));
@@ -94,19 +100,24 @@ export async function $$zoya_to_js(v: Value): Promise<JSValue> {
       out[keys[i]] = await $$zoya_to_js(obj[keys[i]] as Value);
     return out;
   }
-  return v;
+  $$throw('PANIC', `unexpected value in $$zoya_to_js: ${typeof v}`);
 }
 
 export function $$js_to_zoya(v: JSValue): Value {
+  if (v === null || v === undefined) {
+    $$throw('PANIC', `unexpected ${v} in $$js_to_zoya`);
+  }
+  if (typeof v === 'function') {
+    $$throw('PANIC', 'unexpected function in $$js_to_zoya');
+  }
   if (
-    v === null ||
-    v === undefined ||
     typeof v === 'boolean' ||
     typeof v === 'number' ||
     typeof v === 'string' ||
     typeof v === 'bigint'
   )
     return v;
+  if (v instanceof Uint8Array) return v;
   if (Array.isArray(v)) {
     const tagged = v as unknown as Record<string, unknown>;
     if (tagged.$tag === 'Task') return $$Task.of($$js_to_zoya(v[0]));
@@ -128,7 +139,7 @@ export function $$js_to_zoya(v: JSValue): Value {
       out[keys[i]] = $$js_to_zoya(obj[keys[i]]);
     return out;
   }
-  return v;
+  $$throw('PANIC', `unexpected value in $$js_to_zoya: ${typeof v}`);
 }
 
 const $$jobs: Value[] = [];

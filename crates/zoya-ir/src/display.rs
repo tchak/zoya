@@ -66,7 +66,7 @@ impl TypeVarNamer {
                     self.collect_vars(arg);
                 }
             }
-            Type::Int | Type::BigInt | Type::Float | Type::Bool | Type::String => {}
+            Type::Int | Type::BigInt | Type::Float | Type::Bool | Type::String | Type::Bytes => {}
         }
     }
 
@@ -78,6 +78,7 @@ impl TypeVarNamer {
             Type::Float => buf.push_str("Float"),
             Type::Bool => buf.push_str("Bool"),
             Type::String => buf.push_str("String"),
+            Type::Bytes => buf.push_str("Bytes"),
             Type::List(elem) => {
                 buf.push_str("List<");
                 self.write(buf, elem);
@@ -216,6 +217,7 @@ mod tests {
         assert_eq!(pretty_type(&Type::Float), "Float");
         assert_eq!(pretty_type(&Type::Bool), "Bool");
         assert_eq!(pretty_type(&Type::String), "String");
+        assert_eq!(pretty_type(&Type::Bytes), "Bytes");
     }
 
     #[test]

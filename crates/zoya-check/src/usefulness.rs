@@ -290,6 +290,7 @@ impl TypeCtors {
             Type::Set(_)
             | Type::Dict(_, _)
             | Type::Task(_)
+            | Type::Bytes
             | Type::Var(_)
             | Type::Function { .. } => TypeCtors::Infinite, // Conservative
             Type::Struct {

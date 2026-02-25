@@ -165,6 +165,31 @@ let zipped = Task::zip(Task::of(1), Task::of("a"))
 
 When a `main` function returns `Task<T>`, the runtime executes the task and produces the inner value.
 
+## Bytes Type
+
+Raw binary data, backed by JavaScript's `Uint8Array`. Non-generic, immutable.
+
+### Syntax
+
+```
+Bytes
+```
+
+### Usage
+
+Bytes has no literal syntax. Create byte sequences using methods:
+
+```zoya
+let b = Bytes::from_string("hello")
+let b = Bytes::from_list([72, 101, 108, 108, 111])
+b.len()                    // 5
+b.get(0)                   // Option::Some(72)
+b.slice(0, 2)              // First 2 bytes
+b.concat(other)            // Concatenate two byte sequences
+b.to_list()                // Convert to List<Int>
+b.to_string()              // Decode as UTF-8 string
+```
+
 ## Tuple Types
 
 Fixed-size, heterogeneous product types.

@@ -74,6 +74,8 @@ fn resolve_type_annotation_inner(
                     return Ok(Type::Bool);
                 } else if name == "String" {
                     return Ok(Type::String);
+                } else if name == "Bytes" {
+                    return Ok(Type::Bytes);
                 } else if let Some(&id) = type_param_map.get(name) {
                     return Ok(Type::Var(id));
                 }

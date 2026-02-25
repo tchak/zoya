@@ -1,3 +1,4 @@
+pub use root::bytes::Bytes
 pub use root::dict::Dict
 pub use root::set::Set
 pub use root::task::Task

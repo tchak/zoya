@@ -3677,7 +3677,16 @@ fn resolve_impl_target(
     if path.segments.len() == 1
         && matches!(
             type_name,
-            "Int" | "BigInt" | "Float" | "Bool" | "String" | "List" | "Set" | "Dict" | "Task"
+            "Int"
+                | "BigInt"
+                | "Float"
+                | "Bool"
+                | "String"
+                | "List"
+                | "Set"
+                | "Dict"
+                | "Task"
+                | "Bytes"
         )
     {
         if package_name == "std" && primitive_module_for_name(type_name).is_some() {

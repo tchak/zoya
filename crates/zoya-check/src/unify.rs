@@ -182,6 +182,7 @@ impl UnifyCtx {
             (Type::Float, Type::Float) => Ok(()),
             (Type::Bool, Type::Bool) => Ok(()),
             (Type::String, Type::String) => Ok(()),
+            (Type::Bytes, Type::Bytes) => Ok(()),
 
             // List types - unify element types
             (Type::List(e1), Type::List(e2)) => self.unify(e1, e2),

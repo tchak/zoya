@@ -20,6 +20,7 @@ fn build_std() -> Result<CheckedPackage, StdError> {
     let source = MemorySource::new()
         .with_module("root", include_str!("std/main.zy"))
         .with_module("bigint", include_str!("std/bigint.zy"))
+        .with_module("bytes", include_str!("std/bytes.zy"))
         .with_module("dict", include_str!("std/dict.zy"))
         .with_module("float", include_str!("std/float.zy"))
         .with_module("http", include_str!("std/http.zy"))

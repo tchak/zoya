@@ -1,0 +1,29 @@
+use super::option::Option
+
+impl Bytes {
+  #[builtin]
+  pub fn len(self) -> Int ()
+
+  pub fn is_empty(self) -> Bool self.len() == 0
+
+  #[builtin]
+  pub fn get(self, index: Int) -> Option<Int> ()
+
+  #[builtin]
+  pub fn slice(self, start: Int, end: Int) -> Bytes ()
+
+  #[builtin]
+  pub fn concat(self, other: Bytes) -> Bytes ()
+
+  #[builtin]
+  pub fn to_list(self) -> List<Int> ()
+
+  #[builtin]
+  pub fn from_list(list: List<Int>) -> Bytes ()
+
+  #[builtin]
+  pub fn to_string(self) -> String ()
+
+  #[builtin]
+  pub fn from_string(s: String) -> Bytes ()
+}

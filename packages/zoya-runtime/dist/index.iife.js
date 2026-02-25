@@ -259,6 +259,11 @@
 	}
 	function $$eq(a, b) {
 		if (a === b) return true;
+		if (a instanceof Uint8Array && b instanceof Uint8Array) {
+			if (a.length !== b.length) return false;
+			for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+			return true;
+		}
 		if (Array.isArray(a) && Array.isArray(b)) {
 			if (a.length !== b.length) return false;
 			for (let i = 0; i < a.length; i++) if (!$$eq(a[i], b[i])) return false;
@@ -528,7 +533,10 @@
 //#endregion
 //#region src/zoya.ts
 	async function $$zoya_to_js(v) {
-		if (v === null || v === void 0 || typeof v === "boolean" || typeof v === "number" || typeof v === "string" || typeof v === "bigint" || typeof v === "function") return v;
+		if (v === null || v === void 0) $$throw("PANIC", `unexpected ${v} in $$zoya_to_js`);
+		if (typeof v === "function") $$throw("PANIC", "unexpected function in $$zoya_to_js");
+		if (typeof v === "boolean" || typeof v === "number" || typeof v === "string" || typeof v === "bigint") return v;
+		if (v instanceof Uint8Array) return v;
 		if (Array.isArray(v)) {
 			const result = [];
 			for (let i = 0; i < v.length; i++) result.push(await $$zoya_to_js(v[i]));
@@ -563,10 +571,13 @@
 			for (let i = 0; i < keys.length; i++) out[keys[i]] = await $$zoya_to_js(obj[keys[i]]);
 			return out;
 		}
-		return v;
+		$$throw("PANIC", `unexpected value in $$zoya_to_js: ${typeof v}`);
 	}
 	function $$js_to_zoya(v) {
-		if (v === null || v === void 0 || typeof v === "boolean" || typeof v === "number" || typeof v === "string" || typeof v === "bigint") return v;
+		if (v === null || v === void 0) $$throw("PANIC", `unexpected ${v} in $$js_to_zoya`);
+		if (typeof v === "function") $$throw("PANIC", "unexpected function in $$js_to_zoya");
+		if (typeof v === "boolean" || typeof v === "number" || typeof v === "string" || typeof v === "bigint") return v;
+		if (v instanceof Uint8Array) return v;
 		if (Array.isArray(v)) {
 			const tagged = v;
 			if (tagged.$tag === "Task") return $$Task.of($$js_to_zoya(v[0]));
@@ -584,7 +595,7 @@
 			for (let i = 0; i < keys.length; i++) out[keys[i]] = $$js_to_zoya(obj[keys[i]]);
 			return out;
 		}
-		return v;
+		$$throw("PANIC", `unexpected value in $$js_to_zoya: ${typeof v}`);
 	}
 	const $$jobs = [];
 	function $$enqueue(job) {
@@ -858,6 +869,87 @@
 	};
 
 //#endregion
+//#region src/bytes.ts
+	function encodeUTF8(s) {
+		const bytes = [];
+		for (let i = 0; i < s.length; i++) {
+			let c = s.charCodeAt(i);
+			if (c >= 55296 && c <= 56319 && i + 1 < s.length) {
+				const lo = s.charCodeAt(i + 1);
+				if (lo >= 56320 && lo <= 57343) {
+					c = (c - 55296 << 10) + (lo - 56320) + 65536;
+					i++;
+				}
+			}
+			if (c < 128) bytes.push(c);
+			else if (c < 2048) bytes.push(192 | c >> 6, 128 | c & 63);
+			else if (c < 65536) bytes.push(224 | c >> 12, 128 | c >> 6 & 63, 128 | c & 63);
+			else bytes.push(240 | c >> 18, 128 | c >> 12 & 63, 128 | c >> 6 & 63, 128 | c & 63);
+		}
+		return new Uint8Array(bytes);
+	}
+	function decodeUTF8(b) {
+		let s = "";
+		let i = 0;
+		while (i < b.length) {
+			const byte = b[i];
+			let cp;
+			if (byte < 128) {
+				cp = byte;
+				i++;
+			} else if ((byte & 224) === 192) {
+				cp = (byte & 31) << 6 | b[i + 1] & 63;
+				i += 2;
+			} else if ((byte & 240) === 224) {
+				cp = (byte & 15) << 12 | (b[i + 1] & 63) << 6 | b[i + 2] & 63;
+				i += 3;
+			} else {
+				cp = (byte & 7) << 18 | (b[i + 1] & 63) << 12 | (b[i + 2] & 63) << 6 | b[i + 3] & 63;
+				i += 4;
+			}
+			if (cp < 65536) s += String.fromCharCode(cp);
+			else {
+				cp -= 65536;
+				s += String.fromCharCode(55296 + (cp >> 10), 56320 + (cp & 1023));
+			}
+		}
+		return s;
+	}
+	const $$Bytes = {
+		len(b) {
+			return b.length;
+		},
+		get(b, index) {
+			if (index < 0 || index >= b.length) return { $tag: "None" };
+			return {
+				$tag: "Some",
+				$0: b[index]
+			};
+		},
+		slice(b, start, end) {
+			return b.slice(start, end);
+		},
+		concat(a, b) {
+			const result = new Uint8Array(a.length + b.length);
+			result.set(a);
+			result.set(b, a.length);
+			return result;
+		},
+		to_list(b) {
+			return Array.from(b);
+		},
+		from_list(list) {
+			return new Uint8Array(list);
+		},
+		to_string(b) {
+			return decodeUTF8(b);
+		},
+		from_string(s) {
+			return encodeUTF8(s);
+		}
+	};
+
+//#endregion
 //#region src/index.ts
 	Object.assign(globalThis, {
 		$$ZoyaError,
@@ -884,7 +976,8 @@
 		$$Float,
 		$$String,
 		$$List,
-		$$Task
+		$$Task,
+		$$Bytes
 	});
 
 //#endregion
