@@ -20,14 +20,7 @@ pub fn execute(path: &Path, job_name: &str, args: &[String], mode: Mode) -> Resu
         let available: Vec<String> = output
             .jobs
             .iter()
-            .map(|(p, _)| {
-                p.segments()
-                    .iter()
-                    .skip_while(|s| s.as_str() == "root")
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join("::")
-            })
+            .map(|(p, _)| p.without_root().to_string())
             .collect();
         let hint = if available.is_empty() {
             "no jobs found in this package".to_string()

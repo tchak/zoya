@@ -94,6 +94,17 @@ impl QualifiedPath {
         self.0.iter()
     }
 
+    /// Strip the "root" prefix, returning the remaining segments as a new path.
+    /// e.g., root::utils::deploy → utils::deploy
+    /// If the path has no "root" prefix, returns a clone.
+    pub fn without_root(&self) -> Self {
+        if self.0.first().is_some_and(|s| s == "root") && self.0.len() > 1 {
+            QualifiedPath(self.0[1..].to_vec())
+        } else {
+            self.clone()
+        }
+    }
+
     /// Replace the root segment ("root") with a new name.
     /// e.g., root::option::Option → std::option::Option
     pub fn with_root(&self, name: &str) -> Self {
@@ -228,6 +239,35 @@ mod tests {
         let path = QualifiedPath::root().child("a").child("b").child("c");
         assert_eq!(path.segments(), &["root", "a", "b", "c"]);
         assert_eq!(path.to_string(), "root::a::b::c");
+    }
+
+    #[test]
+    fn test_qualified_path_without_root() {
+        let path = QualifiedPath::root().child("utils").child("deploy");
+        let stripped = path.without_root();
+        assert_eq!(stripped.segments(), &["utils", "deploy"]);
+        assert_eq!(stripped.to_string(), "utils::deploy");
+    }
+
+    #[test]
+    fn test_qualified_path_without_root_simple() {
+        let path = QualifiedPath::root().child("my_job");
+        let stripped = path.without_root();
+        assert_eq!(stripped.to_string(), "my_job");
+    }
+
+    #[test]
+    fn test_qualified_path_without_root_only() {
+        let path = QualifiedPath::root();
+        let stripped = path.without_root();
+        assert_eq!(stripped.to_string(), "root");
+    }
+
+    #[test]
+    fn test_qualified_path_without_root_no_root_prefix() {
+        let path = QualifiedPath::local("x".to_string());
+        let stripped = path.without_root();
+        assert_eq!(stripped.segments(), &["x"]);
     }
 
     #[test]

@@ -16,7 +16,7 @@ pub fn execute(path: &Path, mode: Mode) -> Result<()> {
     }
 
     for (job_path, _) in &output.jobs {
-        let display = format_job_path(job_path.segments());
+        let display = job_path.without_root().to_string();
         let sig = output
             .definitions
             .get_function(job_path)
@@ -30,20 +30,6 @@ pub fn execute(path: &Path, mode: Mode) -> Result<()> {
     }
 
     Ok(())
-}
-
-/// Format a job path for display, stripping the "root" prefix.
-fn format_job_path(segments: &[String]) -> String {
-    let display_segments: Vec<&str> = segments
-        .iter()
-        .skip_while(|s| s.as_str() == "root")
-        .map(|s| s.as_str())
-        .collect();
-    if display_segments.is_empty() {
-        segments.join("::")
-    } else {
-        display_segments.join("::")
-    }
 }
 
 #[cfg(test)]
@@ -84,21 +70,5 @@ mod tests {
     fn test_execute_nonexistent_file() {
         let result = execute(Path::new("nonexistent.zy"), Mode::Dev);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_format_job_path_strips_root() {
-        let segments = vec![
-            "root".to_string(),
-            "utils".to_string(),
-            "deploy".to_string(),
-        ];
-        assert_eq!(format_job_path(&segments), "utils::deploy");
-    }
-
-    #[test]
-    fn test_format_job_path_simple() {
-        let segments = vec!["root".to_string(), "my_job".to_string()];
-        assert_eq!(format_job_path(&segments), "my_job");
     }
 }

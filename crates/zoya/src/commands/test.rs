@@ -29,7 +29,7 @@ pub fn execute(path: &Path) -> Result<(), EvalError> {
             term.write_line(&format!(
                 " {}  {}",
                 style("····").dim(),
-                style(format_test_path(p.segments())).dim()
+                style(p.without_root().to_string()).dim()
             ))
             .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
         }
@@ -39,7 +39,7 @@ pub fn execute(path: &Path) -> Result<(), EvalError> {
 
     // Execute, overwriting each line as results arrive
     let report = runner.execute(|result| {
-        let display = format_test_path(result.path.segments());
+        let display = result.path.without_root().to_string();
         if is_term {
             let _ = term.clear_line();
         }
@@ -84,7 +84,7 @@ pub fn execute(path: &Path) -> Result<(), EvalError> {
         for (r, msg) in &failures {
             term.write_line(&format!(
                 "  {}: {}",
-                style(format_test_path(r.path.segments())).bold(),
+                style(r.path.without_root().to_string()).bold(),
                 style(msg).red().dim()
             ))
             .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
@@ -113,20 +113,6 @@ pub fn execute(path: &Path) -> Result<(), EvalError> {
             "{} test(s) failed",
             report.failed()
         )))
-    }
-}
-
-/// Format a test path for display, stripping the "root" prefix.
-fn format_test_path(segments: &[String]) -> String {
-    let display_segments: Vec<&str> = segments
-        .iter()
-        .skip_while(|s| s.as_str() == "root")
-        .map(|s| s.as_str())
-        .collect();
-    if display_segments.is_empty() {
-        segments.join("::")
-    } else {
-        display_segments.join("::")
     }
 }
 
@@ -188,21 +174,5 @@ mod tests {
     fn test_execute_nonexistent_file() {
         let result = execute(Path::new("nonexistent.zy"));
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_format_test_path_strips_root() {
-        let segments = vec![
-            "root".to_string(),
-            "my_module".to_string(),
-            "test_foo".to_string(),
-        ];
-        assert_eq!(format_test_path(&segments), "my_module::test_foo");
-    }
-
-    #[test]
-    fn test_format_test_path_simple() {
-        let segments = vec!["root".to_string(), "test_bar".to_string()];
-        assert_eq!(format_test_path(&segments), "test_bar");
     }
 }

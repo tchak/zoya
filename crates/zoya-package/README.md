@@ -103,6 +103,7 @@ main = "src/main.zy"           # optional (default: src/main.zy)
 | `head()` | Get the first segment |
 | `tail()` | Get all segments after the first |
 | `last()` | Get the last segment |
+| `without_root()` | Strip the "root" prefix, returning remaining segments |
 | `with_root(name)` | Replace the root segment with a new name |
 
 ## PackageConfig Methods
