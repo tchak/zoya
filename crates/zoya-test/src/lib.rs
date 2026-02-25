@@ -80,7 +80,7 @@ impl<'a> TestRunner<'a> {
 /// Run a single test function and interpret its result.
 fn run_single_test(output: &BuildOutput, path: &QualifiedPath) -> Result<(), TestError> {
     match zoya_run::run(output, path, &[]) {
-        Ok(value) => value.termination().map_err(|e| match e {
+        Ok((value, _jobs)) => value.termination().map_err(|e| match e {
             TerminationError::Failed(msg) => TestError::Failed(msg),
             TerminationError::UnexpectedReturn(msg) => TestError::UnexpectedReturn(msg),
         }),

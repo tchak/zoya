@@ -15,7 +15,7 @@ pub fn execute(
 ) -> Result<()> {
     let output = build_from_path(path, mode)?;
 
-    let value = match name {
+    let (value, _jobs) = match name {
         None => {
             // Default behavior: run main()
             zoya_run::run(&output, &QualifiedPath::root().child("main"), &[])?

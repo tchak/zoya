@@ -134,7 +134,7 @@ impl State {
         // Execute each run function individually
         for (run_name, has_expr) in &run_functions_info {
             let path = QualifiedPath::root().child("repl").child(run_name);
-            let value = zoya_run::run(&output, &path, &[])?;
+            let (value, _jobs) = zoya_run::run(&output, &path, &[])?;
 
             if *has_expr {
                 results.push(ReplResult::Expression(value));

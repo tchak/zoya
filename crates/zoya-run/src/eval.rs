@@ -5,7 +5,7 @@ use rquickjs::{AsyncContext, AsyncRuntime, CatchResultExt, Ctx, FromJs, IntoJs};
 
 use zoya_ir::{DefinitionLookup, Type};
 use zoya_package::QualifiedPath;
-use zoya_value::{JSValue, Value};
+use zoya_value::{JSValue, Job, Value};
 
 /// Create an async runtime and context for non-blocking script evaluation.
 async fn create_async_runtime() -> Result<(AsyncRuntime, AsyncContext), EvalError> {
@@ -95,7 +95,8 @@ pub(crate) async fn run_code(
     definitions: &DefinitionLookup,
     entry: &QualifiedPath,
     args: &[Value],
-) -> Result<Value, EvalError> {
+    jobs: &[(QualifiedPath, String)],
+) -> Result<(Value, Vec<Job>), EvalError> {
     // Find the function in the definitions
     let func_def = definitions
         .get_function(entry)
@@ -126,7 +127,7 @@ pub(crate) async fn run_code(
     let (_runtime, context) = create_async_runtime().await?;
 
     // Evaluate the script inside the async context
-    rquickjs::async_with!(context => |ctx| {
+    let (value, raw_jobs) = rquickjs::async_with!(context => |ctx| {
         inject_globals(&ctx)?;
         eval_script_async(
             &ctx,
@@ -138,7 +139,29 @@ pub(crate) async fn run_code(
         )
         .await
     })
-    .await
+    .await?;
+
+    // Convert raw jobs to Job structs
+    if raw_jobs.is_empty() {
+        return Ok((value, vec![]));
+    }
+
+    let job_type = Type::Enum {
+        module: QualifiedPath::root(),
+        name: "Job".to_string(),
+        type_args: vec![],
+        variants: vec![],
+    };
+
+    let mut converted_jobs = Vec::with_capacity(raw_jobs.len());
+    for js_val in raw_jobs {
+        let job_value =
+            Value::from_js_value(js_val, &job_type, definitions).map_err(EvalError::from)?;
+        let job = job_value.as_job(jobs).map_err(EvalError::from)?;
+        converted_jobs.push(job);
+    }
+
+    Ok((value, converted_jobs))
 }
 
 /// Evaluate a plain JS script and call an entry function via `$$run`.
@@ -154,7 +177,7 @@ async fn eval_script_async(
     args: &[Value],
     result_type: Type,
     type_lookup: &DefinitionLookup,
-) -> Result<Value, EvalError> {
+) -> Result<(Value, Vec<JSValue>), EvalError> {
     // Define all functions in global scope
     let _: rquickjs::Value = ctx.eval(code).catch(ctx).map_err(map_js_error)?;
 
@@ -194,7 +217,7 @@ async fn eval_script_async(
         .catch(ctx)
         .map_err(map_js_error)?;
 
-    // $$run returns { value, jobs } — extract the value field, discard jobs for now
+    // $$run returns { value, jobs } — extract both fields
     let result_obj = resolved
         .as_object()
         .ok_or_else(|| EvalError::RuntimeError("$$run returned non-object".into()))?;
@@ -203,7 +226,31 @@ async fn eval_script_async(
         .map_err(|e| EvalError::RuntimeError(format!("missing value field: {e}")))?;
     let js_val =
         JSValue::from_js(ctx, value_field).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-    Value::from_js_value(js_val, &result_type, type_lookup).map_err(EvalError::from)
+    let value = Value::from_js_value(js_val, &result_type, type_lookup).map_err(EvalError::from)?;
+
+    // Extract the jobs array
+    let jobs_field: rquickjs::Value = result_obj
+        .get("jobs")
+        .map_err(|e| EvalError::RuntimeError(format!("missing jobs field: {e}")))?;
+    let js_jobs = if jobs_field.is_array() {
+        let arr = jobs_field
+            .as_array()
+            .ok_or_else(|| EvalError::RuntimeError("jobs field is not an array".into()))?;
+        let mut jobs = Vec::with_capacity(arr.len());
+        for i in 0..arr.len() {
+            let item: rquickjs::Value = arr
+                .get(i)
+                .map_err(|e| EvalError::RuntimeError(format!("failed to read job[{i}]: {e}")))?;
+            let js_val = JSValue::from_js(ctx, item)
+                .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+            jobs.push(js_val);
+        }
+        jobs
+    } else {
+        vec![]
+    };
+
+    Ok((value, js_jobs))
 }
 
 #[derive(Debug, thiserror::Error)]

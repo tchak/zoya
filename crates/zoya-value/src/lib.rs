@@ -52,6 +52,12 @@ impl PartialEq for ValueData {
 
 impl Eq for ValueData {}
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Job {
+    pub path: QualifiedPath,
+    pub args: Vec<Value>,
+}
+
 impl Hash for ValueData {
     fn hash<H: Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
@@ -611,7 +617,7 @@ impl Value {
     pub fn as_job(
         &self,
         jobs: &[(QualifiedPath, String)],
-    ) -> Result<(QualifiedPath, Vec<Value>), Error> {
+    ) -> Result<Job, Error> {
         match self {
             Value::EnumVariant {
                 enum_name,
@@ -633,7 +639,7 @@ impl Value {
                         ));
                     }
                 };
-                Ok((path, args))
+                Ok(Job { path, args })
             }
             _ => Err(Error::TypeMismatch {
                 from: self.type_name().to_string(),
@@ -1535,9 +1541,9 @@ mod tests {
             module: QualifiedPath::root(),
             data: ValueData::Unit,
         };
-        let (result_path, args) = value.as_job(&jobs).unwrap();
-        assert_eq!(result_path, path);
-        assert!(args.is_empty());
+        let job = value.as_job(&jobs).unwrap();
+        assert_eq!(job.path, path);
+        assert!(job.args.is_empty());
     }
 
     #[test]
@@ -1550,9 +1556,9 @@ mod tests {
             module: QualifiedPath::root(),
             data: ValueData::Tuple(vec![Value::String("hello@example.com".to_string())]),
         };
-        let (result_path, args) = value.as_job(&jobs).unwrap();
-        assert_eq!(result_path, path);
-        assert_eq!(args, vec![Value::String("hello@example.com".to_string())]);
+        let job = value.as_job(&jobs).unwrap();
+        assert_eq!(job.path, path);
+        assert_eq!(job.args, vec![Value::String("hello@example.com".to_string())]);
     }
 
     #[test]
