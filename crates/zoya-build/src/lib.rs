@@ -22,7 +22,7 @@ pub struct BuildOutput {
     pub definitions: DefinitionLookup,
     pub functions: Vec<(QualifiedPath, Vec<String>)>,
     pub tests: Vec<QualifiedPath>,
-    pub jobs: Vec<QualifiedPath>,
+    pub jobs: Vec<(QualifiedPath, String)>,
     pub routes: Vec<(QualifiedPath, HttpMethod, Pathname)>,
 }
 
@@ -67,7 +67,7 @@ pub fn build(package: &Package) -> Result<BuildOutput, BuildError> {
                 }
             }
             FunctionKind::Test => tests.push(path.clone()),
-            FunctionKind::Job => jobs.push(path.clone()),
+            FunctionKind::Job(variant_name) => jobs.push((path.clone(), variant_name.clone())),
             FunctionKind::Http(method, pathname) => {
                 routes.push((path.clone(), *method, pathname.clone()));
             }
@@ -75,7 +75,7 @@ pub fn build(package: &Package) -> Result<BuildOutput, BuildError> {
     }
     functions.sort_by_key(|(p, _)| p.to_string());
     tests.sort_by_key(|p| p.to_string());
-    jobs.sort_by_key(|p| p.to_string());
+    jobs.sort_by_key(|(p, _)| p.to_string());
     routes.sort_by_key(|(p, _, _)| p.to_string());
     Ok(BuildOutput {
         name: checked.name.clone(),

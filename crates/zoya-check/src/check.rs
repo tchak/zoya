@@ -183,7 +183,7 @@ fn check_function(
         } else if is_test {
             FunctionKind::Test
         } else if is_job {
-            FunctionKind::Job
+            FunctionKind::Job(String::new())
         } else if let Some((method, attr)) = http_attr {
             let pathname_str = match &attr.args {
                 Some(args) if args.len() == 1 => match &args[0] {
@@ -356,7 +356,7 @@ fn check_function(
     }
 
     // Validate: #[job] functions must return (), Result<(), E>, Task<()>, or Task<Result<(), E>>
-    if kind == FunctionKind::Job {
+    if matches!(kind, FunctionKind::Job(_)) {
         let resolved = ctx.resolve(&return_type);
         let is_unit = |ty: &Type| matches!(ty, Type::Tuple(elems) if elems.is_empty());
         let is_result_unit = |ty: &Type| {
@@ -3097,7 +3097,7 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
 
     // Pass 3c: Synthesize Job enum and enqueue function for packages with #[job] functions
     // Each entry: (variant_name, qualified_path_string, param_types)
-    let mut job_variants: Vec<(String, String, Vec<Type>)> = Vec::new();
+    let mut job_variants: Vec<(String, QualifiedPath, Vec<Type>)> = Vec::new();
     for path in &module_paths {
         if let Some(module) = pkg.modules.get(path) {
             for item in &module.items {
@@ -3115,7 +3115,7 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
                         let variant_name = to_pascal_case(&name_segments.join("_"));
                         job_variants.push((
                             variant_name,
-                            func_path.to_string(),
+                            func_path.clone(),
                             ft.params.clone(),
                         ));
                     }
@@ -3126,7 +3126,7 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
 
     // Check for duplicate variant names (e.g. root::jobs::foo vs root::jobs_foo both → JobsFoo)
     {
-        let mut seen: HashMap<&str, &str> = HashMap::new();
+        let mut seen: HashMap<&str, &QualifiedPath> = HashMap::new();
         for (variant_name, func_path, _) in &job_variants {
             if let Some(existing_path) = seen.get(variant_name.as_str()) {
                 return Err(TypeError::InvalidAttribute {
@@ -3300,6 +3300,13 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
         }
     }
 
+    // Backfill variant names into FunctionKind::Job for each job function
+    for (variant_name, func_path, _) in &job_variants {
+        if let Some(func) = checked_items.get_mut(func_path) {
+            func.kind = FunctionKind::Job(variant_name.clone());
+        }
+    }
+
     // Add synthetic enqueue builtin function if Job enum was synthesized
     if let Some(job_type) = synthesized_job_type {
         let enqueue_path = QualifiedPath::root().child("enqueue");
@@ -3333,7 +3340,7 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
                 || checked_items.get(path).is_some_and(|f| {
                     matches!(
                         f.kind,
-                        FunctionKind::Test | FunctionKind::Job | FunctionKind::Http(_, _)
+                        FunctionKind::Test | FunctionKind::Job(_) | FunctionKind::Http(_, _)
                     )
                 })
         })

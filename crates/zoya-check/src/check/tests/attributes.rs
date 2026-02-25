@@ -438,7 +438,7 @@ fn test_job_fn_has_is_job_flag() {
     let checked = check(&pkg, &[]).unwrap();
     let path = QualifiedPath::root().child("my_job");
     let func = checked.items.get(&path).unwrap();
-    assert_eq!(func.kind, zoya_ir::FunctionKind::Job);
+    assert_eq!(func.kind, zoya_ir::FunctionKind::Job("MyJob".into()));
 }
 
 #[test]

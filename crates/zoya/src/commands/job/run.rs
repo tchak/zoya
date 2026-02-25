@@ -16,11 +16,11 @@ pub fn execute(path: &Path, job_name: &str, args: &[String], mode: Mode) -> Resu
     }
 
     // Verify this is a known job
-    if !output.jobs.contains(&job_path) {
+    if !output.jobs.iter().any(|(p, _)| p == &job_path) {
         let available: Vec<String> = output
             .jobs
             .iter()
-            .map(|p| {
+            .map(|(p, _)| {
                 p.segments()
                     .iter()
                     .skip_while(|s| s.as_str() == "root")

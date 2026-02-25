@@ -51,7 +51,7 @@ impl JobError {
 /// 3. Each argument matches the expected parameter type
 pub fn validate(output: &BuildOutput, request: &JobRequest) -> Result<(), JobError> {
     // Check the path exists in the jobs list
-    if !output.jobs.contains(&request.path) {
+    if !output.jobs.iter().any(|(p, _)| p == &request.path) {
         return Err(JobError::NotFound(request.path.to_string()));
     }
 

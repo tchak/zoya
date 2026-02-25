@@ -100,7 +100,7 @@ pub enum FunctionKind {
     Regular,
     Builtin,
     Test,
-    Job,
+    Job(String),
     Http(HttpMethod, Pathname),
 }
 

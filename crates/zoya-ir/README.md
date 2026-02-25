@@ -57,7 +57,7 @@ fn process_package(pkg: &CheckedPackage) {
             FunctionKind::Http(method, pathname) => {
                 println!("{} {} -> {}", method.attr_name(), pathname.as_str(), path);
             }
-            FunctionKind::Job => println!("job: {}", path),
+            FunctionKind::Job(variant) => println!("job: {} (variant: {})", path, variant),
             _ => {}
         }
     }

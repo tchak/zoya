@@ -15,7 +15,7 @@ pub fn execute(path: &Path, mode: Mode) -> Result<()> {
         return Ok(());
     }
 
-    for job_path in &output.jobs {
+    for (job_path, _) in &output.jobs {
         let display = format_job_path(job_path.segments());
         let sig = output
             .definitions

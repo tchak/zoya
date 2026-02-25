@@ -1423,7 +1423,10 @@ fn test_job_fn_compiles_and_jobs_method_works() {
     let output = build_source(source).unwrap();
 
     assert_eq!(output.jobs.len(), 1);
-    assert_eq!(output.jobs[0], QualifiedPath::root().child("my_job"));
+    assert_eq!(
+        output.jobs[0],
+        (QualifiedPath::root().child("my_job"), "MyJob".into())
+    );
 
     let result = zoya_run::run(&output, &QualifiedPath::root().child("main"), &[]).unwrap();
     assert_eq!(result, Value::Tuple(vec![]));
@@ -1452,7 +1455,10 @@ fn test_private_job_fn_is_discoverable() {
     let output = build_source(source).unwrap();
 
     assert_eq!(output.jobs.len(), 1);
-    assert_eq!(output.jobs[0], QualifiedPath::root().child("my_job"));
+    assert_eq!(
+        output.jobs[0],
+        (QualifiedPath::root().child("my_job"), "MyJob".into())
+    );
 }
 
 #[test]

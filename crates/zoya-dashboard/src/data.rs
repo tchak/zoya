@@ -79,7 +79,7 @@ impl DashboardData {
         let jobs = output
             .jobs
             .iter()
-            .filter_map(|path| {
+            .filter_map(|(path, _)| {
                 let func = output.definitions.get_function(path)?;
                 Some(JobInfo {
                     name: path.last().to_string(),
