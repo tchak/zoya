@@ -15,5 +15,6 @@ pub mod json
 pub mod std_option
 pub mod std_result
 pub mod modules
+pub mod jobs
 
 pub fn main() -> () ()

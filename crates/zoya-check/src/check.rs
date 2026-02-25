@@ -9,7 +9,7 @@ use zoya_ir::{
     CheckedPackage, Definition, EnumType, EnumVariantType, FunctionKind, FunctionType, HttpMethod,
     ImplMethodType, ModuleType, Pathname, QualifiedPath, StructType, StructTypeKind, Type,
     TypeAliasType, TypeError, TypeScheme, TypeVarId, TypedEnumConstructFields, TypedExpr,
-    TypedFunction, TypedListElement, TypedStringPart, Visibility,
+    TypedFunction, TypedListElement, TypedPattern, TypedStringPart, Visibility,
 };
 use zoya_package::Package;
 
@@ -3095,6 +3095,129 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
         }
     }
 
+    // Pass 3c: Synthesize Job enum and enqueue function for packages with #[job] functions
+    // Each entry: (variant_name, qualified_path_string, param_types)
+    let mut job_variants: Vec<(String, String, Vec<Type>)> = Vec::new();
+    for path in &module_paths {
+        if let Some(module) = pkg.modules.get(path) {
+            for item in &module.items {
+                if let Item::Function(func) = item
+                    && func.attributes.iter().any(|a| a.name == "job")
+                {
+                    let func_path = path.child(&func.name);
+                    if let Some(Definition::Function(ft)) = env.definitions.get(&func_path) {
+                        // Build variant name: join path segments after "root" with "_",
+                        // then PascalCase the result.
+                        // E.g. root::tasks::send_email → "tasks_send_email" → "TasksSendEmail"
+                        let segments = func_path.segments();
+                        let name_segments: Vec<&str> =
+                            segments.iter().skip(1).map(|s| s.as_str()).collect();
+                        let variant_name = to_pascal_case(&name_segments.join("_"));
+                        job_variants.push((
+                            variant_name,
+                            func_path.to_string(),
+                            ft.params.clone(),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    // Check for duplicate variant names (e.g. root::jobs::foo vs root::jobs_foo both → JobsFoo)
+    {
+        let mut seen: HashMap<&str, &str> = HashMap::new();
+        for (variant_name, func_path, _) in &job_variants {
+            if let Some(existing_path) = seen.get(variant_name.as_str()) {
+                return Err(TypeError::InvalidAttribute {
+                    message: format!(
+                        "job variant name collision: '{}' and '{}' both produce Job::{}",
+                        existing_path, func_path, variant_name
+                    ),
+                });
+            }
+            seen.insert(variant_name, func_path);
+        }
+    }
+
+    // Store synthesized job type for later use (synthetic TypedFunction)
+    let synthesized_job_type: Option<Type> = if !job_variants.is_empty() {
+        let job_enum_path = QualifiedPath::root().child("Job");
+        let variants: Vec<(String, EnumVariantType)> = job_variants
+            .iter()
+            .map(|(name, _, params)| {
+                if params.is_empty() {
+                    (name.clone(), EnumVariantType::Unit)
+                } else {
+                    (name.clone(), EnumVariantType::Tuple(params.clone()))
+                }
+            })
+            .collect();
+
+        let job_enum_type = EnumType {
+            visibility: Visibility::Public,
+            module: QualifiedPath::root(),
+            name: "Job".to_string(),
+            type_params: vec![],
+            type_var_ids: vec![],
+            variants: variants.clone(),
+        };
+
+        // Register the enum and its variants
+        env.register(
+            job_enum_path.clone(),
+            Definition::Enum(job_enum_type.clone()),
+        );
+        for (variant_name, variant_type) in &job_enum_type.variants {
+            env.register(
+                job_enum_path.child(variant_name),
+                Definition::EnumVariant(job_enum_type.clone(), variant_type.clone()),
+            );
+        }
+
+        // Build the Job type for the enqueue param
+        let job_type = Type::Enum {
+            module: QualifiedPath::root(),
+            name: "Job".to_string(),
+            type_args: vec![],
+            variants,
+        };
+
+        // Register enqueue function
+        let enqueue_path = QualifiedPath::root().child("enqueue");
+        env.register(
+            enqueue_path.clone(),
+            Definition::Function(FunctionType {
+                visibility: Visibility::Public,
+                module: QualifiedPath::root(),
+                type_params: vec![],
+                type_var_ids: vec![],
+                params: vec![job_type.clone()],
+                return_type: Type::Tuple(vec![]),
+            }),
+        );
+
+        // Inject Job, its variants, and enqueue into every module's imports
+        for path in &module_paths {
+            let module_imports = env.imports.entry(path.clone()).or_default();
+            module_imports
+                .entry("Job".to_string())
+                .or_insert_with(|| job_enum_path.clone());
+            for (variant_name, _) in &job_enum_type.variants {
+                module_imports
+                    .entry(variant_name.clone())
+                    .or_insert_with(|| job_enum_path.child(variant_name));
+            }
+            module_imports
+                .entry("enqueue".to_string())
+                .or_insert_with(|| enqueue_path.clone());
+        }
+
+        Some(job_type)
+    } else {
+        None
+    };
+
     // Register modules as Definition::Module
     for path in &module_paths {
         if pkg.modules.contains_key(path) {
@@ -3175,6 +3298,31 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
                 checked_items.insert(func_path, func);
             }
         }
+    }
+
+    // Add synthetic enqueue builtin function if Job enum was synthesized
+    if let Some(job_type) = synthesized_job_type {
+        let enqueue_path = QualifiedPath::root().child("enqueue");
+        let unit_type = Type::Tuple(vec![]);
+        checked_items.insert(
+            enqueue_path,
+            TypedFunction {
+                name: "enqueue".to_string(),
+                kind: FunctionKind::Builtin,
+                params: vec![(
+                    TypedPattern::Var {
+                        name: "job".to_string(),
+                        ty: job_type.clone(),
+                    },
+                    job_type,
+                )],
+                return_type: unit_type.clone(),
+                body: TypedExpr::Tuple {
+                    elements: vec![],
+                    ty: unit_type,
+                },
+            },
+        );
     }
 
     let external_definitions = env

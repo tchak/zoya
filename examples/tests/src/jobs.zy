@@ -1,0 +1,26 @@
+#[job]
+fn send_email(to: String, subject: String) -> () ()
+
+#[job]
+fn deploy(name: String) -> () ()
+
+#[job]
+fn cleanup() -> () ()
+
+#[test]
+fn test_enqueue_tuple_variant() -> () {
+    let _ = enqueue(Job::JobsSendEmail("alice@example.com", "Hello"));
+    ()
+}
+
+#[test]
+fn test_enqueue_another_variant() -> () {
+    let _ = enqueue(Job::JobsDeploy("my-app"));
+    ()
+}
+
+#[test]
+fn test_enqueue_unit_variant() -> () {
+    let _ = enqueue(Job::JobsCleanup);
+    ()
+}
