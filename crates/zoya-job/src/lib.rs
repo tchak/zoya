@@ -102,6 +102,7 @@ pub async fn enqueue(
 /// Shared state for the job worker.
 struct JobWorkerState {
     output: BuildOutput,
+    storage: MemoryStorage<JobRequest>,
 }
 
 /// Create and run an apalis worker that processes `JobRequest` items.
@@ -114,7 +115,10 @@ pub async fn worker(
     storage: MemoryStorage<JobRequest>,
     output: BuildOutput,
 ) -> Result<(), std::io::Error> {
-    let state = Arc::new(JobWorkerState { output });
+    let state = Arc::new(JobWorkerState {
+        output,
+        storage: storage.clone(),
+    });
 
     Monitor::new()
         .register(
@@ -139,10 +143,23 @@ async fn handle_job(request: JobRequest, state: Data<Arc<JobWorkerState>>) -> Re
 
     // Execute the job function
     match zoya_run::run_async(&state.output, &request.path, &request.args).await {
-        Ok((value, _jobs)) => value.termination().map_err(|e| match e {
-            TerminationError::Failed(msg) => JobError::JobReturnedError(msg),
-            TerminationError::UnexpectedReturn(msg) => JobError::RuntimeError(msg),
-        }),
+        Ok((value, jobs)) => {
+            let result = value.termination().map_err(|e| match e {
+                TerminationError::Failed(msg) => JobError::JobReturnedError(msg),
+                TerminationError::UnexpectedReturn(msg) => JobError::RuntimeError(msg),
+            });
+
+            if result.is_ok() {
+                for job in jobs {
+                    let mut storage = state.storage.clone();
+                    if let Err(e) = enqueue(&mut storage, &state.output, job.path, job.args).await {
+                        tracing::warn!("failed to enqueue child job: {e}");
+                    }
+                }
+            }
+
+            result
+        }
         Err(EvalError::Panic(msg)) => Err(JobError::Panic(msg)),
         Err(e) => Err(JobError::RuntimeError(e.to_string())),
     }
