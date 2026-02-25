@@ -17,6 +17,8 @@ zoya-run = { path = "../zoya-run" }
 zoya-value = { path = "../zoya-value" }
 
 [dev-dependencies]
+apalis-core = { version = "0.7", features = ["test-utils"] }
 tokio = { version = "1", features = ["full"] }
 tempfile = "3"
 zoya-codegen = { path = "../zoya-codegen" }
+zoya-loader = { path = "../zoya-loader" }

@@ -3683,6 +3683,7 @@ name = "zoya-job"
 version = "0.1.0"
 dependencies = [
  "apalis",
+ "apalis-core",
  "serde",
  "serde_json",
  "tempfile",
@@ -3693,6 +3694,7 @@ dependencies = [
  "zoya-build",
  "zoya-codegen",
  "zoya-ir",
+ "zoya-loader",
  "zoya-package",
  "zoya-run",
  "zoya-value",

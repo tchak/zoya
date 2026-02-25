@@ -237,7 +237,20 @@ mod tests {
 
     #[test]
     fn validate_not_found() {
-        let output = BuildOutput {
+        let output = empty_output();
+        let request = JobRequest {
+            path: QualifiedPath::root().child("missing"),
+            args: vec![],
+        };
+        let err = validate(&output, &request).unwrap_err();
+        assert_eq!(err, JobError::NotFound("root::missing".to_string()));
+        assert!(!err.is_retryable());
+    }
+
+    // ── helpers ─────────────────────────────────────────────────────
+
+    fn empty_output() -> BuildOutput {
+        BuildOutput {
             name: "test".to_string(),
             output: zoya_codegen::CodegenOutput {
                 code: String::new(),
@@ -248,13 +261,295 @@ mod tests {
             tests: vec![],
             jobs: vec![],
             routes: vec![],
+        }
+    }
+
+    fn build_source(source: &str) -> BuildOutput {
+        let mem_source = zoya_loader::MemorySource::new().with_module("root", source);
+        let package = zoya_loader::load_memory_package(&mem_source, zoya_loader::Mode::Dev)
+            .expect("failed to load package");
+        zoya_build::build(&package).expect("failed to build package")
+    }
+
+    // ── enqueue tests ───────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn enqueue_valid_job() {
+        let output = build_source(
+            r#"
+            #[job]
+            pub fn my_job() -> () { () }
+        "#,
+        );
+        let mut storage = MemoryStorage::<JobRequest>::new();
+        enqueue(
+            &mut storage,
+            &output,
+            QualifiedPath::root().child("my_job"),
+            vec![],
+        )
+        .await
+        .unwrap();
+
+        let dequeued = storage.dequeue().await.unwrap();
+        assert!(dequeued.is_some());
+        let request = dequeued.unwrap();
+        assert_eq!(request.path, QualifiedPath::root().child("my_job"));
+        assert!(request.args.is_empty());
+    }
+
+    #[tokio::test]
+    async fn enqueue_not_found() {
+        let output = build_source(
+            r#"
+            #[job]
+            pub fn my_job() -> () { () }
+        "#,
+        );
+        let mut storage = MemoryStorage::<JobRequest>::new();
+        let err = enqueue(
+            &mut storage,
+            &output,
+            QualifiedPath::root().child("missing"),
+            vec![],
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err, JobError::NotFound("root::missing".to_string()));
+    }
+
+    #[tokio::test]
+    async fn enqueue_arity_mismatch() {
+        let output = build_source(
+            r#"
+            #[job]
+            pub fn my_job(x: Int) -> () { () }
+        "#,
+        );
+        let mut storage = MemoryStorage::<JobRequest>::new();
+        let err = enqueue(
+            &mut storage,
+            &output,
+            QualifiedPath::root().child("my_job"),
+            vec![],
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            err,
+            JobError::ArityMismatch {
+                expected: 1,
+                actual: 0
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn enqueue_type_mismatch() {
+        let output = build_source(
+            r#"
+            #[job]
+            pub fn my_job(x: Int) -> () { () }
+        "#,
+        );
+        let mut storage = MemoryStorage::<JobRequest>::new();
+        let err = enqueue(
+            &mut storage,
+            &output,
+            QualifiedPath::root().child("my_job"),
+            vec![Value::String("hello".to_string())],
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, JobError::TypeMismatch { index: 0, .. }));
+    }
+
+    // ── handle_job tests ────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn handle_job_success() {
+        let output = build_source(
+            r#"
+            #[job]
+            pub fn my_job() -> () { () }
+        "#,
+        );
+        let storage = MemoryStorage::<JobRequest>::new();
+        let state = Arc::new(JobWorkerState {
+            output,
+            storage: storage.clone(),
+        });
+        let request = JobRequest {
+            path: QualifiedPath::root().child("my_job"),
+            args: vec![],
         };
+        let result = handle_job(request, Data::new(state)).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn handle_job_with_args() {
+        let output = build_source(
+            r#"
+            #[job]
+            pub fn add(x: Int, y: Int) -> () { () }
+        "#,
+        );
+        let storage = MemoryStorage::<JobRequest>::new();
+        let state = Arc::new(JobWorkerState {
+            output,
+            storage: storage.clone(),
+        });
+        let request = JobRequest {
+            path: QualifiedPath::root().child("add"),
+            args: vec![Value::Int(1), Value::Int(2)],
+        };
+        let result = handle_job(request, Data::new(state)).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn handle_job_panic() {
+        let output = build_source(
+            r#"
+            #[job]
+            pub fn bad_job() -> () { panic("boom") }
+        "#,
+        );
+        let storage = MemoryStorage::<JobRequest>::new();
+        let state = Arc::new(JobWorkerState {
+            output,
+            storage: storage.clone(),
+        });
+        let request = JobRequest {
+            path: QualifiedPath::root().child("bad_job"),
+            args: vec![],
+        };
+        let result = handle_job(request, Data::new(state)).await;
+        assert_eq!(result, Err(JobError::Panic("boom".to_string())));
+    }
+
+    #[tokio::test]
+    async fn handle_job_skips_invalid_non_retryable() {
+        let output = build_source(
+            r#"
+            #[job]
+            pub fn my_job() -> () { () }
+        "#,
+        );
+        let storage = MemoryStorage::<JobRequest>::new();
+        let state = Arc::new(JobWorkerState {
+            output,
+            storage: storage.clone(),
+        });
         let request = JobRequest {
             path: QualifiedPath::root().child("missing"),
             args: vec![],
         };
-        let err = validate(&output, &request).unwrap_err();
-        assert_eq!(err, JobError::NotFound("root::missing".to_string()));
-        assert!(!err.is_retryable());
+        // Non-retryable validation error → returns Ok (skipped)
+        let result = handle_job(request, Data::new(state)).await;
+        assert!(result.is_ok());
+    }
+
+    // ── integration tests (TestWrapper) ─────────────────────────────
+
+    fn make_service(
+        output: BuildOutput,
+        storage: MemoryStorage<JobRequest>,
+    ) -> impl tower::Service<
+        Request<JobRequest, ()>,
+        Response = (),
+        Error = JobError,
+        Future = impl Send,
+    > + Send
+           + Sync
+           + Clone {
+        let state = Arc::new(JobWorkerState { output, storage });
+        tower::service_fn(move |req: Request<JobRequest, ()>| {
+            let state = state.clone();
+            async move { handle_job(req.args, Data::new(state)).await }
+        })
+    }
+
+    #[tokio::test]
+    async fn worker_processes_job() {
+        let output = build_source(
+            r#"
+            #[job]
+            pub fn my_job() -> () { () }
+        "#,
+        );
+        let storage = MemoryStorage::<JobRequest>::new();
+        let svc = make_service(output, storage.clone());
+
+        let (mut tester, poller) =
+            apalis_core::test_utils::TestWrapper::new_with_service(storage, svc);
+        tokio::spawn(poller);
+
+        tester
+            .enqueue(JobRequest {
+                path: QualifiedPath::root().child("my_job"),
+                args: vec![],
+            })
+            .await
+            .unwrap();
+
+        let (_, result) = tester.execute_next().await.unwrap();
+        assert_eq!(result, Ok("()".to_string()));
+    }
+
+    #[tokio::test]
+    async fn worker_reports_panic() {
+        let output = build_source(
+            r#"
+            #[job]
+            pub fn bad_job() -> () { panic("boom") }
+        "#,
+        );
+        let storage = MemoryStorage::<JobRequest>::new();
+        let svc = make_service(output, storage.clone());
+
+        let (mut tester, poller) =
+            apalis_core::test_utils::TestWrapper::new_with_service(storage, svc);
+        tokio::spawn(poller);
+
+        tester
+            .enqueue(JobRequest {
+                path: QualifiedPath::root().child("bad_job"),
+                args: vec![],
+            })
+            .await
+            .unwrap();
+
+        let (_, result) = tester.execute_next().await.unwrap();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("panic"));
+    }
+
+    #[tokio::test]
+    async fn worker_processes_job_with_args() {
+        let output = build_source(
+            r#"
+            #[job]
+            pub fn greet(name: String) -> () { () }
+        "#,
+        );
+        let storage = MemoryStorage::<JobRequest>::new();
+        let svc = make_service(output, storage.clone());
+
+        let (mut tester, poller) =
+            apalis_core::test_utils::TestWrapper::new_with_service(storage, svc);
+        tokio::spawn(poller);
+
+        tester
+            .enqueue(JobRequest {
+                path: QualifiedPath::root().child("greet"),
+                args: vec![Value::String("world".to_string())],
+            })
+            .await
+            .unwrap();
+
+        let (_, result) = tester.execute_next().await.unwrap();
+        assert_eq!(result, Ok("()".to_string()));
     }
 }
