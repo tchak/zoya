@@ -3872,6 +3872,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "zoya-kv"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "zoya-package",
+ "zoya-value",
+]
+
+[[package]]
 name = "zoya-lexer"
 version = "0.1.0"
 dependencies = [
