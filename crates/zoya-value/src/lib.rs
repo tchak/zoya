@@ -71,6 +71,7 @@ pub enum Value {
     },
     Task(Box<Value>),
     Bytes(Vec<u8>),
+    Json(serde_json::Value),
 }
 
 fn write_comma_separated(
@@ -180,6 +181,7 @@ impl fmt::Display for Value {
                 }
                 f.write_str("])")
             }
+            Value::Json(v) => write!(f, "{}", v),
         }
     }
 }
@@ -257,6 +259,7 @@ impl Value {
             Value::EnumVariant { .. } => "EnumVariant",
             Value::Task(_) => "Task",
             Value::Bytes(_) => "Bytes",
+            Value::Json(_) => "Json",
         }
     }
 
@@ -351,6 +354,13 @@ impl Value {
             }
             (Value::Task(inner), Type::Task(elem_type)) => inner.check_type(elem_type, definitions),
             (Value::Bytes(_), Type::Bytes) => Ok(()),
+            (Value::Json(_), Type::Enum { name, module, .. })
+                if name == "JSON"
+                    && module.segments().first().map(|s| s.as_str()) == Some("std")
+                    && module.segments().last().map(|s| s.as_str()) == Some("json") =>
+            {
+                Ok(())
+            }
             (_, Type::Var(_)) => Ok(()),
             (_, Type::Function { .. }) => Err(Error::UnsupportedConversion(
                 "function args not supported".into(),

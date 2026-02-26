@@ -92,6 +92,7 @@ impl serde::Serialize for SimpleJson<'_> {
                 let type_name = qualified_type_name(module, &name);
                 serialize_data(serializer, &type_name, data)
             }
+            Value::Json(v) => v.serialize(serializer),
             Value::Task(inner) => SimpleJson(inner).serialize(serializer),
             Value::Bytes(data) => {
                 let mut seq = serializer.serialize_seq(Some(data.len()))?;

@@ -566,6 +566,7 @@
 		}
 		if ("Task" in v) return $$Task.of($$value_to_zoya(v.Task));
 		if ("Bytes" in v) return new Uint8Array(v.Bytes);
+		if ("Json" in v) return $$json_to_zoya(v.Json);
 		$$throw("PANIC", `unexpected value in $$value_to_zoya: ${JSON.stringify(v)}`);
 	}
 	async function $$zoya_to_js(v) {

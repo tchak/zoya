@@ -1,6 +1,8 @@
 import { $$throw } from './error';
 import type { DictValue } from './hamt';
 import { $$Dict } from './hamt';
+import type { Json } from './json';
+import { $$json_to_zoya } from './json';
 import type { SetValue } from './set';
 import { $$Set } from './set';
 import type { TaskValue } from './task';
@@ -57,7 +59,8 @@ export type Value =
       };
     }
   | { Task: Value }
-  | { Bytes: number[] };
+  | { Bytes: number[] }
+  | { Json: Json };
 
 function valueDataToZoya(data: ValueData): Record<string, ZoyaValue> {
   if (data === 'Unit') return {};
@@ -99,6 +102,7 @@ export function $$value_to_zoya(v: Value): ZoyaValue {
   }
   if ('Task' in v) return $$Task.of($$value_to_zoya(v.Task));
   if ('Bytes' in v) return new Uint8Array(v.Bytes);
+  if ('Json' in v) return $$json_to_zoya(v.Json) as ZoyaValue;
   $$throw('PANIC', `unexpected value in $$value_to_zoya: ${JSON.stringify(v)}`);
 }
 

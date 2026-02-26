@@ -1,5 +1,13 @@
 import { $$Dict } from './hamt';
 
+export type Json =
+  | null
+  | boolean
+  | number
+  | string
+  | Json[]
+  | { [key: string]: Json };
+
 type ZoyaJson =
   | { $tag: 'Null' }
   | { $tag: 'Bool'; $0: boolean }
@@ -11,7 +19,7 @@ type ZoyaJson =
   | { $tag: 'Array'; $0: ZoyaJson[] }
   | { $tag: 'Object'; $0: unknown };
 
-export function $$json_to_zoya(v: unknown): ZoyaJson {
+export function $$json_to_zoya(v: Json): ZoyaJson {
   if (v === null) return { $tag: 'Null' };
   if (typeof v === 'boolean') return { $tag: 'Bool', $0: v };
   if (typeof v === 'number')
@@ -23,14 +31,14 @@ export function $$json_to_zoya(v: unknown): ZoyaJson {
   return {
     $tag: 'Object',
     $0: $$Dict.from(
-      Object.entries(v as Record<string, unknown>).map(
-        ([k, val]) => [k, $$json_to_zoya(val)] as [unknown, unknown],
+      Object.entries(v as Record<string, Json>).map(
+        ([k, val]) => [k, $$json_to_zoya(val)] as [string, ZoyaJson],
       ),
     ),
   };
 }
 
-export function $$zoya_to_json(v: ZoyaJson): unknown {
+export function $$zoya_to_json(v: ZoyaJson): Json {
   switch (v.$tag) {
     case 'Null':
       return null;
@@ -47,6 +55,6 @@ export function $$zoya_to_json(v: ZoyaJson): unknown {
         $$Dict
           .entries(v.$0 as ReturnType<typeof $$Dict.empty>)
           .map(([k, val]) => [k, $$zoya_to_json(val as ZoyaJson)]),
-      );
+      ) as Json;
   }
 }
