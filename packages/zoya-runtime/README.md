@@ -15,23 +15,23 @@ Provides the runtime functions and data structures that compiled Zoya code depen
 
 ## Modules
 
-| Module | Exports | Description |
-|--------|---------|-------------|
-| `zoya.ts` | `$$zoya_to_js`, `$$js_to_zoya`, `$$run`, `$$enqueue` | Core value conversion and function execution |
-| `hamt.ts` | `$$Dict` | Persistent hash array mapped trie for `Dict<K, V>` |
-| `set.ts` | `$$Set` | Persistent hash set for `Set<T>` |
-| `equality.ts` | `$$eq`, `$$is_obj` | Structural equality and type checking |
-| `arithmetic.ts` | `$$div`, `$$mod`, `$$pow` + BigInt variants | Safe arithmetic with division-by-zero checks |
-| `json.ts` | `$$json_to_zoya`, `$$zoya_to_json` | JSON serialization and deserialization |
-| `list.ts` | `$$List` | List utility methods |
-| `list-idx.ts` | `$$list_idx` | Safe list indexing with bounds checking |
-| `int.ts` | `$$Int` | Integer operations and conversions |
-| `float.ts` | `$$Float` | Float operations |
-| `bigint.ts` | `$$BigInt` | BigInt operations and conversions |
-| `string.ts` | `$$String` | String operations |
-| `bytes.ts` | `$$Bytes` | Byte array (`Uint8Array`) utilities |
-| `task.ts` | `$$Task` | Async task wrapper |
-| `error.ts` | `$$ZoyaError`, `$$throw` | Error handling |
+| Module          | Exports                                              | Description                                        |
+| --------------- | ---------------------------------------------------- | -------------------------------------------------- |
+| `zoya.ts`       | `$$zoya_to_js`, `$$js_to_zoya`, `$$run`, `$$enqueue` | Core value conversion and function execution       |
+| `hamt.ts`       | `$$Dict`                                             | Persistent hash array mapped trie for `Dict<K, V>` |
+| `set.ts`        | `$$Set`                                              | Persistent hash set for `Set<T>`                   |
+| `equality.ts`   | `$$eq`, `$$is_obj`                                   | Structural equality and type checking              |
+| `arithmetic.ts` | `$$div`, `$$mod`, `$$pow` + BigInt variants          | Safe arithmetic with division-by-zero checks       |
+| `json.ts`       | `$$json_to_zoya`, `$$zoya_to_json`                   | JSON serialization and deserialization             |
+| `list.ts`       | `$$List`                                             | List utility methods                               |
+| `list-idx.ts`   | `$$list_idx`                                         | Safe list indexing with bounds checking            |
+| `int.ts`        | `$$Int`                                              | Integer operations and conversions                 |
+| `float.ts`      | `$$Float`                                            | Float operations                                   |
+| `bigint.ts`     | `$$BigInt`                                           | BigInt operations and conversions                  |
+| `string.ts`     | `$$String`                                           | String operations                                  |
+| `bytes.ts`      | `$$Bytes`                                            | Byte array (`Uint8Array`) utilities                |
+| `task.ts`       | `$$Task`                                             | Async task wrapper                                 |
+| `error.ts`      | `$$ZoyaError`, `$$throw`                             | Error handling                                     |
 
 ## Build
 

@@ -8,26 +8,28 @@ export type Json =
   | Json[]
   | { [key: string]: Json };
 
-type ZoyaJson =
-  | { $tag: 'Null' }
-  | { $tag: 'Bool'; $0: boolean }
+export type ZoyaJson =
+  | { $tag: 'Null'; $json: true }
+  | { $tag: 'Bool'; $0: boolean; $json: true }
   | {
       $tag: 'Number';
       $0: { $tag: 'Int'; $0: number } | { $tag: 'Float'; $0: number };
+      $json: true;
     }
-  | { $tag: 'String'; $0: string }
-  | { $tag: 'Array'; $0: ZoyaJson[] }
-  | { $tag: 'Object'; $0: unknown };
+  | { $tag: 'String'; $0: string; $json: true }
+  | { $tag: 'Array'; $0: ZoyaJson[]; $json: true }
+  | { $tag: 'Object'; $0: unknown; $json: true };
 
 export function $$json_to_zoya(v: Json): ZoyaJson {
-  if (v === null) return { $tag: 'Null' };
-  if (typeof v === 'boolean') return { $tag: 'Bool', $0: v };
+  if (v === null) return { $tag: 'Null', $json: true };
+  if (typeof v === 'boolean') return { $tag: 'Bool', $0: v, $json: true };
   if (typeof v === 'number')
     return Number.isInteger(v)
-      ? { $tag: 'Number', $0: { $tag: 'Int', $0: v } }
-      : { $tag: 'Number', $0: { $tag: 'Float', $0: v } };
-  if (typeof v === 'string') return { $tag: 'String', $0: v };
-  if (Array.isArray(v)) return { $tag: 'Array', $0: v.map($$json_to_zoya) };
+      ? { $tag: 'Number', $0: { $tag: 'Int', $0: v }, $json: true }
+      : { $tag: 'Number', $0: { $tag: 'Float', $0: v }, $json: true };
+  if (typeof v === 'string') return { $tag: 'String', $0: v, $json: true };
+  if (Array.isArray(v))
+    return { $tag: 'Array', $0: v.map($$json_to_zoya), $json: true };
   return {
     $tag: 'Object',
     $0: $$Dict.from(
@@ -35,6 +37,7 @@ export function $$json_to_zoya(v: Json): ZoyaJson {
         ([k, val]) => [k, $$json_to_zoya(val)] as [string, ZoyaJson],
       ),
     ),
+    $json: true,
   };
 }
 

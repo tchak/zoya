@@ -573,9 +573,7 @@ mod tests {
     async fn get_returns_entry_with_correct_key() {
         let repo = setup().await;
         let key = QualifiedPath::from(vec!["root", "app", "config"]);
-        repo.set(&key, &Value::String("data".into()))
-            .await
-            .unwrap();
+        repo.set(&key, &Value::String("data".into())).await.unwrap();
 
         let entry = repo.get(&key).await.unwrap().expect("should exist");
         assert_eq!(entry.key, key);

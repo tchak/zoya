@@ -195,8 +195,7 @@ async fn eval_script_async(
             .into_value(),
     );
     for arg in args {
-        let json = serde_json::to_value(arg)
-            .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+        let json = serde_json::to_value(arg).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
         let js_arg: rquickjs::Value = rquickjs_serde::to_value(ctx.clone(), &json)
             .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
         js_args.push(js_arg);

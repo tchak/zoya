@@ -337,35 +337,44 @@
 //#endregion
 //#region src/json.ts
 	function $$json_to_zoya(v) {
-		if (v === null) return { $tag: "Null" };
+		if (v === null) return {
+			$tag: "Null",
+			$json: true
+		};
 		if (typeof v === "boolean") return {
 			$tag: "Bool",
-			$0: v
+			$0: v,
+			$json: true
 		};
 		if (typeof v === "number") return Number.isInteger(v) ? {
 			$tag: "Number",
 			$0: {
 				$tag: "Int",
 				$0: v
-			}
+			},
+			$json: true
 		} : {
 			$tag: "Number",
 			$0: {
 				$tag: "Float",
 				$0: v
-			}
+			},
+			$json: true
 		};
 		if (typeof v === "string") return {
 			$tag: "String",
-			$0: v
+			$0: v,
+			$json: true
 		};
 		if (Array.isArray(v)) return {
 			$tag: "Array",
-			$0: v.map($$json_to_zoya)
+			$0: v.map($$json_to_zoya),
+			$json: true
 		};
 		return {
 			$tag: "Object",
-			$0: $$Dict.from(Object.entries(v).map(([k, val]) => [k, $$json_to_zoya(val)]))
+			$0: $$Dict.from(Object.entries(v).map(([k, val]) => [k, $$json_to_zoya(val)])),
+			$json: true
 		};
 	}
 	function $$zoya_to_json(v) {
@@ -600,6 +609,7 @@
 				for (let i = 0; i < entries.length; i++) items.push({ Array: [await $$zoya_to_js(entries[i][0]), await $$zoya_to_js(entries[i][1])] });
 				return { Array: items };
 			}
+			if (obj.$json === true) return { Json: $$zoya_to_json(v) };
 			const out = {};
 			const keys = Object.keys(obj);
 			for (let i = 0; i < keys.length; i++) out[keys[i]] = await $$zoya_to_js(obj[keys[i]]);

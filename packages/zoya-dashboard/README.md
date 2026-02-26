@@ -13,17 +13,17 @@ A React application that displays package metadata (functions, tests, jobs, HTTP
 
 ## Components
 
-| Component | Description |
-|-----------|-------------|
-| `App` | Root component; fetches data from `/api/data` |
-| `Dashboard` | Main layout with badge summary and card grid |
+| Component       | Description                                     |
+| --------------- | ----------------------------------------------- |
+| `App`           | Root component; fetches data from `/api/data`   |
+| `Dashboard`     | Main layout with badge summary and card grid    |
 | `FunctionsCard` | All functions grouped by module with signatures |
-| `TestsCard` | Test functions grouped by module |
-| `JobsCard` | Job functions with signatures |
-| `RoutesCard` | HTTP routes with method badges and pathnames |
-| `ModuleHeader` | Module name section header |
-| `Badge` | Count badge (Functions, Tests, Jobs, Routes) |
-| `Card` | Reusable card container |
+| `TestsCard`     | Test functions grouped by module                |
+| `JobsCard`      | Job functions with signatures                   |
+| `RoutesCard`    | HTTP routes with method badges and pathnames    |
+| `ModuleHeader`  | Module name section header                      |
+| `Badge`         | Count badge (Functions, Tests, Jobs, Routes)    |
+| `Card`          | Reusable card container                         |
 
 ## Stack
 

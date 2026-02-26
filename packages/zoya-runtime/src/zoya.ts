@@ -2,7 +2,7 @@ import { $$throw } from './error';
 import type { DictValue } from './hamt';
 import { $$Dict } from './hamt';
 import type { Json } from './json';
-import { $$json_to_zoya } from './json';
+import { $$json_to_zoya, $$zoya_to_json, type ZoyaJson } from './json';
 import type { SetValue } from './set';
 import { $$Set } from './set';
 import type { TaskValue } from './task';
@@ -17,7 +17,8 @@ export type JSValue =
   | { String: string }
   | { Array: JSValue[] }
   | { Object: Record<string, JSValue> }
-  | { Bytes: number[] };
+  | { Bytes: number[] }
+  | { Json: Json };
 
 // ZoyaValue — internal Zoya representation
 export type ZoyaValue =
@@ -135,7 +136,7 @@ export async function $$zoya_to_js(v: ZoyaValue): Promise<JSValue> {
     }
     // Set (HAMT-backed)
     if (obj.$$set === true) {
-      const keys = $$Dict.keys(obj.$$data as ReturnType<typeof $$Dict.empty>);
+      const keys = $$Dict.keys(obj.$$data as DictValue);
       const items: JSValue[] = [];
       for (let i = 0; i < keys.length; i++)
         items.push(await $$zoya_to_js(keys[i] as ZoyaValue));
@@ -143,7 +144,7 @@ export async function $$zoya_to_js(v: ZoyaValue): Promise<JSValue> {
     }
     // Dict (HAMT-backed)
     if (obj.$$hamt === true) {
-      const entries = $$Dict.entries(v as ReturnType<typeof $$Dict.empty>);
+      const entries = $$Dict.entries(v as DictValue);
       const items: JSValue[] = [];
       for (let i = 0; i < entries.length; i++) {
         items.push({
@@ -154,6 +155,12 @@ export async function $$zoya_to_js(v: ZoyaValue): Promise<JSValue> {
         });
       }
       return { Array: items };
+    }
+    // JSON enum variant — short-circuit with $$zoya_to_json
+    if (obj.$json === true) {
+      return {
+        Json: $$zoya_to_json(v as ZoyaJson),
+      };
     }
     // Plain object (struct/enum) — includes $tag as a regular field
     const out: Record<string, JSValue> = {};

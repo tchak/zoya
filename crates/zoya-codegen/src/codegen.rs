@@ -319,13 +319,24 @@ impl<'a> PackageCodegen<'a> {
                         .map(|(name, e)| format!("{}: {}", name, self.codegen_expr(e)))
                         .collect(),
                 };
+                // Mark JSON enum variants with $json: true for optimized bridge crossing
+                let is_json = matches!(
+                    &expr.ty(),
+                    Type::Enum { module, name, .. }
+                        if name == "JSON" && matches!(
+                            module.segments(),
+                            [a, b] if b == "json" && (a == "std" || a == "root")
+                        )
+                );
+                let json_marker = if is_json { ", $json: true" } else { "" };
                 if field_strs.is_empty() {
-                    format!("({{ $tag: \"{}\" }})", variant_name)
+                    format!("({{ $tag: \"{}\"{}}})", variant_name, json_marker)
                 } else {
                     format!(
-                        "({{ $tag: \"{}\", {} }})",
+                        "({{ $tag: \"{}\", {}{}}})",
                         variant_name,
-                        field_strs.join(", ")
+                        field_strs.join(", "),
+                        json_marker
                     )
                 }
             }

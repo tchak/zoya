@@ -19,6 +19,7 @@ pub enum JSValue {
     Array(Vec<JSValue>),
     Object(HashMap<String, JSValue>),
     Bytes(Vec<u8>),
+    Json(serde_json::Value),
 }
 
 impl JSValue {
@@ -32,6 +33,7 @@ impl JSValue {
             JSValue::Array(_) => "Array",
             JSValue::Object(_) => "Object",
             JSValue::Bytes(_) => "Bytes",
+            JSValue::Json(_) => "Json",
         }
     }
 }
@@ -108,14 +110,13 @@ impl Value {
                 Ok(Value::Tuple(values))
             }
             (JSValue::Array(items), Type::Task(inner_type)) => {
-                let inner_js =
-                    items
-                        .into_iter()
-                        .next()
-                        .ok_or_else(|| Error::TypeMismatch {
-                            from: "empty Task array".to_string(),
-                            to: "Task".to_string(),
-                        })?;
+                let inner_js = items
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| Error::TypeMismatch {
+                        from: "empty Task array".to_string(),
+                        to: "Task".to_string(),
+                    })?;
                 let inner = Value::from_js_value(inner_js, inner_type, definitions)?;
                 Ok(Value::Task(Box::new(inner)))
             }
@@ -206,6 +207,7 @@ impl Value {
                     data,
                 })
             }
+            (JSValue::Json(v), _) => Ok(Value::Json(v)),
             (_, Type::Function { .. }) => Err(Error::UnsupportedConversion(
                 "cannot convert function value from JS".to_string(),
             )),

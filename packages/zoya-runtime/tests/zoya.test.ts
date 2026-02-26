@@ -74,8 +74,7 @@ describe('$$run', () => {
     const r1 = await $$run('test_pkg::my_fn');
     expect(r1.jobs).toHaveLength(1);
 
-    (globalThis as Record<string, unknown>)['$test_pkg$my_fn'] = () =>
-      'second';
+    (globalThis as Record<string, unknown>)['$test_pkg$my_fn'] = () => 'second';
     const r2 = await $$run('test_pkg::my_fn');
     expect(r2.jobs).toHaveLength(0);
   });
