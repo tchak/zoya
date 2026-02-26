@@ -232,6 +232,54 @@ fn check_value_data(
 }
 
 impl Value {
+    pub fn unit() -> Value {
+        Value::Tuple(vec![])
+    }
+
+    pub fn list(items: Vec<Value>) -> Value {
+        Value::List(items)
+    }
+
+    pub fn some(value: Value) -> Value {
+        Value::EnumVariant {
+            enum_name: "Option".into(),
+            variant_name: "Some".into(),
+            module: QualifiedPath::from("std::option"),
+            data: ValueData::Tuple(vec![value]),
+        }
+    }
+
+    pub fn none() -> Value {
+        Value::EnumVariant {
+            enum_name: "Option".into(),
+            variant_name: "None".into(),
+            module: QualifiedPath::from("std::option"),
+            data: ValueData::Unit,
+        }
+    }
+
+    pub fn ok(value: Value) -> Value {
+        Value::EnumVariant {
+            enum_name: "Result".into(),
+            variant_name: "Ok".into(),
+            module: QualifiedPath::from("std::result"),
+            data: ValueData::Tuple(vec![value]),
+        }
+    }
+
+    pub fn err(value: Value) -> Value {
+        Value::EnumVariant {
+            enum_name: "Result".into(),
+            variant_name: "Err".into(),
+            module: QualifiedPath::from("std::result"),
+            data: ValueData::Tuple(vec![value]),
+        }
+    }
+
+    pub fn json(value: serde_json::Value) -> Value {
+        Value::Json(value)
+    }
+
     /// Parse a CLI argument string into a typed `Value`.
     ///
     /// Strings are passed through raw (no quotes needed). All other types

@@ -9,31 +9,6 @@ fn http_module() -> QualifiedPath {
     QualifiedPath::from("std::http")
 }
 
-/// Module path for `std::option` types.
-fn option_module() -> QualifiedPath {
-    QualifiedPath::from("std::option")
-}
-
-/// Build `Option::None` as a Zoya Value.
-fn option_none() -> Value {
-    Value::EnumVariant {
-        enum_name: "Option".into(),
-        variant_name: "None".into(),
-        module: option_module(),
-        data: ValueData::Unit,
-    }
-}
-
-/// Build `Option::Some(value)` as a Zoya Value.
-fn option_some(value: Value) -> Value {
-    Value::EnumVariant {
-        enum_name: "Option".into(),
-        variant_name: "Some".into(),
-        module: option_module(),
-        data: ValueData::Tuple(vec![value]),
-    }
-}
-
 /// Build a `Body::Text(string)` as a Zoya Value.
 fn body_text(text: String) -> Value {
     Value::EnumVariant {
@@ -81,10 +56,10 @@ pub(crate) fn axum_request_to_value(parts: &Parts, body_bytes: &[u8]) -> Value {
     let headers_val = Value::Dict(headers);
 
     let body = if body_bytes.is_empty() {
-        option_none()
+        Value::none()
     } else {
         let text = String::from_utf8_lossy(body_bytes).into_owned();
-        option_some(body_text(text))
+        Value::some(body_text(text))
     };
 
     let mut fields = HashMap::new();
