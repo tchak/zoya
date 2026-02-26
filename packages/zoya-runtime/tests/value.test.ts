@@ -88,7 +88,7 @@ describe('$$value_to_zoya', () => {
         data: { Tuple: [{ Int: 42 }] },
       },
     };
-    expect($$value_to_zoya(v)).toEqual({ $tag: 'Wrapper', 0: 42 });
+    expect($$value_to_zoya(v)).toEqual({ $tag: 'Wrapper', $0: 42 });
   });
 
   it('converts EnumVariant with Unit data', () => {
@@ -112,7 +112,7 @@ describe('$$value_to_zoya', () => {
         data: { Tuple: [{ Int: 42 }] },
       },
     };
-    expect($$value_to_zoya(v)).toEqual({ $tag: 'Some', 0: 42 });
+    expect($$value_to_zoya(v)).toEqual({ $tag: 'Some', $0: 42 });
   });
 
   it('converts EnumVariant with Struct data', () => {

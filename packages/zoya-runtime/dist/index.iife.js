@@ -536,7 +536,7 @@
 		if (data === "Unit") return {};
 		if ("Tuple" in data) {
 			const out = {};
-			for (let i = 0; i < data.Tuple.length; i++) out[i] = $$value_to_zoya(data.Tuple[i]);
+			for (let i = 0; i < data.Tuple.length; i++) out[`$${i}`] = $$value_to_zoya(data.Tuple[i]);
 			return out;
 		}
 		const out = {};
@@ -609,30 +609,6 @@
 		}
 		$$throw("PANIC", `unexpected value in $$zoya_to_js: ${typeof v}`);
 	}
-	function $$js_to_zoya(v) {
-		if (v === null || v === void 0) $$throw("PANIC", `unexpected ${v} in $$js_to_zoya`);
-		if (typeof v === "function") $$throw("PANIC", "unexpected function in $$js_to_zoya");
-		if (typeof v === "boolean" || typeof v === "number" || typeof v === "string" || typeof v === "bigint") return v;
-		if (v instanceof Uint8Array) return v;
-		if (Array.isArray(v)) {
-			const tagged = v;
-			if (tagged.$tag === "Task") return $$Task.of($$js_to_zoya(v[0]));
-			if (tagged.$tag === "Set") return $$Set.from(v.map($$js_to_zoya));
-			if (tagged.$tag === "Dict") return $$Dict.from(v.map((e) => {
-				const pair = e;
-				return [$$js_to_zoya(pair[0]), $$js_to_zoya(pair[1])];
-			}));
-			return v.map($$js_to_zoya);
-		}
-		if (typeof v === "object") {
-			const obj = v;
-			const out = {};
-			const keys = Object.keys(obj);
-			for (let i = 0; i < keys.length; i++) out[keys[i]] = $$js_to_zoya(obj[keys[i]]);
-			return out;
-		}
-		$$throw("PANIC", `unexpected value in $$js_to_zoya: ${typeof v}`);
-	}
 	const $$jobs = [];
 	function $$enqueue(job) {
 		$$jobs.push(job);
@@ -643,7 +619,7 @@
 		const fn = globalThis[js_name];
 		if (typeof fn !== "function") $$throw("PANIC", `function not found: ${qualified_path}`);
 		if (fn.length !== args.length) $$throw("PANIC", `arity mismatch for ${qualified_path}: expected ${fn.length} arguments, got ${args.length}`);
-		const result = fn(...args.map($$js_to_zoya));
+		const result = fn(...args.map($$value_to_zoya));
 		const collected = $$jobs.splice(0);
 		return {
 			value: await $$zoya_to_js(result),
@@ -1002,7 +978,6 @@
 		$$json_to_zoya,
 		$$zoya_to_json,
 		$$zoya_to_js,
-		$$js_to_zoya,
 		$$value_to_zoya,
 		$$run,
 		$$enqueue,

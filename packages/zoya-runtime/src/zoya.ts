@@ -70,7 +70,7 @@ function valueDataToZoya(data: ValueData): Record<string, ZoyaValue> {
   if ('Tuple' in data) {
     const out: Record<string, ZoyaValue> = {};
     for (let i = 0; i < data.Tuple.length; i++)
-      out[i] = $$value_to_zoya(data.Tuple[i]);
+      out[`$${i}`] = $$value_to_zoya(data.Tuple[i]);
     return out;
   }
   const out: Record<string, ZoyaValue> = {};
@@ -175,45 +175,6 @@ export async function $$zoya_to_js(v: ZoyaValue): Promise<JSValue> {
   $$throw('PANIC', `unexpected value in $$zoya_to_js: ${typeof v}`);
 }
 
-export function $$js_to_zoya(v: JSValue): ZoyaValue {
-  if (v === null || v === undefined) {
-    $$throw('PANIC', `unexpected ${v} in $$js_to_zoya`);
-  }
-  if (typeof v === 'function') {
-    $$throw('PANIC', 'unexpected function in $$js_to_zoya');
-  }
-  if (
-    typeof v === 'boolean' ||
-    typeof v === 'number' ||
-    typeof v === 'string' ||
-    typeof v === 'bigint'
-  )
-    return v;
-  if (v instanceof Uint8Array) return v;
-  if (Array.isArray(v)) {
-    const tagged = v as unknown as Record<string, unknown>;
-    if (tagged.$tag === 'Task') return $$Task.of($$js_to_zoya(v[0]));
-    if (tagged.$tag === 'Set') return $$Set.from(v.map($$js_to_zoya));
-    if (tagged.$tag === 'Dict')
-      return $$Dict.from(
-        v.map((e: JSValue) => {
-          const pair = e as [JSValue, JSValue];
-          return [$$js_to_zoya(pair[0]), $$js_to_zoya(pair[1])];
-        }),
-      );
-    return v.map($$js_to_zoya);
-  }
-  if (typeof v === 'object') {
-    const obj = v as Record<string, JSValue>;
-    const out: Record<string, ZoyaValue> = {};
-    const keys = Object.keys(obj);
-    for (let i = 0; i < keys.length; i++)
-      out[keys[i]] = $$js_to_zoya(obj[keys[i]]);
-    return out;
-  }
-  $$throw('PANIC', `unexpected value in $$js_to_zoya: ${typeof v}`);
-}
-
 const $$jobs: ZoyaValue[] = [];
 
 export function $$enqueue(job: ZoyaValue): ZoyaValue[] {
@@ -223,7 +184,7 @@ export function $$enqueue(job: ZoyaValue): ZoyaValue[] {
 
 export async function $$run(
   qualified_path: string,
-  ...args: JSValue[]
+  ...args: Value[]
 ): Promise<{ value: JSValue; jobs: JSValue[] }> {
   const js_name = '$' + qualified_path.replace(/::/g, '$');
   const fn = (globalThis as Record<string, unknown>)[js_name];
@@ -236,7 +197,7 @@ export async function $$run(
       `arity mismatch for ${qualified_path}: expected ${fn.length} arguments, got ${args.length}`,
     );
   }
-  const zoya_args = args.map($$js_to_zoya);
+  const zoya_args = args.map($$value_to_zoya);
   const result = fn(...zoya_args);
   const collected = $$jobs.splice(0);
   return {

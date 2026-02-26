@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::Duration;
 
-use rquickjs::{AsyncContext, AsyncRuntime, CatchResultExt, Ctx, FromJs, IntoJs};
+use rquickjs::{AsyncContext, AsyncRuntime, CatchResultExt, Ctx, FromJs};
 
 use zoya_ir::{DefinitionLookup, Type};
 use zoya_package::QualifiedPath;
@@ -195,8 +195,9 @@ async fn eval_script_async(
             .into_value(),
     );
     for arg in args {
-        let js_arg: rquickjs::Value = JSValue::from(arg.clone())
-            .into_js(ctx)
+        let json = serde_json::to_value(arg)
+            .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+        let js_arg: rquickjs::Value = rquickjs_serde::to_value(ctx.clone(), &json)
             .map_err(|e| EvalError::RuntimeError(e.to_string()))?;
         js_args.push(js_arg);
     }

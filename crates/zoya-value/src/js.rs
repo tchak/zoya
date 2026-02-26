@@ -38,70 +38,6 @@ impl JSValue {
     }
 }
 
-fn value_data_to_fields(data: ValueData) -> HashMap<String, JSValue> {
-    match data {
-        ValueData::Unit => HashMap::new(),
-        ValueData::Tuple(values) => values
-            .into_iter()
-            .enumerate()
-            .map(|(i, v)| (format!("${i}"), JSValue::from(v)))
-            .collect(),
-        ValueData::Struct(map) => map
-            .into_iter()
-            .map(|(k, v)| (k, JSValue::from(v)))
-            .collect(),
-    }
-}
-
-impl From<Value> for JSValue {
-    fn from(value: Value) -> Self {
-        match value {
-            Value::Int(n) => JSValue::Int(n),
-            Value::BigInt(n) => JSValue::BigInt(n),
-            Value::Float(f) => JSValue::Float(f),
-            Value::Bool(b) => JSValue::Bool(b),
-            Value::String(s) => JSValue::String(s),
-            Value::List(items) => JSValue::Array {
-                tag: None,
-                items: items.into_iter().map(JSValue::from).collect(),
-            },
-            Value::Tuple(items) => JSValue::Array {
-                tag: None,
-                items: items.into_iter().map(JSValue::from).collect(),
-            },
-            Value::Set(items) => JSValue::Array {
-                tag: Some("Set".to_string()),
-                items: items.into_iter().map(JSValue::from).collect(),
-            },
-            Value::Dict(entries) => JSValue::Array {
-                tag: Some("Dict".to_string()),
-                items: entries
-                    .into_iter()
-                    .map(|(k, v)| JSValue::Array {
-                        tag: None,
-                        items: vec![JSValue::from(k), JSValue::from(v)],
-                    })
-                    .collect(),
-            },
-            Value::Struct { data, .. } => JSValue::Object {
-                tag: None,
-                fields: value_data_to_fields(data),
-            },
-            Value::EnumVariant {
-                variant_name, data, ..
-            } => JSValue::Object {
-                tag: Some(variant_name),
-                fields: value_data_to_fields(data),
-            },
-            Value::Task(inner) => JSValue::Array {
-                tag: Some("Task".to_string()),
-                items: vec![JSValue::from(*inner)],
-            },
-            Value::Bytes(data) => JSValue::Bytes(data),
-        }
-    }
-}
-
 fn convert_js_fields_to_value_data(
     fields: &HashMap<String, JSValue>,
     expected_fields: &[(String, Type)],
@@ -129,43 +65,6 @@ fn convert_js_fields_to_value_data(
             map.insert(field_name.clone(), field_value);
         }
         Ok(ValueData::Struct(map))
-    }
-}
-
-#[cfg(feature = "quickjs")]
-impl<'js> rquickjs::IntoJs<'js> for JSValue {
-    fn into_js(self, ctx: &rquickjs::Ctx<'js>) -> rquickjs::Result<rquickjs::Value<'js>> {
-        match self {
-            JSValue::Int(n) => n.into_js(ctx),
-            JSValue::BigInt(n) => rquickjs::BigInt::from_i64(ctx.clone(), n)?.into_js(ctx),
-            JSValue::Float(f) => f.into_js(ctx),
-            JSValue::Bool(b) => b.into_js(ctx),
-            JSValue::String(s) => s.into_js(ctx),
-            JSValue::Array { tag, items } => {
-                let array = rquickjs::Array::new(ctx.clone())?;
-                for (i, item) in items.into_iter().enumerate() {
-                    array.set(i, item.into_js(ctx)?)?;
-                }
-                if let Some(tag) = tag {
-                    let obj = array.as_object();
-                    obj.set("$tag", tag)?;
-                }
-                array.into_js(ctx)
-            }
-            JSValue::Object { tag, fields } => {
-                let obj = rquickjs::Object::new(ctx.clone())?;
-                if let Some(tag) = tag {
-                    obj.set("$tag", tag)?;
-                }
-                for (key, val) in fields {
-                    obj.set(key, val.into_js(ctx)?)?;
-                }
-                obj.into_js(ctx)
-            }
-            JSValue::Bytes(data) => {
-                rquickjs::TypedArray::<u8>::new(ctx.clone(), data)?.into_js(ctx)
-            }
-        }
     }
 }
 

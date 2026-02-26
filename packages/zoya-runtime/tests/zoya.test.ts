@@ -20,7 +20,7 @@ describe('$$run', () => {
       a: number,
       b: number,
     ) => a + b;
-    const result = await $$run('test_pkg::add', 3, 4);
+    const result = await $$run('test_pkg::add', { Int: 3 }, { Int: 4 });
     expect(result).toEqual({ value: 7, jobs: [] });
   });
 
@@ -35,7 +35,7 @@ describe('$$run', () => {
       a: number,
       b: number,
     ) => a + b;
-    await expect($$run('test_pkg::add', 1)).rejects.toThrow(
+    await expect($$run('test_pkg::add', { Int: 1 })).rejects.toThrow(
       'arity mismatch for test_pkg::add: expected 2 arguments, got 1',
     );
   });
