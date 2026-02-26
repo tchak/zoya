@@ -240,6 +240,52 @@ impl KvRepository for SqliteKvRepository {
     }
 }
 
+/// High-level KV facade that wraps a `KvRepository` and swallows errors.
+///
+/// All methods are infallible — errors are logged with `tracing::warn!`
+/// and replaced with sensible defaults (`None`, `()`, empty `Vec`).
+pub struct Kv<R: KvRepository> {
+    repository: R,
+}
+
+impl<R: KvRepository> Kv<R> {
+    pub fn new(repository: R) -> Self {
+        Self { repository }
+    }
+
+    pub async fn get(&self, key: &QualifiedPath) -> Option<Entry> {
+        match self.repository.get(key).await {
+            Ok(entry) => entry,
+            Err(e) => {
+                tracing::warn!("kv get failed for {key}: {e}");
+                None
+            }
+        }
+    }
+
+    pub async fn set(&self, key: &QualifiedPath, value: &Value) {
+        if let Err(e) = self.repository.set(key, value).await {
+            tracing::warn!("kv set failed for {key}: {e}");
+        }
+    }
+
+    pub async fn delete(&self, key: &QualifiedPath) {
+        if let Err(e) = self.repository.delete(key).await {
+            tracing::warn!("kv delete failed for {key}: {e}");
+        }
+    }
+
+    pub async fn list(&self, prefix: &QualifiedPath) -> Vec<Entry> {
+        match self.repository.list(prefix).await {
+            Ok(entries) => entries,
+            Err(e) => {
+                tracing::warn!("kv list failed for {prefix}: {e}");
+                Vec::new()
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -533,5 +579,66 @@ mod tests {
 
         let entry = repo.get(&key).await.unwrap().expect("should exist");
         assert_eq!(entry.key, key);
+    }
+
+    // ── Kv facade tests ─────────────────────────────────────────────
+
+    async fn setup_kv() -> Kv<SqliteKvRepository> {
+        let repo = setup().await;
+        Kv::new(repo)
+    }
+
+    #[tokio::test]
+    async fn kv_get_missing_returns_none() {
+        let kv = setup_kv().await;
+        let key = QualifiedPath::from(vec!["root", "missing"]);
+        assert!(kv.get(&key).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn kv_set_then_get() {
+        let kv = setup_kv().await;
+        let key = QualifiedPath::from(vec!["root", "counter"]);
+        let value = Value::Int(42);
+
+        kv.set(&key, &value).await;
+
+        let entry = kv.get(&key).await.expect("should exist");
+        assert_eq!(entry.key, key);
+        assert_eq!(entry.value, value);
+    }
+
+    #[tokio::test]
+    async fn kv_delete_is_silent() {
+        let kv = setup_kv().await;
+        let key = QualifiedPath::from(vec!["root", "key"]);
+
+        // Delete a missing key — should not panic
+        kv.delete(&key).await;
+
+        // Set then delete
+        kv.set(&key, &Value::Int(1)).await;
+        kv.delete(&key).await;
+        assert!(kv.get(&key).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn kv_list_returns_entries() {
+        let kv = setup_kv().await;
+
+        let key_a = QualifiedPath::from(vec!["root", "app", "alpha"]);
+        let key_b = QualifiedPath::from(vec!["root", "app", "beta"]);
+
+        kv.set(&key_b, &Value::Int(2)).await;
+        kv.set(&key_a, &Value::Int(1)).await;
+
+        let prefix = QualifiedPath::from(vec!["root", "app"]);
+        let entries = kv.list(&prefix).await;
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].key, key_a);
+        assert_eq!(entries[0].value, Value::Int(1));
+        assert_eq!(entries[1].key, key_b);
+        assert_eq!(entries[1].value, Value::Int(2));
     }
 }
