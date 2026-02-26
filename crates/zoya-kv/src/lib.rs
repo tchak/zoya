@@ -21,7 +21,7 @@ pub struct Entry {
 
 /// Key-value repository trait with async methods (RPITIT, edition 2024).
 pub trait KvRepository {
-    /// Create the `kv` table if it doesn't exist.
+    /// Create the `kv_store` table if it doesn't exist.
     fn init(&self) -> impl Future<Output = Result<(), KvError>> + Send;
 
     /// Fetch a single value by exact path.
@@ -51,8 +51,8 @@ pub trait KvRepository {
 /// Encode a `QualifiedPath` into a binary key that preserves lexicographic ordering.
 ///
 /// Each segment is encoded as: `0x02 + utf8_bytes + 0x00`.
-/// Segments are concatenated directly. This follows Deno.KV's encoding format.
-fn key_hash(path: &QualifiedPath) -> Vec<u8> {
+/// Segments are concatenated directly. Follows Deno.KV's encoding format.
+fn key_encode(path: &QualifiedPath) -> Vec<u8> {
     let mut result = Vec::new();
     for segment in path.segments() {
         result.push(0x02);
@@ -98,8 +98,8 @@ impl SqliteKvRepository {
 impl KvRepository for SqliteKvRepository {
     async fn init(&self) -> Result<(), KvError> {
         sqlx::query(
-            "CREATE TABLE IF NOT EXISTS kv (
-                key_hash BLOB PRIMARY KEY NOT NULL,
+            "CREATE TABLE IF NOT EXISTS kv_store (
+                key BLOB PRIMARY KEY NOT NULL,
                 value BLOB NOT NULL,
                 versionstamp TEXT NOT NULL
             )",
@@ -110,9 +110,9 @@ impl KvRepository for SqliteKvRepository {
     }
 
     async fn get(&self, path: &QualifiedPath) -> Result<Option<Entry>, KvError> {
-        let key = key_hash(path);
+        let key = key_encode(path);
         let row: Option<(Vec<u8>, String)> =
-            sqlx::query_as("SELECT value, versionstamp FROM kv WHERE key_hash = ?")
+            sqlx::query_as("SELECT value, versionstamp FROM kv_store WHERE key = ?")
                 .bind(&key)
                 .fetch_optional(&self.0)
                 .await?;
@@ -129,12 +129,12 @@ impl KvRepository for SqliteKvRepository {
     }
 
     async fn set(&self, path: &QualifiedPath, value: &Value) -> Result<Entry, KvError> {
-        let key = key_hash(path);
+        let key = key_encode(path);
         let blob = serde_json::to_vec(value)?;
         let vs = versionstamp();
         sqlx::query(
-            "INSERT INTO kv (key_hash, value, versionstamp) VALUES (?, ?, ?)
-             ON CONFLICT(key_hash) DO UPDATE SET value = excluded.value, versionstamp = excluded.versionstamp",
+            "INSERT INTO kv_store (key, value, versionstamp) VALUES (?, ?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, versionstamp = excluded.versionstamp",
         )
         .bind(&key)
         .bind(&blob)
@@ -148,8 +148,8 @@ impl KvRepository for SqliteKvRepository {
     }
 
     async fn delete(&self, path: &QualifiedPath) -> Result<(), KvError> {
-        let key = key_hash(path);
-        sqlx::query("DELETE FROM kv WHERE key_hash = ?")
+        let key = key_encode(path);
+        sqlx::query("DELETE FROM kv_store WHERE key = ?")
             .bind(&key)
             .execute(&self.0)
             .await?;
@@ -157,10 +157,10 @@ impl KvRepository for SqliteKvRepository {
     }
 
     async fn list(&self, prefix: &QualifiedPath) -> Result<Vec<Entry>, KvError> {
-        let encoded_prefix = key_hash(prefix);
+        let encoded_prefix = key_encode(prefix);
         let upper_bound = strinc(&encoded_prefix);
         let rows: Vec<(Vec<u8>, String)> = sqlx::query_as(
-            "SELECT value, versionstamp FROM kv WHERE key_hash > ? AND key_hash < ? ORDER BY key_hash",
+            "SELECT value, versionstamp FROM kv_store WHERE key > ? AND key < ? ORDER BY key",
         )
         .bind(&encoded_prefix)
         .bind(&upper_bound)
@@ -190,19 +190,19 @@ mod tests {
         repo
     }
 
-    // ── key_hash encoding tests ────────────────────────────────────
+    // ── key_encode tests ─────────────────────────────────────────────
 
     #[test]
-    fn key_hash_single_segment() {
+    fn key_encode_single_segment() {
         let path = QualifiedPath::from("app");
-        let encoded = key_hash(&path);
+        let encoded = key_encode(&path);
         assert_eq!(encoded, vec![0x02, b'a', b'p', b'p', 0x00]);
     }
 
     #[test]
-    fn key_hash_multiple_segments() {
+    fn key_encode_multiple_segments() {
         let path = QualifiedPath::from(vec!["app", "users"]);
-        let encoded = key_hash(&path);
+        let encoded = key_encode(&path);
         assert_eq!(
             encoded,
             vec![
@@ -212,14 +212,14 @@ mod tests {
     }
 
     #[test]
-    fn key_hash_preserves_ordering() {
+    fn key_encode_preserves_ordering() {
         let path_a = QualifiedPath::from(vec!["app", "a"]);
         let path_b = QualifiedPath::from(vec!["app", "b"]);
         let path_ab = QualifiedPath::from(vec!["app", "ab"]);
 
-        let enc_a = key_hash(&path_a);
-        let enc_b = key_hash(&path_b);
-        let enc_ab = key_hash(&path_ab);
+        let enc_a = key_encode(&path_a);
+        let enc_b = key_encode(&path_b);
+        let enc_ab = key_encode(&path_ab);
 
         // a < ab < b (lexicographic)
         assert!(enc_a < enc_ab);
