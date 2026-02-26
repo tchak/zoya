@@ -4,9 +4,8 @@ mod parse;
 
 pub use js::JSValue;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt;
-use std::hash::{Hash, Hasher};
 
 use serde::{Deserialize, Serialize};
 use zoya_ir::{DefinitionLookup, EnumVariantType, QualifiedPath, Type};
@@ -35,25 +34,12 @@ pub enum TerminationError {
     UnexpectedReturn(String),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ValueData {
     Unit,
     Tuple(Vec<Value>),
     Struct(HashMap<String, Value>),
 }
-
-impl PartialEq for ValueData {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (ValueData::Unit, ValueData::Unit) => true,
-            (ValueData::Tuple(a), ValueData::Tuple(b)) => a == b,
-            (ValueData::Struct(a), ValueData::Struct(b)) => a == b,
-            _ => false,
-        }
-    }
-}
-
-impl Eq for ValueData {}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Job {
@@ -61,29 +47,7 @@ pub struct Job {
     pub args: Vec<Value>,
 }
 
-impl Hash for ValueData {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        std::mem::discriminant(self).hash(state);
-        match self {
-            ValueData::Unit => {}
-            ValueData::Tuple(values) => values.hash(state),
-            ValueData::Struct(map) => {
-                state.write_usize(map.len());
-                // Order-independent hash for HashMap
-                let mut hash_sum: u64 = 0;
-                for (k, v) in map {
-                    let mut entry_hasher = std::hash::DefaultHasher::new();
-                    k.hash(&mut entry_hasher);
-                    v.hash(&mut entry_hasher);
-                    hash_sum = hash_sum.wrapping_add(entry_hasher.finish());
-                }
-                state.write_u64(hash_sum);
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Value {
     Int(i64),
     BigInt(i64),
@@ -92,10 +56,8 @@ pub enum Value {
     String(String),
     List(Vec<Value>),
     Tuple(Vec<Value>),
-    #[serde(with = "json::set_serde")]
-    Set(HashSet<Value>),
-    #[serde(with = "json::dict_serde")]
-    Dict(HashMap<Value, Value>),
+    Set(Vec<Value>),
+    Dict(Vec<(Value, Value)>),
     Struct {
         name: String,
         module: QualifiedPath,
@@ -109,107 +71,6 @@ pub enum Value {
     },
     Task(Box<Value>),
     Bytes(Vec<u8>),
-}
-
-impl PartialEq for Value {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Value::Int(a), Value::Int(b)) => a == b,
-            (Value::BigInt(a), Value::BigInt(b)) => a == b,
-            (Value::Float(a), Value::Float(b)) => a.to_bits() == b.to_bits(),
-            (Value::Bool(a), Value::Bool(b)) => a == b,
-            (Value::String(a), Value::String(b)) => a == b,
-            (Value::List(a), Value::List(b)) => a == b,
-            (Value::Tuple(a), Value::Tuple(b)) => a == b,
-            (Value::Set(a), Value::Set(b)) => a == b,
-            (Value::Dict(a), Value::Dict(b)) => a == b,
-            (
-                Value::Struct {
-                    name: n1,
-                    module: m1,
-                    data: d1,
-                },
-                Value::Struct {
-                    name: n2,
-                    module: m2,
-                    data: d2,
-                },
-            ) => n1 == n2 && m1 == m2 && d1 == d2,
-            (
-                Value::EnumVariant {
-                    enum_name: en1,
-                    variant_name: vn1,
-                    module: m1,
-                    data: d1,
-                },
-                Value::EnumVariant {
-                    enum_name: en2,
-                    variant_name: vn2,
-                    module: m2,
-                    data: d2,
-                },
-            ) => en1 == en2 && vn1 == vn2 && m1 == m2 && d1 == d2,
-            (Value::Task(a), Value::Task(b)) => a == b,
-            (Value::Bytes(a), Value::Bytes(b)) => a == b,
-            _ => false,
-        }
-    }
-}
-
-impl Eq for Value {}
-
-impl Hash for Value {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        std::mem::discriminant(self).hash(state);
-        match self {
-            Value::Int(n) => n.hash(state),
-            Value::BigInt(n) => n.hash(state),
-            Value::Float(f) => f.to_bits().hash(state),
-            Value::Bool(b) => b.hash(state),
-            Value::String(s) => s.hash(state),
-            Value::List(elements) => elements.hash(state),
-            Value::Tuple(elements) => elements.hash(state),
-            Value::Set(set) => {
-                state.write_usize(set.len());
-                let mut hash_sum: u64 = 0;
-                for v in set {
-                    let mut h = std::hash::DefaultHasher::new();
-                    v.hash(&mut h);
-                    hash_sum = hash_sum.wrapping_add(h.finish());
-                }
-                state.write_u64(hash_sum);
-            }
-            Value::Dict(map) => {
-                state.write_usize(map.len());
-                let mut hash_sum: u64 = 0;
-                for (k, v) in map {
-                    let mut h = std::hash::DefaultHasher::new();
-                    k.hash(&mut h);
-                    v.hash(&mut h);
-                    hash_sum = hash_sum.wrapping_add(h.finish());
-                }
-                state.write_u64(hash_sum);
-            }
-            Value::Struct { name, module, data } => {
-                name.hash(state);
-                module.hash(state);
-                data.hash(state);
-            }
-            Value::EnumVariant {
-                enum_name,
-                variant_name,
-                module,
-                data,
-            } => {
-                enum_name.hash(state);
-                variant_name.hash(state);
-                module.hash(state);
-                data.hash(state);
-            }
-            Value::Task(inner) => inner.hash(state),
-            Value::Bytes(data) => data.hash(state),
-        }
-    }
 }
 
 fn write_comma_separated(
@@ -280,14 +141,14 @@ impl fmt::Display for Value {
             }
             Value::Set(items) => {
                 f.write_str("{")?;
-                let mut sorted: Vec<_> = items.iter().collect();
+                let mut sorted = items.clone();
                 sorted.sort_by_cached_key(|a| a.to_string());
-                write_comma_separated(f, sorted)?;
+                write_comma_separated(f, &sorted)?;
                 f.write_str("}")
             }
             Value::Dict(entries) => {
                 f.write_str("{")?;
-                let mut sorted: Vec<_> = entries.iter().collect();
+                let mut sorted = entries.clone();
                 sorted.sort_by_cached_key(|(k, _)| k.to_string());
                 for (i, (k, v)) in sorted.iter().enumerate() {
                     if i > 0 {
@@ -649,9 +510,7 @@ mod tests {
     #[test]
     fn check_type_set_ok() {
         let lookup = empty_lookup();
-        let mut set = HashSet::new();
-        set.insert(Value::Int(1));
-        let val = Value::Set(set);
+        let val = Value::Set(vec![Value::Int(1)]);
         assert!(
             val.check_type(&Type::Set(Box::new(Type::Int)), &lookup)
                 .is_ok()
@@ -661,9 +520,7 @@ mod tests {
     #[test]
     fn check_type_dict_ok() {
         let lookup = empty_lookup();
-        let mut map = HashMap::new();
-        map.insert(Value::String("a".into()), Value::Int(1));
-        let val = Value::Dict(map);
+        let val = Value::Dict(vec![(Value::String("a".into()), Value::Int(1))]);
         assert!(
             val.check_type(
                 &Type::Dict(Box::new(Type::String), Box::new(Type::Int)),

@@ -16,50 +16,6 @@ fn qualified_type_name(module: &QualifiedPath, name: &str) -> String {
     segments.join("::")
 }
 
-/// Serde module for round-trip serialization of `HashSet<Value>` as `Vec<Value>`.
-pub(crate) mod set_serde {
-    use super::Value;
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-    use std::collections::HashSet;
-
-    pub fn serialize<S: Serializer>(
-        set: &HashSet<Value>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        let vec: Vec<&Value> = set.iter().collect();
-        vec.serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<HashSet<Value>, D::Error> {
-        let vec = Vec::<Value>::deserialize(deserializer)?;
-        Ok(vec.into_iter().collect())
-    }
-}
-
-/// Serde module for round-trip serialization of `HashMap<Value, Value>` as `Vec<(Value, Value)>`.
-pub(crate) mod dict_serde {
-    use super::Value;
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-    use std::collections::HashMap;
-
-    pub fn serialize<S: Serializer>(
-        map: &HashMap<Value, Value>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        let vec: Vec<(&Value, &Value)> = map.iter().collect();
-        vec.serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<HashMap<Value, Value>, D::Error> {
-        let vec = Vec::<(Value, Value)>::deserialize(deserializer)?;
-        Ok(vec.into_iter().collect())
-    }
-}
-
 /// Lossy JSON wrapper used by `to_json()` / `to_json_pretty()`.
 ///
 /// Produces a simplified JSON representation intended for human consumption
@@ -160,7 +116,7 @@ impl Value {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
 
     use zoya_ir::QualifiedPath;
 
@@ -206,17 +162,13 @@ mod tests {
 
     #[test]
     fn serialize_set() {
-        let mut set = HashSet::new();
-        set.insert(Value::Int(1));
-        let val = Value::Set(set);
+        let val = Value::Set(vec![Value::Int(1)]);
         assert_eq!(val.to_json(), "[1]");
     }
 
     #[test]
     fn serialize_dict() {
-        let mut map = HashMap::new();
-        map.insert(Value::String("a".into()), Value::Int(1));
-        let val = Value::Dict(map);
+        let val = Value::Dict(vec![(Value::String("a".into()), Value::Int(1))]);
         assert_eq!(val.to_json(), r#"[["a",1]]"#);
     }
 

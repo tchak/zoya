@@ -1385,7 +1385,10 @@ fn test_dict_repl_display() {
         Value::Dict(entries) => {
             assert_eq!(entries.len(), 1);
             assert_eq!(
-                entries.get(&Value::String("a".to_string())),
+                entries
+                    .iter()
+                    .find(|(k, _)| k == &Value::String("a".to_string()))
+                    .map(|(_, v)| v),
                 Some(&Value::Int(1))
             );
         }

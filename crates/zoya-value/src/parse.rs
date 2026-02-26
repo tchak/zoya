@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use logos::Logos;
 use zoya_ir::{DefinitionLookup, EnumVariantType, QualifiedPath, Type};
@@ -354,9 +354,9 @@ impl Parser {
         definitions: &DefinitionLookup,
     ) -> Result<Value, Error> {
         self.expect_token(Token::LBrace)?;
-        let mut items = HashSet::new();
+        let mut items = Vec::new();
         while !matches!(self.peek(), Token::RBrace) {
-            items.insert(self.parse(elem_type, definitions)?);
+            items.push(self.parse(elem_type, definitions)?);
             if matches!(self.peek(), Token::Comma) {
                 self.advance();
             } else {
@@ -374,12 +374,12 @@ impl Parser {
         definitions: &DefinitionLookup,
     ) -> Result<Value, Error> {
         self.expect_token(Token::LBrace)?;
-        let mut entries = HashMap::new();
+        let mut entries = Vec::new();
         while !matches!(self.peek(), Token::RBrace) {
             let key = self.parse(key_type, definitions)?;
             self.expect_token(Token::Colon)?;
             let val = self.parse(val_type, definitions)?;
-            entries.insert(key, val);
+            entries.push((key, val));
             if matches!(self.peek(), Token::Comma) {
                 self.advance();
             } else {
@@ -805,11 +805,10 @@ mod tests {
     fn parse_set_of_ints() {
         let lookup = empty_lookup();
         let result = parse_value("{1, 2, 3}", &Type::Set(Box::new(Type::Int)), &lookup).unwrap();
-        let mut expected = HashSet::new();
-        expected.insert(Value::Int(1));
-        expected.insert(Value::Int(2));
-        expected.insert(Value::Int(3));
-        assert_eq!(result, Value::Set(expected));
+        assert_eq!(
+            result,
+            Value::Set(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
+        );
     }
 
     // ── Dicts ─────────────────────────────────────────────────────
@@ -819,10 +818,13 @@ mod tests {
         let lookup = empty_lookup();
         let ty = Type::Dict(Box::new(Type::String), Box::new(Type::Int));
         let result = parse_value(r#"{"a": 1, "b": 2}"#, &ty, &lookup).unwrap();
-        let mut expected = HashMap::new();
-        expected.insert(Value::String("a".into()), Value::Int(1));
-        expected.insert(Value::String("b".into()), Value::Int(2));
-        assert_eq!(result, Value::Dict(expected));
+        assert_eq!(
+            result,
+            Value::Dict(vec![
+                (Value::String("a".into()), Value::Int(1)),
+                (Value::String("b".into()), Value::Int(2)),
+            ])
+        );
     }
 
     // ── Structs ───────────────────────────────────────────────────

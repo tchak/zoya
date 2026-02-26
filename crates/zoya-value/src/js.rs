@@ -295,7 +295,7 @@ impl Value {
                 let values = items
                     .into_iter()
                     .map(|item| Value::from_js_value(item, elem_type, definitions))
-                    .collect::<Result<std::collections::HashSet<_>, _>>()?;
+                    .collect::<Result<Vec<_>, _>>()?;
                 Ok(Value::Set(values))
             }
             (
@@ -305,7 +305,7 @@ impl Value {
                 },
                 Type::Dict(key_type, val_type),
             ) if t == "Dict" => {
-                let mut map = HashMap::with_capacity(items.len());
+                let mut entries = Vec::with_capacity(items.len());
                 for item in items {
                     if let JSValue::Array { items: pair, .. } = item {
                         if pair.len() == 2 {
@@ -314,7 +314,7 @@ impl Value {
                                 Value::from_js_value(iter.next().unwrap(), key_type, definitions)?;
                             let val =
                                 Value::from_js_value(iter.next().unwrap(), val_type, definitions)?;
-                            map.insert(key, val);
+                            entries.push((key, val));
                         } else {
                             return Err(Error::TypeMismatch {
                                 from: "array".to_string(),
@@ -328,7 +328,7 @@ impl Value {
                         });
                     }
                 }
-                Ok(Value::Dict(map))
+                Ok(Value::Dict(entries))
             }
             (
                 JSValue::Object { tag: None, fields },

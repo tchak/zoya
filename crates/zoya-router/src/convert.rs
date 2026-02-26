@@ -69,13 +69,13 @@ pub(crate) fn axum_request_to_value(parts: &Parts, body_bytes: &[u8]) -> Value {
         data: ValueData::Unit,
     };
 
-    let mut headers = HashMap::new();
+    let mut headers = Vec::new();
     for (name, value) in &parts.headers {
         if let Ok(v) = value.to_str() {
-            headers.insert(
+            headers.push((
                 Value::String(name.as_str().to_string()),
                 Value::String(v.to_string()),
-            );
+            ));
         }
     }
     let headers_val = Value::Dict(headers);
