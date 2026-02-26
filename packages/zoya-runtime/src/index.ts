@@ -10,7 +10,13 @@ import {
 } from './arithmetic';
 import { $$list_idx } from './list-idx';
 import { $$json_to_zoya, $$zoya_to_json } from './json';
-import { $$zoya_to_js, $$js_to_zoya, $$run, $$enqueue } from './zoya';
+import {
+  $$zoya_to_js,
+  $$js_to_zoya,
+  $$value_to_zoya,
+  $$run,
+  $$enqueue,
+} from './zoya';
 import { $$Dict } from './hamt';
 import { $$Set } from './set';
 import { $$Int } from './int';
@@ -37,6 +43,7 @@ Object.assign(globalThis, {
   $$zoya_to_json,
   $$zoya_to_js,
   $$js_to_zoya,
+  $$value_to_zoya,
   $$run,
   $$enqueue,
   $$Dict,

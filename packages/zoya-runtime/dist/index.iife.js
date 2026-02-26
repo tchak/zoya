@@ -532,6 +532,42 @@
 
 //#endregion
 //#region src/zoya.ts
+	function valueDataToZoya(data) {
+		if (data === "Unit") return {};
+		if ("Tuple" in data) {
+			const out = {};
+			for (let i = 0; i < data.Tuple.length; i++) out[i] = $$value_to_zoya(data.Tuple[i]);
+			return out;
+		}
+		const out = {};
+		const keys = Object.keys(data.Struct);
+		for (let i = 0; i < keys.length; i++) out[keys[i]] = $$value_to_zoya(data.Struct[keys[i]]);
+		return out;
+	}
+	function $$value_to_zoya(v) {
+		if ("Int" in v) return v.Int;
+		if ("BigInt" in v) return globalThis.BigInt(v.BigInt);
+		if ("Float" in v) return v.Float;
+		if ("Bool" in v) return v.Bool;
+		if ("String" in v) return v.String;
+		if ("List" in v) return v.List.map($$value_to_zoya);
+		if ("Tuple" in v) return v.Tuple.map($$value_to_zoya);
+		if ("Set" in v) return $$Set.from(v.Set.map($$value_to_zoya));
+		if ("Dict" in v) return $$Dict.from(v.Dict.map(([k, val]) => [$$value_to_zoya(k), $$value_to_zoya(val)]));
+		if ("Struct" in v) {
+			const obj = { $tag: v.Struct.name };
+			Object.assign(obj, valueDataToZoya(v.Struct.data));
+			return obj;
+		}
+		if ("EnumVariant" in v) {
+			const obj = { $tag: v.EnumVariant.variant_name };
+			Object.assign(obj, valueDataToZoya(v.EnumVariant.data));
+			return obj;
+		}
+		if ("Task" in v) return $$Task.of($$value_to_zoya(v.Task));
+		if ("Bytes" in v) return new Uint8Array(v.Bytes);
+		$$throw("PANIC", `unexpected value in $$value_to_zoya: ${JSON.stringify(v)}`);
+	}
 	async function $$zoya_to_js(v) {
 		if (v === null || v === void 0) $$throw("PANIC", `unexpected ${v} in $$zoya_to_js`);
 		if (typeof v === "function") $$throw("PANIC", "unexpected function in $$zoya_to_js");
@@ -967,6 +1003,7 @@
 		$$zoya_to_json,
 		$$zoya_to_js,
 		$$js_to_zoya,
+		$$value_to_zoya,
 		$$run,
 		$$enqueue,
 		$$Dict,

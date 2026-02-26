@@ -23,21 +23,92 @@ interface JSValueObject {
   [key: string]: JSValue | undefined;
 }
 
-// Value — internal Zoya representation
-export type Value =
+// ZoyaValue — internal Zoya representation
+export type ZoyaValue =
   | boolean
   | number
   | bigint
   | string
-  | Value[]
+  | ZoyaValue[]
   | Uint8Array
   | SetValue
   | DictValue
   | TaskValue
-  | ((...args: Value[]) => Value)
-  | { [key: string]: Value };
+  | ((...args: ZoyaValue[]) => ZoyaValue)
+  | { [key: string]: ZoyaValue };
 
-export async function $$zoya_to_js(v: Value): Promise<JSValue> {
+// Value — serde-compatible representation matching Rust's externally-tagged enum format
+type ValueData =
+  | 'Unit'
+  | { Tuple: Value[] }
+  | { Struct: Record<string, Value> };
+
+export type Value =
+  | { Int: number }
+  | { BigInt: number }
+  | { Float: number }
+  | { Bool: boolean }
+  | { String: string }
+  | { List: Value[] }
+  | { Tuple: Value[] }
+  | { Set: Value[] }
+  | { Dict: [Value, Value][] }
+  | { Struct: { name: string; module: string; data: ValueData } }
+  | {
+      EnumVariant: {
+        enum_name: string;
+        variant_name: string;
+        module: string;
+        data: ValueData;
+      };
+    }
+  | { Task: Value }
+  | { Bytes: number[] };
+
+function valueDataToZoya(data: ValueData): Record<string, ZoyaValue> {
+  if (data === 'Unit') return {};
+  if ('Tuple' in data) {
+    const out: Record<string, ZoyaValue> = {};
+    for (let i = 0; i < data.Tuple.length; i++)
+      out[i] = $$value_to_zoya(data.Tuple[i]);
+    return out;
+  }
+  const out: Record<string, ZoyaValue> = {};
+  const keys = Object.keys(data.Struct);
+  for (let i = 0; i < keys.length; i++)
+    out[keys[i]] = $$value_to_zoya(data.Struct[keys[i]]);
+  return out;
+}
+
+export function $$value_to_zoya(v: Value): ZoyaValue {
+  if ('Int' in v) return v.Int;
+  if ('BigInt' in v) return globalThis.BigInt(v.BigInt);
+  if ('Float' in v) return v.Float;
+  if ('Bool' in v) return v.Bool;
+  if ('String' in v) return v.String;
+  if ('List' in v) return v.List.map($$value_to_zoya);
+  if ('Tuple' in v) return v.Tuple.map($$value_to_zoya);
+  if ('Set' in v) return $$Set.from(v.Set.map($$value_to_zoya));
+  if ('Dict' in v)
+    return $$Dict.from(
+      v.Dict.map(([k, val]) => [$$value_to_zoya(k), $$value_to_zoya(val)]),
+    );
+  if ('Struct' in v) {
+    const obj: Record<string, ZoyaValue> = { $tag: v.Struct.name };
+    Object.assign(obj, valueDataToZoya(v.Struct.data));
+    return obj;
+  }
+  if ('EnumVariant' in v) {
+    const obj: Record<string, ZoyaValue> = { $tag: v.EnumVariant.variant_name };
+    Object.assign(obj, valueDataToZoya(v.EnumVariant.data));
+    return obj;
+  }
+  if ('Task' in v) return $$Task.of($$value_to_zoya(v.Task));
+  if ('Bytes' in v) return new Uint8Array(v.Bytes);
+  $$throw('PANIC', `unexpected value in $$value_to_zoya: ${JSON.stringify(v)}`);
+}
+
+export async function $$zoya_to_js(v: ZoyaValue): Promise<JSValue> {
   if (v === null || v === undefined) {
     $$throw('PANIC', `unexpected ${v} in $$zoya_to_js`);
   }
@@ -54,7 +125,8 @@ export async function $$zoya_to_js(v: Value): Promise<JSValue> {
   if (v instanceof Uint8Array) return v;
   if (Array.isArray(v)) {
     const result = [];
-    for (let i = 0; i < v.length; i++) result.push(await $$zoya_to_js(v[i]));
+    for (let i = 0; i < v.length; i++)
+      result.push(await $$zoya_to_js(v[i] as ZoyaValue));
     // Preserve existing $tag (Set, Dict)
     const tagged = v as unknown as Record<string, unknown>;
     if (tagged.$tag)
@@ -65,7 +137,7 @@ export async function $$zoya_to_js(v: Value): Promise<JSValue> {
     const obj = v as Record<string, unknown>;
     // Task: execute .run(), await the promise, tag result as 'Task'
     if (obj.$task === true) {
-      const run = obj.run as () => Promise<Value>;
+      const run = obj.run as () => Promise<ZoyaValue>;
       const value = await run();
       const arr = [await $$zoya_to_js(value)];
       (arr as unknown as Record<string, unknown>).$tag = 'Task';
@@ -76,7 +148,7 @@ export async function $$zoya_to_js(v: Value): Promise<JSValue> {
       const keys = $$Dict.keys(obj.$$data as ReturnType<typeof $$Dict.empty>);
       const result = [];
       for (let i = 0; i < keys.length; i++)
-        result.push(await $$zoya_to_js(keys[i] as Value));
+        result.push(await $$zoya_to_js(keys[i] as ZoyaValue));
       (result as unknown as Record<string, unknown>).$tag = 'Set';
       return result;
     }
@@ -86,8 +158,8 @@ export async function $$zoya_to_js(v: Value): Promise<JSValue> {
       const result = [];
       for (let i = 0; i < entries.length; i++) {
         result.push([
-          await $$zoya_to_js(entries[i][0] as Value),
-          await $$zoya_to_js(entries[i][1] as Value),
+          await $$zoya_to_js(entries[i][0] as ZoyaValue),
+          await $$zoya_to_js(entries[i][1] as ZoyaValue),
         ]);
       }
       (result as unknown as Record<string, unknown>).$tag = 'Dict';
@@ -97,13 +169,13 @@ export async function $$zoya_to_js(v: Value): Promise<JSValue> {
     const out: Record<string, JSValue> = {};
     const keys = Object.keys(obj);
     for (let i = 0; i < keys.length; i++)
-      out[keys[i]] = await $$zoya_to_js(obj[keys[i]] as Value);
+      out[keys[i]] = await $$zoya_to_js(obj[keys[i]] as ZoyaValue);
     return out;
   }
   $$throw('PANIC', `unexpected value in $$zoya_to_js: ${typeof v}`);
 }
 
-export function $$js_to_zoya(v: JSValue): Value {
+export function $$js_to_zoya(v: JSValue): ZoyaValue {
   if (v === null || v === undefined) {
     $$throw('PANIC', `unexpected ${v} in $$js_to_zoya`);
   }
@@ -133,7 +205,7 @@ export function $$js_to_zoya(v: JSValue): Value {
   }
   if (typeof v === 'object') {
     const obj = v as Record<string, JSValue>;
-    const out: Record<string, Value> = {};
+    const out: Record<string, ZoyaValue> = {};
     const keys = Object.keys(obj);
     for (let i = 0; i < keys.length; i++)
       out[keys[i]] = $$js_to_zoya(obj[keys[i]]);
@@ -142,9 +214,9 @@ export function $$js_to_zoya(v: JSValue): Value {
   $$throw('PANIC', `unexpected value in $$js_to_zoya: ${typeof v}`);
 }
 
-const $$jobs: Value[] = [];
+const $$jobs: ZoyaValue[] = [];
 
-export function $$enqueue(job: Value): Value[] {
+export function $$enqueue(job: ZoyaValue): ZoyaValue[] {
   $$jobs.push(job);
   return []; // unit
 }
