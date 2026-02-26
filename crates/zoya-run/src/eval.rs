@@ -21,7 +21,16 @@ async fn create_async_runtime() -> Result<(AsyncRuntime, AsyncContext), EvalErro
 fn inject_globals(ctx: &Ctx<'_>) -> Result<(), EvalError> {
     inject_console(ctx)
         .and_then(|()| inject_timers(ctx))
+        .and_then(|()| inject_web_api(ctx))
         .map_err(|e| EvalError::RuntimeError(format!("failed to inject globals: {e}")))
+}
+
+fn inject_web_api(ctx: &Ctx<'_>) -> rquickjs::Result<()> {
+    let globals = ctx.globals();
+    rquickjs::Class::<crate::headers::Headers>::define(&globals)?;
+    rquickjs::Class::<crate::request::Request>::define(&globals)?;
+    rquickjs::Class::<crate::response::Response>::define(&globals)?;
+    Ok(())
 }
 
 static NEXT_TIMER_ID: AtomicI32 = AtomicI32::new(1);

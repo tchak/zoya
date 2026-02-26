@@ -1,4 +1,7 @@
 mod eval;
+mod headers;
+mod request;
+mod response;
 
 pub use eval::EvalError;
 pub use zoya_build::BuildOutput;
