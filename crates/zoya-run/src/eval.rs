@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::Duration;
 
-use rquickjs::{AsyncContext, AsyncRuntime, CatchResultExt, Ctx, FromJs};
+use rquickjs::{AsyncContext, AsyncRuntime, CatchResultExt, Ctx};
 
 use zoya_ir::{DefinitionLookup, Type};
 use zoya_package::QualifiedPath;
@@ -218,37 +218,33 @@ async fn eval_script_async(
         .catch(ctx)
         .map_err(map_js_error)?;
 
-    // $$run returns { value, jobs } — extract both fields
-    let result_obj = resolved
+    // $$run returns { value, jobs } — extract via serde roundtrip
+    let result_json: serde_json::Value = rquickjs_serde::from_value(resolved)
+        .map_err(|e| EvalError::RuntimeError(format!("failed to deserialize result: {e}")))?;
+
+    let result_obj = result_json
         .as_object()
         .ok_or_else(|| EvalError::RuntimeError("$$run returned non-object".into()))?;
-    let value_field: rquickjs::Value = result_obj
+
+    let value_json = result_obj
         .get("value")
-        .map_err(|e| EvalError::RuntimeError(format!("missing value field: {e}")))?;
-    let js_val =
-        JSValue::from_js(ctx, value_field).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
+        .ok_or_else(|| EvalError::RuntimeError("missing value field".into()))?;
+    let js_val: JSValue = serde_json::from_value(value_json.clone())
+        .map_err(|e| EvalError::RuntimeError(format!("failed to parse value: {e}")))?;
     let value = Value::from_js_value(js_val, &result_type, definitions).map_err(EvalError::from)?;
 
     // Extract the jobs array
-    let jobs_field: rquickjs::Value = result_obj
-        .get("jobs")
-        .map_err(|e| EvalError::RuntimeError(format!("missing jobs field: {e}")))?;
-    let js_jobs = if jobs_field.is_array() {
-        let arr = jobs_field
-            .as_array()
-            .ok_or_else(|| EvalError::RuntimeError("jobs field is not an array".into()))?;
-        let mut jobs = Vec::with_capacity(arr.len());
-        for i in 0..arr.len() {
-            let item: rquickjs::Value = arr
-                .get(i)
-                .map_err(|e| EvalError::RuntimeError(format!("failed to read job[{i}]: {e}")))?;
-            let js_val =
-                JSValue::from_js(ctx, item).map_err(|e| EvalError::RuntimeError(e.to_string()))?;
-            jobs.push(js_val);
+    let js_jobs = match result_obj.get("jobs") {
+        Some(serde_json::Value::Array(arr)) => {
+            let mut jobs = Vec::with_capacity(arr.len());
+            for item in arr {
+                let js_val: JSValue = serde_json::from_value(item.clone())
+                    .map_err(|e| EvalError::RuntimeError(format!("failed to parse job: {e}")))?;
+                jobs.push(js_val);
+            }
+            jobs
         }
-        jobs
-    } else {
-        vec![]
+        _ => vec![],
     };
 
     Ok((value, js_jobs))

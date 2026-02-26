@@ -6,22 +6,16 @@ import { $$Set } from './set';
 import type { TaskValue } from './task';
 import { $$Task } from './task';
 
-// JSValue — external representation crossing the JS<->Rust boundary
+// JSValue — serde externally-tagged format crossing the JS<->Rust boundary
 export type JSValue =
-  | boolean
-  | number
-  | bigint
-  | string
-  | Uint8Array
-  | JSValueArray
-  | JSValueObject;
-interface JSValueArray extends Array<JSValue> {
-  $tag?: string;
-}
-interface JSValueObject {
-  $tag?: string;
-  [key: string]: JSValue | undefined;
-}
+  | { Int: number }
+  | { BigInt: number }
+  | { Float: number }
+  | { Bool: boolean }
+  | { String: string }
+  | { Array: JSValue[] }
+  | { Object: Record<string, JSValue> }
+  | { Bytes: number[] };
 
 // ZoyaValue — internal Zoya representation
 export type ZoyaValue =
@@ -115,62 +109,54 @@ export async function $$zoya_to_js(v: ZoyaValue): Promise<JSValue> {
   if (typeof v === 'function') {
     $$throw('PANIC', 'unexpected function in $$zoya_to_js');
   }
-  if (
-    typeof v === 'boolean' ||
-    typeof v === 'number' ||
-    typeof v === 'string' ||
-    typeof v === 'bigint'
-  )
-    return v;
-  if (v instanceof Uint8Array) return v;
+  if (typeof v === 'boolean') return { Bool: v };
+  if (typeof v === 'number')
+    return Number.isInteger(v) ? { Int: v } : { Float: v };
+  if (typeof v === 'bigint') return { BigInt: Number(v) };
+  if (typeof v === 'string') return { String: v };
+  if (v instanceof Uint8Array) return { Bytes: Array.from(v) };
   if (Array.isArray(v)) {
-    const result = [];
+    const items: JSValue[] = [];
     for (let i = 0; i < v.length; i++)
-      result.push(await $$zoya_to_js(v[i] as ZoyaValue));
-    // Preserve existing $tag (Set, Dict)
-    const tagged = v as unknown as Record<string, unknown>;
-    if (tagged.$tag)
-      (result as unknown as Record<string, unknown>).$tag = tagged.$tag;
-    return result;
+      items.push(await $$zoya_to_js(v[i] as ZoyaValue));
+    return { Array: items };
   }
   if (typeof v === 'object') {
     const obj = v as Record<string, unknown>;
-    // Task: execute .run(), await the promise, tag result as 'Task'
+    // Task: execute .run(), await the promise
     if (obj.$task === true) {
       const run = obj.run as () => Promise<ZoyaValue>;
       const value = await run();
-      const arr = [await $$zoya_to_js(value)];
-      (arr as unknown as Record<string, unknown>).$tag = 'Task';
-      return arr;
+      return { Array: [await $$zoya_to_js(value)] };
     }
     // Set (HAMT-backed)
     if (obj.$$set === true) {
       const keys = $$Dict.keys(obj.$$data as ReturnType<typeof $$Dict.empty>);
-      const result = [];
+      const items: JSValue[] = [];
       for (let i = 0; i < keys.length; i++)
-        result.push(await $$zoya_to_js(keys[i] as ZoyaValue));
-      (result as unknown as Record<string, unknown>).$tag = 'Set';
-      return result;
+        items.push(await $$zoya_to_js(keys[i] as ZoyaValue));
+      return { Array: items };
     }
     // Dict (HAMT-backed)
     if (obj.$$hamt === true) {
       const entries = $$Dict.entries(v as ReturnType<typeof $$Dict.empty>);
-      const result = [];
+      const items: JSValue[] = [];
       for (let i = 0; i < entries.length; i++) {
-        result.push([
-          await $$zoya_to_js(entries[i][0] as ZoyaValue),
-          await $$zoya_to_js(entries[i][1] as ZoyaValue),
-        ]);
+        items.push({
+          Array: [
+            await $$zoya_to_js(entries[i][0] as ZoyaValue),
+            await $$zoya_to_js(entries[i][1] as ZoyaValue),
+          ],
+        });
       }
-      (result as unknown as Record<string, unknown>).$tag = 'Dict';
-      return result;
+      return { Array: items };
     }
-    // Plain object
+    // Plain object (struct/enum) — includes $tag as a regular field
     const out: Record<string, JSValue> = {};
     const keys = Object.keys(obj);
     for (let i = 0; i < keys.length; i++)
       out[keys[i]] = await $$zoya_to_js(obj[keys[i]] as ZoyaValue);
-    return out;
+    return { Object: out };
   }
   $$throw('PANIC', `unexpected value in $$zoya_to_js: ${typeof v}`);
 }

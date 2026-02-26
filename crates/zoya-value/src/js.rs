@@ -1,25 +1,23 @@
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
 use zoya_ir::{DefinitionLookup, Type};
 
 use crate::{Error, Value, ValueData, variant_type_to_fields};
 
 /// Intermediate representation of a JavaScript value, decoupled from QuickJS runtime.
-#[derive(Debug, Clone)]
+///
+/// Uses serde's externally-tagged format so values can be deserialized from
+/// `rquickjs_serde` → `serde_json::Value` → `JSValue`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum JSValue {
     Int(i64),
     BigInt(i64),
     Float(f64),
     Bool(bool),
     String(String),
-    Array {
-        tag: Option<String>,
-        items: Vec<JSValue>,
-    },
-    Object {
-        tag: Option<String>,
-        fields: HashMap<String, JSValue>,
-    },
+    Array(Vec<JSValue>),
+    Object(HashMap<String, JSValue>),
     Bytes(Vec<u8>),
 }
 
@@ -31,8 +29,8 @@ impl JSValue {
             JSValue::Float(_) => "Float",
             JSValue::Bool(_) => "Bool",
             JSValue::String(_) => "String",
-            JSValue::Array { .. } => "Array",
-            JSValue::Object { .. } => "Object",
+            JSValue::Array(_) => "Array",
+            JSValue::Object(_) => "Object",
             JSValue::Bytes(_) => "Bytes",
         }
     }
@@ -68,64 +66,6 @@ fn convert_js_fields_to_value_data(
     }
 }
 
-#[cfg(feature = "quickjs")]
-impl<'js> rquickjs::FromJs<'js> for JSValue {
-    #[allow(clippy::only_used_in_recursion)]
-    fn from_js(ctx: &rquickjs::Ctx<'js>, value: rquickjs::Value<'js>) -> rquickjs::Result<Self> {
-        // Check for Uint8Array before other object/array checks
-        if let Ok(typed_array) = rquickjs::TypedArray::<u8>::from_value(value.clone()) {
-            return Ok(JSValue::Bytes(typed_array.as_bytes().unwrap().to_vec()));
-        }
-        if value.is_bool() {
-            return Ok(JSValue::Bool(value.as_bool().unwrap()));
-        }
-        if value.is_int() {
-            return Ok(JSValue::Int(value.as_int().unwrap() as i64));
-        }
-        if value.type_of() == rquickjs::Type::BigInt {
-            let big: rquickjs::BigInt = value.get()?;
-            let n = big
-                .to_i64()
-                .map_err(|_| rquickjs::Error::new_from_js("bigint", "i64"))?;
-            return Ok(JSValue::BigInt(n));
-        }
-        if value.is_float() {
-            return Ok(JSValue::Float(value.as_float().unwrap()));
-        }
-        if value.is_string() {
-            let s: String = value.get()?;
-            return Ok(JSValue::String(s));
-        }
-        if value.is_array() {
-            let array: rquickjs::Array = value.get()?;
-            let mut items = Vec::with_capacity(array.len());
-            for i in 0..array.len() {
-                let elem: rquickjs::Value = array.get(i)?;
-                items.push(JSValue::from_js(ctx, elem)?);
-            }
-            // Read $tag property from the array-as-object
-            let obj: rquickjs::Object = array.into_object();
-            let tag: Option<String> = obj.get("$tag")?;
-            return Ok(JSValue::Array { tag, items });
-        }
-        if value.is_object() {
-            let obj: rquickjs::Object = value.get()?;
-            let mut tag = None;
-            let mut fields = HashMap::new();
-            for result in obj.props::<String, rquickjs::Value>() {
-                let (key, val) = result?;
-                if key == "$tag" {
-                    tag = Some(val.get::<String>()?);
-                } else {
-                    fields.insert(key, JSValue::from_js(ctx, val)?);
-                }
-            }
-            return Ok(JSValue::Object { tag, fields });
-        }
-        Err(rquickjs::Error::new_from_js(value.type_name(), "JSValue"))
-    }
-}
-
 impl Value {
     /// Convert a `JSValue` to a Zoya `Value` guided by the expected Zoya type.
     pub fn from_js_value(
@@ -152,14 +92,14 @@ impl Value {
             (JSValue::Bool(b), Type::Bool) => Ok(Value::Bool(b)),
             (JSValue::String(s), Type::String) => Ok(Value::String(s)),
             (JSValue::Bytes(data), Type::Bytes) => Ok(Value::Bytes(data)),
-            (JSValue::Array { tag: None, items }, Type::List(elem_type)) => {
+            (JSValue::Array(items), Type::List(elem_type)) => {
                 let values = items
                     .into_iter()
                     .map(|item| Value::from_js_value(item, elem_type, definitions))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(Value::List(values))
             }
-            (JSValue::Array { tag: None, items }, Type::Tuple(elem_types)) => {
+            (JSValue::Array(items), Type::Tuple(elem_types)) => {
                 let values = items
                     .into_iter()
                     .zip(elem_types.iter())
@@ -167,46 +107,29 @@ impl Value {
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(Value::Tuple(values))
             }
-            (
-                JSValue::Array {
-                    tag: Some(ref t),
-                    items,
-                },
-                Type::Task(inner_type),
-            ) if t == "Task" => {
-                let inner_js = items
-                    .into_iter()
-                    .next()
-                    .ok_or_else(|| Error::TypeMismatch {
-                        from: "empty Task array".to_string(),
-                        to: "Task".to_string(),
-                    })?;
+            (JSValue::Array(items), Type::Task(inner_type)) => {
+                let inner_js =
+                    items
+                        .into_iter()
+                        .next()
+                        .ok_or_else(|| Error::TypeMismatch {
+                            from: "empty Task array".to_string(),
+                            to: "Task".to_string(),
+                        })?;
                 let inner = Value::from_js_value(inner_js, inner_type, definitions)?;
                 Ok(Value::Task(Box::new(inner)))
             }
-            (
-                JSValue::Array {
-                    tag: Some(ref t),
-                    items,
-                },
-                Type::Set(elem_type),
-            ) if t == "Set" => {
+            (JSValue::Array(items), Type::Set(elem_type)) => {
                 let values = items
                     .into_iter()
                     .map(|item| Value::from_js_value(item, elem_type, definitions))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(Value::Set(values))
             }
-            (
-                JSValue::Array {
-                    tag: Some(ref t),
-                    items,
-                },
-                Type::Dict(key_type, val_type),
-            ) if t == "Dict" => {
+            (JSValue::Array(items), Type::Dict(key_type, val_type)) => {
                 let mut entries = Vec::with_capacity(items.len());
                 for item in items {
-                    if let JSValue::Array { items: pair, .. } = item {
+                    if let JSValue::Array(pair) = item {
                         if pair.len() == 2 {
                             let mut iter = pair.into_iter();
                             let key =
@@ -230,7 +153,7 @@ impl Value {
                 Ok(Value::Dict(entries))
             }
             (
-                JSValue::Object { tag: None, fields },
+                JSValue::Object(fields),
                 Type::Struct {
                     module,
                     name,
@@ -248,10 +171,7 @@ impl Value {
                 })
             }
             (
-                JSValue::Object {
-                    tag: Some(variant_name),
-                    fields,
-                },
+                JSValue::Object(mut fields),
                 Type::Enum {
                     module,
                     name: enum_name,
@@ -259,6 +179,16 @@ impl Value {
                     variants,
                 },
             ) => {
+                // Extract $tag from the object to determine the variant
+                let variant_name = match fields.remove("$tag") {
+                    Some(JSValue::String(name)) => name,
+                    _ => {
+                        return Err(Error::TypeMismatch {
+                            from: "Object (missing $tag)".to_string(),
+                            to: format!("Enum {}", enum_name),
+                        });
+                    }
+                };
                 let resolved_variants =
                     definitions.resolve_enum_variants(module, enum_name, variants, type_args);
                 let variant_type = resolved_variants

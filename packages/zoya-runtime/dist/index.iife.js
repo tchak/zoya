@@ -571,41 +571,38 @@
 	async function $$zoya_to_js(v) {
 		if (v === null || v === void 0) $$throw("PANIC", `unexpected ${v} in $$zoya_to_js`);
 		if (typeof v === "function") $$throw("PANIC", "unexpected function in $$zoya_to_js");
-		if (typeof v === "boolean" || typeof v === "number" || typeof v === "string" || typeof v === "bigint") return v;
-		if (v instanceof Uint8Array) return v;
+		if (typeof v === "boolean") return { Bool: v };
+		if (typeof v === "number") return Number.isInteger(v) ? { Int: v } : { Float: v };
+		if (typeof v === "bigint") return { BigInt: Number(v) };
+		if (typeof v === "string") return { String: v };
+		if (v instanceof Uint8Array) return { Bytes: Array.from(v) };
 		if (Array.isArray(v)) {
-			const result = [];
-			for (let i = 0; i < v.length; i++) result.push(await $$zoya_to_js(v[i]));
-			const tagged = v;
-			if (tagged.$tag) result.$tag = tagged.$tag;
-			return result;
+			const items = [];
+			for (let i = 0; i < v.length; i++) items.push(await $$zoya_to_js(v[i]));
+			return { Array: items };
 		}
 		if (typeof v === "object") {
 			const obj = v;
 			if (obj.$task === true) {
 				const run = obj.run;
-				const arr = [await $$zoya_to_js(await run())];
-				arr.$tag = "Task";
-				return arr;
+				return { Array: [await $$zoya_to_js(await run())] };
 			}
 			if (obj.$$set === true) {
 				const keys = $$Dict.keys(obj.$$data);
-				const result = [];
-				for (let i = 0; i < keys.length; i++) result.push(await $$zoya_to_js(keys[i]));
-				result.$tag = "Set";
-				return result;
+				const items = [];
+				for (let i = 0; i < keys.length; i++) items.push(await $$zoya_to_js(keys[i]));
+				return { Array: items };
 			}
 			if (obj.$$hamt === true) {
 				const entries = $$Dict.entries(v);
-				const result = [];
-				for (let i = 0; i < entries.length; i++) result.push([await $$zoya_to_js(entries[i][0]), await $$zoya_to_js(entries[i][1])]);
-				result.$tag = "Dict";
-				return result;
+				const items = [];
+				for (let i = 0; i < entries.length; i++) items.push({ Array: [await $$zoya_to_js(entries[i][0]), await $$zoya_to_js(entries[i][1])] });
+				return { Array: items };
 			}
 			const out = {};
 			const keys = Object.keys(obj);
 			for (let i = 0; i < keys.length; i++) out[keys[i]] = await $$zoya_to_js(obj[keys[i]]);
-			return out;
+			return { Object: out };
 		}
 		$$throw("PANIC", `unexpected value in $$zoya_to_js: ${typeof v}`);
 	}

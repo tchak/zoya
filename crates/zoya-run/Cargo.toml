@@ -14,7 +14,7 @@ zoya-codegen = { path = "../zoya-codegen" }
 zoya-ir = { path = "../zoya-ir" }
 zoya-loader = { path = "../zoya-loader" }
 zoya-package = { path = "../zoya-package" }
-zoya-value = { path = "../zoya-value", features = ["quickjs"] }
+zoya-value = { path = "../zoya-value" }
 
 [dev-dependencies]
 tempfile = "3"

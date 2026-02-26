@@ -12,7 +12,7 @@ describe('$$run', () => {
   it('calls a globalThis function by qualified path', async () => {
     (globalThis as Record<string, unknown>)['$test_pkg$my_fn'] = () => 42;
     const result = await $$run('test_pkg::my_fn');
-    expect(result).toEqual({ value: 42, jobs: [] });
+    expect(result).toEqual({ value: { Int: 42 }, jobs: [] });
   });
 
   it('passes converted arguments', async () => {
@@ -21,7 +21,7 @@ describe('$$run', () => {
       b: number,
     ) => a + b;
     const result = await $$run('test_pkg::add', { Int: 3 }, { Int: 4 });
-    expect(result).toEqual({ value: 7, jobs: [] });
+    expect(result).toEqual({ value: { Int: 7 }, jobs: [] });
   });
 
   it('panics when function is not found', async () => {
@@ -48,10 +48,20 @@ describe('$$run', () => {
     };
     const result = await $$run('test_pkg::my_fn');
     expect(result).toEqual({
-      value: 'ok',
+      value: { String: 'ok' },
       jobs: [
-        { name: 'deploy', args: [1, 2] },
-        { name: 'notify', args: ['done'] },
+        {
+          Object: {
+            name: { String: 'deploy' },
+            args: { Array: [{ Int: 1 }, { Int: 2 }] },
+          },
+        },
+        {
+          Object: {
+            name: { String: 'notify' },
+            args: { Array: [{ String: 'done' }] },
+          },
+        },
       ],
     });
   });
@@ -64,7 +74,8 @@ describe('$$run', () => {
     const r1 = await $$run('test_pkg::my_fn');
     expect(r1.jobs).toHaveLength(1);
 
-    (globalThis as Record<string, unknown>)['$test_pkg$my_fn'] = () => 'second';
+    (globalThis as Record<string, unknown>)['$test_pkg$my_fn'] = () =>
+      'second';
     const r2 = await $$run('test_pkg::my_fn');
     expect(r2.jobs).toHaveLength(0);
   });

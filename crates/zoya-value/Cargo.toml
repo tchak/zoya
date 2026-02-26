@@ -3,13 +3,9 @@ name = "zoya-value"
 version = "0.1.0"
 edition = "2024"
 
-[features]
-quickjs = ["dep:rquickjs"]
-
 [dependencies]
 logos = "0.16"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 zoya-ir = { path = "../zoya-ir" }
-rquickjs = { version = "0.11", features = ["bindgen", "array-buffer"], optional = true }
