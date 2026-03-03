@@ -3,7 +3,7 @@ use std::time::SystemTime;
 
 use sqlx::SqlitePool;
 use zoya_package::QualifiedPath;
-use zoya_value::{Value, ValueData};
+use zoya_value::ValueData;
 
 /// Errors that can occur during KV operations.
 #[derive(Debug, thiserror::Error)]
@@ -17,7 +17,7 @@ pub enum KvError {
 /// A stored key-value entry.
 pub struct Entry {
     pub key: QualifiedPath,
-    pub value: Value,
+    pub value: serde_json::Value,
     pub versionstamp: String,
 }
 
@@ -25,8 +25,9 @@ fn kv_module() -> QualifiedPath {
     QualifiedPath::from(vec!["std", "kv"])
 }
 
-impl From<Entry> for Value {
+impl From<Entry> for zoya_value::Value {
     fn from(entry: Entry) -> Self {
+        use zoya_value::Value;
         let mut fields = HashMap::new();
         fields.insert(
             "key".into(),
@@ -39,7 +40,7 @@ impl From<Entry> for Value {
                     .collect(),
             ),
         );
-        fields.insert("value".into(), entry.value);
+        fields.insert("value".into(), Value::Json(entry.value));
         fields.insert("versionstamp".into(), Value::String(entry.versionstamp));
         Value::Struct {
             name: "Entry".into(),
@@ -64,7 +65,7 @@ pub trait KvRepository {
     fn set(
         &self,
         key: &QualifiedPath,
-        value: &Value,
+        value: &serde_json::Value,
     ) -> impl Future<Output = Result<Entry, KvError>> + Send;
 
     /// Delete a value by exact key.
@@ -175,7 +176,7 @@ impl KvRepository for SqliteKvRepository {
                 .await?;
         match row {
             Some((blob, vs)) => {
-                let value: Value = serde_json::from_slice(&blob)?;
+                let value: serde_json::Value = serde_json::from_slice(&blob)?;
                 Ok(Some(Entry {
                     key: key.clone(),
                     value,
@@ -186,7 +187,7 @@ impl KvRepository for SqliteKvRepository {
         }
     }
 
-    async fn set(&self, key: &QualifiedPath, value: &Value) -> Result<Entry, KvError> {
+    async fn set(&self, key: &QualifiedPath, value: &serde_json::Value) -> Result<Entry, KvError> {
         let encoded = key_encode(key);
         let blob = serde_json::to_vec(value)?;
         let vs = versionstamp();
@@ -229,7 +230,7 @@ impl KvRepository for SqliteKvRepository {
         rows.into_iter()
             .map(|(key_blob, value_blob, vs)| {
                 let key = key_decode(&key_blob);
-                let value: Value = serde_json::from_slice(&value_blob)?;
+                let value: serde_json::Value = serde_json::from_slice(&value_blob)?;
                 Ok(Entry {
                     key,
                     value,
@@ -263,7 +264,7 @@ impl<R: KvRepository> Kv<R> {
         }
     }
 
-    pub async fn set(&self, key: &QualifiedPath, value: &Value) {
+    pub async fn set(&self, key: &QualifiedPath, value: &serde_json::Value) {
         if let Err(e) = self.repository.set(key, value).await {
             tracing::warn!("kv set failed for {key}: {e}");
         }
@@ -289,6 +290,8 @@ impl<R: KvRepository> Kv<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+    use zoya_value::Value;
 
     async fn setup() -> SqliteKvRepository {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
@@ -389,7 +392,7 @@ mod tests {
     fn entry_into_value_produces_struct() {
         let entry = Entry {
             key: QualifiedPath::from(vec!["app", "users", "1"]),
-            value: Value::Int(42),
+            value: json!(42),
             versionstamp: "12345".into(),
         };
         let value: Value = entry.into();
@@ -408,7 +411,7 @@ mod tests {
                                 Value::String("1".into()),
                             ]))
                         );
-                        assert_eq!(fields.get("value"), Some(&Value::Int(42)));
+                        assert_eq!(fields.get("value"), Some(&Value::Json(json!(42))));
                         assert_eq!(
                             fields.get("versionstamp"),
                             Some(&Value::String("12345".into()))
@@ -437,7 +440,7 @@ mod tests {
     async fn set_then_get_roundtrips() {
         let repo = setup().await;
         let key = QualifiedPath::from(vec!["root", "counter"]);
-        let value = Value::Int(42);
+        let value = json!(42);
 
         let entry = repo.set(&key, &value).await.unwrap();
         assert_eq!(entry.key, key);
@@ -455,16 +458,16 @@ mod tests {
         let repo = setup().await;
         let key = QualifiedPath::from(vec!["root", "counter"]);
 
-        let entry1 = repo.set(&key, &Value::Int(1)).await.unwrap();
-        let entry2 = repo.set(&key, &Value::Int(2)).await.unwrap();
+        let entry1 = repo.set(&key, &json!(1)).await.unwrap();
+        let entry2 = repo.set(&key, &json!(2)).await.unwrap();
 
         // New versionstamp should differ (or at least the value is updated)
         assert_eq!(entry2.key, key);
-        assert_eq!(entry2.value, Value::Int(2));
+        assert_eq!(entry2.value, json!(2));
         assert!(entry2.versionstamp >= entry1.versionstamp);
 
         let fetched = repo.get(&key).await.unwrap().expect("should exist");
-        assert_eq!(fetched.value, Value::Int(2));
+        assert_eq!(fetched.value, json!(2));
     }
 
     // ── delete tests ───────────────────────────────────────────────
@@ -473,7 +476,7 @@ mod tests {
     async fn delete_removes_key() {
         let repo = setup().await;
         let key = QualifiedPath::from(vec!["root", "key"]);
-        repo.set(&key, &Value::String("hello".into()))
+        repo.set(&key, &json!("hello"))
             .await
             .unwrap();
 
@@ -501,20 +504,20 @@ mod tests {
         let key_b = QualifiedPath::from(vec!["root", "app", "beta"]);
         let key_c = QualifiedPath::from(vec!["root", "app", "gamma"]);
 
-        repo.set(&key_b, &Value::Int(2)).await.unwrap();
-        repo.set(&key_a, &Value::Int(1)).await.unwrap();
-        repo.set(&key_c, &Value::Int(3)).await.unwrap();
+        repo.set(&key_b, &json!(2)).await.unwrap();
+        repo.set(&key_a, &json!(1)).await.unwrap();
+        repo.set(&key_c, &json!(3)).await.unwrap();
 
         let prefix = QualifiedPath::from(vec!["root", "app"]);
         let entries = repo.list(&prefix).await.unwrap();
 
         assert_eq!(entries.len(), 3);
         assert_eq!(entries[0].key, key_a);
-        assert_eq!(entries[0].value, Value::Int(1)); // alpha
+        assert_eq!(entries[0].value, json!(1)); // alpha
         assert_eq!(entries[1].key, key_b);
-        assert_eq!(entries[1].value, Value::Int(2)); // beta
+        assert_eq!(entries[1].value, json!(2)); // beta
         assert_eq!(entries[2].key, key_c);
-        assert_eq!(entries[2].value, Value::Int(3)); // gamma
+        assert_eq!(entries[2].value, json!(3)); // gamma
     }
 
     #[tokio::test]
@@ -524,17 +527,13 @@ mod tests {
         let prefix = QualifiedPath::from(vec!["root", "app"]);
         let child = QualifiedPath::from(vec!["root", "app", "child"]);
 
-        repo.set(&prefix, &Value::String("parent".into()))
-            .await
-            .unwrap();
-        repo.set(&child, &Value::String("child".into()))
-            .await
-            .unwrap();
+        repo.set(&prefix, &json!("parent")).await.unwrap();
+        repo.set(&child, &json!("child")).await.unwrap();
 
         let entries = repo.list(&prefix).await.unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].key, child);
-        assert_eq!(entries[0].value, Value::String("child".into()));
+        assert_eq!(entries[0].value, json!("child"));
     }
 
     #[tokio::test]
@@ -543,7 +542,7 @@ mod tests {
 
         // Insert some data under a different prefix
         let key = QualifiedPath::from(vec!["root", "other", "key"]);
-        repo.set(&key, &Value::Int(1)).await.unwrap();
+        repo.set(&key, &json!(1)).await.unwrap();
 
         let prefix = QualifiedPath::from(vec!["root", "empty"]);
         let entries = repo.list(&prefix).await.unwrap();
@@ -557,14 +556,14 @@ mod tests {
         let app_key = QualifiedPath::from(vec!["root", "app", "key"]);
         let other_key = QualifiedPath::from(vec!["root", "other", "key"]);
 
-        repo.set(&app_key, &Value::Int(1)).await.unwrap();
-        repo.set(&other_key, &Value::Int(2)).await.unwrap();
+        repo.set(&app_key, &json!(1)).await.unwrap();
+        repo.set(&other_key, &json!(2)).await.unwrap();
 
         let prefix = QualifiedPath::from(vec!["root", "app"]);
         let entries = repo.list(&prefix).await.unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].key, app_key);
-        assert_eq!(entries[0].value, Value::Int(1));
+        assert_eq!(entries[0].value, json!(1));
     }
 
     // ── get returns entry with correct key ─────────────────────────
@@ -573,7 +572,7 @@ mod tests {
     async fn get_returns_entry_with_correct_key() {
         let repo = setup().await;
         let key = QualifiedPath::from(vec!["root", "app", "config"]);
-        repo.set(&key, &Value::String("data".into())).await.unwrap();
+        repo.set(&key, &json!("data")).await.unwrap();
 
         let entry = repo.get(&key).await.unwrap().expect("should exist");
         assert_eq!(entry.key, key);
@@ -597,7 +596,7 @@ mod tests {
     async fn kv_set_then_get() {
         let kv = setup_kv().await;
         let key = QualifiedPath::from(vec!["root", "counter"]);
-        let value = Value::Int(42);
+        let value = json!(42);
 
         kv.set(&key, &value).await;
 
@@ -615,7 +614,7 @@ mod tests {
         kv.delete(&key).await;
 
         // Set then delete
-        kv.set(&key, &Value::Int(1)).await;
+        kv.set(&key, &json!(1)).await;
         kv.delete(&key).await;
         assert!(kv.get(&key).await.is_none());
     }
@@ -627,16 +626,16 @@ mod tests {
         let key_a = QualifiedPath::from(vec!["root", "app", "alpha"]);
         let key_b = QualifiedPath::from(vec!["root", "app", "beta"]);
 
-        kv.set(&key_b, &Value::Int(2)).await;
-        kv.set(&key_a, &Value::Int(1)).await;
+        kv.set(&key_b, &json!(2)).await;
+        kv.set(&key_a, &json!(1)).await;
 
         let prefix = QualifiedPath::from(vec!["root", "app"]);
         let entries = kv.list(&prefix).await;
 
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].key, key_a);
-        assert_eq!(entries[0].value, Value::Int(1));
+        assert_eq!(entries[0].value, json!(1));
         assert_eq!(entries[1].key, key_b);
-        assert_eq!(entries[1].value, Value::Int(2));
+        assert_eq!(entries[1].value, json!(2));
     }
 }
