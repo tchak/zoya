@@ -13,6 +13,22 @@ pub struct Response<'js> {
     body: Option<Vec<u8>>,
 }
 
+impl<'js> Response<'js> {
+    pub(crate) fn from_parts(
+        ctx: Ctx<'js>,
+        status: u16,
+        headers_entries: Vec<(String, String)>,
+        body: Vec<u8>,
+    ) -> rquickjs::Result<Self> {
+        let headers = Class::instance(ctx, Headers::from_entries(headers_entries))?;
+        Ok(Self {
+            status,
+            headers,
+            body: Some(body),
+        })
+    }
+}
+
 #[rquickjs::methods]
 impl<'js> Response<'js> {
     #[qjs(constructor)]

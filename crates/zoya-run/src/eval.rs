@@ -30,6 +30,10 @@ fn inject_web_api(ctx: &Ctx<'_>) -> rquickjs::Result<()> {
     rquickjs::Class::<crate::headers::Headers>::define(&globals)?;
     rquickjs::Class::<crate::request::Request>::define(&globals)?;
     rquickjs::Class::<crate::response::Response>::define(&globals)?;
+    globals.set(
+        "fetch",
+        rquickjs::Function::new(ctx.clone(), crate::fetch::fetch)?,
+    )?;
     Ok(())
 }
 

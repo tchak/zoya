@@ -12,6 +12,10 @@ impl Headers {
         Self { entries }
     }
 
+    pub(crate) fn entries(&self) -> &[(String, String)] {
+        &self.entries
+    }
+
     pub(crate) fn clone_inner(&self) -> Self {
         Self {
             entries: self.entries.clone(),

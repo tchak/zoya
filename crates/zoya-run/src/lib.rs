@@ -1,4 +1,5 @@
 mod eval;
+mod fetch;
 mod headers;
 mod request;
 mod response;

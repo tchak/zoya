@@ -14,6 +14,20 @@ pub struct Request<'js> {
     body: Option<Vec<u8>>,
 }
 
+impl Request<'_> {
+    pub(crate) fn url_str(&self) -> &str {
+        &self.url
+    }
+
+    pub(crate) fn method_str(&self) -> &str {
+        &self.method
+    }
+
+    pub(crate) fn body_bytes(&self) -> Option<&[u8]> {
+        self.body.as_deref()
+    }
+}
+
 #[rquickjs::methods]
 impl<'js> Request<'js> {
     #[qjs(constructor)]
