@@ -3,7 +3,7 @@ test-all: test test-runtime test-dashboard test-grammar
 
 # Run Rust tests
 test *args:
-    cargo test --workspace {{args}}
+    cargo test --workspace {{ args }}
 
 # Run JS runtime tests
 test-runtime:
@@ -63,3 +63,7 @@ dev-std-tests:
 # Generate coverage report
 coverage:
     cargo llvm-cov --workspace --html
+
+# Count lines of code
+loc:
+    tokei -e *.c -e *.h
