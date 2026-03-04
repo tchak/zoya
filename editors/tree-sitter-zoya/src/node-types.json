@@ -10,6 +10,10 @@
           {
             "type": "identifier",
             "named": true
+          },
+          {
+            "type": "wildcard_pattern",
+            "named": true
           }
         ]
       },
@@ -626,6 +630,10 @@
         },
         {
           "type": "path",
+          "named": true
+        },
+        {
+          "type": "rest_pattern",
           "named": true
         },
         {
@@ -2852,6 +2860,10 @@
         {
           "type": "identifier",
           "named": true
+        },
+        {
+          "type": "path",
+          "named": true
         }
       ]
     }
@@ -2956,6 +2968,10 @@
         },
         {
           "type": "parameterized_type",
+          "named": true
+        },
+        {
+          "type": "path",
           "named": true
         },
         {
@@ -3082,6 +3098,10 @@
       "types": [
         {
           "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "path",
           "named": true
         }
       ]
@@ -3265,6 +3285,10 @@
           {
             "type": "path",
             "named": true
+          },
+          {
+            "type": "turbofish_expression",
+            "named": true
           }
         ]
       }
@@ -3374,7 +3398,7 @@
     "fields": {},
     "children": {
       "multiple": true,
-      "required": true,
+      "required": false,
       "types": [
         {
           "type": "struct_field",
@@ -4157,7 +4181,8 @@
   },
   {
     "type": "line_comment",
-    "named": true
+    "named": true,
+    "extra": true
   },
   {
     "type": "match",

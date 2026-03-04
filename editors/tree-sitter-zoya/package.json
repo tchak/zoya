@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "description": "Tree-sitter grammar for the Zoya programming language",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tchak/zoya",
+    "directory": "editors/tree-sitter-zoya"
+  },
   "main": "bindings/node",
   "keywords": [
     "tree-sitter",
@@ -13,7 +18,7 @@
     "nan": "^2.18.0"
   },
   "devDependencies": {
-    "tree-sitter-cli": "^0.24.0"
+    "tree-sitter-cli": "^0.26.6"
   },
   "scripts": {
     "generate": "tree-sitter generate",

@@ -101,7 +101,7 @@ module.exports = grammar({
       ),
 
     struct_named_fields: ($) =>
-      seq("{", commaSep1($.struct_field), "}"),
+      seq("{", commaSep($.struct_field), "}"),
 
     struct_field: ($) =>
       seq(field("name", $.identifier), ":", field("type", $._type)),
@@ -212,12 +212,12 @@ module.exports = grammar({
         $.self_type,
       ),
 
-    named_type: ($) => $.identifier,
+    named_type: ($) => choice($.identifier, $.path),
 
     self_type: (_) => "Self",
 
     parameterized_type: ($) =>
-      prec(1, seq($.identifier, "<", commaSep1($._type), ">")),
+      prec(1, seq(choice($.identifier, $.path), "<", commaSep1($._type), ">")),
 
     tuple_type: ($) => seq("(", commaSep($._type), ")"),
 
@@ -229,8 +229,9 @@ module.exports = grammar({
       prec.left(
         PREC.PATH,
         seq(
-          choice($.identifier, "root", "self", "super"),
-          repeat1(seq("::", $.identifier)),
+          choice($.identifier, $.path, "root", "self", "super"),
+          "::",
+          $.identifier,
         ),
       ),
 
@@ -365,7 +366,7 @@ module.exports = grammar({
     // prec.dynamic(-1): when ambiguous with match/block `{`, prefer non-struct parse
     struct_constructor: ($) =>
       prec.dynamic(-1, seq(
-        field("name", choice($.identifier, $.path)),
+        field("name", choice($.identifier, $.path, $.turbofish_expression)),
         "{",
         commaSep(choice($.field_initializer, $.struct_spread)),
         "}",
@@ -553,7 +554,7 @@ module.exports = grammar({
           field("name", choice($.identifier, $.path)),
           optional($.turbofish),
           "(",
-          commaSep($._pattern),
+          commaSep(choice($._pattern, $.rest_pattern)),
           ")",
         ),
       ),
@@ -600,7 +601,7 @@ module.exports = grammar({
 
     as_pattern: ($) =>
       prec.right(
-        seq(field("name", $.identifier), "@", field("pattern", $._pattern)),
+        seq(field("name", choice($.identifier, $.wildcard_pattern)), "@", field("pattern", $._pattern)),
       ),
   },
 });

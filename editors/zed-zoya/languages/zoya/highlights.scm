@@ -33,7 +33,9 @@
 (self_type) @type.builtin
 
 (named_type (identifier) @type)
+(named_type (path (identifier) @type .))
 (parameterized_type (identifier) @type)
+(parameterized_type (path (identifier) @type .))
 (type_parameters (identifier) @type)
 
 ; ── Definitions ───────────────────────────────────────────────────────

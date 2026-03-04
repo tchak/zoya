@@ -73,6 +73,21 @@ pub type Headers = Dict<String, String>
     type: (parameterized_type (identifier) (named_type (identifier)) (named_type (identifier)))))
 
 ===
+Qualified named type
+===
+
+fn id(x: std::option::Option<Int>) -> std::option::Option<Int> x
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (parameterized_type (path (path (identifier) (identifier)) (identifier)) (named_type (identifier))))
+    return_type: (parameterized_type (path (path (identifier) (identifier)) (identifier)) (named_type (identifier)))
+    body: (identifier)))
+
+===
 Self type in return position
 ===
 

@@ -1,5 +1,7 @@
 # Zoya
 
+[![CI](https://github.com/tchak/zoya/actions/workflows/ci.yml/badge.svg)](https://github.com/tchak/zoya/actions/workflows/ci.yml)
+
 A strongly-typed functional programming language that compiles to JavaScript.
 
 Zoya combines Rust-inspired syntax with Hindley-Milner type inference, giving you the safety of static types without the verbosity of explicit annotations everywhere.
@@ -40,12 +42,10 @@ fn main() -> Float {
 Requires [Rust](https://rustup.rs/) (1.85+).
 
 ```bash
-git clone https://github.com/user/zoya-lang
-cd zoya-lang
-cargo build --release
+git clone https://github.com/tchak/zoya
+cd zoya
+cargo install --path crates/zoya
 ```
-
-The binary will be at `target/release/zoya`.
 
 ## Workspace Structure
 

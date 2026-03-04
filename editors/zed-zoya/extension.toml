@@ -4,9 +4,10 @@ version = "0.1.0"
 schema_version = 1
 description = "Zoya language support for Zed"
 authors = ["Paul Chavard"]
-repository = "https://github.com/tchak/zoya-lang"
+repository = "https://github.com/tchak/zoya"
+license = "MIT"
 
 [grammars.zoya]
-repository = "file:///Users/tchak/dev/ng/zoya-lang"
-rev = "684976530b43630751aae27cee636fc57a00eb4d"
+repository = "https://github.com/tchak/zoya"
+rev = "0109726b9cf2fbfda82a89b22a478e60d5bf78f8"
 path = "editors/tree-sitter-zoya"
