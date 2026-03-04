@@ -5,6 +5,7 @@ schema_version = 1
 description = "Zoya language support for Zed"
 authors = ["Paul Chavard"]
 repository = "https://github.com/tchak/zoya"
+license = "MIT"
 
 [grammars.zoya]
 repository = "https://github.com/tchak/zoya"
