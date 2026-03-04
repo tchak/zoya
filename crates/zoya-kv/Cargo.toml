@@ -1,7 +1,9 @@
 [package]
 name = "zoya-kv"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
 
 [dependencies]
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }

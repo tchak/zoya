@@ -1,7 +1,9 @@
 [package]
 name = "zoya-check"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
 
 [dependencies]
 zoya-ast = { path = "../zoya-ast" }

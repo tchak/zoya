@@ -42,8 +42,8 @@ fn main() -> Float {
 Requires [Rust](https://rustup.rs/) (1.85+).
 
 ```bash
-git clone https://github.com/user/zoya-lang
-cd zoya-lang
+git clone https://github.com/tchak/zoya
+cd zoya
 cargo build --release
 ```
 
