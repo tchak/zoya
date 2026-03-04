@@ -27,8 +27,14 @@ struct AppState {
 pub fn dashboard(output: &BuildOutput, base_path: &str) -> Router {
     let data = DashboardData::from_output(output);
 
-    // Inject <base> tag into HTML so relative URLs resolve correctly when nested
-    let base_tag = format!("<base href=\"{base_path}/\">");
+    // Inject <base> tag into HTML so relative URLs resolve correctly when nested.
+    // Escape the path to prevent XSS if it ever contains untrusted characters.
+    let escaped_path = base_path
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
+    let base_tag = format!("<base href=\"{escaped_path}/\">");
     let html = INDEX_HTML.replacen("<head>", &format!("<head>{base_tag}"), 1);
 
     let state = Arc::new(AppState { html, data });
