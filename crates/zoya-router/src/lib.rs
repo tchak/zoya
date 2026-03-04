@@ -91,7 +91,7 @@ async fn handle_request(
         vec![]
     };
 
-    let result = zoya_run::run_async(&state.output, &info.path, &args).await;
+    let result = zoya_run::run_async(&state.output, &info.path, &args, None).await;
 
     match result {
         Ok((value, _jobs)) => match value_to_axum_response(value) {

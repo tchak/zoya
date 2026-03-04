@@ -88,7 +88,7 @@ fn run_single_test(
     output: &BuildOutput,
     path: &QualifiedPath,
 ) -> (Vec<Job>, Result<(), TestError>) {
-    match zoya_run::run(output, path, &[]) {
+    match zoya_run::run(output, path, &[], None) {
         Ok((value, jobs)) => {
             let outcome = value.termination().map_err(|e| match e {
                 TerminationError::Failed(msg) => TestError::Failed(msg),

@@ -18,21 +18,30 @@ async fn create_async_runtime() -> Result<(AsyncRuntime, AsyncContext), EvalErro
 }
 
 /// Inject console and timer globals into the JS context.
-fn inject_globals(ctx: &Ctx<'_>) -> Result<(), EvalError> {
+fn inject_globals(
+    ctx: &Ctx<'_>,
+    fetch_handler: Option<crate::fetch::FetchHandler>,
+) -> Result<(), EvalError> {
     inject_console(ctx)
         .and_then(|()| inject_timers(ctx))
-        .and_then(|()| inject_web_api(ctx))
+        .and_then(|()| inject_web_api(ctx, fetch_handler))
         .map_err(|e| EvalError::RuntimeError(format!("failed to inject globals: {e}")))
 }
 
-fn inject_web_api(ctx: &Ctx<'_>) -> rquickjs::Result<()> {
+fn inject_web_api(
+    ctx: &Ctx<'_>,
+    fetch_handler: Option<crate::fetch::FetchHandler>,
+) -> rquickjs::Result<()> {
     let globals = ctx.globals();
     rquickjs::Class::<crate::headers::Headers>::define(&globals)?;
     rquickjs::Class::<crate::request::Request>::define(&globals)?;
     rquickjs::Class::<crate::response::Response>::define(&globals)?;
+    let handler = fetch_handler;
     globals.set(
         "fetch",
-        rquickjs::Function::new(ctx.clone(), crate::fetch::fetch)?,
+        rquickjs::Function::new(ctx.clone(), move |ctx, input, init| {
+            crate::fetch::fetch(ctx, input, init, handler.clone())
+        })?,
     )?;
     Ok(())
 }
@@ -109,6 +118,7 @@ pub(crate) async fn run_code(
     entry: &QualifiedPath,
     args: &[Value],
     jobs: &[(QualifiedPath, String)],
+    fetch_handler: Option<crate::fetch::FetchHandler>,
 ) -> Result<(Value, Vec<Job>), EvalError> {
     // Find the function in the definitions
     let func_def = definitions
@@ -141,7 +151,7 @@ pub(crate) async fn run_code(
 
     // Evaluate the script inside the async context
     let (value, raw_jobs) = rquickjs::async_with!(context => |ctx| {
-        inject_globals(&ctx)?;
+        inject_globals(&ctx, fetch_handler)?;
         eval_script_async(
             &ctx,
             code,

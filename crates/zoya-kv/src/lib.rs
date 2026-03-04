@@ -476,9 +476,7 @@ mod tests {
     async fn delete_removes_key() {
         let repo = setup().await;
         let key = QualifiedPath::from(vec!["root", "key"]);
-        repo.set(&key, &json!("hello"))
-            .await
-            .unwrap();
+        repo.set(&key, &json!("hello")).await.unwrap();
 
         repo.delete(&key).await.unwrap();
         let result = repo.get(&key).await.unwrap();

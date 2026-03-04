@@ -184,7 +184,7 @@ async fn handle_job(request: Job, state: Data<Arc<JobWorkerState>>) -> Result<()
     }
 
     // Execute the job function
-    match zoya_run::run_async(&state.output, &request.path, &request.args).await {
+    match zoya_run::run_async(&state.output, &request.path, &request.args, None).await {
         Ok((value, jobs)) => {
             let result = value.termination().map_err(|e| match e {
                 TerminationError::Failed(msg) => JobError::JobReturnedError(msg),

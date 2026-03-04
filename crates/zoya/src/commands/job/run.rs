@@ -54,7 +54,7 @@ pub fn execute(path: &Path, job_name: &str, args: &[String], mode: Mode) -> Resu
     }
 
     // Run the job function
-    let (result, _jobs) = zoya_run::run(&output, &job_path, &parsed_args)?;
+    let (result, _jobs) = zoya_run::run(&output, &job_path, &parsed_args, None)?;
 
     // Handle result: jobs return () or Result<(), E>
     use zoya_run::ValueData;
