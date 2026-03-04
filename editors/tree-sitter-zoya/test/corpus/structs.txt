@@ -39,6 +39,19 @@ struct Empty
     name: (identifier)))
 
 ===
+Empty struct braces
+===
+
+struct Empty {}
+
+---
+
+(source_file
+  (struct_definition
+    name: (identifier)
+    (struct_named_fields)))
+
+===
 Pub generic struct
 ===
 

@@ -199,6 +199,39 @@ fn origin() -> Point Point { x: 0, y: 0 }
       (field_initializer name: (identifier) value: (integer)))))
 
 ===
+Multi-segment path
+===
+
+fn main() -> Int a::b::c(1)
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    return_type: (named_type (identifier))
+    body: (call_expression
+      function: (path (path (identifier) (identifier)) (identifier))
+      (integer))))
+
+===
+Turbofish struct constructor
+===
+
+fn main() -> Pair<Int, String> TurbofishPair::<Int, String> { first: 42, second: "hello" }
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    return_type: (parameterized_type (identifier) (named_type (identifier)) (named_type (identifier)))
+    body: (struct_constructor
+      name: (turbofish_expression (identifier) (turbofish (named_type (identifier)) (named_type (identifier))))
+      (field_initializer name: (identifier) value: (integer))
+      (field_initializer name: (identifier) value: (string)))))
+
+===
 List spread
 ===
 

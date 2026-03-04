@@ -121,6 +121,60 @@ fn swap(pair: (Int, String)) -> (String, Int) {
           body: (tuple_expression (identifier) (identifier)))))))
 
 ===
+Rest pattern in call pattern
+===
+
+fn test(t: Triple) -> Int {
+  match t {
+    Triple(a, ..) => a,
+  }
+}
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (named_type (identifier)))
+    return_type: (named_type (identifier))
+    body: (block
+      (match_expression
+        scrutinee: (identifier)
+        (match_arm
+          pattern: (call_pattern name: (identifier) (identifier) (rest_pattern))
+          body: (identifier))))))
+
+===
+Wildcard as pattern
+===
+
+fn test(opt: Option<Int>) -> Int {
+  match opt {
+    _ @ Some(x) => x,
+    _ => 0,
+  }
+}
+
+---
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter pattern: (identifier) type: (parameterized_type (identifier) (named_type (identifier))))
+    return_type: (named_type (identifier))
+    body: (block
+      (match_expression
+        scrutinee: (identifier)
+        (match_arm
+          pattern: (as_pattern
+            name: (wildcard_pattern)
+            pattern: (call_pattern name: (identifier) (identifier)))
+          body: (identifier))
+        (match_arm
+          pattern: (wildcard_pattern)
+          body: (integer))))))
+
+===
 As pattern
 ===
 
