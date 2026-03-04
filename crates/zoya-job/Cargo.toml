@@ -12,6 +12,7 @@ sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
 thiserror = "2"
 tracing = "0.1"
 zoya-build = { path = "../zoya-build" }
+zoya-fetch = { path = "../zoya-fetch" }
 zoya-ir = { path = "../zoya-ir" }
 zoya-package = { path = "../zoya-package" }
 zoya-run = { path = "../zoya-run" }

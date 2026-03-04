@@ -4042,6 +4042,7 @@ dependencies = [
  "zoya-ast",
  "zoya-build",
  "zoya-dashboard",
+ "zoya-fetch",
  "zoya-fmt",
  "zoya-lexer",
  "zoya-loader",
@@ -4121,6 +4122,8 @@ dependencies = [
  "rquickjs-serde",
  "serde_json",
  "tokio",
+ "tower",
+ "zoya-value",
 ]
 
 [[package]]
@@ -4158,6 +4161,7 @@ dependencies = [
  "tracing",
  "zoya-build",
  "zoya-codegen",
+ "zoya-fetch",
  "zoya-ir",
  "zoya-loader",
  "zoya-package",
@@ -4236,6 +4240,7 @@ dependencies = [
  "tokio",
  "tower",
  "zoya-build",
+ "zoya-fetch",
  "zoya-loader",
  "zoya-package",
  "zoya-run",
@@ -4278,6 +4283,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "zoya-build",
+ "zoya-fetch",
  "zoya-package",
  "zoya-run",
  "zoya-value",
@@ -4291,6 +4297,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "tower",
  "zoya-ir",
 ]
 

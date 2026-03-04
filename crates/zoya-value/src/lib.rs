@@ -1,7 +1,9 @@
+mod fetch;
 mod js;
 mod json;
 mod parse;
 
+pub use fetch::*;
 pub use js::JSValue;
 
 use std::collections::HashMap;

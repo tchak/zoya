@@ -2,6 +2,7 @@ use std::path::Path;
 
 use anyhow::{Result, anyhow, bail};
 use zoya_build::{Mode, build_from_path};
+use zoya_fetch::HttpFetchService;
 use zoya_package::QualifiedPath;
 use zoya_run::Value;
 
@@ -18,7 +19,12 @@ pub fn execute(
     let (value, _jobs) = match name {
         None => {
             // Default behavior: run main()
-            zoya_run::run(&output, &QualifiedPath::root().child("main"), &[], None)?
+            zoya_run::run(
+                &output,
+                &QualifiedPath::root().child("main"),
+                &[],
+                HttpFetchService::new().into_service(),
+            )?
         }
         Some(fn_name) => {
             // Build qualified path from function name (e.g. "add" or "utils::helper")
@@ -70,7 +76,12 @@ pub fn execute(
             }
 
             // Run the function
-            zoya_run::run(&output, &fn_path, &parsed_args, None)?
+            zoya_run::run(
+                &output,
+                &fn_path,
+                &parsed_args,
+                HttpFetchService::new().into_service(),
+            )?
         }
     };
 

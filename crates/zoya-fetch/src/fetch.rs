@@ -1,47 +1,112 @@
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::task::{Context, Poll};
 
 use rquickjs::class::Class;
 use rquickjs::function::Opt;
 use rquickjs::{Ctx, FromJs, Object, Value};
+use tower::Service;
 
 use crate::headers::Headers;
 use crate::request::Request;
 use crate::response::Response;
 
-/// Parsed fetch inputs extracted from JS arguments.
+use zoya_value::{FetchError, FetchInput, FetchOutput, FetchService};
+
+/// A Tower `Service` that performs HTTP(S) fetches via `reqwest`.
+///
+/// Returns `FetchError::UnsupportedScheme` for non-HTTP(S) URLs (including `zoya://`).
+/// Wrap this service with middleware layers to handle custom schemes.
 #[derive(Clone)]
-pub struct FetchInput {
-    pub url: String,
-    pub method: String,
-    pub headers: Vec<(String, String)>,
-    pub body: Option<Vec<u8>>,
+pub struct HttpFetchService {
+    client: reqwest::Client,
 }
 
-/// Structured output from a fetch operation.
-pub struct FetchOutput {
-    pub status: u16,
-    pub headers: Vec<(String, String)>,
-    pub body: Vec<u8>,
-}
-
-impl Default for FetchOutput {
-    fn default() -> Self {
+impl HttpFetchService {
+    pub fn new() -> Self {
         Self {
-            status: 200,
-            headers: Vec::new(),
-            body: Vec::new(),
+            client: reqwest::Client::new(),
         }
+    }
+
+    /// Convert into a boxed `FetchService` for use with `zoya-run`.
+    pub fn into_service(self) -> FetchService {
+        tower::util::BoxCloneService::new(self)
     }
 }
 
-/// Result type returned by a `FetchHandler`.
-pub type FetchResult = Result<FetchOutput, String>;
+impl Default for HttpFetchService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-/// Handler closure for intercepting `zoya://` URLs in `fetch()`.
-pub type FetchHandler =
-    Arc<dyn Fn(FetchInput) -> Pin<Box<dyn Future<Output = FetchResult> + Send>> + Send + Sync>;
+impl Service<FetchInput> for HttpFetchService {
+    type Response = FetchOutput;
+    type Error = FetchError;
+    type Future = Pin<Box<dyn Future<Output = Result<FetchOutput, FetchError>> + Send>>;
+
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, input: FetchInput) -> Self::Future {
+        let client = self.client.clone();
+        Box::pin(async move { execute_fetch(client, input).await })
+    }
+}
+
+/// Perform the HTTP request using reqwest.
+async fn execute_fetch(
+    client: reqwest::Client,
+    input: FetchInput,
+) -> Result<FetchOutput, FetchError> {
+    // Reject non-HTTP(S) schemes
+    if let Some(scheme) = input.url.split("://").next()
+        && scheme != "http"
+        && scheme != "https"
+    {
+        return Err(FetchError::UnsupportedScheme(scheme.to_string()));
+    }
+
+    let reqwest_method = input
+        .method
+        .parse::<reqwest::Method>()
+        .map_err(|e| FetchError::InvalidUrl(format!("invalid HTTP method: {e}")))?;
+
+    let mut builder = client.request(reqwest_method, &input.url);
+
+    for (key, value) in &input.headers {
+        builder = builder.header(key.as_str(), value.as_str());
+    }
+
+    if let Some(body) = input.body {
+        builder = builder.body(body);
+    }
+
+    let response = builder
+        .send()
+        .await
+        .map_err(|e| FetchError::Network(format!("fetch failed: {e}")))?;
+
+    let status = response.status().as_u16();
+    let headers: Vec<(String, String)> = response
+        .headers()
+        .iter()
+        .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or("").to_string()))
+        .collect();
+    let body = response
+        .bytes()
+        .await
+        .map_err(|e| FetchError::Network(format!("failed to read response body: {e}")))?
+        .to_vec();
+
+    Ok(FetchOutput {
+        status,
+        headers,
+        body,
+    })
+}
 
 fn parse_fetch_args<'js>(
     ctx: &Ctx<'js>,
@@ -126,73 +191,22 @@ fn apply_init<'js>(
     })
 }
 
-/// Perform the HTTP request using reqwest. Pure async Rust, no JS objects.
-async fn execute_fetch(input: FetchInput) -> FetchResult {
-    let client = reqwest::Client::new();
-
-    let reqwest_method = input
-        .method
-        .parse::<reqwest::Method>()
-        .map_err(|e| format!("invalid HTTP method: {e}"))?;
-
-    let mut builder = client.request(reqwest_method, &input.url);
-
-    for (key, value) in &input.headers {
-        builder = builder.header(key.as_str(), value.as_str());
-    }
-
-    if let Some(body) = input.body {
-        builder = builder.body(body);
-    }
-
-    let response = builder
-        .send()
-        .await
-        .map_err(|e| format!("fetch failed: {e}"))?;
-
-    let status = response.status().as_u16();
-    let headers: Vec<(String, String)> = response
-        .headers()
-        .iter()
-        .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or("").to_string()))
-        .collect();
-    let body = response
-        .bytes()
-        .await
-        .map_err(|e| format!("failed to read response body: {e}"))?
-        .to_vec();
-
-    Ok(FetchOutput {
-        status,
-        headers,
-        body,
-    })
-}
-
 /// The `fetch()` global function exposed to QuickJS.
 ///
-/// When `handler` is `Some`, requests to `zoya://` URLs are routed to the handler.
-/// When `handler` is `None`, `zoya://` URLs produce an "unsupported URL scheme" error.
-/// All other URLs are fetched via `reqwest`.
+/// All URLs are routed through the provided `FetchService`. The service
+/// implementation determines how each URL scheme is handled.
 pub fn fetch<'js>(
     ctx: Ctx<'js>,
     input: Value<'js>,
     init: Opt<Object<'js>>,
-    handler: Option<FetchHandler>,
+    mut service: FetchService,
 ) -> rquickjs::Result<rquickjs::Promise<'js>> {
     let fetch_input = parse_fetch_args(&ctx, input, init)?;
 
     let (promise, resolve, reject) = ctx.promise()?;
 
     ctx.spawn(async move {
-        let result = if fetch_input.url.starts_with("zoya://") {
-            match handler {
-                Some(h) => h(fetch_input).await,
-                None => Err("unsupported URL scheme: zoya://".to_string()),
-            }
-        } else {
-            execute_fetch(fetch_input).await
-        };
+        let result = service.call(fetch_input).await;
 
         match result {
             Ok(output) => {
@@ -217,7 +231,7 @@ pub fn fetch<'js>(
                 }
             }
             Err(e) => {
-                let _ = reject.call::<_, ()>((e,));
+                let _ = reject.call::<_, ()>((e.to_string(),));
             }
         }
     });
@@ -232,19 +246,19 @@ mod tests {
     use super::*;
 
     async fn setup() -> (AsyncRuntime, AsyncContext) {
-        setup_with_handler(None).await
+        setup_with_service(HttpFetchService::new().into_service()).await
     }
 
-    async fn setup_with_handler(handler: Option<FetchHandler>) -> (AsyncRuntime, AsyncContext) {
+    async fn setup_with_service(service: FetchService) -> (AsyncRuntime, AsyncContext) {
         let runtime = AsyncRuntime::new().unwrap();
         let context = AsyncContext::full(&runtime).await.unwrap();
         rquickjs::async_with!(context => |ctx| {
             Class::<Headers>::define(&ctx.globals()).unwrap();
             Class::<Request>::define(&ctx.globals()).unwrap();
             Class::<Response>::define(&ctx.globals()).unwrap();
-            let h = handler;
+            let svc = service;
             ctx.globals().set("fetch", rquickjs::Function::new(ctx.clone(), move |ctx, input, init| {
-                fetch(ctx, input, init, h.clone())
+                fetch(ctx, input, init, svc.clone())
             }).unwrap()).unwrap();
         })
         .await;
@@ -374,25 +388,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_fetch_zoya_url_with_handler() {
-        let handler: FetchHandler = Arc::new(|input| {
-            Box::pin(async move {
+    async fn test_fetch_zoya_url_with_service() {
+        // Create a custom service that handles zoya:// URLs
+        let service =
+            tower::util::BoxCloneService::new(tower::service_fn(|input: FetchInput| async move {
                 assert!(input.url.starts_with("zoya://"));
-                let body = b"hello from handler".to_vec();
+                let body = b"hello from service".to_vec();
                 Ok(FetchOutput {
                     status: 200,
                     headers: vec![("content-type".to_string(), "text/plain".to_string())],
                     body,
                 })
-            })
-        });
-        let (_runtime, context) = setup_with_handler(Some(handler)).await;
+            }));
+        let (_runtime, context) = setup_with_service(service).await;
         rquickjs::async_with!(context => |ctx| {
             let promise: Promise = ctx.eval(r#"
                 fetch("zoya://my-route").then(r => r.text())
             "#).unwrap();
             let val: String = promise.into_future().await.unwrap();
-            assert_eq!(val, "hello from handler");
+            assert_eq!(val, "hello from service");
         })
         .await;
     }
@@ -411,13 +425,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_fetch_https_url_ignores_handler() {
-        let handler: FetchHandler = Arc::new(|_input| {
-            Box::pin(async move {
-                panic!("handler should not be called for https URLs");
-            })
-        });
-        let (_runtime, context) = setup_with_handler(Some(handler)).await;
+    async fn test_fetch_https_url_uses_http_service() {
+        // Even with the default HttpFetchService, HTTPS URLs work
+        let (_runtime, context) = setup().await;
         rquickjs::async_with!(context => |ctx| {
             let promise: Promise = ctx.eval(r#"
                 fetch("https://httpbin.org/get")

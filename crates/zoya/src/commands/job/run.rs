@@ -2,6 +2,7 @@ use std::path::Path;
 
 use anyhow::{Result, anyhow, bail};
 use zoya_build::{Mode, build_from_path};
+use zoya_fetch::HttpFetchService;
 use zoya_package::QualifiedPath;
 use zoya_run::Value;
 
@@ -54,7 +55,12 @@ pub fn execute(path: &Path, job_name: &str, args: &[String], mode: Mode) -> Resu
     }
 
     // Run the job function
-    let (result, _jobs) = zoya_run::run(&output, &job_path, &parsed_args, None)?;
+    let (result, _jobs) = zoya_run::run(
+        &output,
+        &job_path,
+        &parsed_args,
+        HttpFetchService::new().into_service(),
+    )?;
 
     // Handle result: jobs return () or Result<(), E>
     use zoya_run::ValueData;

@@ -1,7 +1,11 @@
 use zoya_build::BuildError;
 use zoya_loader::{MemorySource, load_memory_package};
 use zoya_package::QualifiedPath;
-use zoya_run::{BuildOutput, EvalError, Value};
+use zoya_run::{BuildOutput, EvalError, FetchService, Value};
+
+fn http_fetch() -> FetchService {
+    zoya_fetch::HttpFetchService::new().into_service()
+}
 
 fn build_source(source: &str) -> Result<BuildOutput, EvalError> {
     build_source_with_mode(source, zoya_loader::Mode::Dev)
@@ -23,7 +27,13 @@ fn run_source(source: &str) -> Result<Value, EvalError> {
 
 fn run_source_with_mode(source: &str, mode: zoya_loader::Mode) -> Result<Value, EvalError> {
     let output = build_source_with_mode(source, mode)?;
-    zoya_run::run(&output, &QualifiedPath::root().child("main"), &[], None).map(|v| v.0)
+    zoya_run::run(
+        &output,
+        &QualifiedPath::root().child("main"),
+        &[],
+        http_fetch(),
+    )
+    .map(|v| v.0)
 }
 
 #[test]
@@ -1150,9 +1160,14 @@ fn test_entry_runs_specific_function() {
         pub fn answer() -> Int { 42 }
     "#;
     let output = build_source(source).unwrap();
-    let result = zoya_run::run(&output, &QualifiedPath::root().child("answer"), &[], None)
-        .unwrap()
-        .0;
+    let result = zoya_run::run(
+        &output,
+        &QualifiedPath::root().child("answer"),
+        &[],
+        http_fetch(),
+    )
+    .unwrap()
+    .0;
     assert_eq!(result, Value::Int(42));
 }
 
@@ -1167,7 +1182,7 @@ fn test_entry_runs_function_in_submodule() {
         &output,
         &QualifiedPath::root().child("utils").child("compute"),
         &[],
-        None,
+        http_fetch(),
     )
     .unwrap()
     .0;
@@ -1181,7 +1196,7 @@ fn test_entry_error_on_nonexistent_function() {
     "#;
     let output = build_source(source).unwrap();
     let path = QualifiedPath::root().child("nonexistent");
-    let result = zoya_run::run(&output, &path, &[], None).map(|v| v.0);
+    let result = zoya_run::run(&output, &path, &[], http_fetch()).map(|v| v.0);
     assert!(matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("not found")));
 }
 
@@ -1196,7 +1211,7 @@ fn test_entry_runs_main_in_submodule() {
         &output,
         &QualifiedPath::root().child("sub").child("main"),
         &[],
-        None,
+        http_fetch(),
     )
     .unwrap()
     .0;
@@ -1214,14 +1229,19 @@ fn test_entry_error_on_arg_count_mismatch() {
         &output,
         &QualifiedPath::root().child("add"),
         &[Value::Int(1)],
-        None,
+        http_fetch(),
     )
     .map(|v| v.0);
     assert!(
         matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("expects 2 argument(s), got 1"))
     );
-    let result =
-        zoya_run::run(&output, &QualifiedPath::root().child("add"), &[], None).map(|v| v.0);
+    let result = zoya_run::run(
+        &output,
+        &QualifiedPath::root().child("add"),
+        &[],
+        http_fetch(),
+    )
+    .map(|v| v.0);
     assert!(
         matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("expects 2 argument(s), got 0"))
     );
@@ -1238,7 +1258,7 @@ fn test_entry_with_args() {
         &output,
         &QualifiedPath::root().child("add"),
         &[Value::Int(3), Value::Int(4)],
-        None,
+        http_fetch(),
     )
     .unwrap()
     .0;
@@ -1256,7 +1276,7 @@ fn test_entry_with_string_arg() {
         &output,
         &QualifiedPath::root().child("len"),
         &[Value::String("hello".into())],
-        None,
+        http_fetch(),
     )
     .unwrap()
     .0;
@@ -1274,7 +1294,7 @@ fn test_entry_arg_type_mismatch() {
         &output,
         &QualifiedPath::root().child("double"),
         &[Value::String("not an int".into())],
-        None,
+        http_fetch(),
     )
     .map(|v| v.0);
     assert!(matches!(result, Err(EvalError::RuntimeError(msg)) if msg.contains("type mismatch")));
@@ -1300,7 +1320,7 @@ fn test_entry_with_struct_arg() {
         &output,
         &QualifiedPath::root().child("sum_point"),
         &[point],
-        None,
+        http_fetch(),
     )
     .unwrap()
     .0;
@@ -1333,7 +1353,7 @@ fn test_entry_with_enum_arg() {
         &output,
         &QualifiedPath::root().child("area"),
         &[circle],
-        None,
+        http_fetch(),
     )
     .unwrap()
     .0;
@@ -1459,9 +1479,14 @@ fn test_job_fn_compiles_and_jobs_method_works() {
         (QualifiedPath::root().child("my_job"), "MyJob".into())
     );
 
-    let result = zoya_run::run(&output, &QualifiedPath::root().child("main"), &[], None)
-        .unwrap()
-        .0;
+    let result = zoya_run::run(
+        &output,
+        &QualifiedPath::root().child("main"),
+        &[],
+        http_fetch(),
+    )
+    .unwrap()
+    .0;
     assert_eq!(result, Value::Tuple(vec![]));
 }
 

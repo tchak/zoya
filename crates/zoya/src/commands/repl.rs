@@ -7,6 +7,7 @@ use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
 use zoya_ast::{Expr, FunctionDef, Item, LetBinding, Stmt, Visibility};
+use zoya_fetch::HttpFetchService;
 use zoya_package::{Module, Package, QualifiedPath};
 use zoya_run::Value;
 
@@ -134,7 +135,8 @@ impl State {
         // Execute each run function individually
         for (run_name, has_expr) in &run_functions_info {
             let path = QualifiedPath::root().child("repl").child(run_name);
-            let (value, _jobs) = zoya_run::run(&output, &path, &[], None)?;
+            let (value, _jobs) =
+                zoya_run::run(&output, &path, &[], HttpFetchService::new().into_service())?;
 
             if *has_expr {
                 results.push(ReplResult::Expression(value));

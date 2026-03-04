@@ -9,6 +9,7 @@ license.workspace = true
 axum = "0.8"
 http = "1"
 zoya-build = { path = "../zoya-build" }
+zoya-fetch = { path = "../zoya-fetch" }
 zoya-package = { path = "../zoya-package" }
 zoya-run = { path = "../zoya-run" }
 zoya-value = { path = "../zoya-value" }

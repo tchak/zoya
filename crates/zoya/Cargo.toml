@@ -13,6 +13,7 @@ path = "src/main.rs"
 zoya-ast = { path = "../zoya-ast" }
 zoya-build = { path = "../zoya-build" }
 zoya-dashboard = { path = "../zoya-dashboard" }
+zoya-fetch = { path = "../zoya-fetch" }
 zoya-fmt = { path = "../zoya-fmt" }
 zoya-lexer = { path = "../zoya-lexer" }
 zoya-loader = { path = "../zoya-loader" }
