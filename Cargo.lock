@@ -4113,6 +4113,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "zoya-fetch"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "rquickjs",
+ "rquickjs-serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "zoya-fmt"
 version = "0.1.0"
 dependencies = [
@@ -4235,7 +4246,6 @@ dependencies = [
 name = "zoya-run"
 version = "0.1.0"
 dependencies = [
- "reqwest",
  "rquickjs",
  "rquickjs-serde",
  "serde_json",
@@ -4244,6 +4254,7 @@ dependencies = [
  "tokio",
  "zoya-build",
  "zoya-codegen",
+ "zoya-fetch",
  "zoya-ir",
  "zoya-loader",
  "zoya-package",

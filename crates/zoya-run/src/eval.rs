@@ -20,7 +20,7 @@ async fn create_async_runtime() -> Result<(AsyncRuntime, AsyncContext), EvalErro
 /// Inject console and timer globals into the JS context.
 fn inject_globals(
     ctx: &Ctx<'_>,
-    fetch_handler: Option<crate::fetch::FetchHandler>,
+    fetch_handler: Option<zoya_fetch::FetchHandler>,
 ) -> Result<(), EvalError> {
     inject_console(ctx)
         .and_then(|()| inject_timers(ctx))
@@ -30,17 +30,16 @@ fn inject_globals(
 
 fn inject_web_api(
     ctx: &Ctx<'_>,
-    fetch_handler: Option<crate::fetch::FetchHandler>,
+    handler: Option<zoya_fetch::FetchHandler>,
 ) -> rquickjs::Result<()> {
     let globals = ctx.globals();
-    rquickjs::Class::<crate::headers::Headers>::define(&globals)?;
-    rquickjs::Class::<crate::request::Request>::define(&globals)?;
-    rquickjs::Class::<crate::response::Response>::define(&globals)?;
-    let handler = fetch_handler;
+    rquickjs::Class::<zoya_fetch::Headers>::define(&globals)?;
+    rquickjs::Class::<zoya_fetch::Request>::define(&globals)?;
+    rquickjs::Class::<zoya_fetch::Response>::define(&globals)?;
     globals.set(
         "fetch",
         rquickjs::Function::new(ctx.clone(), move |ctx, input, init| {
-            crate::fetch::fetch(ctx, input, init, handler.clone())
+            zoya_fetch::fetch(ctx, input, init, handler.clone())
         })?,
     )?;
     Ok(())
@@ -118,7 +117,7 @@ pub(crate) async fn run_code(
     entry: &QualifiedPath,
     args: &[Value],
     jobs: &[(QualifiedPath, String)],
-    fetch_handler: Option<crate::fetch::FetchHandler>,
+    fetch_handler: Option<zoya_fetch::FetchHandler>,
 ) -> Result<(Value, Vec<Job>), EvalError> {
     // Find the function in the definitions
     let func_def = definitions

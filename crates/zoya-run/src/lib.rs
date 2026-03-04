@@ -1,12 +1,8 @@
 mod eval;
-mod fetch;
-mod headers;
-mod request;
-mod response;
 
 pub use eval::EvalError;
-pub use fetch::{FetchHandler, FetchInput, FetchOutput, FetchResult};
 pub use zoya_build::BuildOutput;
+pub use zoya_fetch::{FetchHandler, FetchInput, FetchOutput, FetchResult};
 pub use zoya_value::{Job, TerminationError, Value, ValueData};
 
 use zoya_package::QualifiedPath;
