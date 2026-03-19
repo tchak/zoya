@@ -1,7 +1,5 @@
 (function() {
-
-
-//#region src/error.ts
+	//#region src/error.ts
 	var $$ZoyaError = class extends Error {
 		constructor(code, detail) {
 			super("$$zoya:" + code + (detail !== void 0 ? ":" + detail : ""));
@@ -11,9 +9,8 @@
 	function $$throw(code, detail) {
 		throw new $$ZoyaError(code, detail);
 	}
-
-//#endregion
-//#region src/hamt.ts
+	//#endregion
+	//#region src/hamt.ts
 	function $$hash(v) {
 		if (typeof v === "number") return v | 0;
 		if (typeof v === "bigint") return Number(v & 2147483647n) | 0;
@@ -251,9 +248,8 @@
 		},
 		entries
 	};
-
-//#endregion
-//#region src/equality.ts
+	//#endregion
+	//#region src/equality.ts
 	function $$is_obj(x) {
 		return typeof x === "object" && x !== null && !Array.isArray(x);
 	}
@@ -296,9 +292,8 @@
 		}
 		return a === b;
 	}
-
-//#endregion
-//#region src/arithmetic.ts
+	//#endregion
+	//#region src/arithmetic.ts
 	function $$div(a, b) {
 		if (b === 0) $$throw("PANIC", "division by zero");
 		return Math.trunc(a / b);
@@ -323,9 +318,8 @@
 		if (b < 0n) $$throw("PANIC", "negative exponent");
 		return a ** b;
 	}
-
-//#endregion
-//#region src/list-idx.ts
+	//#endregion
+	//#region src/list-idx.ts
 	function $$list_idx(arr, i) {
 		const idx = i < 0 ? arr.length + i : i;
 		return idx >= 0 && idx < arr.length ? {
@@ -333,9 +327,8 @@
 			$0: arr[idx]
 		} : { $tag: "None" };
 	}
-
-//#endregion
-//#region src/json.ts
+	//#endregion
+	//#region src/json.ts
 	function $$json_to_zoya(v) {
 		if (v === null) return {
 			$tag: "Null",
@@ -387,9 +380,8 @@
 			case "Object": return Object.fromEntries($$Dict.entries(v.$0).map(([k, val]) => [k, $$zoya_to_json(val)]));
 		}
 	}
-
-//#endregion
-//#region src/set.ts
+	//#endregion
+	//#region src/set.ts
 	const SENTINEL = true;
 	const EMPTY = Object.freeze({
 		$$set: true,
@@ -467,9 +459,8 @@
 			return wrap(d);
 		}
 	};
-
-//#endregion
-//#region src/task.ts
+	//#endregion
+	//#region src/task.ts
 	const $$Task = {
 		of(value) {
 			return Object.freeze({
@@ -538,9 +529,8 @@
 			});
 		}
 	};
-
-//#endregion
-//#region src/zoya.ts
+	//#endregion
+	//#region src/zoya.ts
 	function valueDataToZoya(data) {
 		if (data === "Unit") return {};
 		if ("Tuple" in data) {
@@ -634,9 +624,8 @@
 			jobs: await Promise.all(collected.map($$zoya_to_js))
 		};
 	}
-
-//#endregion
-//#region src/int.ts
+	//#endregion
+	//#region src/int.ts
 	const $$Int = {
 		abs(x) {
 			return Math.abs(x);
@@ -675,9 +664,8 @@
 			return BigInt(x);
 		}
 	};
-
-//#endregion
-//#region src/bigint.ts
+	//#endregion
+	//#region src/bigint.ts
 	const $$BigInt = {
 		abs(x) {
 			return x < 0n ? -x : x;
@@ -713,9 +701,8 @@
 			return Number(x);
 		}
 	};
-
-//#endregion
-//#region src/float.ts
+	//#endregion
+	//#region src/float.ts
 	const $$Float = {
 		abs(x) {
 			return Math.abs(x);
@@ -763,9 +750,8 @@
 			return x === 0;
 		}
 	};
-
-//#endregion
-//#region src/string.ts
+	//#endregion
+	//#region src/string.ts
 	const $$String = {
 		len(s) {
 			return s.length;
@@ -843,9 +829,8 @@
 			};
 		}
 	};
-
-//#endregion
-//#region src/list.ts
+	//#endregion
+	//#region src/list.ts
 	const $$List = {
 		len(xs) {
 			return xs.length;
@@ -887,9 +872,8 @@
 			return [...xs.slice(0, index), ...xs.slice(index + 1)];
 		}
 	};
-
-//#endregion
-//#region src/bytes.ts
+	//#endregion
+	//#region src/bytes.ts
 	function encodeUTF8(s) {
 		const bytes = [];
 		for (let i = 0; i < s.length; i++) {
@@ -935,42 +919,8 @@
 		}
 		return s;
 	}
-	const $$Bytes = {
-		len(b) {
-			return b.length;
-		},
-		get(b, index) {
-			if (index < 0 || index >= b.length) return { $tag: "None" };
-			return {
-				$tag: "Some",
-				$0: b[index]
-			};
-		},
-		slice(b, start, end) {
-			return b.slice(start, end);
-		},
-		concat(a, b) {
-			const result = new Uint8Array(a.length + b.length);
-			result.set(a);
-			result.set(b, a.length);
-			return result;
-		},
-		to_list(b) {
-			return Array.from(b);
-		},
-		from_list(list) {
-			return new Uint8Array(list);
-		},
-		to_string(b) {
-			return decodeUTF8(b);
-		},
-		from_string(s) {
-			return encodeUTF8(s);
-		}
-	};
-
-//#endregion
-//#region src/index.ts
+	//#endregion
+	//#region src/index.ts
 	Object.assign(globalThis, {
 		$$ZoyaError,
 		$$throw,
@@ -997,8 +947,39 @@
 		$$String,
 		$$List,
 		$$Task,
-		$$Bytes
+		$$Bytes: {
+			len(b) {
+				return b.length;
+			},
+			get(b, index) {
+				if (index < 0 || index >= b.length) return { $tag: "None" };
+				return {
+					$tag: "Some",
+					$0: b[index]
+				};
+			},
+			slice(b, start, end) {
+				return b.slice(start, end);
+			},
+			concat(a, b) {
+				const result = new Uint8Array(a.length + b.length);
+				result.set(a);
+				result.set(b, a.length);
+				return result;
+			},
+			to_list(b) {
+				return Array.from(b);
+			},
+			from_list(list) {
+				return new Uint8Array(list);
+			},
+			to_string(b) {
+				return decodeUTF8(b);
+			},
+			from_string(s) {
+				return encodeUTF8(s);
+			}
+		}
 	});
-
-//#endregion
+	//#endregion
 })();
