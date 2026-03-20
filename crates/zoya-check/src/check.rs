@@ -2928,10 +2928,10 @@ fn is_externally_visible(
                 // The ancestor is segments[..i], so segments[i-1] is the missing name
                 // and segments[i-2] is the parent module name.
                 let type_name = &segments[i - 1];
-                if let Some(expected_mod) = primitive_module_for_name(type_name) {
-                    if segments[i - 2] == expected_mod {
-                        continue;
-                    }
+                if let Some(expected_mod) = primitive_module_for_name(type_name)
+                    && segments[i - 2] == expected_mod
+                {
+                    continue;
                 }
                 return false;
             }
