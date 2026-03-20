@@ -1399,6 +1399,7 @@ fn test_cross_module_function_returns_sibling_struct() {
     let make_point = result
         .items
         .get(&QualifiedPath::root().child("a").child("make_point"))
+        .and_then(|v| v.first())
         .expect("make_point function should be checked");
     assert!(
         matches!(&make_point.return_type, Type::Struct { name, .. } if name == "Point"),
@@ -1461,6 +1462,7 @@ fn test_cross_module_function_param_uses_sibling_type() {
     let use_point = result
         .items
         .get(&QualifiedPath::root().child("a").child("use_point"))
+        .and_then(|v| v.first())
         .expect("use_point function should be checked");
     assert_eq!(use_point.return_type, Type::Int);
 }

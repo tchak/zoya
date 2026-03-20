@@ -327,6 +327,9 @@ pub struct ImplMethodType {
     pub params: Vec<Type>,
     /// Return type
     pub return_type: Type,
+    /// For concrete specializations (e.g., `impl List<Int>`), the resolved type args.
+    /// `None` for generic impls (e.g., `impl<T> List<T>`).
+    pub concrete_type_args: Option<Vec<Type>>,
 }
 
 /// A named definition in the global namespace
@@ -338,7 +341,7 @@ pub enum Definition {
     EnumVariant(EnumType, EnumVariantType),
     TypeAlias(TypeAliasType),
     Module(ModuleType),
-    ImplMethod(ImplMethodType),
+    ImplMethod(Vec<ImplMethodType>),
 }
 
 impl Definition {
@@ -377,7 +380,7 @@ impl Definition {
         }
     }
 
-    pub fn as_impl_method(&self) -> Option<&ImplMethodType> {
+    pub fn as_impl_methods(&self) -> Option<&Vec<ImplMethodType>> {
         match self {
             Definition::ImplMethod(m) => Some(m),
             _ => None,
@@ -396,7 +399,7 @@ impl Definition {
             Definition::EnumVariant(..) => "enum variant",
             Definition::TypeAlias(_) => "type alias",
             Definition::Module(_) => "module",
-            Definition::ImplMethod(_) => "impl method",
+            Definition::ImplMethod(..) => "impl method",
         }
     }
 
@@ -408,7 +411,7 @@ impl Definition {
             Definition::EnumVariant(parent_enum, _) => &parent_enum.module,
             Definition::TypeAlias(a) => &a.module,
             Definition::Module(m) => &m.module,
-            Definition::ImplMethod(m) => &m.module,
+            Definition::ImplMethod(methods) => &methods[0].module,
         }
     }
 
@@ -420,7 +423,7 @@ impl Definition {
             Definition::EnumVariant(parent_enum, _) => parent_enum.visibility,
             Definition::TypeAlias(a) => a.visibility,
             Definition::Module(m) => m.visibility,
-            Definition::ImplMethod(m) => m.visibility,
+            Definition::ImplMethod(methods) => methods[0].visibility,
         }
     }
 
@@ -472,12 +475,20 @@ impl Definition {
                 module: m.module.with_root(root),
                 ..m
             }),
-            Definition::ImplMethod(m) => Definition::ImplMethod(ImplMethodType {
-                module: m.module.with_root(root),
-                params: m.params.into_iter().map(|t| t.with_root(root)).collect(),
-                return_type: m.return_type.with_root(root),
-                ..m
-            }),
+            Definition::ImplMethod(methods) => Definition::ImplMethod(
+                methods
+                    .into_iter()
+                    .map(|m| ImplMethodType {
+                        module: m.module.with_root(root),
+                        params: m.params.into_iter().map(|t| t.with_root(root)).collect(),
+                        return_type: m.return_type.with_root(root),
+                        concrete_type_args: m
+                            .concrete_type_args
+                            .map(|args| args.into_iter().map(|t| t.with_root(root)).collect()),
+                        ..m
+                    })
+                    .collect(),
+            ),
         }
     }
 }

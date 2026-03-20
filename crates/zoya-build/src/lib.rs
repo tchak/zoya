@@ -51,25 +51,29 @@ pub fn build(package: &Package) -> Result<BuildOutput, BuildError> {
     let mut tests = Vec::new();
     let mut jobs = Vec::new();
     let mut routes = Vec::new();
-    for (path, func) in &checked.items {
-        match &func.kind {
-            FunctionKind::Regular | FunctionKind::Builtin => {
-                if checked.definitions.contains_key(path) {
-                    let param_names = func
-                        .params
-                        .iter()
-                        .map(|(pattern, _)| match pattern {
-                            TypedPattern::Var { name, .. } => name.clone(),
-                            _ => "_".to_string(),
-                        })
-                        .collect();
-                    functions.push((path.clone(), param_names));
+    for (path, funcs) in &checked.items {
+        for func in funcs {
+            match &func.kind {
+                FunctionKind::Regular | FunctionKind::Builtin => {
+                    if checked.definitions.contains_key(path) {
+                        let param_names = func
+                            .params
+                            .iter()
+                            .map(|(pattern, _)| match pattern {
+                                TypedPattern::Var { name, .. } => name.clone(),
+                                _ => "_".to_string(),
+                            })
+                            .collect();
+                        functions.push((path.clone(), param_names));
+                    }
                 }
-            }
-            FunctionKind::Test => tests.push(path.clone()),
-            FunctionKind::Job(variant_name) => jobs.push((path.clone(), variant_name.clone())),
-            FunctionKind::Http(method, pathname) => {
-                routes.push((path.clone(), *method, pathname.clone()));
+                FunctionKind::Test => tests.push(path.clone()),
+                FunctionKind::Job(variant_name) => {
+                    jobs.push((path.clone(), variant_name.clone()));
+                }
+                FunctionKind::Http(method, pathname) => {
+                    routes.push((path.clone(), *method, pathname.clone()));
+                }
             }
         }
     }

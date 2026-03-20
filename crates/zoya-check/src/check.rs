@@ -305,6 +305,7 @@ fn check_function(
             body: typed_body,
             return_type: ctx.resolve(&declared_return),
             kind: FunctionKind::Builtin,
+            concrete_type_args: None,
         });
     }
 
@@ -406,6 +407,7 @@ fn check_function(
         body: typed_body,
         return_type: ctx.resolve(&return_type),
         kind,
+        concrete_type_args: None,
     })
 }
 
@@ -423,12 +425,26 @@ fn check_impl_method_body(
     // Create type variables for impl type params and method type params
     let method_qpath = type_qpath.child(&method.name);
     let mut type_param_map = HashMap::new();
-    if let Some(Definition::ImplMethod(stored_imt)) = env.definitions.get(&method_qpath) {
+    // Find the matching stored ImplMethodType for this specific impl block
+    let stored_imt = env
+        .definitions
+        .get(&method_qpath)
+        .and_then(|def| def.as_impl_methods())
+        .and_then(|methods| {
+            // For concrete impls (no type params), match by concrete_type_args
+            if impl_block.type_params.is_empty() {
+                methods.iter().find(|m| m.concrete_type_args.is_some())
+            } else {
+                methods.iter().find(|m| m.concrete_type_args.is_none())
+            }
+        });
+
+    if let Some(stored) = stored_imt {
         // Reuse Phase 1 TypeVarIds for consistency with stored type_var_ids
         for (name, &id) in impl_block
             .type_params
             .iter()
-            .zip(stored_imt.impl_type_var_ids.iter())
+            .zip(stored.impl_type_var_ids.iter())
         {
             type_param_map.insert(name.clone(), id);
         }
@@ -451,12 +467,8 @@ fn check_impl_method_body(
     )?;
 
     // Add method's own type params
-    if let Some(Definition::ImplMethod(stored_imt)) = env.definitions.get(&method_qpath) {
-        for (name, &id) in method
-            .type_params
-            .iter()
-            .zip(stored_imt.type_var_ids.iter())
-        {
+    if let Some(stored) = stored_imt {
+        for (name, &id) in method.type_params.iter().zip(stored.type_var_ids.iter()) {
             type_param_map.insert(name.clone(), id);
         }
     } else {
@@ -548,6 +560,7 @@ fn check_impl_method_body(
             body: typed_body,
             return_type: ctx.resolve(&declared_return),
             kind: FunctionKind::Builtin,
+            concrete_type_args: None,
         });
     }
 
@@ -586,6 +599,7 @@ fn check_impl_method_body(
         body: typed_body,
         return_type: ctx.resolve(&return_type),
         kind: FunctionKind::Regular,
+        concrete_type_args: None,
     })
 }
 
@@ -802,9 +816,14 @@ fn check_path_call(
             ctx,
         ),
         ResolvedPath::Definition {
-            def: Definition::ImplMethod(imt),
+            def: Definition::ImplMethod(methods),
             qualified_path,
         } => {
+            // For path calls, prefer the generic impl (concrete is selected via method call syntax)
+            let imt = methods
+                .iter()
+                .find(|m| m.concrete_type_args.is_none())
+                .unwrap_or(&methods[0]);
             check_impl_method_path_call(path, &qualified_path, imt, args, current_module, env, ctx)
         }
         ResolvedPath::Definition {
@@ -910,6 +929,7 @@ fn check_function_call(
         path: qualified_path.clone(),
         args: typed_args,
         ty: return_type,
+        concrete_type_args: None,
     })
 }
 
@@ -1017,6 +1037,7 @@ fn check_impl_method_path_call(
         path: qualified_path.clone(),
         args: typed_args,
         ty: return_type,
+        concrete_type_args: None,
     })
 }
 
@@ -1097,6 +1118,7 @@ fn check_lambda_call(
         path: QualifiedPath::local(name.to_string()),
         args: typed_args,
         ty: return_type,
+        concrete_type_args: None,
     })
 }
 
@@ -1610,6 +1632,7 @@ fn check_method_call(
             path: method_qpath,
             args: all_args,
             ty: return_type,
+            concrete_type_args: imt.concrete_type_args.clone(),
         });
     }
 
@@ -1619,12 +1642,43 @@ fn check_method_call(
     })
 }
 
+/// Select the best matching impl method from a vec of overloads.
+/// Concrete specializations (matching receiver type args) win over generic impls.
+fn select_best_impl_method<'a>(
+    methods: &'a [ImplMethodType],
+    receiver_type_args: &[Type],
+) -> Option<&'a ImplMethodType> {
+    // First, try to find an exact concrete match
+    let concrete_match = methods.iter().find(|m| {
+        m.concrete_type_args
+            .as_ref()
+            .is_some_and(|args| args == receiver_type_args)
+    });
+    if concrete_match.is_some() {
+        return concrete_match;
+    }
+    // Fall back to the generic impl (no concrete_type_args)
+    methods.iter().find(|m| m.concrete_type_args.is_none())
+}
+
 /// Find an impl method definition for a given receiver type and method name.
+/// When multiple impls exist (generic + concrete), selects the best match:
+/// concrete specialization wins over generic.
 fn find_impl_method<'a>(
     receiver_ty: &Type,
     method: &str,
     definitions: &'a HashMap<QualifiedPath, Definition>,
 ) -> Option<(QualifiedPath, &'a ImplMethodType)> {
+    // Extract receiver type args for specialization matching
+    let receiver_type_args: Vec<Type> = match receiver_ty {
+        Type::Struct { type_args, .. } | Type::Enum { type_args, .. } => type_args.clone(),
+        Type::List(elem) => vec![*elem.clone()],
+        Type::Set(elem) => vec![*elem.clone()],
+        Type::Task(elem) => vec![*elem.clone()],
+        Type::Dict(key, val) => vec![*key.clone(), *val.clone()],
+        _ => vec![],
+    };
+
     // Get the module and type name from the receiver
     let (module, type_name) = match receiver_ty {
         Type::Struct { module, name, .. } | Type::Enum { module, name, .. } => {
@@ -1638,7 +1692,9 @@ fn find_impl_method<'a>(
                     .child(mod_name)
                     .child(prim_type_name)
                     .child(method);
-                if let Some(Definition::ImplMethod(imt)) = definitions.get(&root_path) {
+                if let Some(Definition::ImplMethod(methods)) = definitions.get(&root_path)
+                    && let Some(imt) = select_best_impl_method(methods, &receiver_type_args)
+                {
                     return Some((root_path, imt));
                 }
                 // Try std::<mod>::<Type>::<method> (when std is a dependency)
@@ -1646,7 +1702,9 @@ fn find_impl_method<'a>(
                     .child(mod_name)
                     .child(prim_type_name)
                     .child(method);
-                if let Some(Definition::ImplMethod(imt)) = definitions.get(&std_path) {
+                if let Some(Definition::ImplMethod(methods)) = definitions.get(&std_path)
+                    && let Some(imt) = select_best_impl_method(methods, &receiver_type_args)
+                {
                     return Some((std_path, imt));
                 }
             }
@@ -1657,7 +1715,9 @@ fn find_impl_method<'a>(
     // Build the qualified path directly: module::TypeName::method
     let type_qpath = module.child(type_name);
     let method_qpath = type_qpath.child(method);
-    if let Some(Definition::ImplMethod(imt)) = definitions.get(&method_qpath) {
+    if let Some(Definition::ImplMethod(methods)) = definitions.get(&method_qpath)
+        && let Some(imt) = select_best_impl_method(methods, &receiver_type_args)
+    {
         return Some((method_qpath, imt));
     }
 
@@ -2636,10 +2696,15 @@ fn make_reexport_definition(def: &Definition) -> Definition {
             visibility: Visibility::Public,
             ..m.clone()
         }),
-        Definition::ImplMethod(m) => Definition::ImplMethod(ImplMethodType {
-            visibility: Visibility::Public,
-            ..m.clone()
-        }),
+        Definition::ImplMethod(methods) => Definition::ImplMethod(
+            methods
+                .iter()
+                .map(|m| ImplMethodType {
+                    visibility: Visibility::Public,
+                    ..m.clone()
+                })
+                .collect(),
+        ),
     }
 }
 
@@ -2886,7 +2951,16 @@ fn max_type_var_id_in_deps(deps: &[&CheckedPackage]) -> usize {
                 Definition::Enum(e) => &[&e.type_var_ids],
                 Definition::EnumVariant(e, _) => &[&e.type_var_ids],
                 Definition::TypeAlias(t) => &[&t.type_var_ids],
-                Definition::ImplMethod(m) => &[&m.impl_type_var_ids, &m.type_var_ids],
+                Definition::ImplMethod(methods) => {
+                    for m in methods {
+                        for id in m.impl_type_var_ids.iter().chain(m.type_var_ids.iter()) {
+                            if id.0 >= max_id {
+                                max_id = id.0 + 1;
+                            }
+                        }
+                    }
+                    &[]
+                }
                 Definition::Module(_) => &[],
             };
             for group in ids {
@@ -3302,21 +3376,23 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
     // check_module_bodies updates each function's definition return type immediately
     // after checking its body, so subsequent functions see resolved concrete types
     // instead of the Phase 1 unresolved Type::Var.
-    let mut checked_items = HashMap::new();
+    let mut checked_items: HashMap<QualifiedPath, Vec<TypedFunction>> = HashMap::new();
     for path in &module_paths {
         if let Some(module) = pkg.modules.get(path) {
             let functions =
                 check_module_bodies(&module.items, path, &mut env, &mut ctx, &pkg.name)?;
             for (func_path, func) in functions {
-                checked_items.insert(func_path, func);
+                checked_items.entry(func_path).or_default().push(func);
             }
         }
     }
 
     // Backfill variant names into FunctionKind::Job for each job function
     for (variant_name, func_path, _) in &job_variants {
-        if let Some(func) = checked_items.get_mut(func_path) {
-            func.kind = FunctionKind::Job(variant_name.clone());
+        if let Some(funcs) = checked_items.get_mut(func_path) {
+            for func in funcs.iter_mut() {
+                func.kind = FunctionKind::Job(variant_name.clone());
+            }
         }
     }
 
@@ -3324,9 +3400,10 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
     if let Some(job_type) = synthesized_job_type {
         let enqueue_path = QualifiedPath::root().child("enqueue");
         let unit_type = Type::Tuple(vec![]);
-        checked_items.insert(
-            enqueue_path,
-            TypedFunction {
+        checked_items
+            .entry(enqueue_path)
+            .or_default()
+            .push(TypedFunction {
                 name: "enqueue".to_string(),
                 kind: FunctionKind::Builtin,
                 params: vec![(
@@ -3341,8 +3418,8 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
                     elements: vec![],
                     ty: unit_type,
                 },
-            },
-        );
+                concrete_type_args: None,
+            });
     }
 
     let external_definitions = env
@@ -3350,11 +3427,13 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
         .iter()
         .filter(|(path, def)| {
             is_externally_visible(path, def, &env.definitions)
-                || checked_items.get(path).is_some_and(|f| {
-                    matches!(
-                        f.kind,
-                        FunctionKind::Test | FunctionKind::Job(_) | FunctionKind::Http(_, _)
-                    )
+                || checked_items.get(path).is_some_and(|funcs| {
+                    funcs.iter().any(|f| {
+                        matches!(
+                            f.kind,
+                            FunctionKind::Test | FunctionKind::Job(_) | FunctionKind::Http(_, _)
+                        )
+                    })
                 })
         })
         .map(|(path, def)| (path.clone(), def.clone()))
@@ -3524,6 +3603,27 @@ fn register_impl_methods(
         let (type_qpath, _type_def) =
             resolve_impl_target(&impl_block.target_type, current_module, env, package_name)?;
 
+        // Determine if this is a concrete specialization or a generic impl
+        let is_concrete = impl_block.type_params.is_empty()
+            && matches!(
+                &impl_block.target_type,
+                TypeAnnotation::Parameterized(_, args) if !args.is_empty()
+            );
+
+        // Reject partial specialization: if there are type params, ensure the target
+        // type uses only those params (no concrete types mixed in)
+        if !impl_block.type_params.is_empty()
+            && let TypeAnnotation::Parameterized(_, args) = &impl_block.target_type
+        {
+            for arg in args {
+                if !type_annotation_is_type_param(arg, &impl_block.type_params) {
+                    return Err(TypeError::InvalidImpl {
+                        message: "partial specialization is not supported: all type arguments must be type parameters or all must be concrete types".to_string(),
+                    });
+                }
+            }
+        }
+
         // Create fresh type variables for impl type params
         let mut impl_type_param_map = HashMap::new();
         let mut impl_type_var_ids = Vec::new();
@@ -3542,6 +3642,23 @@ fn register_impl_methods(
                 impl_type_var_ids.push(id);
             }
         }
+
+        // Resolve concrete type args for specializations
+        let concrete_type_args = if is_concrete {
+            if let TypeAnnotation::Parameterized(_, args) = &impl_block.target_type {
+                let resolved: Vec<Type> = args
+                    .iter()
+                    .map(|ann| {
+                        resolve_type_annotation(ann, &impl_type_param_map, current_module, env)
+                    })
+                    .collect::<Result<_, _>>()?;
+                Some(resolved)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         // Build the Self type from the target type annotation
         let self_type = resolve_type_annotation_with_self(
@@ -3568,8 +3685,19 @@ fn register_impl_methods(
 
             let method_qpath = type_qpath.child(&method.name);
 
-            // Check for duplicate
-            if env.definitions.contains_key(&method_qpath) {
+            // Check for duplicate: same method + same concrete_type_args
+            if let Some(Definition::ImplMethod(existing)) = env.definitions.get(&method_qpath) {
+                let has_duplicate = existing
+                    .iter()
+                    .any(|m| m.concrete_type_args == concrete_type_args);
+                if has_duplicate {
+                    return Err(TypeError::DuplicateDefinition {
+                        name: method.name.clone(),
+                        on_type: target_type_name.clone(),
+                    });
+                }
+            } else if env.definitions.contains_key(&method_qpath) {
+                // Path exists but is not an ImplMethod (shouldn't happen, but guard)
                 return Err(TypeError::DuplicateDefinition {
                     name: method.name.clone(),
                     on_type: target_type_name.clone(),
@@ -3628,24 +3756,40 @@ fn register_impl_methods(
                 ctx.fresh_var()
             };
 
-            env.register(
-                method_qpath,
-                Definition::ImplMethod(ImplMethodType {
-                    visibility: method.visibility,
-                    module: current_module.clone(),
-                    target_type_name: target_type_name.clone(),
-                    impl_type_params: impl_block.type_params.clone(),
-                    impl_type_var_ids: impl_type_var_ids.clone(),
-                    has_self: method.has_self,
-                    type_params: method.type_params.clone(),
-                    type_var_ids: method_type_var_ids,
-                    params: param_types,
-                    return_type,
-                }),
-            );
+            let new_imt = ImplMethodType {
+                visibility: method.visibility,
+                module: current_module.clone(),
+                target_type_name: target_type_name.clone(),
+                impl_type_params: impl_block.type_params.clone(),
+                impl_type_var_ids: impl_type_var_ids.clone(),
+                has_self: method.has_self,
+                type_params: method.type_params.clone(),
+                type_var_ids: method_type_var_ids,
+                params: param_types,
+                return_type,
+                concrete_type_args: concrete_type_args.clone(),
+            };
+
+            // Register: append to existing vec or create new entry
+            let defs = Rc::make_mut(&mut env.definitions);
+            if let Some(Definition::ImplMethod(existing)) = defs.get_mut(&method_qpath) {
+                existing.push(new_imt);
+            } else {
+                defs.insert(method_qpath, Definition::ImplMethod(vec![new_imt]));
+            }
         }
     }
     Ok(())
+}
+
+/// Check if a type annotation is purely a type parameter reference (one of the given names).
+fn type_annotation_is_type_param(ann: &TypeAnnotation, type_params: &[String]) -> bool {
+    match ann {
+        TypeAnnotation::Named(path) => {
+            path.segments.len() == 1 && type_params.contains(&path.segments[0])
+        }
+        _ => false,
+    }
 }
 
 /// Resolve an impl block's target type to a (QualifiedPath, Definition) pair.
@@ -3796,11 +3940,33 @@ fn check_module_bodies(
                     package_name,
                 )?;
 
+                // Determine concrete type args for this impl block
+                let is_concrete = impl_block.type_params.is_empty()
+                    && matches!(
+                        &impl_block.target_type,
+                        TypeAnnotation::Parameterized(_, args) if !args.is_empty()
+                    );
+                let concrete_type_args = if is_concrete {
+                    if let TypeAnnotation::Parameterized(_, args) = &impl_block.target_type {
+                        let resolved: Vec<Type> = args
+                            .iter()
+                            .map(|ann| {
+                                resolve_type_annotation(ann, &HashMap::new(), current_module, env)
+                            })
+                            .collect::<Result<_, _>>()?;
+                        Some(resolved)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
                 for method in &impl_block.methods {
                     // Clear substitutions before each method body check
                     ctx.clear_substitutions();
                     let method_qpath = type_qpath.child(&method.name);
-                    let typed = check_impl_method_body(
+                    let mut typed = check_impl_method_body(
                         method,
                         impl_block,
                         &type_qpath,
@@ -3809,11 +3975,21 @@ fn check_module_bodies(
                         ctx,
                         package_name,
                     )?;
-                    // Update the definition's return type
-                    if let Some(Definition::ImplMethod(imt)) =
+                    // Set concrete type args on the TypedFunction
+                    typed.concrete_type_args = concrete_type_args.clone();
+
+                    // Update the definition's return type for the matching entry
+                    if let Some(Definition::ImplMethod(methods)) =
                         Rc::make_mut(&mut env.definitions).get_mut(&method_qpath)
                     {
-                        imt.return_type = typed.return_type.clone();
+                        let entry = if is_concrete {
+                            methods.iter_mut().find(|m| m.concrete_type_args.is_some())
+                        } else {
+                            methods.iter_mut().find(|m| m.concrete_type_args.is_none())
+                        };
+                        if let Some(imt) = entry {
+                            imt.return_type = typed.return_type.clone();
+                        }
                     }
                     checked_items.push((method_qpath, typed));
                 }

@@ -70,5 +70,7 @@ pub fn find_test_function_in<'a>(
     pkg: &'a CheckedPackage,
     module_path: &QualifiedPath,
 ) -> Option<&'a TypedFunction> {
-    pkg.items.get(&module_path.child("test_fn"))
+    pkg.items
+        .get(&module_path.child("test_fn"))
+        .and_then(|v| v.first())
 }

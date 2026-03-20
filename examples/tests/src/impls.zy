@@ -169,3 +169,87 @@ fn test_method_with_let_block() -> () {
   let b = Point { x: 4, y: 6 };
   assert_eq(a.distance_squared(b), 25)
 }
+
+// -- Concrete generic impl blocks -----------------------------------------------
+
+impl Wrapper<Int> {
+  fn double(self) -> Int {
+    self.value * 2
+  }
+}
+
+#[test]
+fn test_concrete_impl_basic() -> () {
+  let w = Wrapper { value: 21 };
+  assert_eq(w.double(), 42)
+}
+
+#[test]
+fn test_concrete_impl_with_generic_method() -> () {
+  let w = Wrapper { value: 10 };
+  assert_eq(w.unwrap() + w.double(), 30)
+}
+
+impl Wrapper<String> {
+  fn shout(self) -> String {
+    self.value.to_uppercase()
+  }
+}
+
+#[test]
+fn test_concrete_impl_string() -> () {
+  let w = Wrapper { value: "hello" };
+  assert_eq(w.shout(), "HELLO")
+}
+
+#[test]
+fn test_concrete_impl_generic_fallback() -> () {
+  let w = Wrapper { value: true };
+  assert_eq(w.unwrap(), true)
+}
+
+struct Box<T> { inner: T }
+
+impl<T> Box<T> {
+  fn get(self) -> T {
+    self.inner
+  }
+
+  fn describe(self) -> String {
+    "generic"
+  }
+}
+
+impl Box<Int> {
+  fn describe(self) -> String {
+    "int"
+  }
+
+  fn triple(self) -> Int {
+    self.inner * 3
+  }
+}
+
+#[test]
+fn test_overlap_concrete_wins() -> () {
+  let b = Box { inner: 5 };
+  assert_eq(b.describe(), "int")
+}
+
+#[test]
+fn test_overlap_generic_for_other_types() -> () {
+  let b = Box { inner: "hi" };
+  assert_eq(b.describe(), "generic")
+}
+
+#[test]
+fn test_concrete_only_method() -> () {
+  let b = Box { inner: 7 };
+  assert_eq(b.triple(), 21)
+}
+
+#[test]
+fn test_generic_method_still_works_on_concrete() -> () {
+  let b = Box { inner: 99 };
+  assert_eq(b.get(), 99)
+}

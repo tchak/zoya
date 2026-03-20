@@ -277,7 +277,7 @@ fn test_test_fn_has_is_test_flag() {
     let pkg = build_test_package(items);
     let checked = check(&pkg, &[]).unwrap();
     let path = QualifiedPath::root().child("test_something");
-    let func = checked.items.get(&path).unwrap();
+    let func = checked.items.get(&path).and_then(|v| v.first()).unwrap();
     assert_eq!(func.kind, zoya_ir::FunctionKind::Test);
 }
 
@@ -437,7 +437,7 @@ fn test_job_fn_has_is_job_flag() {
     let pkg = build_test_package(items);
     let checked = check(&pkg, &[]).unwrap();
     let path = QualifiedPath::root().child("my_job");
-    let func = checked.items.get(&path).unwrap();
+    let func = checked.items.get(&path).and_then(|v| v.first()).unwrap();
     assert_eq!(func.kind, zoya_ir::FunctionKind::Job("MyJob".into()));
 }
 
@@ -828,7 +828,7 @@ pub fn handler() -> Response {
     )
     .unwrap();
     let path = QualifiedPath::root().child("handler");
-    let func = checked.items.get(&path).unwrap();
+    let func = checked.items.get(&path).and_then(|v| v.first()).unwrap();
     match &func.kind {
         zoya_ir::FunctionKind::Http(method, pathname) => {
             assert_eq!(*method, zoya_ir::HttpMethod::Get);
@@ -883,6 +883,7 @@ pub fn regular_fn() -> Int {
     let route_count = checked
         .items
         .values()
+        .flatten()
         .filter(|f| matches!(f.kind, zoya_ir::FunctionKind::Http(..)))
         .count();
     assert_eq!(route_count, 2);
@@ -917,7 +918,7 @@ pub fn handler() -> Response {{
         );
         let checked = result.unwrap();
         let path = QualifiedPath::root().child("handler");
-        let func = checked.items.get(&path).unwrap();
+        let func = checked.items.get(&path).and_then(|v| v.first()).unwrap();
         match &func.kind {
             zoya_ir::FunctionKind::Http(m, _) => {
                 assert_eq!(

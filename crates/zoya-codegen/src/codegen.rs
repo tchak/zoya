@@ -83,9 +83,11 @@ impl<'a> PackageCodegen<'a> {
         item_paths.sort_by_key(|p| p.depth());
 
         for path in item_paths {
-            if let Some(func) = pkg.items.get(path) {
-                js.push_str(&self.codegen_function(func, path));
-                js.push('\n');
+            if let Some(funcs) = pkg.items.get(path) {
+                for func in funcs {
+                    js.push_str(&self.codegen_function(func, path));
+                    js.push('\n');
+                }
             }
         }
     }
@@ -143,9 +145,15 @@ impl<'a> PackageCodegen<'a> {
                 format!("[{}]", strs.join(", "))
             }
             TypedExpr::Var { path, .. } => self.format_path(path),
-            TypedExpr::Call { path, args, .. } => {
+            TypedExpr::Call {
+                path,
+                args,
+                concrete_type_args,
+                ..
+            } => {
                 let args_str: Vec<String> = args.iter().map(|a| self.codegen_expr(a)).collect();
-                format!("{}({})", self.format_path(path), args_str.join(", "))
+                let fn_name = self.format_specialized_path(path, concrete_type_args);
+                format!("{}({})", fn_name, args_str.join(", "))
             }
             TypedExpr::UnaryOp { op, expr, .. } => {
                 let inner = self.codegen_operand(expr);
@@ -885,25 +893,42 @@ impl<'a> PackageCodegen<'a> {
         (param_names, prologue)
     }
 
+    /// Format a path with optional concrete type args for specialization mangling.
+    fn format_specialized_path(
+        &self,
+        path: &QualifiedPath,
+        concrete_type_args: &Option<Vec<Type>>,
+    ) -> String {
+        let base = self.format_path(path);
+        match concrete_type_args {
+            Some(args) if !args.is_empty() => {
+                let suffix: Vec<String> = args.iter().map(mangle_type_name).collect();
+                format!("{}$${}", base, suffix.join("$"))
+            }
+            _ => base,
+        }
+    }
+
     fn codegen_function(&self, func: &TypedFunction, path: &QualifiedPath) -> String {
         if func.kind == FunctionKind::Builtin {
             return self.codegen_builtin_function(func, path);
         }
 
+        let fn_name = self.format_specialized_path(path, &func.concrete_type_args);
         let (param_names, prologue) = self.codegen_params(&func.params);
         let body = self.codegen_expr(&func.body);
 
         if prologue.is_empty() {
             format!(
                 "function {}({}) {{ return {}; }}",
-                self.format_path(path),
+                fn_name,
                 param_names.join(", "),
                 body
             )
         } else {
             format!(
                 "function {}({}) {{ {} return {}; }}",
-                self.format_path(path),
+                fn_name,
                 param_names.join(", "),
                 prologue.join(" "),
                 body
@@ -1114,6 +1139,44 @@ fn needs_deep_equality(ty: &Type) -> bool {
             | Type::Struct { .. }
             | Type::Enum { .. }
     )
+}
+
+/// Mangle a Type into a JS-safe identifier fragment for specialization suffixes.
+fn mangle_type_name(ty: &Type) -> String {
+    match ty {
+        Type::Int => "Int".to_string(),
+        Type::BigInt => "BigInt".to_string(),
+        Type::Float => "Float".to_string(),
+        Type::Bool => "Bool".to_string(),
+        Type::String => "String".to_string(),
+        Type::List(elem) => format!("List_{}_", mangle_type_name(elem)),
+        Type::Set(elem) => format!("Set_{}_", mangle_type_name(elem)),
+        Type::Task(elem) => format!("Task_{}_", mangle_type_name(elem)),
+        Type::Dict(k, v) => format!("Dict_{}_{}_", mangle_type_name(k), mangle_type_name(v)),
+        Type::Tuple(elems) => {
+            let parts: Vec<String> = elems.iter().map(mangle_type_name).collect();
+            format!("Tuple_{}_", parts.join("_"))
+        }
+        Type::Struct {
+            name, type_args, ..
+        }
+        | Type::Enum {
+            name, type_args, ..
+        } => {
+            if type_args.is_empty() {
+                name.clone()
+            } else {
+                let args: Vec<String> = type_args.iter().map(mangle_type_name).collect();
+                format!("{}_{}_", name, args.join("_"))
+            }
+        }
+        Type::Function { params, ret } => {
+            let parts: Vec<String> = params.iter().map(mangle_type_name).collect();
+            format!("Fn_{}_{}_", parts.join("_"), mangle_type_name(ret))
+        }
+        Type::Var(id) => format!("T{}", id.0),
+        Type::Bytes => "Bytes".to_string(),
+    }
 }
 
 /// Format a qualified path as a JS export name, replacing the "root" prefix with the package name.
@@ -1412,6 +1475,7 @@ mod tests {
             path: QualifiedPath::local("foo".to_string()),
             args: vec![],
             ty: Type::Int,
+            concrete_type_args: None,
         };
         assert_eq!(test_gen().codegen_expr(&expr), "$foo()");
     }
@@ -1422,6 +1486,7 @@ mod tests {
             path: QualifiedPath::local("square".to_string()),
             args: vec![TypedExpr::Int(5)],
             ty: Type::Int,
+            concrete_type_args: None,
         };
         assert_eq!(test_gen().codegen_expr(&expr), "$square(5)");
     }
@@ -1432,6 +1497,7 @@ mod tests {
             path: QualifiedPath::local("add".to_string()),
             args: vec![TypedExpr::Int(1), TypedExpr::Int(2)],
             ty: Type::Int,
+            concrete_type_args: None,
         };
         assert_eq!(test_gen().codegen_expr(&expr), "$add(1, 2)");
     }
@@ -1451,6 +1517,7 @@ mod tests {
                 },
             ],
             ty: Type::Int,
+            concrete_type_args: None,
         };
         assert_eq!(test_gen().codegen_expr(&expr), "$add($x, $y)");
     }
@@ -1495,6 +1562,7 @@ mod tests {
             },
             return_type: Type::Int,
             kind: FunctionKind::Regular,
+            concrete_type_args: None,
         };
         assert_eq!(
             pkg_gen.codegen_function(&func, &QualifiedPath::root().child(&func.name)),
@@ -1537,6 +1605,7 @@ mod tests {
             },
             return_type: Type::Int,
             kind: FunctionKind::Regular,
+            concrete_type_args: None,
         };
         assert_eq!(
             pkg_gen.codegen_function(&func, &QualifiedPath::root().child(&func.name)),
@@ -1553,6 +1622,7 @@ mod tests {
             body: TypedExpr::Int(42),
             return_type: Type::Int,
             kind: FunctionKind::Regular,
+            concrete_type_args: None,
         };
         assert_eq!(
             pkg_gen.codegen_function(&func, &QualifiedPath::root().child(&func.name)),
@@ -1583,6 +1653,7 @@ mod tests {
             },
             return_type: Type::BigInt,
             kind: FunctionKind::Regular,
+            concrete_type_args: None,
         };
         assert_eq!(
             pkg_gen.codegen_function(&func, &QualifiedPath::root().child(&func.name)),

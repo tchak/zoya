@@ -320,3 +320,174 @@ fn test_impl_visibility() {
     );
     assert!(result.is_ok(), "Expected OK, got: {:?}", result);
 }
+
+// -- Concrete generic impl blocks -----------------------------------------------
+
+#[test]
+fn test_concrete_impl_basic() {
+    let result = check_source(
+        r#"
+        struct Wrapper<T> { value: T }
+        impl Wrapper<Int> {
+            fn double(self) -> Int {
+                self.value * 2
+            }
+        }
+        pub fn main() -> Int {
+            let w = Wrapper { value: 5 };
+            w.double()
+        }
+    "#,
+    );
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_concrete_impl_type_mismatch() {
+    let result = check_source(
+        r#"
+        struct Wrapper<T> { value: T }
+        impl Wrapper<Int> {
+            fn double(self) -> Int {
+                self.value * 2
+            }
+        }
+        pub fn main() -> Int {
+            let w = Wrapper { value: "hello" };
+            w.double()
+        }
+    "#,
+    );
+    assert!(
+        result.is_err(),
+        "Expected error for String wrapper calling Int method"
+    );
+}
+
+#[test]
+fn test_concrete_impl_with_generic_fallback() {
+    let result = check_source(
+        r#"
+        struct Box<T> { value: T }
+        impl<T> Box<T> {
+            fn get(self) -> T {
+                self.value
+            }
+        }
+        impl Box<Int> {
+            fn double(self) -> Int {
+                self.value * 2
+            }
+        }
+        pub fn main() -> Int {
+            let b = Box { value: 10 };
+            b.get() + b.double()
+        }
+    "#,
+    );
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_concrete_impl_overlap_concrete_wins() {
+    let result = check_source(
+        r#"
+        struct Box<T> { value: T }
+        impl<T> Box<T> {
+            fn describe(self) -> String {
+                "generic"
+            }
+        }
+        impl Box<Int> {
+            fn describe(self) -> String {
+                "int"
+            }
+        }
+        pub fn main() -> String {
+            let b = Box { value: 42 };
+            b.describe()
+        }
+    "#,
+    );
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_concrete_impl_generic_used_for_non_matching_type() {
+    let result = check_source(
+        r#"
+        struct Box<T> { value: T }
+        impl<T> Box<T> {
+            fn get(self) -> T {
+                self.value
+            }
+        }
+        impl Box<Int> {
+            fn double(self) -> Int {
+                self.value * 2
+            }
+        }
+        pub fn main() -> String {
+            let b = Box { value: "hello" };
+            b.get()
+        }
+    "#,
+    );
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+#[test]
+fn test_concrete_impl_duplicate_error() {
+    let result = check_source(
+        r#"
+        struct Wrapper<T> { value: T }
+        impl Wrapper<Int> {
+            fn foo(self) -> Int { self.value }
+        }
+        impl Wrapper<Int> {
+            fn foo(self) -> Int { self.value * 2 }
+        }
+    "#,
+    );
+    assert!(result.is_err(), "Expected duplicate error");
+    assert!(
+        result.unwrap_err().contains("duplicate"),
+        "Should mention duplicate"
+    );
+}
+
+#[test]
+fn test_partial_specialization_rejected() {
+    let result = check_source(
+        r#"
+        struct Pair<A, B> { first: A, second: B }
+        impl<A> Pair<A, Int> {
+            fn get_second(self) -> Int { self.second }
+        }
+    "#,
+    );
+    assert!(result.is_err(), "Expected partial specialization error");
+    assert!(
+        result.unwrap_err().contains("partial specialization"),
+        "Should mention partial specialization"
+    );
+}
+
+#[test]
+fn test_concrete_impl_associated_function() {
+    let result = check_source(
+        r#"
+        struct Wrapper<T> { value: T }
+        impl Wrapper<Int> {
+            fn zero() -> Self {
+                Wrapper { value: 0 }
+            }
+        }
+        pub fn main() -> Int {
+            let w = Wrapper::zero();
+            w.value
+        }
+    "#,
+    );
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}

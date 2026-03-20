@@ -146,7 +146,11 @@ mod tests {
     fn test_std_has_println_in_items() {
         let pkg = std();
         let path = QualifiedPath::root().child("io").child("println");
-        let func = pkg.items.get(&path).expect("println in items");
+        let func = pkg
+            .items
+            .get(&path)
+            .and_then(|v| v.first())
+            .expect("println in items");
         assert_eq!(func.kind, zoya_ir::FunctionKind::Builtin);
     }
 
@@ -234,7 +238,11 @@ mod tests {
     fn test_std_has_json_parse_in_items() {
         let pkg = std();
         let path = QualifiedPath::root().child("json").child("parse");
-        let func = pkg.items.get(&path).expect("parse in items");
+        let func = pkg
+            .items
+            .get(&path)
+            .and_then(|v| v.first())
+            .expect("parse in items");
         assert_eq!(func.kind, zoya_ir::FunctionKind::Builtin);
     }
 
@@ -250,7 +258,11 @@ mod tests {
     fn test_std_has_panic_in_items() {
         let pkg = std();
         let path = QualifiedPath::root().child("panic");
-        let func = pkg.items.get(&path).expect("panic in items");
+        let func = pkg
+            .items
+            .get(&path)
+            .and_then(|v| v.first())
+            .expect("panic in items");
         assert_eq!(func.kind, zoya_ir::FunctionKind::Builtin);
     }
 
@@ -276,7 +288,11 @@ mod tests {
     fn test_std_has_assert_in_items() {
         let pkg = std();
         let path = QualifiedPath::root().child("assert");
-        let func = pkg.items.get(&path).expect("assert in items");
+        let func = pkg
+            .items
+            .get(&path)
+            .and_then(|v| v.first())
+            .expect("assert in items");
         assert_eq!(func.kind, zoya_ir::FunctionKind::Builtin);
     }
 
@@ -302,7 +318,11 @@ mod tests {
     fn test_std_has_assert_eq_in_items() {
         let pkg = std();
         let path = QualifiedPath::root().child("assert_eq");
-        let func = pkg.items.get(&path).expect("assert_eq in items");
+        let func = pkg
+            .items
+            .get(&path)
+            .and_then(|v| v.first())
+            .expect("assert_eq in items");
         assert_eq!(func.kind, zoya_ir::FunctionKind::Builtin);
     }
 
@@ -328,7 +348,11 @@ mod tests {
     fn test_std_has_assert_ne_in_items() {
         let pkg = std();
         let path = QualifiedPath::root().child("assert_ne");
-        let func = pkg.items.get(&path).expect("assert_ne in items");
+        let func = pkg
+            .items
+            .get(&path)
+            .and_then(|v| v.first())
+            .expect("assert_ne in items");
         assert_eq!(func.kind, zoya_ir::FunctionKind::Builtin);
     }
 

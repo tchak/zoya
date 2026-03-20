@@ -113,6 +113,9 @@ pub struct TypedFunction {
     pub body: TypedExpr,
     pub return_type: Type,
     pub kind: FunctionKind,
+    /// For specialized impl methods (e.g., `impl List<Int>`), the concrete type args.
+    /// `None` for regular functions and generic impl methods.
+    pub concrete_type_args: Option<Vec<Type>>,
 }
 
 /// Typed let binding
@@ -309,6 +312,8 @@ pub enum TypedExpr {
         path: QualifiedPath,
         args: Vec<TypedExpr>,
         ty: Type,
+        /// For specialized impl method calls, the concrete type args that were resolved.
+        concrete_type_args: Option<Vec<Type>>,
     },
     UnaryOp {
         op: UnaryOp,
@@ -417,7 +422,7 @@ impl TypedExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CheckedPackage {
     pub name: String,
-    pub items: HashMap<QualifiedPath, TypedFunction>,
+    pub items: HashMap<QualifiedPath, Vec<TypedFunction>>,
     pub definitions: HashMap<QualifiedPath, Definition>,
     pub reexports: HashMap<QualifiedPath, QualifiedPath>,
 }
