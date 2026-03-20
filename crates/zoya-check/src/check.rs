@@ -3198,6 +3198,9 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
         }
     }
 
+    // Pass 3b.1: Check trait impl coherence — no overlapping impls for the same trait+type
+    check_trait_coherence(&env)?;
+
     // Pass 3c: Synthesize Job enum and enqueue function for packages with #[job] functions
     // Each entry: (variant_name, qualified_path_string, param_types)
     let mut job_variants: Vec<(String, QualifiedPath, Vec<Type>)> = Vec::new();
@@ -3926,26 +3929,94 @@ fn register_impl_methods(
             }
         }
 
-        // For trait impls, validate that all required methods are implemented
+        // For trait impls, validate required methods and register defaults
         if let Some(ref trait_qpath) = resolved_trait_path
-            && let Some(Definition::Trait(trait_type)) = env.definitions.get(trait_qpath)
+            && let Some(Definition::Trait(trait_type)) = env.definitions.get(trait_qpath).cloned()
         {
             let impl_method_names: Vec<&str> =
                 impl_block.methods.iter().map(|m| m.name.as_str()).collect();
 
             for trait_method in &trait_type.methods {
-                if !trait_method.has_default
-                    && !impl_method_names.contains(&trait_method.name.as_str())
-                {
-                    return Err(TypeError::MissingTraitMethod {
-                        method: trait_method.name.clone(),
-                        trait_name: trait_qpath.last().to_string(),
-                        on_type: target_type_name.clone(),
-                    });
+                if !impl_method_names.contains(&trait_method.name.as_str()) {
+                    if !trait_method.has_default {
+                        return Err(TypeError::MissingTraitMethod {
+                            method: trait_method.name.clone(),
+                            trait_name: trait_qpath.last().to_string(),
+                            on_type: target_type_name.clone(),
+                        });
+                    }
+
+                    // Register an ImplMethodType for the default method
+                    let method_qpath = type_qpath.child(&trait_method.name);
+                    let default_imt = ImplMethodType {
+                        visibility: Visibility::Public,
+                        module: current_module.clone(),
+                        target_type_name: target_type_name.clone(),
+                        impl_type_params: impl_block.type_params.clone(),
+                        impl_type_var_ids: impl_type_var_ids.clone(),
+                        has_self: trait_method.has_self,
+                        type_params: trait_method.type_params.clone(),
+                        type_var_ids: trait_method.type_var_ids.clone(),
+                        params: trait_method.params.clone(),
+                        return_type: trait_method.return_type.clone(),
+                        concrete_type_args: concrete_type_args.clone(),
+                        trait_path: resolved_trait_path.clone(),
+                    };
+
+                    let defs = Rc::make_mut(&mut env.definitions);
+                    if let Some(Definition::ImplMethod(existing)) = defs.get_mut(&method_qpath) {
+                        existing.push(default_imt);
+                    } else {
+                        defs.insert(method_qpath, Definition::ImplMethod(vec![default_imt]));
+                    }
                 }
             }
         }
     }
+    Ok(())
+}
+
+/// Check that no two trait impls exist for the same trait + type combination.
+/// A generic impl (concrete_type_args=None) and a concrete impl (Some) for
+/// the same trait+type are considered overlapping (no specialization).
+fn check_trait_coherence(env: &TypeEnv) -> Result<(), TypeError> {
+    // Collect trait impls as (trait_path_str, type_name, is_generic)
+    let mut trait_impls: Vec<(String, String, bool)> = Vec::new();
+
+    for def in env.definitions.values() {
+        if let Definition::ImplMethod(methods) = def {
+            for method in methods {
+                if let Some(ref trait_path) = method.trait_path {
+                    let key = (
+                        trait_path.to_string(),
+                        method.target_type_name.clone(),
+                        method.concrete_type_args.is_none(),
+                    );
+                    if !trait_impls.contains(&key) {
+                        trait_impls.push(key);
+                    }
+                }
+            }
+        }
+    }
+
+    // Check for overlapping impls: generic + concrete for same trait+type
+    for &(ref tp, ref tn, is_generic) in &trait_impls {
+        if !is_generic {
+            // This is a concrete impl — check if a generic one also exists
+            let has_generic = trait_impls
+                .iter()
+                .any(|(tp2, tn2, is_gen)| tp2 == tp && tn2 == tn && *is_gen);
+            if has_generic {
+                let trait_name = tp.split("::").last().unwrap_or(tp).to_string();
+                return Err(TypeError::ConflictingTraitImpls {
+                    trait_name,
+                    type_name: tn.clone(),
+                });
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -4159,6 +4230,75 @@ fn check_module_bodies(
                         }
                     }
                     checked_items.push((method_qpath, typed));
+                }
+
+                // Synthesize TypedFunction entries for default trait methods not overridden
+                if let Some(ref trait_path) = impl_block.trait_path {
+                    let trait_resolved = resolution::resolve_pattern_path(
+                        trait_path,
+                        current_module,
+                        &env.imports,
+                        &env.definitions,
+                        &env.reexports,
+                    );
+                    if let Ok(resolution::ResolvedPath::Definition {
+                        def: Definition::Trait(trait_type),
+                        ..
+                    }) = trait_resolved
+                    {
+                        let impl_method_names: Vec<&str> =
+                            impl_block.methods.iter().map(|m| m.name.as_str()).collect();
+
+                        for trait_method in &trait_type.methods {
+                            if trait_method.has_default
+                                && !impl_method_names.contains(&trait_method.name.as_str())
+                            {
+                                // Find the TraitDef AST to get the default body
+                                let default_body = items.iter().find_map(|item| {
+                                    if let Item::Trait(t) = item {
+                                        t.methods.iter().find_map(|m| {
+                                            if m.name == trait_method.name {
+                                                m.body.clone()
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                    } else {
+                                        None
+                                    }
+                                });
+
+                                if let Some(body) = default_body {
+                                    // Create a synthetic ImplMethod from the TraitMethod
+                                    let synthetic_method = ImplMethod {
+                                        leading_comments: vec![],
+                                        attributes: vec![],
+                                        visibility: Visibility::Public,
+                                        name: trait_method.name.clone(),
+                                        type_params: trait_method.type_params.clone(),
+                                        has_self: trait_method.has_self,
+                                        params: vec![], // params are in the trait sig
+                                        return_type: None,
+                                        body,
+                                    };
+
+                                    ctx.clear_substitutions();
+                                    let method_qpath = type_qpath.child(&trait_method.name);
+                                    let mut typed = check_impl_method_body(
+                                        &synthetic_method,
+                                        impl_block,
+                                        &type_qpath,
+                                        current_module,
+                                        env,
+                                        ctx,
+                                        package_name,
+                                    )?;
+                                    typed.concrete_type_args = concrete_type_args.clone();
+                                    checked_items.push((method_qpath, typed));
+                                }
+                            }
+                        }
+                    }
                 }
             }
             _ => {}

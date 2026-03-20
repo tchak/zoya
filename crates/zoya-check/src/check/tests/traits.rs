@@ -189,3 +189,81 @@ fn test_trait_impl_for_enum() {
     );
     assert!(result.is_ok(), "Expected OK, got: {:?}", result);
 }
+
+// -- Coherence: overlapping trait impls error ---------------------------------
+
+#[test]
+fn test_trait_coherence_overlap_rejected() {
+    let result = check_source(
+        r#"
+        struct Wrapper<T> { value: T }
+
+        trait Describe {
+            fn describe(self) -> String
+        }
+
+        impl<T> Describe for Wrapper<T> {
+            fn describe(self) -> String { "generic" }
+        }
+
+        impl Describe for Wrapper<Int> {
+            fn describe(self) -> String { "int" }
+        }
+    "#,
+    );
+    assert!(result.is_err(), "Expected coherence error");
+    assert!(
+        result.unwrap_err().contains("conflicting"),
+        "Should mention conflicting impls"
+    );
+}
+
+// -- Non-overlapping concrete impls are fine -----------------------------------
+
+#[test]
+fn test_trait_concrete_impls_no_overlap() {
+    let result = check_source(
+        r#"
+        struct Wrapper<T> { value: T }
+
+        trait Describe {
+            fn describe(self) -> String
+        }
+
+        impl Describe for Wrapper<Int> {
+            fn describe(self) -> String { "int" }
+        }
+
+        impl Describe for Wrapper<String> {
+            fn describe(self) -> String { "string" }
+        }
+    "#,
+    );
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
+
+// -- Default method called at runtime -----------------------------------------
+
+#[test]
+fn test_trait_default_method_used() {
+    let result = check_source(
+        r#"
+        struct Point { x: Int, y: Int }
+
+        trait Describe {
+            fn describe(self) -> String
+            fn verbose(self) -> String { self.describe() }
+        }
+
+        impl Describe for Point {
+            fn describe(self) -> String { "point" }
+        }
+
+        pub fn main() -> String {
+            let p = Point { x: 1, y: 2 };
+            p.verbose()
+        }
+    "#,
+    );
+    assert!(result.is_ok(), "Expected OK, got: {:?}", result);
+}
