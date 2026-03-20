@@ -67,6 +67,9 @@ crates/
 ├── zoya-package/      # Package data structures & config
 ├── zoya-parser/       # Parser (chumsky)
 ├── zoya-router/       # HTTP router (Axum integration)
+├── zoya-fetch/        # HTTP fetch client (Tower Service middleware)
+├── zoya-kv/           # Key-value store
+├── zoya-vcs/          # Version control (blob, commit, diff)
 ├── zoya-run/          # Runtime execution (rquickjs)
 │   └── src/
 │       ├── lib.rs         # Public API
@@ -147,6 +150,8 @@ impl Point {                           // impl block
   fn origin() -> Self { Point { x: 0, y: 0 } }   // associated function (no self)
 }
 impl<T> Wrapper<T> { ... }            // generic impl block
+impl Wrapper<Int> { ... }             // concrete generic impl (specialization)
+// When both generic and concrete impls define the same method, concrete wins.
 
 fn add(x: Int, y: Int) -> Int { x + y }           // function with block body
 fn square(x: Int) -> Int x * x                     // function with expression body
