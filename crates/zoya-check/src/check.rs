@@ -3079,6 +3079,7 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
                     Item::TypeAlias(t) => (&t.attributes, "type alias"),
                     Item::Use(u) => (&u.attributes, "use"),
                     Item::Impl(i) => (&i.attributes, "impl"),
+                    Item::Trait(t) => (&t.attributes, "trait"),
                     Item::ModDecl(_) => unreachable!("mod decls are removed by the loader"),
                 };
                 for attr_name in &["test", "job", "get", "post", "put", "patch", "delete"] {

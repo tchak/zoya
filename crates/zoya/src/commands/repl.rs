@@ -22,6 +22,8 @@ pub enum ReplResult {
     EnumDefined(String),
     /// Type alias was defined
     TypeAliasDefined(String),
+    /// Trait was defined
+    TraitDefined(String),
     /// Expression was evaluated
     Expression(Value),
 }
@@ -128,6 +130,9 @@ impl State {
                 }
                 Item::Use(_) => {}
                 Item::Impl(_) => {}
+                Item::Trait(t) => {
+                    results.push(ReplResult::TraitDefined(t.name.clone()));
+                }
                 Item::ModDecl(_) => unreachable!("mod decls rejected above"),
             }
         }
@@ -341,6 +346,13 @@ pub fn execute(path: &Path) {
                                     let _ = term.write_line(&format!(
                                         "{}: {}",
                                         style("type").green(),
+                                        name
+                                    ));
+                                }
+                                ReplResult::TraitDefined(name) => {
+                                    let _ = term.write_line(&format!(
+                                        "{}: {}",
+                                        style("trait").green(),
                                         name
                                     ));
                                 }

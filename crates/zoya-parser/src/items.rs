@@ -2,7 +2,8 @@ use chumsky::prelude::*;
 
 use zoya_ast::{
     Attribute, AttributeArg, EnumDef, EnumVariant, EnumVariantKind, Expr, FunctionDef, ImplBlock,
-    ImplMethod, Item, Param, StructDef, StructFieldDef, StructKind, TypeAliasDef, Visibility,
+    ImplMethod, Item, Param, StructDef, StructFieldDef, StructKind, TraitDef, TraitMethod,
+    TypeAliasDef, TypeAnnotation, Visibility,
 };
 use zoya_lexer::Token;
 
@@ -266,6 +267,7 @@ pub(crate) fn item_parser<'a>()
 
         // param: Type, ... (no self)
         let no_self_params = param
+            .clone()
             .separated_by(just(Token::Comma))
             .allow_trailing()
             .collect::<Vec<_>>()
@@ -327,16 +329,118 @@ pub(crate) fn item_parser<'a>()
         .then_ignore(trailing_comments)
         .delimited_by(just(Token::LBrace), just(Token::RBrace));
 
+    // impl<T> Type { ... } OR impl<T> Trait for Type { ... }
     let impl_def = just(Token::Impl)
-        .ignore_then(type_params)
+        .ignore_then(type_params.clone())
         .then(type_annotation())
+        .then(just(Token::For).ignore_then(type_annotation()).or_not())
         .then(impl_methods)
-        .map(|((impl_type_params, target_type), methods)| {
+        .map(|(((impl_type_params, first_type), for_type), methods)| {
+            let (trait_path, target_type) = match for_type {
+                Some(target) => {
+                    // `impl Trait for Type { ... }`
+                    // first_type is the trait — extract it as a Path
+                    let path = match first_type {
+                        TypeAnnotation::Named(path) => path,
+                        TypeAnnotation::Parameterized(path, _) => path,
+                        _ => unreachable!("trait target must be a named type"),
+                    };
+                    (Some(path), target)
+                }
+                None => {
+                    // `impl Type { ... }` (inherent)
+                    (None, first_type)
+                }
+            };
             Item::Impl(ImplBlock {
                 leading_comments: vec![],
                 attributes: vec![],
                 type_params: impl_type_params,
+                trait_path,
                 target_type,
+                methods,
+            })
+        });
+
+    // trait Name<T> { fn method(self) -> Type; fn default(self) -> Type { body } }
+    let trait_method_params = {
+        let self_params = just(Token::Self_)
+            .ignore_then(
+                just(Token::Comma)
+                    .ignore_then(
+                        param
+                            .clone()
+                            .separated_by(just(Token::Comma))
+                            .allow_trailing()
+                            .collect::<Vec<_>>(),
+                    )
+                    .or_not(),
+            )
+            .map(|rest| (true, rest.unwrap_or_default()));
+
+        let no_self_params = param
+            .separated_by(just(Token::Comma))
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .map(|params| (false, params));
+
+        choice((self_params, no_self_params)).delimited_by(just(Token::LParen), just(Token::RParen))
+    };
+
+    let trait_method_preamble = select! { Token::LineComment(text) => text }
+        .repeated()
+        .collect::<Vec<String>>();
+
+    let trait_method = trait_method_preamble
+        .then_ignore(just(Token::Fn))
+        .then(ident())
+        .then(type_params.clone())
+        .then(trait_method_params)
+        .then(return_type)
+        .then(body.or_not())
+        .map(
+            |(
+                ((((leading_comments, name), method_type_params), (has_self, params)), return_type),
+                body,
+            )| {
+                TraitMethod {
+                    leading_comments,
+                    name,
+                    type_params: method_type_params,
+                    has_self,
+                    params,
+                    return_type,
+                    body,
+                }
+            },
+        );
+
+    let trailing_comments_trait = select! { Token::LineComment(_text) => () }
+        .repeated()
+        .collect::<Vec<_>>();
+    let trait_methods = trait_method
+        .repeated()
+        .collect::<Vec<_>>()
+        .then_ignore(trailing_comments_trait)
+        .delimited_by(just(Token::LBrace), just(Token::RBrace));
+
+    let trait_def = just(Token::Pub)
+        .or_not()
+        .then_ignore(just(Token::Trait))
+        .then(ident())
+        .then(type_params)
+        .then(trait_methods)
+        .map(|(((is_pub, name), trait_type_params), methods)| {
+            Item::Trait(TraitDef {
+                leading_comments: vec![],
+                attributes: vec![],
+                visibility: if is_pub.is_some() {
+                    Visibility::Public
+                } else {
+                    Visibility::Private
+                },
+                name,
+                type_params: trait_type_params,
                 methods,
             })
         });
@@ -360,6 +464,7 @@ pub(crate) fn item_parser<'a>()
             struct_def,
             enum_def,
             type_alias_def,
+            trait_def,
             impl_def,
         )))
         .map(|(preamble, item)| {
@@ -397,6 +502,11 @@ pub(crate) fn item_parser<'a>()
                     i.leading_comments = comments;
                     i.attributes = attrs;
                     Item::Impl(i)
+                }
+                Item::Trait(mut t) => {
+                    t.leading_comments = comments;
+                    t.attributes = attrs;
+                    Item::Trait(t)
                 }
                 Item::ModDecl(mut m) => {
                     m.leading_comments = comments;

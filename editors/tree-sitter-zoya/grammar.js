@@ -51,6 +51,7 @@ module.exports = grammar({
         $.mod_declaration,
         $.use_declaration,
         $.impl_block,
+        $.trait_definition,
       ),
 
     visibility: (_) => "pub",
@@ -176,12 +177,38 @@ module.exports = grammar({
 
     _path_prefix: ($) => choice("root", "self", "super"),
 
+    // ── Trait Definition ────────────────────────────────────────────────
+    trait_definition: ($) =>
+      seq(
+        repeat($.attribute),
+        optional($.visibility),
+        "trait",
+        field("name", $.identifier),
+        optional($.type_parameters),
+        "{",
+        repeat($.trait_method),
+        "}",
+      ),
+
+    trait_method: ($) =>
+      seq(
+        "fn",
+        field("name", $.identifier),
+        optional($.type_parameters),
+        "(",
+        commaSep($.parameter),
+        ")",
+        optional(seq("->", field("return_type", $._type))),
+        optional(field("body", $._expression)),
+      ),
+
     // ── Impl Block ────────────────────────────────────────────────────
     impl_block: ($) =>
       seq(
         repeat($.attribute),
         "impl",
         optional($.type_parameters),
+        optional(seq(field("trait", $.named_type), "for")),
         field("type", $._type),
         "{",
         repeat($.impl_method),

@@ -248,6 +248,7 @@ fn item_attributes(item: &zoya_ast::Item) -> &[Attribute] {
         zoya_ast::Item::TypeAlias(t) => &t.attributes,
         zoya_ast::Item::Use(u) => &u.attributes,
         zoya_ast::Item::Impl(i) => &i.attributes,
+        zoya_ast::Item::Trait(t) => &t.attributes,
         zoya_ast::Item::ModDecl(m) => &m.attributes,
     }
 }

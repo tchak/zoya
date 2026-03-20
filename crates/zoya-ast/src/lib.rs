@@ -86,6 +86,7 @@ pub enum Item {
     TypeAlias(TypeAliasDef),
     Use(UseDecl),
     Impl(ImplBlock),
+    Trait(TraitDef),
     ModDecl(ModDecl),
 }
 
@@ -97,6 +98,7 @@ impl Item {
             Item::Struct(s) => Some(&s.name),
             Item::Enum(e) => Some(&e.name),
             Item::TypeAlias(t) => Some(&t.name),
+            Item::Trait(t) => Some(&t.name),
             Item::Use(_) => None,
             Item::Impl(_) => None,
             Item::ModDecl(m) => Some(&m.name),
@@ -104,12 +106,39 @@ impl Item {
     }
 }
 
+/// Trait definition: `[pub] trait Name<T> { fn method(self) -> Type; ... }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitDef {
+    pub leading_comments: Vec<String>,
+    pub attributes: Vec<Attribute>,
+    pub visibility: Visibility,
+    pub name: String,
+    pub type_params: Vec<String>,
+    pub methods: Vec<TraitMethod>,
+}
+
+/// A method signature inside a trait definition
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitMethod {
+    pub leading_comments: Vec<String>,
+    pub name: String,
+    pub type_params: Vec<String>,
+    pub has_self: bool,
+    pub params: Vec<Param>,
+    pub return_type: Option<TypeAnnotation>,
+    /// `None` = required method (no body), `Some` = default implementation
+    pub body: Option<Expr>,
+}
+
 /// Impl block: `impl<T> TypeAnnotation { methods... }`
+/// or trait impl: `impl<T> TraitPath for TypeAnnotation { methods... }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImplBlock {
     pub leading_comments: Vec<String>,
     pub attributes: Vec<Attribute>,
     pub type_params: Vec<String>,
+    /// For trait impls: the trait being implemented. `None` for inherent impls.
+    pub trait_path: Option<Path>,
     pub target_type: TypeAnnotation,
     pub methods: Vec<ImplMethod>,
 }

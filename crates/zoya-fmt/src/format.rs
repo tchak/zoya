@@ -3,8 +3,8 @@ use zoya_ast::{
     Attribute, AttributeArg, BinOp, EnumDef, EnumVariant, EnumVariantKind, Expr, FunctionDef,
     ImplBlock, ImplMethod, Item, LambdaParam, LetBinding, ListElement, ListPattern, MatchArm,
     ModDecl, Param, Path, PathPrefix, Pattern, StringPart, StructDef, StructFieldDef,
-    StructFieldPattern, StructKind, TupleElement, TuplePattern, TypeAliasDef, TypeAnnotation,
-    UnaryOp, UseDecl, UsePath, UseTarget, Visibility,
+    StructFieldPattern, StructKind, TraitDef, TraitMethod, TupleElement, TuplePattern,
+    TypeAliasDef, TypeAnnotation, UnaryOp, UseDecl, UsePath, UseTarget, Visibility,
 };
 
 const INDENT: isize = 2;
@@ -887,15 +887,25 @@ pub fn fmt_item(item: &Item) -> RcDoc<'static> {
         Item::TypeAlias(ta) => fmt_type_alias(ta),
         Item::Use(u) => fmt_use_decl(u),
         Item::Impl(i) => fmt_impl_block(i),
+        Item::Trait(t) => fmt_trait_def(t),
         Item::ModDecl(m) => fmt_mod_decl(m),
     }
 }
 
 fn fmt_impl_block(i: &ImplBlock) -> RcDoc<'static> {
-    let header = fmt_leading_comments(&i.leading_comments)
+    let mut header = fmt_leading_comments(&i.leading_comments)
         .append(fmt_attributes(&i.attributes))
         .append(RcDoc::text("impl"))
-        .append(fmt_type_params(&i.type_params))
+        .append(fmt_type_params(&i.type_params));
+
+    if let Some(ref trait_path) = i.trait_path {
+        header = header
+            .append(RcDoc::text(" "))
+            .append(RcDoc::text(trait_path.to_string()))
+            .append(RcDoc::text(" for"));
+    }
+
+    header = header
         .append(RcDoc::text(" "))
         .append(fmt_type_annotation(&i.target_type));
 
@@ -926,6 +936,43 @@ fn fmt_impl_method(m: &ImplMethod) -> RcDoc<'static> {
         .append(fmt_return_type(&m.return_type));
     let body_doc = RcDoc::text(" ").append(fmt_body(&m.body));
     sig.append(body_doc)
+}
+
+fn fmt_trait_def(t: &TraitDef) -> RcDoc<'static> {
+    let header = fmt_leading_comments(&t.leading_comments)
+        .append(fmt_attributes(&t.attributes))
+        .append(fmt_vis(t.visibility))
+        .append(RcDoc::text("trait "))
+        .append(RcDoc::text(t.name.clone()))
+        .append(fmt_type_params(&t.type_params));
+
+    if t.methods.is_empty() {
+        return header.append(RcDoc::text(" {}"));
+    }
+
+    let methods = RcDoc::intersperse(
+        t.methods.iter().map(fmt_trait_method),
+        RcDoc::hardline().append(RcDoc::hardline()),
+    );
+
+    header
+        .append(RcDoc::text(" {"))
+        .append(RcDoc::hardline().append(methods).nest(INDENT))
+        .append(RcDoc::hardline())
+        .append(RcDoc::text("}"))
+}
+
+fn fmt_trait_method(m: &TraitMethod) -> RcDoc<'static> {
+    let sig = fmt_leading_comments(&m.leading_comments)
+        .append(RcDoc::text("fn "))
+        .append(RcDoc::text(m.name.clone()))
+        .append(fmt_type_params(&m.type_params))
+        .append(fmt_impl_method_params(m.has_self, &m.params))
+        .append(fmt_return_type(&m.return_type));
+    match &m.body {
+        Some(body) => sig.append(RcDoc::text(" ")).append(fmt_body(body)),
+        None => sig,
+    }
 }
 
 fn fmt_impl_method_params(has_self: bool, params: &[Param]) -> RcDoc<'static> {

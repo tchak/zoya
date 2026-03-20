@@ -10,6 +10,8 @@
   "mod"
   "use"
   "impl"
+  "trait"
+  "for"
 ] @keyword
 
 (visibility) @keyword.modifier
@@ -57,6 +59,12 @@
 
 (type_alias
   name: (identifier) @type.definition)
+
+(trait_definition
+  name: (identifier) @type.definition)
+
+(trait_method
+  name: (identifier) @function.method)
 
 (mod_declaration
   name: (identifier) @module)

@@ -221,6 +221,12 @@ pub enum Token {
     #[token("impl")]
     Impl,
 
+    #[token("trait")]
+    Trait,
+
+    #[token("for")]
+    For,
+
     // String literals with escape sequences
     #[regex(r#""([^"\\]|\\.)*""#, parse_string)]
     String(String),
@@ -1131,6 +1137,25 @@ mod tests {
     fn test_super_keyword() {
         let toks = toks("super");
         assert_eq!(toks, vec![Token::Super]);
+    }
+
+    #[test]
+    fn test_trait_keyword() {
+        let toks = toks("trait");
+        assert_eq!(toks, vec![Token::Trait]);
+    }
+
+    #[test]
+    fn test_for_keyword() {
+        let toks = toks("for");
+        assert_eq!(toks, vec![Token::For]);
+    }
+
+    #[test]
+    fn test_trait_impl_tokens() {
+        let toks = toks("impl Describe for Point { }");
+        assert!(toks.contains(&Token::Impl));
+        assert!(toks.contains(&Token::For));
     }
 
     #[test]
