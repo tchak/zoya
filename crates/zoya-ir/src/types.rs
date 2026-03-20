@@ -304,6 +304,29 @@ pub struct ModuleType {
     pub name: String,
 }
 
+/// Trait type definition (stored in type environment)
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitType {
+    pub visibility: Visibility,
+    pub module: QualifiedPath,
+    pub name: String,
+    pub type_params: Vec<String>,
+    pub type_var_ids: Vec<TypeVarId>,
+    pub methods: Vec<TraitMethodSig>,
+}
+
+/// Method signature in a trait definition
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitMethodSig {
+    pub name: String,
+    pub type_params: Vec<String>,
+    pub type_var_ids: Vec<TypeVarId>,
+    pub has_self: bool,
+    pub params: Vec<Type>,
+    pub return_type: Type,
+    pub has_default: bool,
+}
+
 /// Impl method type definition (stored in type environment)
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImplMethodType {
@@ -330,6 +353,9 @@ pub struct ImplMethodType {
     /// For concrete specializations (e.g., `impl List<Int>`), the resolved type args.
     /// `None` for generic impls (e.g., `impl<T> List<T>`).
     pub concrete_type_args: Option<Vec<Type>>,
+    /// For trait impls, the qualified path of the trait being implemented.
+    /// `None` for inherent impls.
+    pub trait_path: Option<QualifiedPath>,
 }
 
 /// A named definition in the global namespace
@@ -341,6 +367,7 @@ pub enum Definition {
     EnumVariant(EnumType, EnumVariantType),
     TypeAlias(TypeAliasType),
     Module(ModuleType),
+    Trait(TraitType),
     ImplMethod(Vec<ImplMethodType>),
 }
 
@@ -380,6 +407,13 @@ impl Definition {
         }
     }
 
+    pub fn as_trait(&self) -> Option<&TraitType> {
+        match self {
+            Definition::Trait(t) => Some(t),
+            _ => None,
+        }
+    }
+
     pub fn as_impl_methods(&self) -> Option<&Vec<ImplMethodType>> {
         match self {
             Definition::ImplMethod(m) => Some(m),
@@ -399,6 +433,7 @@ impl Definition {
             Definition::EnumVariant(..) => "enum variant",
             Definition::TypeAlias(_) => "type alias",
             Definition::Module(_) => "module",
+            Definition::Trait(_) => "trait",
             Definition::ImplMethod(..) => "impl method",
         }
     }
@@ -411,6 +446,7 @@ impl Definition {
             Definition::EnumVariant(parent_enum, _) => &parent_enum.module,
             Definition::TypeAlias(a) => &a.module,
             Definition::Module(m) => &m.module,
+            Definition::Trait(t) => &t.module,
             Definition::ImplMethod(methods) => &methods[0].module,
         }
     }
@@ -423,6 +459,7 @@ impl Definition {
             Definition::EnumVariant(parent_enum, _) => parent_enum.visibility,
             Definition::TypeAlias(a) => a.visibility,
             Definition::Module(m) => m.visibility,
+            Definition::Trait(t) => t.visibility,
             Definition::ImplMethod(methods) => methods[0].visibility,
         }
     }
@@ -474,6 +511,19 @@ impl Definition {
             Definition::Module(m) => Definition::Module(ModuleType {
                 module: m.module.with_root(root),
                 ..m
+            }),
+            Definition::Trait(t) => Definition::Trait(TraitType {
+                module: t.module.with_root(root),
+                methods: t
+                    .methods
+                    .into_iter()
+                    .map(|m| TraitMethodSig {
+                        params: m.params.into_iter().map(|p| p.with_root(root)).collect(),
+                        return_type: m.return_type.with_root(root),
+                        ..m
+                    })
+                    .collect(),
+                ..t
             }),
             Definition::ImplMethod(methods) => Definition::ImplMethod(
                 methods
@@ -655,6 +705,26 @@ pub enum TypeError {
 
     #[error("`Self` can only be used inside an impl block")]
     SelfOutsideImpl,
+
+    #[error("missing trait method '{method}' in impl of '{trait_name}' for '{on_type}'")]
+    MissingTraitMethod {
+        method: String,
+        trait_name: String,
+        on_type: String,
+    },
+
+    #[error("method '{method}' does not match trait '{trait_name}' signature: {detail}")]
+    TraitMethodSignatureMismatch {
+        method: String,
+        trait_name: String,
+        detail: String,
+    },
+
+    #[error("conflicting implementations of trait '{trait_name}' for '{type_name}'")]
+    ConflictingTraitImpls {
+        trait_name: String,
+        type_name: String,
+    },
 }
 
 /// Lookup table for resolving recursive type stubs.

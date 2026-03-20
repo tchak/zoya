@@ -8,9 +8,10 @@ use zoya_ast::{
 };
 use zoya_ir::{
     CheckedPackage, Definition, EnumType, EnumVariantType, FunctionKind, FunctionType, HttpMethod,
-    ImplMethodType, ModuleType, Pathname, QualifiedPath, StructType, StructTypeKind, Type,
-    TypeAliasType, TypeError, TypeScheme, TypeVarId, TypedEnumConstructFields, TypedExpr,
-    TypedFunction, TypedListElement, TypedPattern, TypedStringPart, Visibility,
+    ImplMethodType, ModuleType, Pathname, QualifiedPath, StructType, StructTypeKind,
+    TraitMethodSig, TraitType, Type, TypeAliasType, TypeError, TypeScheme, TypeVarId,
+    TypedEnumConstructFields, TypedExpr, TypedFunction, TypedListElement, TypedPattern,
+    TypedStringPart, Visibility,
 };
 use zoya_package::Package;
 
@@ -2696,6 +2697,10 @@ fn make_reexport_definition(def: &Definition) -> Definition {
             visibility: Visibility::Public,
             ..m.clone()
         }),
+        Definition::Trait(t) => Definition::Trait(TraitType {
+            visibility: Visibility::Public,
+            ..t.clone()
+        }),
         Definition::ImplMethod(methods) => Definition::ImplMethod(
             methods
                 .iter()
@@ -2961,6 +2966,7 @@ fn max_type_var_id_in_deps(deps: &[&CheckedPackage]) -> usize {
                     }
                     &[]
                 }
+                Definition::Trait(t) => &[&t.type_var_ids],
                 Definition::Module(_) => &[],
             };
             for group in ids {
@@ -3168,6 +3174,13 @@ pub fn check(pkg: &Package, deps: &[&CheckedPackage]) -> Result<CheckedPackage, 
                         .extend(item_imports);
                 }
             }
+        }
+    }
+
+    // Pass 2b: Register trait definitions
+    for path in &module_paths {
+        if let Some(module) = pkg.modules.get(path) {
+            register_trait_definitions(&module.items, path, &mut env, &mut ctx)?;
         }
     }
 
@@ -3566,6 +3579,102 @@ fn resolve_type_definitions(
     Ok(())
 }
 
+/// Pass 2b: Register trait definitions.
+fn register_trait_definitions(
+    items: &[Item],
+    current_module: &QualifiedPath,
+    env: &mut TypeEnv,
+    ctx: &mut UnifyCtx,
+) -> Result<(), TypeError> {
+    for item in items {
+        let Item::Trait(trait_def) = item else {
+            continue;
+        };
+
+        if !is_pascal_case(&trait_def.name) {
+            return Err(TypeError::NamingConvention {
+                kind: "trait".to_string(),
+                name: trait_def.name.clone(),
+                convention: "PascalCase".to_string(),
+                suggestion: to_pascal_case(&trait_def.name),
+            });
+        }
+
+        let trait_qpath = current_module.child(&trait_def.name);
+
+        // Create type variables for trait type params
+        let mut type_param_map = HashMap::new();
+        let mut type_var_ids = Vec::new();
+        for name in &trait_def.type_params {
+            let var = ctx.fresh_var();
+            if let Type::Var(id) = var {
+                type_param_map.insert(name.clone(), id);
+                type_var_ids.push(id);
+            }
+        }
+
+        // Build method signatures
+        let mut method_sigs = Vec::new();
+        for method in &trait_def.methods {
+            // Create type vars for method's own type params
+            let mut method_type_param_map = type_param_map.clone();
+            let mut method_type_var_ids = Vec::new();
+            for name in &method.type_params {
+                let var = ctx.fresh_var();
+                if let Type::Var(id) = var {
+                    method_type_param_map.insert(name.clone(), id);
+                    method_type_var_ids.push(id);
+                }
+            }
+
+            // Resolve param types
+            let mut param_types = Vec::new();
+            if method.has_self {
+                // Self type is unresolved at trait definition level — use a placeholder
+                param_types.push(ctx.fresh_var());
+            }
+            for param in &method.params {
+                let ty = resolve_type_annotation(
+                    &param.typ,
+                    &method_type_param_map,
+                    current_module,
+                    env,
+                )?;
+                param_types.push(ty);
+            }
+
+            let return_type = if let Some(ref annotation) = method.return_type {
+                resolve_type_annotation(annotation, &method_type_param_map, current_module, env)?
+            } else {
+                ctx.fresh_var()
+            };
+
+            method_sigs.push(TraitMethodSig {
+                name: method.name.clone(),
+                type_params: method.type_params.clone(),
+                type_var_ids: method_type_var_ids,
+                has_self: method.has_self,
+                params: param_types,
+                return_type,
+                has_default: method.body.is_some(),
+            });
+        }
+
+        env.register(
+            trait_qpath,
+            Definition::Trait(TraitType {
+                visibility: trait_def.visibility,
+                module: current_module.clone(),
+                name: trait_def.name.clone(),
+                type_params: trait_def.type_params.clone(),
+                type_var_ids,
+                methods: method_sigs,
+            }),
+        );
+    }
+    Ok(())
+}
+
 /// Pass 3: Register all function signatures.
 /// All types (structs, enums, aliases) are fully resolved, so function
 /// signatures can reference types from any module.
@@ -3603,6 +3712,42 @@ fn register_impl_methods(
         // Resolve the target type to find its qualified path
         let (type_qpath, _type_def) =
             resolve_impl_target(&impl_block.target_type, current_module, env, package_name)?;
+
+        // Resolve trait path if this is a trait impl
+        let resolved_trait_path = if let Some(ref trait_ast_path) = impl_block.trait_path {
+            let resolved = resolution::resolve_pattern_path(
+                trait_ast_path,
+                current_module,
+                &env.imports,
+                &env.definitions,
+                &env.reexports,
+            )?;
+            match resolved {
+                resolution::ResolvedPath::Definition {
+                    qualified_path,
+                    def: Definition::Trait(_),
+                } => Some(qualified_path),
+                resolution::ResolvedPath::Definition {
+                    qualified_path,
+                    def,
+                } => {
+                    return Err(TypeError::InvalidImpl {
+                        message: format!(
+                            "'{}' is a {}, not a trait",
+                            qualified_path,
+                            def.kind_name()
+                        ),
+                    });
+                }
+                resolution::ResolvedPath::Local { name, .. } => {
+                    return Err(TypeError::InvalidImpl {
+                        message: format!("'{}' is a variable, not a trait", name),
+                    });
+                }
+            }
+        } else {
+            None
+        };
 
         // Determine if this is a concrete specialization or a generic impl
         let is_concrete = impl_block.type_params.is_empty()
@@ -3769,6 +3914,7 @@ fn register_impl_methods(
                 params: param_types,
                 return_type,
                 concrete_type_args: concrete_type_args.clone(),
+                trait_path: resolved_trait_path.clone(),
             };
 
             // Register: append to existing vec or create new entry
@@ -3777,6 +3923,26 @@ fn register_impl_methods(
                 existing.push(new_imt);
             } else {
                 defs.insert(method_qpath, Definition::ImplMethod(vec![new_imt]));
+            }
+        }
+
+        // For trait impls, validate that all required methods are implemented
+        if let Some(ref trait_qpath) = resolved_trait_path
+            && let Some(Definition::Trait(trait_type)) = env.definitions.get(trait_qpath)
+        {
+            let impl_method_names: Vec<&str> =
+                impl_block.methods.iter().map(|m| m.name.as_str()).collect();
+
+            for trait_method in &trait_type.methods {
+                if !trait_method.has_default
+                    && !impl_method_names.contains(&trait_method.name.as_str())
+                {
+                    return Err(TypeError::MissingTraitMethod {
+                        method: trait_method.name.clone(),
+                        trait_name: trait_qpath.last().to_string(),
+                        on_type: target_type_name.clone(),
+                    });
+                }
             }
         }
     }

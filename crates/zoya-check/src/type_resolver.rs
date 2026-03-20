@@ -160,6 +160,7 @@ fn resolve_type_annotation_inner(
                         Definition::Function(_)
                         | Definition::EnumVariant(..)
                         | Definition::Module(..)
+                        | Definition::Trait(_)
                         | Definition::ImplMethod(_) => Err(TypeError::KindMisuse {
                             kind: def.kind_name().to_string(),
                             name: qualified_path.to_string(),
@@ -414,6 +415,7 @@ fn resolve_type_annotation_inner(
                         Definition::Function(_)
                         | Definition::EnumVariant(..)
                         | Definition::Module(..)
+                        | Definition::Trait(_)
                         | Definition::ImplMethod(_) => Err(TypeError::KindMisuse {
                             kind: def.kind_name().to_string(),
                             name: qualified_path.to_string(),
