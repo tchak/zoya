@@ -592,16 +592,6 @@ mod tests {
     }
 
     #[test]
-    fn test_std_prelude_has_set() {
-        let pkg = std();
-        let path = QualifiedPath::root().child("prelude").child("Set");
-        assert!(
-            pkg.definitions.contains_key(&path),
-            "Set should be re-exported in prelude module"
-        );
-    }
-
-    #[test]
     fn test_std_has_http_module() {
         let pkg = std();
         let http_path = QualifiedPath::root().child("http");

@@ -181,7 +181,6 @@ async fn test_response_custom_status() {
 use std::http::Response
 use std::http::Body
 use std::option::Option
-use std::dict::Dict
 
 #[get("/created")]
 pub fn created() -> Response {
@@ -206,7 +205,6 @@ async fn test_response_with_headers() {
 use std::http::Response
 use std::http::Body
 use std::option::Option
-use std::dict::Dict
 
 #[get("/with-headers")]
 pub fn with_headers() -> Response {

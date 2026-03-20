@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 use zoya_ast::{Path, PathPrefix};
 use zoya_ir::{Definition, QualifiedPath, TypeError, TypeScheme, Visibility};
 
+use crate::builtin::primitive_module_for_name;
 use crate::imports::ImportTable;
 
 /// Resolve a prefixed path (Root, Self_, Super, Package) to a fully qualified path.
@@ -289,6 +290,35 @@ fn resolve_definition_path<'a>(
                 return Ok(ResolvedPath::Definition {
                     qualified_path: canonical,
                     def: canonical_def,
+                });
+            }
+        }
+    }
+
+    // Priority 2.5: Primitive type associated function fallback
+    // For paths like Dict::new, Set::from — resolve through primitive_module_for_name
+    // This mirrors the logic in find_impl_method() for instance methods.
+    if path.prefix == PathPrefix::None && path.segments.len() >= 2 {
+        let first = &path.segments[0];
+        if let Some(mod_name) = primitive_module_for_name(first) {
+            // Try root::<mod>::<Type>::<rest> (inside std itself)
+            let mut root_segments = vec!["root".to_string(), mod_name.to_string()];
+            root_segments.extend(path.segments.iter().cloned());
+            let root_qpath = QualifiedPath::new(root_segments);
+            if let Some(def) = definitions.get(&root_qpath) {
+                return Ok(ResolvedPath::Definition {
+                    qualified_path: root_qpath,
+                    def,
+                });
+            }
+            // Try std::<mod>::<Type>::<rest> (when std is a dependency)
+            let mut std_segments = vec!["std".to_string(), mod_name.to_string()];
+            std_segments.extend(path.segments.iter().cloned());
+            let std_qpath = QualifiedPath::new(std_segments);
+            if let Some(def) = definitions.get(&std_qpath) {
+                return Ok(ResolvedPath::Definition {
+                    qualified_path: std_qpath,
+                    def,
                 });
             }
         }

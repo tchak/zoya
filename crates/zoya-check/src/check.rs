@@ -2856,7 +2856,20 @@ fn is_externally_visible(
                     return false;
                 }
             }
-            None => return false,
+            None => {
+                // Primitive type impl paths (e.g., root::string::String) have no definition
+                // for the type name because it's a built-in type. Treat these as visible
+                // if the type name matches a known primitive in its expected module.
+                // The ancestor is segments[..i], so segments[i-1] is the missing name
+                // and segments[i-2] is the parent module name.
+                let type_name = &segments[i - 1];
+                if let Some(expected_mod) = primitive_module_for_name(type_name) {
+                    if segments[i - 2] == expected_mod {
+                        continue;
+                    }
+                }
+                return false;
+            }
         }
     }
     true
@@ -3510,19 +3523,6 @@ fn register_impl_methods(
         // Resolve the target type to find its qualified path
         let (type_qpath, _type_def) =
             resolve_impl_target(&impl_block.target_type, current_module, env, package_name)?;
-
-        // For primitive type impls (in std), register a Module definition at the type path
-        // so is_externally_visible can traverse the ancestor chain
-        if !env.definitions.contains_key(&type_qpath) {
-            env.register(
-                type_qpath.clone(),
-                Definition::Module(ModuleType {
-                    visibility: Visibility::Public,
-                    module: current_module.clone(),
-                    name: type_qpath.last().to_string(),
-                }),
-            );
-        }
 
         // Create fresh type variables for impl type params
         let mut impl_type_param_map = HashMap::new();

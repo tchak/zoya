@@ -1,5 +1,3 @@
-use std::bytes::Bytes
-
 #[test]
 fn test_from_string() -> () assert_eq(Bytes::from_string("hello").len(), 5)
 
